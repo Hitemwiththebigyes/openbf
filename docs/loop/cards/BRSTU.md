@@ -94,3 +94,6 @@ kills on a rule the PS2 does not have. A player at a turret beside a bot's, or f
   0.576 -> 0.549: main fired its turret cannon into its overheat), BF1 mounted kills 498 -> 574 /100 min, seat
   overheat samples 6,501 -> 1,855 (the rest: 1.15-heat-a-shot lasers and 2-salvo triggers), 256/256 rounds, team kills
   0.79 -> 0.85 % (mounted 116 -> 148: no friend-in-line check in a seat). Not built: TriggerSingle default by root.
+- 2026-10-21 AUDIT (lane 1): PARTLY - the rule and code hold (two verifiers; the [H] on slot 0x2c resolved: FUN_00331460 =
+  ShotsPerSalvo x HeatPerShot, +0x294 = ShotsPerSalvo by hash 0x3b38558), the numbers reproduce in direction; 18 of 33 audit mutations survive
+  (card BRSTT) and the PS2 comparison measured an armed burst, not a held trigger (card MTRIG). `lead_tmp/audit-brstu/EVIDENCE.md`.

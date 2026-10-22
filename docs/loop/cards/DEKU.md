@@ -4,13 +4,13 @@ title: The droideka unit in the sim: its 14-state form machine (fold 0.50 s, unf
 milestone: M1
 value: 4
 phase: build
-status: todo
+status: in-progress
 deps:
 files: engine/crates/core/src/droideka.rs,engine/crates/core/src/droideka/tests.rs,engine/crates/core/src/sim.rs,engine/crates/core/src/lib.rs
 declares:
 needs:
 effort:
-branch:
+branch: deku
 resume:
 created: 2026-10-03
 alpha: yes

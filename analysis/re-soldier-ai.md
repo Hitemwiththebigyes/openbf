@@ -1915,6 +1915,27 @@ measured, [D] derived, [H] one reader only.
 - Stayed [H]: a BF1 slot with no `WeaponAmmo`; the classes behind the seven callers (by position); which unit
   holds the unlimited-rounds weapon of BF1's team 1 in the captures (no weapon rows in BF1's packets).
 
+### 23.6 Audit BRSTU (2026-10-21): the start / end test's slots decoded; the state's other writer [O]
+- [V] The burst's two meter slots, B2 (card BRSTU had them [H]): the cannon class vtable 0x628310 holds `FUN_00331460`
+  at +0x2c and `FUN_00331478` at +0x30 (ELF words 0x62833c / 0x628340). `FUN_00331460` = `lwc1 f1,0x294(a0);
+  cvt.s.w; lwc1 f0,0x90(a0); mul.s` = (float)class[+0x294] x class[+0x90]; `FUN_00331478` = (float)class[+0x294]
+  (both decoded from the ELF bytes: the export has no body for either). class+0x294 is written under hash 0x3b38558 =
+  `ShotsPerSalvo` (`FUN_00330810`, B2:324789-324790), +0x90 is `HeatPerShot` (0x67cffd1a). So FUN_002bac98's start
+  cost is ceil(n / ShotsPerSalvo) x ShotsPerSalvo x HeatPerShot and its end mark one SALVO's heat; `SalvoCount`
+  (0x9260ea63, B2:301213 in `FUN_0030ec88`) is in neither. A trigger that commits SalvoCount > 1 salvos can therefore
+  pass the end mark by the rest of its salvos [D] (whether the PS2's salvo runs on after the release: [H]).
+- [V] The burst state has a second writer: B2 `FUN_002bbed0` (B2:242662) sets AI+0xec = 0 (with the weapon index
+  AI+0x108, AI+0xd8 = -1.0, bit 9 of AI+0xa8 cleared); `FUN_002ab590` calls it only when the chosen weapon is not
+  the current one (B2:231011 under *(decompiler detail omitted)*), the other seven callers when the AI is handed a weapon by kind. B1
+  `FUN_0023d3f0` (B1:155524) sets AI+0x1d8 = 0 the same way. So a weapon switch ends a burst owing no pause; a seat
+  with one gun is reset only by its want.
+- Checks: `re_check.py fn` on B2 241980 (`FUN_002bac98`), 324788 (`FUN_00330810`), 242662 (`FUN_002bbed0`), 231011
+  (`FUN_002ab590`), 301213 (`FUN_0030ec88`), B1 155524 (`FUN_0023d3f0`); `re_check.py word b2 0x62833c 2` (0x00331460,
+  0x00331478); the hashes computed (ShotsPerSalvo 0x3b38558, SalvoCount 0x9260ea63, HeatPerShot 0x67cffd1a). Workflow
+  `audit-brstu`: two verifiers, the same 10 claims and citations; both SUPPORTED the slot decode and the machine; my
+  claim "the state is written only in the machine" fell with both (the writers above). The port's knock-ins and
+  numbers: `engine/artifacts/lead_tmp/audit-brstu/EVIDENCE.md`.
+
 ## 24. Audit HVYW (2026-10-15): section 22 holds; a foot soldier DOES attack a flyer in the air, and 22.1's building flag is "MaxHealth is finite" [O]
 
 `# OPUS RE (2026-10-15) - [O] UNAUDITED` - AUDIT of card HVYW's landing (main 3fba385, section 22): **PARTLY**.

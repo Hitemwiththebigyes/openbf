@@ -5473,3 +5473,9 @@ check's numbers reproduced and its logic marked PARTLY (folded into the text).
   (prototype, from the waypoint: rock deaths 41 -> 4, 54 -> 6 in 24 + 24 seeds). PS2 tat1 capture: 0 crashes at the
   rock in 10 min. Workflow verifiers (11 + 3 agents): 28 claims, 24 SUPPORTED, 3 PARTLY (fixed), 1 absence NOT
   SUPPORTED by both readers (the bounds ARE on the disc - fixed); no twin overturned.
+
+## 2026-10-21 (loop lane 1, AUDIT of card BRSTU: PARTLY) — the burst's meter slots decoded; the burst state's second writer → `analysis/re-soldier-ai.md` 23.6 [O]
+- BF2 cannon vtable 0x628310: slot +0x2c = `FUN_00331460` = ShotsPerSalvo x HeatPerShot, +0x30 = ShotsPerSalvo (decoded from
+  the ELF bytes; +0x294 written under ShotsPerSalvo's hash 0x3b38558). The landing's [H] holds as its code reads; SalvoCount is in
+  neither test. `FUN_002bbed0` (B2) / `FUN_0023d3f0` (B1) reset the burst state on a weapon switch. Workflow `audit-brstu`, two
+  verifiers on 10 claims: 7 SUPPORTED by both, the auditor's own absence claim NOT SUPPORTED by both (the writer above), 2 PARTLY.

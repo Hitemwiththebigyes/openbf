@@ -21,6 +21,7 @@ runs the bake; the output is dist/openbf.exe).
 
 import argparse
 import glob
+import hashlib
 import os
 import re
 import shutil
@@ -63,6 +64,35 @@ def lvl_root(game):
 def need(tool, why):
     if shutil.which(tool) is None:
         sys.exit(f"pack: `{tool}` is not on PATH ({why})")
+
+
+# What a bake / the missions are made by: when any of it changes, the output is stale and is made again.
+BAKE_INPUTS = ("engine/crates/bake", "engine/crates/mungefs", "engine/crates/manifest", "scripts/rebake.sh")
+MISSION_INPUTS = ("scripts/gen_missions.py", "scripts/extract_lua.py")
+# Kept in extracted/ (local, ignored by git): engine/missions/ is tracked in the dev tree.
+BAKE_STAMP = os.path.join(EXTRACTED, "bake_inputs.sha256")
+MISSION_STAMP = os.path.join(EXTRACTED, "mission_inputs.sha256")
+
+
+def inputs_hash(paths):
+    """One sha256 over the source files under `paths` (line endings folded, so a CRLF checkout hashes the same)."""
+    h = hashlib.sha256()
+    for p in paths:
+        full = os.path.join(ROOT, p)
+        files = [full] if os.path.isfile(full) else sorted(
+            os.path.join(d, f) for d, _, fs in os.walk(full) for f in fs
+            if f.endswith((".rs", ".toml")) and os.sep + "tests" not in d[len(full):])
+        for f in files:
+            h.update(os.path.relpath(f, ROOT).replace(os.sep, "/").encode())
+            h.update(open(f, "rb").read().replace(b"\r\n", b"\n"))
+    return h.hexdigest()
+
+
+def stale(stamp, paths):
+    """Why the output at `stamp` must be made again, or None when it is current."""
+    if not os.path.isfile(stamp):
+        return "made before pack.py recorded what made it"
+    return None if open(stamp).read().strip() == inputs_hash(paths) else "its source changed since it was made"
 
 
 def find_bash():
@@ -141,16 +171,31 @@ def main():
                  os.path.join(lvl_root(g), lvl), "--out", d])
 
     step("4/6 the missions")
-    if glob.glob(os.path.join(MISSIONS, "*.ron")):
+    # A checkout that tracks the missions in git (the dev tree) keeps its own; only a generated set goes stale.
+    tracked = subprocess.run(["git", "-C", ROOT, "ls-files", "--", "engine/missions"], capture_output=True,
+                             text=True).stdout.strip()
+    have = glob.glob(os.path.join(MISSIONS, "*.ron"))
+    why = stale(MISSION_STAMP, MISSION_INPUTS) if have and not tracked else None
+    if have and (tracked or (not a.rebake and why is None)):
         print(f"   already there ({MISSIONS})")
     else:
+        if why:
+            print(f"   making the missions again: {why}")
         run([sys.executable, "-I", os.path.join(ROOT, "scripts", "gen_missions.py"), "--ps2-only", "--out", MISSIONS])
+        with open(MISSION_STAMP, "w") as fh:
+            fh.write(inputs_hash(MISSION_INPUTS) + "\n")
 
     step("5/6 the bake")
     bash = find_bash()
-    if a.rebake or not os.path.isfile(os.path.join(BAKED, "classes", "bf1_all.ron")):
+    baked = os.path.isfile(os.path.join(BAKED, "classes", "bf1_all.ron"))
+    why = stale(BAKE_STAMP, BAKE_INPUTS) if baked else None
+    if a.rebake or not baked or why:
+        if why and not a.rebake:
+            print(f"   baking again: the bake in {BAKED} was {why}")
         need("ffmpeg", "the bake encodes speech and effects to OGG")
         run([bash, os.path.join(ROOT, "scripts", "rebake.sh")])
+        with open(BAKE_STAMP, "w") as fh:
+            fh.write(inputs_hash(BAKE_INPUTS) + "\n")
     else:
         print(f"   already baked ({BAKED}); --rebake bakes again")
         n = len(missing_music())

@@ -70,3 +70,10 @@ analysis/re-<topic>.md: the PS2 automatic turret's acquisition (range, cone, LOS
   VSELF, post-alpha. (2) Bots boarding turrets was already `re-soldier-ai.md` 7 -> card TURR. (3) The seat's trigger:
   no seat rule, a dispatch on the weapon -> this card's build. "The MountedTurret acquisition" of the old title is the
   `Controllable = 0` ray, used only by BF1's fambaa (note on card FAMB).
+- 2026-10-21 AUDIT BRSTU (lane 1; `lead_tmp/audit-brstu/EVIDENCE.md`): BRSTU (cbf6f68) landed this card's TAP half - a `TriggerSingle`
+  seat gun goes to `gunner_foot::tap` with the shot test alone (`ai/gunner.rs` aim). Still open here: (a) the CHARGE - both Hoth dish turrets
+  (BF1 `hoth_weap_bldg_dishturret_cannon` MaxPressedTime 1.5, BF2 `tur_weap_hoth_dishturret` 2.0, both TriggerSingle) are never fired by a
+  bot: `shot` requires `max_pressed_time <= 0`, so tap gets false; in the audit's 8 x 32 sweep all 31 dish shots (47 on the parent) come on
+  the boarding tick from a FIRE carried in from foot, against 6,183 seated-with-target samples; (b) the `TriggerSingle` default by class root
+  (the base weapon ctor sets bit 50 of +0x1e0, the cannon and repair ctors clear it: re-turret-ai 7 C26, re-checked by two verifiers) - the port
+  defaults it off except grenades; (c) a weapon that is neither cannon-kind, TriggerSingle nor charge skips the burst on the PS2 (repair).
