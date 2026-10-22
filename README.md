@@ -23,8 +23,9 @@ python3 scripts/pack.py
 ```
 
 `pack.py` extracts the discs, bakes the assets, builds the game, and packs everything into
-`dist/openbf` (about 3 GB). Run that file from anywhere; nothing else needs to sit beside it.
-Run the script again after pulling new code: work that is already done is skipped.
+`dist/openbf` (about 3 GB). Run that file from anywhere; it keeps your profile and its bug-report snapshots in an
+`openbf_data/` folder beside itself. Run the script again after pulling new code: it skips what is still current
+and bakes again only when the code that bakes has changed (that can take a while).
 
 **`dist/openbf` contains the games' own content, so never upload or share it.**
 Everyone builds their own from their own discs.
@@ -51,7 +52,7 @@ mkdir iso
 python scripts\pack.py
 dist\openbf.exe
 ```
-Your profile is saved in `%APPDATA%\openbf`.
+Your profile and snapshots are saved in `openbf_data\` beside `openbf.exe`.
 
 Disc images: `--iso1 <path>` and `--iso2 <path>` point the script at images stored somewhere else.
 Tested and working on Linux and Windows, with the NTSC-U PS2 releases (SLUS-20898 and SLUS-21240).
@@ -82,7 +83,8 @@ game for myself. I'd much rather build it together with everyone who loves these
 welcome and hoped for.**
 
 - **Found a bug?** Open an issue: say what you did, what you saw, which map, and attach a
-  screenshot if you can.
+  screenshot if you can. Press **F9** in the game right after it happens: that saves a snapshot of every unit's state
+  to `openbf_data/playtest/last.json`. Attach that file too; it usually shows the cause.
 - **Want a feature?** Open an issue and describe it. The open cards in `docs/loop/cards/` show
   what is already planned.
 - **Want to write code?** See [CONTRIBUTING.md](CONTRIBUTING.md).
