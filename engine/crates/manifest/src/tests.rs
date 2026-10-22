@@ -121,7 +121,7 @@ fn full_class() -> ManifestClass {
         hardpoints: vec![ManifestHardpoint {
             name: "hp_fire_1".into(),
             pos: [0.25, 1.0, 2.5],
-            axes: None,
+            axes: Some([[1.0, 0.0, 0.0], [0.0, 0.92, 0.38], [0.0, -0.38, 0.92]]),
         }],
         attach: vec![ManifestAttach {
             class: "nab_prop_leafpatch".into(),
@@ -547,9 +547,8 @@ fn common_manifest_round_trips_with_every_field_populated() {
     assert_eq!(text, to_ron(&back));
 }
 
-#[test]
-fn vehicle_manifest_round_trips_with_every_field_populated() {
-    let v = VehicleManifest {
+fn full_vehicles() -> VehicleManifest {
+    VehicleManifest {
         source: "imp".into(),
         vehicles: vec![ManifestVehicle {
             class: full_class(),
@@ -582,7 +581,12 @@ fn vehicle_manifest_round_trips_with_every_field_populated() {
         models: vec!["imp_hover_speederbike".into()],
         textures: vec!["imp_speederbike".into()],
         collision: vec![full_collision()],
-    };
+    }
+}
+
+#[test]
+fn vehicle_manifest_round_trips_with_every_field_populated() {
+    let v = full_vehicles();
     let text = to_ron(&v);
     let back: VehicleManifest = ron::from_str(&text).expect("deserialize vehicles");
     assert_eq!(v, back);
@@ -904,6 +908,29 @@ fn common_manifest_field_order_is_the_wire_format() {
             "collision",
             "texture_tier2",
         ]
+    );
+}
+
+/// `vehicles.ron`, and one vehicle in it (`vis_min_y` went in before
+/// `walker`, card VREST: this pins the order every side bake has written
+/// since).
+#[test]
+fn vehicle_manifest_field_order_is_the_wire_format() {
+    let v = full_vehicles();
+    assert_eq!(
+        top_level_keys(&to_ron(&v)),
+        [
+            "source",
+            "vehicles",
+            "geometries",
+            "models",
+            "textures",
+            "collision",
+        ]
+    );
+    assert_eq!(
+        top_level_keys(&to_ron(&v.vehicles[0])),
+        ["class", "chunks", "sphere", "vis_min_y", "walker"]
     );
 }
 

@@ -796,11 +796,11 @@ mod tests {
         use crate::vehicle::{SeatKind, VehicleKind, VehicleSpec};
         use crate::weapon::HealthType;
         let (mut sim, h) = l_sim();
-        sim.hull_parts = vec![Some(std::sync::Arc::from(vec![HullPart {
-            local: glam::Mat4::from_translation(Vec3::Y * half.y),
-            shape: Shape::Box { half },
-            layers: Layers::ALL,
-        }]))];
+        sim.hull_parts = vec![Some(std::sync::Arc::from(vec![HullPart::new(
+            glam::Mat4::from_translation(Vec3::Y * half.y),
+            Shape::Box { half },
+            Layers::ALL,
+        )]))];
         sim.spawn_vehicle(&VehicleSpec {
             kind: VehicleKind::Turret,
             class: 0,

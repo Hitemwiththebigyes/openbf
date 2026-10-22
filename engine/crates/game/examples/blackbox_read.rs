@@ -39,6 +39,16 @@ use std::fmt::Write as _;
 
 const HZ: f32 = core::TICK_HZ as f32;
 
+/// A human row's reticle / magnet code: `#N` a unit, `veh N` a vehicle
+/// (-2 - N), `-` none.
+fn pick_label(code: i32) -> String {
+    match code {
+        c if c >= 0 => format!("#{c}"),
+        -1 => "-".into(),
+        c => format!("veh {}", -2 - c),
+    }
+}
+
 fn secs(snap: &Snapshot, tick: u64) -> f32 {
     (tick as f32 - snap.header.tick as f32) / HZ
 }
@@ -606,8 +616,8 @@ fn human(snap: &Snapshot, span: f32) -> String {
             buttons(pressed), r.hp,
             snap.names.weapons.get(r.weapon as usize).map_or("?", String::as_str),
             r.clip, r.spare,
-            if r.reticle >= 0 { format!("#{}", r.reticle) } else { "-".into() },
-            if r.magnet >= 0 { format!("#{}", r.magnet) } else { "-".into() },
+            pick_label(r.reticle),
+            pick_label(r.magnet),
             if r.veh >= 0 { format!("  in vehicle {} seat {}", r.veh, r.seat) } else { String::new() },
         );
         i = j;

@@ -432,6 +432,7 @@ impl ReferenceSoldier {
                     model,
                     palette: self.palette.clone(),
                     layer: *layer,
+                    light: render::LightPath::Character,
                     lit: Some(crate::point_light::soldier_sphere(
                         model.transform_point3(Vec3::ZERO),
                     )),
@@ -899,6 +900,7 @@ pub fn unit_sheet(glb: &Path, weapon: Option<&Path>, set: &UnitSet) -> Result<(V
                     model,
                     palette: palette.clone(),
                     layer: *layer,
+                    light: render::LightPath::Character,
                     lit: None,
                 };
                 crate::soldier_vis::with_spec(base, *spec)

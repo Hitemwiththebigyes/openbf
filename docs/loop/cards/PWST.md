@@ -4,14 +4,14 @@ title: Health and ammo droids (powerupstation): a soldier by one is healed and r
 milestone: M3
 value: 5
 phase: build
-status: todo
+status: done
 deps:
-files: engine/crates/core/src/sim/stations.rs, engine/crates/core/src/sim/stations/tests.rs, engine/crates/core/src/sim/state.rs, engine/crates/core/src/sim/step.rs, engine/crates/core/src/sim/pickups.rs, engine/crates/game/src/roster.rs, engine/crates/game/src/classdb.rs, engine/crates/game/src/assets.rs, engine/crates/bake/src/turret_rig.rs, engine/crates/manifest/src/lib.rs, engine/crates/game/src/viewer/stations.rs, engine/crates/game/src/viewer/scene.rs, engine/crates/game/src/event_sounds.rs, engine/crates/game/src/fx.rs, engine/CRATES.md
-declares: sim; sweep; fidelity; rebake=common (the station models as rigid per-node parts); goldens=whatever frames show a station (predict from the golden poses before the run)
+files: engine/crates/core/src/sim/stations.rs, engine/crates/core/src/sim/stations/tests.rs, engine/crates/core/src/sim/state.rs, engine/crates/core/src/sim/step.rs, engine/crates/core/src/sim/pickups.rs, engine/crates/game/src/roster.rs, engine/crates/game/src/classdb.rs, engine/crates/game/src/assets.rs, engine/crates/bake/src/turret_rig.rs, engine/crates/manifest/src/lib.rs, engine/crates/game/src/viewer/stations.rs, engine/crates/game/src/viewer/scene.rs, engine/crates/game/src/event_sounds.rs, engine/crates/game/src/fx.rs, engine/CRATES.md, engine/crates/game/src/sounds.rs, engine/crates/game/src/main/windowed.rs
+declares:
 needs:
 effort:
-branch:
-resume: RE done (analysis/re-powerup-station.md, 2026-10-20). Build slice 1 = sim: core/src/sim/stations.rs per §10.2 (timer per station, keep the remainder; units alive, not seated, |feet - centre| < Radius strict 3-D; health[t] / clips via pickups' give functions, no dispenser skip; any team; Event::StationServed) + roster/classdb station classes + the manifest instances of the loaded layers; test = a hurt soldier at 2 m gains +15 BF1 / +25 BF2 every 1.0 s to max, served at 4.6 m not 5.4 m, an enemy served, ammo +1 clip / 2.0 s to max - 1 (mutation-check each). Slice 2 = draw (turret_rig parts + §6 state machine, own RNG), slice 3 = PowerupSound + gain effects.
+branch: pwst
+resume: DONE: slices 1 (sim be94db1), 2 (draw d79666c) and 3 (chatter 3890c34) landed. Left for the planner: the vehicle droid's +1 clip waits for vehicle-gun reserves (the port's seat guns keep none; core/src/sim/stations.rs header); open [H]s: idle arm / socket pose, the 60 m viewport gate; tips -> TIPS, broken stations -> PWSTD.
 created: 2026-10-19
 alpha: yes
 first: 10
@@ -31,3 +31,4 @@ first: 10
 Take mechanisms and layouts from any outside material, never constants: every number comes from the PS2 corpus or a PCSX2 measurement.
 - 2026-10-20 (the maintainer): he plays with invincibility and infinite ammo, so he cannot tell whether the droids work: today they do NOT (drawn only). The PS2 droids also animate - they rotate round - and make noises / movements while healing and giving ammo; he wants all of it. Scope: the station's give (health, ammo, BF2 energy; reach, rate, team rule), its idle and active animation, its sounds and effects, the HUD feedback (the BF2 HUD's own); RE first (powerupstation FUN_002aa5d8 B1, FUN_00368898 B2).
 - 2026-10-20 RE DONE (lane 1; `analysis/re-powerup-station.md` [O], report `reports/20261020_2045_card_PWST.md`). Acceptance 1: reach = the instance `Radius` sphere (5.0 m, strict 3-D, feet); rate = once per `PowerupDelay` (BF1 +15 / 1.0 s, BF2 +25 / 1.0 s, ammo +1 clip / 2.0 s, BF1 vehicle droid +400 / +1 clip); no team rule (any team; all stations Team 0); bots never seek one (served only when they stand inside); sound / effects / tips / animation in §5-§6. Measured live on both games (`lead_tmp/pwst/ps2/out/`). Acceptance 2: census §2.2 (NAB1 15, TAT1 11, YAV2 18, UTA1 17, MYG1 12, HOT1 33 / 18 in conquest). Acceptance 3 is the build (resume:). The tips (BF1 tooltip 10, BF2 hints 15-17) are a note on card TIPS; broken stations are card PWSTD.
+- 2026-10-21 slice 3 LANDED 3890c34 (lane 1; report `reports/20261021_1520_card_PWST.md`): the FX-7's `AmbientSound` on one handle per station (`SoundLib::station_ambient`, `event_sounds::station_asks`), asked every tick while idle through the property's draw. Headless SOUND_LOG 60 s beside a droid: BF1 NAB1 37 starts, mean gap 1.65 s (the rule predicts ~1.57 s: 0.90 s take / pitch + 1/0.05 ticks); BF2 HOT1 39 starts; 100 m away 0. Logs `lead_tmp/pwst/s3/`.

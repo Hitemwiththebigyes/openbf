@@ -4,14 +4,14 @@ title: The world fragment shader at a laptop's cost: specialise it per light pat
 milestone: M0
 value: 5
 phase: build
-status: todo
+status: blocked
 deps:
 files: engine/crates/render/src/shader.wgsl, engine/crates/render/src/pipelines.rs, engine/crates/render/src/frame.rs, engine/crates/render/src/lib.rs
-declares: goldens=none expected (CPU pow at the quantisation step if any: declare + view)
+declares: goldens=any
 needs:
 effort:
-branch:
-resume:
+branch: isps
+resume: ADAPTER LOST, not a refusal: land phase 1 fast-forwarded main, then the RTX died mid golden regen (kernel Xid 119 GSP timeout 19:45, nvidia-smi Unknown Error; vulkaninfo = Intel + llvmpipe only), main's goldens rendered on the iGPU (97 'moved', 40-65 % px) and the landing was aborted (main c6bc4f3 = reverts). The branch gates on the RTX at 19:34 (lead_tmp/isps/gates/SUMMARY.md) moved 72 goldens by <=2/255 on <=45 px each, parity 9.514 = main. After a reboot (nvidia-smi -L lists the RTX): in the isps worktree git merge --ff-only main, git revert the two 'Revert ISPS' commits, delete lead_tmp/isps/land (LANDG stale QUANT), then land.py ISPS; view the sheets (expect rounding only)
 created: 2026-10-20
 alpha: yes
 ---
@@ -32,3 +32,18 @@ Not in scope: per-vertex lighting (the PS2's VU1 way; it would move goldens - a 
 - The ISPD table rows (artifacts/ispd/win1.sh + table.py, quiet machine) for bf2_kam1, bf2_geo1, bf1_nab1, tat2 at 2880x1920 before/after on the same binary pair: GPU sum down by at least 3 ms on KAM1 and GEO1.
 - No golden moves, or only ones at the quantisation step from the CPU-side pow (declared, viewed, max channel delta <= 1/255 stated); sim hash untouched.
 - Mesa INTEL_DEBUG=fs (MESA_SHADER_CACHE_DISABLE=true) instruction count of the lit opaque fs pasted before/after.
+## Result (build session 2026-10-21, branch isps 9995897)
+- Built: `render::pipelines::Variant` - the opaque / mask world pipelines and their fade twins once per light group
+  (every path / Lit+Character / Terrain / Prelit+PrelitAdd / Unlit+UnlitAdd) x cull (the shader's `LIGHT_GROUP` /
+  `CULLS` override constants); the draw key's last field picks the run's variant; the six uniform colours go to the
+  GPU in GS units (`lighting::encode` once a frame). `OPENBF_SPECIALISE=0` = every draw through the full shader.
+- Mesa INTEL_DEBUG=fs (MESA_SHADER_CACHE_DISABLE=true), `fs_main`, SIMD16 instructions: main 816; branch full shader 692
+  (cull) / 640 (none), Lit 337 / 285, Terrain 243 / 191, Prelit 393 / 341, Unlit 226 / 174 (logs
+  `artifacts/ispd/win/bf2_kam1_1280x720_isps_fs{main,br2}/game.log`).
+- iGPU 2880x1920 GPU sum, main a87df1b -> branch (`artifacts/ispd/isps2.sh`, load-gated; tables
+  `lead_tmp/isps/table{1,2}.md`; main's control repeats to 0.1 ms in table1):
+  KAM1 8.7 -> 6.8 (models 6.75 -> 4.96), GEO1 13.3 -> 8.0 (terrain 6.03 -> 1.78, terrain lights 3.02 -> 2.21),
+  NAB1 18.5 -> 16.3, TAT2 14.6 -> 11.5.
+- KAM1's -3 ms bar is missed (-1.9): the bar was priced on main 8729cae where KAM1's sum was 14.01; LODP (62e91b8)
+  since took it to 8.7 by dropping the dead LOD draws the price counted. GEO1's -5.3 meets it.
+- Renderer start-up on the iGPU (36 more pipelines): cold Mesa cache 0.72 -> 1.59 s, warm cache 186 -> 217 ms.

@@ -456,6 +456,18 @@ pub enum Special {
     Fall,
     /// BF2 only: BF1 sprints on the run clip.
     Sprint,
+    /// Card KNOCK (re-knockback §2, B1 FUN_0022a0a8): thrown, by the
+    /// velocity against the body - 0 front, 1 back, 2 left, 3 right
+    /// (`thrown_flying*`, ids 6-9).
+    Flying(u8),
+    /// The tumble (`thrown_tumblefront / back`), the get-up state
+    /// (`thrown_land*soft`) and, for one who died after a throw, the rest
+    /// pose (`thrown_rest*soft`); `true` = back. PROVISIONAL: "front" is
+    /// moving toward his facing, and the get-up state's bounce clips are
+    /// not picked.
+    Tumble(bool),
+    Land(bool),
+    Rest(bool),
 }
 
 impl Special {
@@ -466,6 +478,24 @@ impl Special {
             Special::Jump => "jump",
             Special::Fall => "fall",
             Special::Sprint => "sprint",
+            Special::Flying(d) => [
+                "thrown_flyingfront",
+                "thrown_flyingback",
+                "thrown_flyingleft",
+                "thrown_flyingright",
+            ][usize::from(d.min(3))],
+            Special::Tumble(b) => ["thrown_tumblefront", "thrown_tumbleback"][usize::from(b)],
+            Special::Land(b) => ["thrown_landfrontsoft", "thrown_landbacksoft"][usize::from(b)],
+            Special::Rest(b) => ["thrown_restfrontsoft", "thrown_restbacksoft"][usize::from(b)],
+        }
+    }
+
+    /// A clip of the throw (the rest pose included), and its side.
+    fn thrown(self) -> Option<bool> {
+        match self {
+            Special::Flying(d) => Some(d == 1),
+            Special::Tumble(b) | Special::Land(b) | Special::Rest(b) => Some(b),
+            _ => None,
         }
     }
 }
@@ -481,13 +511,25 @@ pub enum Body {
 /// stand, 1 crouch, 2 prone; the movement is [`choose`]'s). BF1 sprints on
 /// the stand's clips.
 pub fn stance_of(i: &AnimInput, game: Game) -> Result<usize, Special> {
-    if i.dead {
+    // A body thrown by the blast that killed it flies first (card KNOCK).
+    if i.dead && !i.stance.knocked() {
         return Err(Special::Dead);
     }
+    let back = i.vel.y < 0.0;
     match i.stance {
         Stance::Roll => Err(Special::Roll),
         Stance::Jump => Err(Special::Jump),
         Stance::Fall => Err(Special::Fall),
+        Stance::Dead => Err(Special::Dead),
+        Stance::Thrown => Err(Special::Flying(if i.vel.y.abs() >= i.vel.x.abs() {
+            u8::from(back)
+        } else if i.vel.x > 0.0 {
+            2
+        } else {
+            3
+        })),
+        Stance::Tumble => Err(Special::Tumble(back)),
+        Stance::GetUp => Err(Special::Land(back)),
         Stance::Sprint if game == Game::Bf2 => Err(Special::Sprint),
         Stance::Crouch => Ok(1),
         Stance::Prone => Ok(2),
@@ -1036,7 +1078,14 @@ impl Animator {
         // The facing's turn since the last update (+ = to his left).
         let turned = self.yaw.map_or(0.0, |y| wrap(i.yaw - y));
         self.yaw = Some(i.yaw);
-        let stance = stance_of(i, rig.game);
+        // One who dies after a throw lies in its rest pose, not a death clip
+        // (B1 FUN_0022a0a8: ids 0x12 / 0x13 after the thrown states).
+        let stance = match (stance_of(i, rig.game), self.body) {
+            (Err(Special::Dead), Some(Body::Special(sp))) if sp.thrown().is_some() => {
+                Err(Special::Rest(sp.thrown().unwrap_or(false)))
+            }
+            (s, _) => s,
+        };
         let scale = if i.root_scale > 0.0 {
             i.root_scale
         } else {

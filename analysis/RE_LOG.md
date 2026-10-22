@@ -5426,3 +5426,50 @@ check's numbers reproduced and its logic marked PARTLY (folded into the text).
 - Two verifier workflows (7 agents; absence / twin claims to two readers): 28 claims, 22 SUPPORTED + 2 S/S, 4 PARTLY
   (fixed: the kind code, three BF2 differences, a citation); the second readers overturned one (B2 bots), and the
   revised bots claim then held with both. Build: card PWST phase build; tips on card TIPS.
+
+## 2026-10-21 (loop lane 1, card SSELB slice 7) — the spawn screens' soldiers' light → `analysis/re-spawn-flow.md` §4.2 [O]
+- Every UI model draw carries flag 0x4000000, and the model renderer (`FUN_0057cf60`, `FUN_001de2a8`) then lights it
+  with the interface set 0x7d6160 instead of the map's lights. On the spawn screens `FUN_00398000` sets that set every
+  call: one white light (GS 1.0) travelling (-1, -1, -1)/sqrt 3 and a flat ambient of 0.5. A refused class's colour word
+  is black (`FUN_0039a980`). Light on, direction frame and colour scale (byte / 255) measured on the Hoth frames [M].
+  One opus verifier: 8 SUPPORTED, 1 PARTLY (the light's enable bit after init, settled by measurement).
+
+## 2026-10-21 (loop lane 1, card SSELB slice 8) — which class the PS2 refuses → `analysis/re-spawn-flow.md` §4.3 [O]
+- `FUN_00364290`: a human whose points (stats+0x1fc) are under the class's `PointsToUnlock` (officers 8, the specials
+  12) is refused, and so is an unlock class already at its `AddUnitClass` max; bots never (the respawn checks a human
+  only, the AI pick reads min / max). One opus verifier: 9 SUPPORTED, 3 narrowed.
+
+## 2026-10-21 (loop lane 1, card SSELB slice 9) — the class carousel's dropped step → `analysis/re-spawn-flow.md` §4.1
+- `FUN_00399dd8`: the arm `SD+0x25` is set only by a step that fired, so a push held through the slide steps again at
+  its end; the input runs before the slide's advance (`FUN_0039a980`); the slide is 11 updates [D] (EE add rounds
+  toward zero). One opus verifier: C1, C2, C4-C6 SUPPORTED, C3 corrected (10 -> 11 updates).
+
+## 2026-10-21 (loop lane 1, card HTGT) — the target's name and health on the HUD → `analysis/re-target-hud.md` [O]
+- BF2 `FUN_003b3398` shows the reticle's pick (K+0x180+8·ch, the PlayerController's winner) at once, no hit or hold
+  [receipt:c983e4eb]:
+  class name (Locl `entity.<side>.<rest>`), health / max bar in friend blue / enemy red / team-0 white / neutral yellow
+  (× the group's Color), a 1 s flash over the lost span, a 1 s fade on loss with the bar turned white. BF1: an
+  enemy-only red bar under the player's health (2 s fade) and a name tag over other HUMANS only. Workflow verifier
+  (4 agents): 10 + 4 PARTLY plain; A1 (BF1 no name) overturned by both absence verifiers — fixed.
+
+## 2026-10-21 (loop lane 2, card HATK) — where the shot came from: the hit-direction chevrons → `analysis/re-hud-attacker.md` [O]
+- Both PS2 games: a hit on the local player's soldier (and droideka / hover / walker; BF1 also flyer / carrier) shows
+  the `ambush_icon` chevron at the screen edge toward the attacker — left, right, bottom (from behind, shot level or
+  down) or top (from behind, travelling up), none from the front; full opacity, a linear 1.0 s fade, one timer per
+  edge (B2 `FUN_003912c0` / `FUN_00391680` / `FUN_003915a8`, B1 `FUN_002d7c80` / `FUN_002d8028` / `FUN_002d7fa0`),
+  fired by the TakeDamage virtual before the damage is known. The layout's Target `Attacker*` templates are dead data
+  (nothing sets the record's bit 3) [receipt:9028bdc3]. Measured: 32 BF2 hits on two maps (26 exact under the rule),
+  four PCSX2 frames, one BF1 hit. Workflow verifier (4 agents): 14 plain claims 11 SUPPORTED / 3 PARTLY (fixed),
+  3 absence / twin claims by two readers each: 2 SUPPORTED by both, 1 PARTLY by both (an overstatement, fixed), none
+  overturned.
+
+## 2026-10-21 (loop lane 2, card HCORN) — a hover's detour corners: radius, origin, the drop inside R → `analysis/re-hover-corners.md` [O]
+- Both PS2 games plan a hover's corner walk from the waypoint just reached (B1 `FUN_002509b0`, B2 `FUN_002c0220`; live
+  200 / 200 BF1 Endor legs, 54 / 54 BF1 tat1 legs) at the hover's own radius: corners r + 0.5 m out, r = half the X/Z
+  diagonal of the class model's box (B1 `FUN_00235ad0`, B2 `FUN_002a76b8`, kind 6 x 0.5; BF1's box = the model's
+  `dummyroot` INFO min / max, read in RAM and on the disc; live BF1 bike 2.94, BF2 bike 2.45, hailfire 6.89). A corner
+  already inside the node radius is left after one tick, as card HJAM built it, and 5 of the PS2's 15 BF1 Endor crash
+  kills follow one. The port plans from the unit at the soldier's 1.0 m: that is tat1's deadly corner at barrier267
+  (prototype, from the waypoint: rock deaths 41 -> 4, 54 -> 6 in 24 + 24 seeds). PS2 tat1 capture: 0 crashes at the
+  rock in 10 min. Workflow verifiers (11 + 3 agents): 28 claims, 24 SUPPORTED, 3 PARTLY (fixed), 1 absence NOT
+  SUPPORTED by both readers (the bounds ARE on the disc - fixed); no twin overturned.

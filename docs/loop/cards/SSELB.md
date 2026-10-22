@@ -11,7 +11,7 @@ declares:
 needs:
 effort:
 branch: sselb
-resume: Slices 1-6 LANDED (slice 6 5669c62 + goldens 712c2cf: one SOLDIER_YAW 0.0 for the side preview and the line-up). Next: the screen soldiers' LIGHT - [H] the PS2 UI models are lit by the UI renderer, not the map (the side 0xa0 and class 0xb4 Snowtroopers scale about as their colour words, 93 vs <=112 at p95-ish): measured on Hoth, side Snowtrooper lum p50/p95/p99 PS2 61/93/102 vs port 65/123/130 (port clips at 255 before the 0.51 veil; legs p50 56 vs 77); class dark trooper torso median PS2 6 vs port 27 (lead_tmp/sselb/tools/soldier_lum.py, s6/). Not the specular pass and not the local lights (both knocked out: no change). RE start: the UI model's draw is FUN_0037f110 (vtable 0x62d978 +0x40) -> renderer *(model+0x90)+0x1c vtable +0xc(..., argument 3, 0x4000000, 0); find the caller that passes argument 3 (the light set?) and the colour word +0x40 (0xffa0a0a0 side, 0xb4 line-up; GS 0x80 = 1.0?). Open after that: the respawn backdrop = SSELC; centred stack labels 2-4 px right; the screen soldiers' clip (PS2 stride/ready pose); a class step during a slide is dropped on the PS2 (B2:393672); the objective for non-conquest modes; the map page's BMAP2 leftovers (HOT1 shield generator icon, cp7 drawn).
+resume: Slices 1-9 on main (slice 9 = c01c7b5 + 078c77c, landing closed by the planner 2026-10-21 20:55: gpu was skipped by deps.toml, the stale golden list was LANDG's bug; land state moved to lead_tmp/sselb/land/state.json.closed_by_planner_20261021 - use a FRESH land out dir next time). landed 078c77c 2026-10-21
 created: 2026-10-20
 alpha: yes
 first: 5

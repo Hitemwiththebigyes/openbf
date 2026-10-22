@@ -265,6 +265,7 @@ fn skinned_base(
         model: Mat4::IDENTITY,
         palette: vec![palette],
         layer: DrawLayer::Opaque,
+        light: render::LightPath::Character,
         lit: None,
     }
 }

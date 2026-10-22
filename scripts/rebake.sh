@@ -121,6 +121,21 @@ if want common; then
   # BF1's own bitmap fonts (card SQHUD: the squad cross's labels are BF1's
   # gamefont_tiny), prefixed so they sit beside BF2's in one name space.
   "$BAKE" fonts "$B1/CORE.LVL" "$OUT/common_bf1" bf1_
+  # BF2's PS2 shell (card BSHLA, analysis/re-bf2-shell.md §1, §4): SHELL.LVL's
+  # logo, the background movie's menu loops (ffmpeg transcodes them to frame
+  # packs) and SOUND/SHELL.LVL's bank + music index. The movie is read from
+  # the extracted tree when `bake extract-iso` kept it, else out of the disc
+  # image (a dev tree's extracted discs leave MOVIES/ out).
+  # A worktree links extracted/ but not iso/: the disc image is then the main
+  # checkout's (git's common dir sits in it).
+  MVS="$B2/MOVIES/SHELL.MVS"
+  [ -f "$MVS" ] || MVS="$ROOT/iso/SWBF2.iso"
+  if [ ! -f "$MVS" ]; then
+    MAIN_ROOT="$(dirname "$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir)")"
+    MVS="$MAIN_ROOT/iso/SWBF2.iso"
+  fi
+  clean "$OUT/common_bf2/shell"
+  "$BAKE" shell "$B2/SHELL.LVL" "$MVS" "$S2/SOUND/SHELL.LVL" "$B2/CORE.LVL" "$OUT/common_bf2"
 fi
 if want side; then
   echo "== soldiers + weapons + vehicles =="

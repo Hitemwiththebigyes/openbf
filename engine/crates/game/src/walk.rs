@@ -425,6 +425,10 @@ pub struct WalkSim {
     /// with the pads (`crate::vehicle_pads::PadBuild::labels`); the spawn
     /// screen names a command walker's post by it (card CWSP).
     pub vehicle_labels: Vec<Option<String>>,
+    /// Each vehicle class's ODF name, by `Vehicle::class` (display only):
+    /// set with the pads (`crate::vehicle_pads::PadBuild::classes`); the
+    /// HUD's target readout names a picked vehicle by it (card HTGT).
+    pub vehicle_classes: Vec<String>,
     /// The chase camera's PS2 vertical FOV (radians; visual only — the sim
     /// never reads it). BF1's by default; `make_walk` sets the map's game's
     /// with [`ps2_fov_y`].
@@ -461,6 +465,10 @@ pub struct WalkSim {
     /// the mission's camera shots, cut on each screen change, until the
     /// player's first spawn. `None` = the battle's own view.
     pub backdrop: Option<crate::spawn_backdrop::Backdrop>,
+    /// The drawn frame's blend between the last two ticks (card RINT;
+    /// presentation only - the sim never reads it): [`WalkSim::advance_with`]
+    /// keeps the pose each tick starts from.
+    pub blend: crate::render_blend::Blend,
     accum: f32,
 }
 
@@ -557,6 +565,7 @@ impl WalkSim {
             vehicle_riders: Vec::new(),
             vehicle_engines: Vec::new(),
             vehicle_labels: Vec::new(),
+            vehicle_classes: Vec::new(),
             fov_y_ps2: ps2_fov_y("bf1"),
             zoom_s: 1.0,
             zoom_fov_mix: 0.0,
@@ -568,6 +577,7 @@ impl WalkSim {
             minimap: None,
             backdrop: None,
             teams,
+            blend: crate::render_blend::Blend::default(),
             accum: 0.0,
         }
     }
@@ -784,10 +794,10 @@ impl WalkSim {
             .is_some_and(|u| u.mount.is_none())
     }
 
-    /// Index of the magnet target among the alive non-player units (draw
-    /// order of `target_draws`). Slot 0 — what the HUD draws.
+    /// The magnet target when it is a unit (draw order of `target_draws`;
+    /// a vehicle magnet draws no unit marker). Slot 0 — what the HUD draws.
     pub fn magnet(&self) -> Option<UnitHandle> {
-        self.sim.magnet_at(0)
+        self.sim.magnet_at(0).and_then(core::sim::AimTarget::unit)
     }
 
     /// Advance the fixed-tick sim by a real frame's dt (A5: 30 Hz, accumulator
@@ -810,12 +820,40 @@ impl WalkSim {
         self.accum = (self.accum + real_dt).min(core::MAX_FRAME_ACCUM_SECS);
         let mut ticks = 0;
         while self.accum >= core::TICK_DT {
+            let mut blend = std::mem::take(&mut self.blend);
+            blend.before_tick(self);
+            self.blend = blend;
             self.step_tick(pads);
             each(self);
             self.accum -= core::TICK_DT;
             ticks += 1;
         }
         ticks
+    }
+
+    /// The accumulator's left-over after the last frame's ticks (s): how far
+    /// the frame is into the next tick (`render_blend::fraction`).
+    pub fn accum(&self) -> f32 {
+        self.accum
+    }
+
+    /// Write the pose blended between the last two ticks in, for the frame's
+    /// draw lists (card RINT, `render_blend::Blend::apply`, at the
+    /// accumulator's fraction); [`WalkSim::blend_out`] must follow before a
+    /// tick or anything but drawing reads the walk.
+    pub fn blend_in(&mut self) {
+        let t = crate::render_blend::fraction(self);
+        let mut blend = std::mem::take(&mut self.blend);
+        blend.apply(self, t);
+        self.blend = blend;
+    }
+
+    /// The last tick's own pose back after [`WalkSim::blend_in`] (a no-op
+    /// without one).
+    pub fn blend_out(&mut self) {
+        let mut blend = std::mem::take(&mut self.blend);
+        blend.restore(self);
+        self.blend = blend;
     }
 
     /// One fixed tick (also the headless/replay entry — no accumulator).
@@ -1396,7 +1434,10 @@ mod tests {
         w.sim.units[w.player.index as usize].soldier.pitch = 0.0;
         w.step_tick(&[PadState::default()]);
         assert_eq!(w.magnet(), None);
-        assert_eq!(w.sim.reticle_pick[0], Some((far, -1)));
+        assert_eq!(
+            w.sim.reticle_pick[0],
+            Some((core::sim::AimTarget::Unit(far), -1))
+        );
 
         let mut r = WalkSim::new(1, Vec3::ZERO, None);
         r.spawn_dummy_targets();

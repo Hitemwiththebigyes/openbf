@@ -46,3 +46,6 @@ Earlier the same day (BOTD, his annoyance 2): modern hardware allows more - e.g.
 - Already in the mission files (`engine/missions/*.ron` header comments): the PC and PS2 scripts DISAGREE on units alive on many maps (e.g. BF2 Hoth: PC 32 a side, PS2 19; the port takes the PS2 value). The PC numbers are the designers' own answer for stronger hardware: put them in the table as a third column and as the first candidate for the proposal.
 
 - Planner 2026-10-02 17:45: deps += BOTV, as PERF (the maintainer's 17:20 / 17:40 notes: BOTD's build cards land before UCNT; they are listed in BOTV's deps).
+
+## Planner note
+Planner 2026-10-21 20:50: the maintainer's 18:10 decision - special-class counts scale with the team size - is card CSCAL; this card's table uses it.

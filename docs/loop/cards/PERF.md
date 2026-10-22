@@ -80,3 +80,13 @@ Top of the file, always current: **the largest bot count per map that holds 60 f
   every 5th tick; MOUTH added the corner line. Card OBSV's 0.316 for main is this window on other seeds under more
   load, not a regression of 69 %. Re-measure on a quiet machine before quoting.
 - planner 2026-10-19 16:25: **the bot-count benchmark half is deferred to near the end of the project** (the maintainer, 2026-10-19: "drop the idea of doing the bot benchmark for now"): `defer: post-alpha`. The profiling at today's bot counts is wanted now and lives in ISPD (render, whole frame) and AITHK (the AI's CPU). STATUS's Performance block reads ISPD's table until this card runs.
+- planner 2026-10-21 12:55 (the maintainer's INBOX note of 10-21): **profiling tools here** - `perf` 7.2 (flat: `perf record -F 499 -o <f> -- <bin>`,
+  `perf report --no-children --sort symbol --stdio`; `--call-graph dwarf` FAILS: SELinux / paranoid 2) and `valgrind` 3.27
+  (callers: `--tool=callgrind` + `callgrind_annotate --tree=caller --inclusive=yes`; ~50x slower; also massif, dhat). No samply,
+  heaptrack or flamegraph. Copy the binary, memory cap + timeout, instruction counts not wall clock under load. The maintainer's first
+  finding (KAS2 16 v 16): `set_hull` = 37.6 % of sim instructions -> card HULLC (`first: 3`); next on his flat list: parry rays
+  7 %, `height_at` 2 %, SipHash in `core`. Also in root `CLAUDE.md` "Profiling tools".
+- planner 2026-10-21 17:15: HULLC is done (sim 16 v 16 now 0.13-0.15 ms / tick on KAS2 / NAB2 / GEO1, `loop/PERF.md`). Its
+  leftovers for Part 2, from its `resume:` (shares of sim instructions on main 8882e85): parry AABB ray casts 6-8 %,
+  `Barrier::entry_t` 7.3 % on NAB2, std SipHash maps in `core`; the level load costs 3-5x the 1,500-tick sim. Re-price
+  them at the bot counts Part 1 reaches before filing a build card - at 32 units none is a frame-rate cost.

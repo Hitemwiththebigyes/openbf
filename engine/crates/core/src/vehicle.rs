@@ -206,6 +206,12 @@ pub struct Vehicle {
     /// building, which its camera ray passes (card TURR). SETUP data, set by
     /// the game layer at the spawn; not hashed.
     pub instance: Option<u32>,
+    /// The acquisition's bounds (card HTGT, `analysis/re-target-hud.md` §2):
+    /// a sphere's centre in the vehicle's frame and its radius. Set by the
+    /// game layer for a building turret from its building's bodies (the PS2
+    /// picks the building by its bounds); `None` = the class's blast sphere.
+    /// SETUP data, not hashed.
+    pub aim_sphere: Option<(Vec3, f32)>,
 }
 
 /// Card VMESH (ours): how far (m, in XZ) a vehicle given up as stuck must
@@ -404,6 +410,7 @@ impl VehicleSpec {
             stuck_at: None,
             last_hit: None,
             instance: None,
+            aim_sphere: None,
         }
     }
 }

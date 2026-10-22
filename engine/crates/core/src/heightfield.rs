@@ -11,6 +11,12 @@
 //! DAT_00564690 = gridSize, DAT_00564694 = unit, DAT_005647bc = 1/unit,
 //! DAT_005647c0 = heightScale (folded into `heights` here — lerp is linear,
 //! prescaling is bit-identical).
+//!
+//! [`HeightProbe`] answers the same "over or under" question along a marched
+//! ray ([`crate::collision::ray_heightfield`]) without the lerp where a cell's
+//! corners already decide it, and says how far along the ray that holds.
+
+use glam::Vec3;
 
 /// Row-major (z * size + x) grid of world-space heights.
 pub struct Heightfield {
@@ -72,7 +78,11 @@ impl Heightfield {
     /// World-space ground height at (x, z) — FUN_00473710 transcription.
     pub fn height_at(&self, x: f32, z: f32) -> f32 {
         let (ix, iz, xfrac, zfrac) = self.cell(x, z);
+        self.height_in(ix, iz, xfrac, zfrac)
+    }
 
+    /// [`Heightfield::height_at`]'s lerp inside cell (ix, iz).
+    fn height_in(&self, ix: u32, iz: u32, xfrac: f32, zfrac: f32) -> f32 {
         if iz & 1 == 0 {
             if xfrac < zfrac {
                 // triangle (ix,iz) (ix,iz+1) (ix+1,iz+1), base at (ix,iz+1)
@@ -95,6 +105,89 @@ impl Heightfield {
             base + (self.h(ix, iz + 1) - base) * (1.0 - xfrac)
                 + (self.h(ix + 1, iz) - base) * (1.0 - zfrac)
         }
+    }
+}
+
+/// Is a point over the terrain (`y - height_at(x, z) >= 0`, bit for bit),
+/// asked along a marched ray, and how far along the ray that answer holds
+/// without asking again. The probe keeps the last cell's lowest and highest
+/// corner: each of a cell's triangles lerps its corners with weights that sum
+/// to at most 1, so its height lies between them, and a point clear of both
+/// is answered without the lerp; it stays answered while the ray keeps
+/// `slack` clear of the corners' height and of the cell's sides (card HULLC:
+/// the terrain ray's march was the sim's largest single cost).
+pub struct HeightProbe<'a> {
+    hf: &'a Heightfield,
+    cell: (u32, u32),
+    lo: f32,
+    hi: f32,
+}
+
+impl<'a> HeightProbe<'a> {
+    pub fn new(hf: &'a Heightfield) -> Self {
+        // No cell yet: an empty range answers nothing.
+        Self {
+            hf,
+            cell: (u32::MAX, u32::MAX),
+            lo: f32::INFINITY,
+            hi: f32::NEG_INFINITY,
+        }
+    }
+
+    /// Whether `p` is over the terrain, and the distance along `dir` (a
+    /// unit vector) over which every point is on the same side, with every
+    /// error of computing those points under `slack` metres; 0 when the
+    /// point was lerped or lies outside the grid.
+    pub fn side(&mut self, p: Vec3, dir: Vec3, slack: f32) -> (bool, f32) {
+        let hf = self.hf;
+        let (ix, iz, xfrac, zfrac) = hf.cell(p.x, p.z);
+        if xfrac.is_nan() || zfrac.is_nan() {
+            return (p.y - hf.height_at(p.x, p.z) >= 0.0, 0.0);
+        }
+        if (ix, iz) != self.cell {
+            let c = [
+                hf.h(ix, iz),
+                hf.h(ix + 1, iz),
+                hf.h(ix, iz + 1),
+                hf.h(ix + 1, iz + 1),
+            ];
+            let lo = c.iter().copied().fold(f32::INFINITY, f32::min);
+            let hi = c.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+            // A few ulps of the lerp's rounding, with room to spare.
+            let m = 1e-3 + 1e-5 * (lo.abs() + hi.abs());
+            (self.cell, self.lo, self.hi) = ((ix, iz), lo - m, hi + m);
+        }
+        let (above, gap, closing) = if p.y > self.hi {
+            (true, p.y - self.hi, -dir.y)
+        } else if p.y < self.lo {
+            (false, self.lo - p.y, dir.y)
+        } else {
+            return (p.y - hf.height_in(ix, iz, xfrac, zfrac) >= 0.0, 0.0);
+        };
+        // A clamped point's cell runs on past the grid: no run there.
+        let max = (hf.size - 1) as f32 * hf.unit;
+        let (fx, fz) = (p.x + hf.offset_x, p.z + hf.offset_z);
+        if !(fx > 0.0 && fx < max && fz > 0.0 && fz < max) {
+            return (above, 0.0);
+        }
+        let gap = gap - slack;
+        let mut run = if closing > 0.0 {
+            gap / closing
+        } else {
+            f32::INFINITY
+        };
+        let side = |f: f32, i: u32, d: f32| {
+            let lo = i as f32 * hf.unit;
+            if d > 0.0 {
+                (lo + hf.unit - f - slack) / d
+            } else if d < 0.0 {
+                (f - lo - slack) / -d
+            } else {
+                f32::INFINITY
+            }
+        };
+        run = run.min(side(fx, ix, dir.x)).min(side(fz, iz, dir.z));
+        (above, if gap > 0.0 && run > 0.0 { run } else { 0.0 })
     }
 }
 
@@ -181,6 +274,80 @@ mod tests {
         let l = (1.0f32 + 1.0 + 100.0).sqrt();
         assert!((n[0] + 1.0 / l).abs() < 1e-6 && (n[1] - 1.0 / l).abs() < 1e-6);
         assert!((n[2] + 10.0 / l).abs() < 1e-6);
+    }
+
+    /// The probe answers exactly what `height_at` answers, on a rough grid,
+    /// inside and outside it, at points near and far from the surface; and
+    /// every point inside the run it reports, computed as a marched ray
+    /// computes it, gets the same answer from `height_at`.
+    #[test]
+    fn probe_matches_height_at_along_its_run() {
+        let n = 9u32;
+        let mut seed = 0x2545_F491u32;
+        let mut rnd = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            seed as f32 / u32::MAX as f32
+        };
+        let f = Heightfield {
+            size: n,
+            unit: 2.5,
+            offset_x: 7.0,
+            offset_z: 3.0,
+            heights: (0..n * n).map(|_| 40.0 * rnd() - 15.0).collect(),
+        };
+        let slack = 0.05;
+        let mut probe = HeightProbe::new(&f);
+        let (mut runs, mut checked) = (0, 0);
+        for _ in 0..100_000 {
+            let o = Vec3::new(30.0 * rnd() - 10.0, 0.0, 30.0 * rnd() - 6.0);
+            let h = f.height_at(o.x, o.z);
+            // Exactly on the surface, an ulp either side, and anywhere.
+            let y = match (rnd() * 4.0) as u32 {
+                0 => h,
+                1 => f32::from_bits(h.to_bits() + 1),
+                2 => f32::from_bits(h.to_bits() - 1),
+                _ => 60.0 * rnd() - 25.0,
+            };
+            let o = Vec3::new(o.x, y, o.z);
+            let dir = Vec3::new(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).normalize();
+            let (above, run) = probe.side(o, dir, slack);
+            assert_eq!(above, y - h >= 0.0, "{o}, h {h}");
+            if run > 0.0 {
+                runs += 1;
+                let mut t = 0.0f32;
+                while t < run {
+                    let p = o + dir * t;
+                    assert_eq!(
+                        p.y - f.height_at(p.x, p.z) >= 0.0,
+                        above,
+                        "{o} {dir} t {t} of {run}"
+                    );
+                    checked += 1;
+                    t += 0.05;
+                }
+            }
+        }
+        assert!(
+            runs > 3_000 && checked > 50_000,
+            "the probe skips: {runs} runs, {checked} points"
+        );
+        for y in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let (above, run) = probe.side(Vec3::new(1.0, y, 1.0), Vec3::X, slack);
+            assert_eq!(above, y - f.height_at(1.0, 1.0) >= 0.0);
+            assert!(run == 0.0 || y.is_infinite());
+        }
+        let (above, run) = probe.side(Vec3::new(f32::NAN, 1e9, 0.0), Vec3::X, slack);
+        assert!(
+            !above && run == 0.0,
+            "a NaN place is under, as height_at has it"
+        );
+        // Outside the grid the clamped cell has no run.
+        assert_eq!(
+            probe.side(Vec3::new(-100.0, 1e3, 0.0), Vec3::X, slack).1,
+            0.0
+        );
     }
 
     #[test]

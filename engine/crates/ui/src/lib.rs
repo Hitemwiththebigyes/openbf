@@ -2,9 +2,11 @@
 //! ([`hud_tree`] the elements and their events, [`hud_draw`] their layout into
 //! triangles for `render::hud`; [`hud_map`], [`hud_squad`] and
 //! [`hud_capture`] the minimap, the squad-order cross and the capture
-//! display, drawn from code as the PS2 draws them), fed by a
+//! display, [`hud_ambush`] the hit-direction chevrons, drawn from code as
+//! the PS2 draws them), fed by a
 //! [`hud::HudModel`]; the spawn screens are drawn into the same frame as the
-//! PS2's shell draws them ([`spawn_draw`]); the menus, the battle's own
+//! PS2's shell draws them ([`spawn_draw`]), and so are the BF2 shell's
+//! title and stack menus ([`shell_ps2`]); the menus, the battle's own
 //! spawn panel and the HUD lines BF2's tree does not carry yet are egui.
 //! Both halves are pure functions of the model so they can be tested headless,
 //! independently of the renderer; [`overlay`] is the egui-wgpu / egui-winit
@@ -18,6 +20,7 @@
 pub use egui;
 
 pub mod hud;
+pub mod hud_ambush;
 pub mod hud_capture;
 pub mod hud_draw;
 pub mod hud_map;
@@ -27,5 +30,6 @@ pub mod loading;
 pub mod menu;
 pub mod overlay;
 pub mod shell;
+pub mod shell_ps2;
 pub mod spawn;
 pub mod spawn_draw;

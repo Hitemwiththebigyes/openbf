@@ -142,6 +142,7 @@ fn append_events(csv: &mut String, tick: usize, events: &[core::sim::Event]) {
                 shooter,
                 vehicle,
                 damage,
+                ..
             } => format!(
                 "{tick},vehicle_hit,{},{},{damage:.1}\n",
                 shooter.map_or(String::new(), |s| s.index.to_string()),
@@ -171,6 +172,23 @@ fn append_events(csv: &mut String, tick: usize, events: &[core::sim::Event]) {
                 "{tick},item_taken,{item},{},{}\n",
                 unit.index,
                 u8::from(*health) | u8::from(*ammo) << 1 | u8::from(*energy) << 2
+            ),
+            // `a` is the station; `b` the unit served (a vehicle as `v<n>`)
+            // and its value what it gave (1 health, 2 ammo).
+            Event::StationServed {
+                station,
+                unit,
+                vehicle,
+                health,
+                ammo,
+                ..
+            } => format!(
+                "{tick},station_served,{station},{},{}
+",
+                unit.map(|u| u.index.to_string())
+                    .or_else(|| vehicle.map(|v| format!("v{}", v.index)))
+                    .unwrap_or_default(),
+                u8::from(*health) | u8::from(*ammo) << 1
             ),
         };
         csv.push_str(&line);
@@ -257,6 +275,7 @@ pub(super) fn run_bench(v: &ViewerArgs) -> Result<()> {
         gpu.animate_water(&mut r, game::water_anim::clock(0.0), cam.position)?;
         gpu.pose_doors(&walk.sim.doors);
         gpu.pose_turrets(&walk.sim, &walk.vehicle_seats);
+        gpu.pose_stations(&walk.sim);
         let mut draws = gpu.draws.clone();
         walk_draws(cube, &walk, &mut draws, models);
         draws.extend(vehicle_vis.draws(&mut r, &walk.sim));
@@ -510,6 +529,7 @@ pub(super) fn run_headless(v: &ViewerArgs) -> Result<()> {
                     std::fs::create_dir_all(dir)?;
                     gpu.pose_doors(&walk.sim.doors);
                     gpu.pose_turrets(&walk.sim, &walk.vehicle_seats);
+                    gpu.pose_stations(&walk.sim);
                     let mut draws = gpu.view_draws(&walk.sim, walk.player);
                     walk_draws(cube, &walk, &mut draws, models);
                     draws.extend(vehicle_vis.draws(&mut r, &walk.sim));
@@ -616,6 +636,7 @@ pub(super) fn run_headless(v: &ViewerArgs) -> Result<()> {
         // Leave the final frame rendered for --capture-frame below.
         gpu.pose_doors(&walk.sim.doors);
         gpu.pose_turrets(&walk.sim, &walk.vehicle_seats);
+        gpu.pose_stations(&walk.sim);
         let mut draws = gpu.view_draws(&walk.sim, walk.player);
         walk_draws(cube, &walk, &mut draws, models);
         draws.extend(vehicle_vis.draws(&mut r, &walk.sim));

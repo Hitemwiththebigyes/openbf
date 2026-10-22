@@ -1,4 +1,4 @@
-# Loop RULES (distilled from JOURNAL.md "Lesson:" lines, 2026-10-08; planner 2026-10-09 merged 11 report proposals, planner 2026-10-12 merged 26, 16 more at 14:25, 15 more at 17:05, 13 more at 19:20 and 16 more at 23:40; planner 2026-10-13 merged 5 at 05:15 and 14 at 07:10; planner 2026-10-15 merged 15 at 10:50, 11 more at 15:20 and 14 more at 19:15 and 11 more at 23:40; planner 2026-10-16 merged 16 as 13 at 04:30, 15 as 10 at 11:10 and 20 as 17 at 17:00; planner 2026-10-19 merged 17 as 14 at 16:20, plus one rule of the maintainer's; planner 2026-10-20 merged 17 as 14 at 05:25, 15 as 13 at 14:10 and 9 at 17:50)
+# Loop RULES (distilled from JOURNAL.md "Lesson:" lines, 2026-10-08; planner 2026-10-09 merged 11 report proposals, planner 2026-10-12 merged 26, 16 more at 14:25, 15 more at 17:05, 13 more at 19:20 and 16 more at 23:40; planner 2026-10-13 merged 5 at 05:15 and 14 at 07:10; planner 2026-10-15 merged 15 at 10:50, 11 more at 15:20 and 14 more at 19:15 and 11 more at 23:40; planner 2026-10-16 merged 16 as 13 at 04:30, 15 as 10 at 11:10 and 20 as 17 at 17:00; planner 2026-10-19 merged 17 as 14 at 16:20, plus one rule of the maintainer's; planner 2026-10-20 merged 17 as 14 at 05:25, 15 as 13 at 14:10 and 9 at 17:50; planner 2026-10-21 merged 15 as 13 plus the maintainer's profiling line at 13:00, 18 as 14 at 20:55)
 
 Read this before your job. Tag `(L#n)` = the n-th `Lesson:` line in JOURNAL.md (`grep 'Lesson:' loop/JOURNAL.md | sed -n 'np'`),
 or a card id. Propose a new rule as ONE line `RULE-PROPOSAL: <imperative rule> (<card>)` in your report; the planner/cleanse merges it
@@ -10,7 +10,7 @@ here. Do not leave a lesson only as JOURNAL prose.
 2. A card's named cause is a hypothesis: re-measure the symptom on TODAY's main and trace one case before building the remedy (L5 L98 L145 L160 L231 L244 L248 L254).
 3. Every instrument/test needs a control: a null variant equal to the parent hash for hash, or a mutation check; a test that passes under its own mutation referees nothing (L27 L49 L125 L146 L173 L180 L209 L230 L237 L242).
 4. A headline number needs its baseline: rebuild the PARENT and measure it with the same instrument, plus a random/unaffected population (L51 L98 L149 L178 L200 L205 L252).
-5. Never end a turn waiting on a background job: start gates/land with `--detach`, poll `--status` in a bounded (<=590 s) FOREGROUND loop (L1 L58 L69 L111).
+5. Never end a turn waiting on a background job: start gates/land with `--detach`, poll `--status` in a bounded (<=590 s) FOREGROUND loop - the session that detached it waits for it (L1 L58 L69 L111 BF1BK: two sessions died 'waiting').
 6. Before resuming or landing, `ps`/`pgrep -x` for a live land.py/gates.py/session and read `locks/` (cleanse holds CLEANSE, not its card id) (L41 L47 L71 L108 L130 L163 L239).
 7. Never `pgrep -f`/`until ! pgrep -f` a pattern that appears in your own command line; poll a pid or a log marker (L7 L49 L161).
 8. Sweeps are chaotic: one seed or 4 maps is not evidence; run all 32 maps, >=8 seeds (24 more to confirm a drop), judge paired per-seed/per-spot differences, not single-map finishes (L48 L49 L92 L169 L223 L250).
@@ -86,6 +86,17 @@ here. Do not leave a lesson only as JOURNAL prose.
 - When two verifiers split on what a field gate means, settle it with a split RAM census over every save state (on foot / seated, AI / player), finding each sub-object's offset the way the code builds it; one reader's reading is not the answer (GUNWT).
 - Before calling a PS2 movie or stream silent, count its MPEG private-stream-1 (`00 00 01 BD`) packs: ffprobe does not list Sony PSS audio. In lifted Lua 5.0, read which register a CALL's results land in before reading the op that uses them (two BSHL misreadings came from the lifter's names) (BSHL).
 - Before calling an odd PS2 camera value a separate mode, check whether it is one step of a known ease frozen by a camera switch (target + (v0 - target) e^(-k dt)); a staged PS2 enemy kill puts the player beside the team-mate nearest an enemy (`lead_tmp/ssel/ssel_live2.py front`), never at an empty teleported spot (SSEL).
+- Before an absence claim "no code asks for class X", search the entity KIND code too (the vtable slot returning a small int per class: B1 +0xd4, B2 +0xe0) and every helper handed that kind, not only the type-id hashes (PWST).
+- Open a PS2 setter before naming what it does in a comment or doc: `FUN_005a3368(model, 0xbe)` was cited as a turn and is a draw priority (+0x48 + a list re-sort) (SSELB).
+- Before porting a PS2 eligibility rule (unlocks, limits) into the sim, open every caller's controller gate: `FUN_00364290` binds humans only, so bots and the sweep stay untouched (SSELB).
+- Count a PS2 timer or slide that sums dt x k in EE round-toward-zero adds, not IEEE: 0x3dcccccc ten times is 0x3f7ffffd, one update longer (SSELB).
+- Before fitting a BF2 UI model's look to the map's lights, check the draw's flags for 0x4000000: every UI model is lit by the fixed interface set 0x7d6160 (`FUN_0057cf60`) (SSELB).
+- Measure a PS2 give / heal / drain rate by a scripted teleport + one RAM write + EE-clock samples every ~4 ms, with an out-of-reach control in the same boot (`lead_tmp/pwst/ps2/heal_live.py`, ~3 min a game) (PWST).
+- Before building a HUD element from a layout template, film the event on the PS2 and read the per-update state that drives it: an empty driver with something on screen is a code-drawn piece (find its sprite in a save state, its texture by hash: `lead_tmp/hatk/tools/texhashscan.py`) (HATK).
+- A `*_spawn.p2s` battle state can load on the spawn map: confirm the camera follows the player's own soldier (or tap through the spawn screens) before sampling "the player" (HATK).
+- Before a build gives one game the other's rule because the RE left it unread, open that game's own case of the same switch (BF2's FUN_00240bf8 had its own drag law in the next case) (AUDIT KNOCK).
+- A weapon / class census reads each map's own `classes.ron` as well as `assets_baked/classes/*.ron`: map-local classes (BF1 Hoth's turret cannon) were the one map a burst rule moved (BRSTU).
+- A state machine that waits on a drawn value needs the PS2's reset path or a redraw each tick: a kept draw that can never pass froze the unit (BRSTU).
 
 ## Verification and gates
 - Put a pure rule's INPUTS in the mutation attack set: build the struct the caller fills from live state wrong (current health for max, a halved speed, a fixed key) - 9 of HVYW's 13 mutations survived there while the pure function's own test was exhaustive (AUDIT HVYW).
@@ -197,9 +208,22 @@ here. Do not leave a lesson only as JOURNAL prose.
 - A route search over the soldier arcs (flank, BFS, detour) leaves out the mission's blocked plnp groups: the authored table is patched, the arcs are not, so the search walks through what the mission closed (AUDIT FLNK: 28 of 38 flank routes on three BF2 maps).
 - Before adding an AI fire veto, print `pressed` at the shot site for the shots you mean to stop: a cycle that releases after the press (salvo delay, single-shot latch) makes every press-time check blind (RKEX).
 - A blast change's teamkill reading splits self-kills from mate kills first (`a == b` in the kill events): `teamkill_pct` counts both, and they need different fixes (RKEX: self 64 -> 360, mates 605 -> 762).
+- Before a weapon-class premise ("every launcher the bots carry is X"), print the census of every exploding weapon on both discs with the keys you rely on, and give the scene test one case per firing path it shows (press tick, latched salvo, charge release); a charge weapon (MaxPressedTime > 0) fires ON the release, so an AI hold must keep its trigger down (AUDIT RKSLF, RKSLF).
+- A change to a loader the vehicles share (`roster::weapon_from_db`, a class reader) gets a seat-gun census line before landing: what it does to vehicle and turret guns, measured (AUDIT RKSLF: every seat shell started exploding unmentioned).
+- A test of a scheduled side effect asserts the effect, not the flag that schedules it: removing the item drop itself passed a `!drop_due` test while it moved every round (AUDIT KNOCK).
+- Run a new acquisition / pick rule once through the real headless loop on a real map's objects before landing: fixture spheres passed while every building turret had a zero-radius sphere (HTGT).
+- Before trusting a baked collision body, census it against the drawn model's box over every class of the bake (a one-minute scratch test found 52 PRNT-bound classes and one coll mesh off its model) (RKHUL).
+- Confirm a per-map rise found on traced seeds on a fresh seed block before it goes on a card (Geonosis blast deaths 18 -> 39 on seeds 9-40 reversed on 41-200) (AUDIT KNOCK).
+- Read a sound-log / black-box row named by 8 hex digits as a name-table gap first: class-keyed sounds need their names in `event_sounds::sound_names` (PWST).
+- Before a HUD card's declares, run the branch gates once and narrow the golden list to what moved (a dead-player spawn golden shows no bars) (HTGT).
+- Referee a HUD direction / pick rule on a real headless battle: a scratch print of the rule's answer beside the attacker's bearing computed apart from it (idle invincible player, two maps, 3 min) before landing (HATK).
+- Check a per-object rule on every class of every map, not the classes the build tried: stand the player at each object from several sides, run the rule once, split the misses by the rule's own LOS (`lead_tmp/audit-htgt/tools/census.sh` + `census_hook_main.diff`, 10 min for 32 maps) (AUDIT HTGT).
+- A fix carried by a game-layer assignment (an install, a `make_walk` field) gets a test that goes through that assignment: deleting HTGT 3b's `v.aim_sphere = sphere` passed all 1812 tests (AUDIT HTGT).
+- Every per-team tier reader (`difficulty_of(team)`) ships with a split-tier test expecting the OTHER tier's value (round Easy, the team at Elite, and the mirror); a mutation back to `sim.difficulty` must fail it (ARVSA).
+
 ## Builds, CI, scratch, disk
 - A rebake card's test that reads new baked fields skips (with a message) on a bake without them: land.py's branch ci reads the SHARED bake from before the rebake (VRIDE).
-- Before reading a gpu gate that moved goldens your diff cannot reach: `nvidia-smi -L` and `vulkaninfo --summary`. No NVIDIA device = the adapter is lost (2026-10-15 18:26, kernel NVRM fault): park the card, never regenerate or commit goldens, prove nothing on the iGPU; a land job then sets the card `blocked` (the land step ignores `needs:` until card LOOPT) (SKIPC, VRIDE).
+- Before reading a gpu gate that moved goldens your diff cannot reach: `nvidia-smi -L` and `vulkaninfo --summary`. No NVIDIA device = the adapter is lost (2026-10-15 18:26, kernel NVRM fault): park the card, never regenerate or commit goldens, prove nothing on the iGPU; a land job then sets the card `blocked` (the land step ignores `needs:` until card LOOPT) (SKIPC, VRIDE) Check `nvidia-smi -L` BEFORE taking any land job after a loss (a lost RTX reads gpu MOVED on all 97 goldens with every other gate identical) and park such a card `needs: maintainer` so the picker stops; before `land.py --commit` compare the land's main-run QUANT with the branch gates' QUANT - a jump from rounding to mass moves is the adapter dying mid-landing (`journalctl -k | grep Xid`) (ISPS, ANNC3).
 - ffmpeg 8.1.3 re-encodes OGGs byte-differently: bake changes need `rebake=beep`/sounds declared (L18 L19).
 - From a worktree `ROOT/engine/target` does not exist; resolve via the `engine/artifacts` link; check `<branch>_target` exists after `loopctl start` (L29 L161).
 - Null builds: reflinked target, `cargo clean --release -p core`, `cmp` binaries, print one baseline row; scratch prototype and A/B share one commit (L96 L118 L209).
@@ -237,6 +261,11 @@ here. Do not leave a lesson only as JOURNAL prose.
 - `ls <ROOT>/STOP` before every long test step as well as between commits, and commit the WIP at once when it appears (LOD).
 - A test that pins a count of baked files for a rebake card must hold on BOTH the shared bake and a scratch bake: run ci in a scratch worktree whose assets_baked points at the gates' scratch bake before land.py (USKN: main's ci failed on the pin at phase 1).
 - Before gating in a worktree that survived a landing, check its five links (`engine/artifacts`, `engine/assets_baked`, `extracted`, `PC_swbf2_exe`, `community_mods`): `loopctl start` links only a new worktree (TEAM).
+- Never edit a worktree while `gates.py --detach` runs on it (each group builds from the live tree): park the edit as a patch and apply it after (KNOCK).
+- A windowed or headless run from a worktree passes `OPENBF_BLACKBOX_DIR=<scratch>` (or `OPENBF_BLACKBOX=0`): the worktree's `artifacts` link is main's, so its snapshot rotates the maintainer's playtest files (BSHLA).
+- A key-driven windowed check (`xkey.py`) needs the game to latch taps: XTEST presses and releases inside one frame (BSHLA).
+- A wrapper that greps a scratch binary's output matches the indented detail lines too: `grep HTGT` hid the lines that held the cause (HTGT).
+- A Python `str.replace` / slice splice asserts its anchor span first: an empty anchor inserts the text between every character (ARVSA).
 
 ## Landing, worktrees, claims
 - Before landing a parked branch, run `git log --stat <build base>..main`: when a `core/` or sim path moved, rebase and re-measure the card's own bar on the rebased tree (one 8-seed block, ~10 minutes; a met bar is known before the 25-minute gate, a missed one saves it); when none moved, skip it and quote the paths (HJAM, TPOSR, FLNK land).
@@ -266,10 +295,13 @@ here. Do not leave a lesson only as JOURNAL prose.
 - To test a change to gates.py / land.py on another tree, run that tree's own copy in the card's own worktree when its diff can carry the case: a hand-made scratch tree needs five links and the delete hook then blocks removing them (LOOPA).
 - Poll land.py phase 2 by its pid or the log's `LANDED` line, not `--status` exit 0: phase 1's DONE already reads finished (LOD).
 - After a rebase, quote a card's numbers from the LANDED binary, and before reading a branch's parity / ci MOVED as its own, check whether main moved since the branch's base (the gate compares with main HEAD's cached score): TURR's 70.9 % read 61.0 % on the landed pair; ISPD's parity FAIL was a stale base (ISPD, AUDIT TURR).
+- land.py marks a multi-slice card `status=done` at its landing: reset `status=todo` and rewrite `resume:` right after `--commit` (PWST).
+- Until LANDG lands: before a second land.py run of one card, delete `<out>/branch` and `<out>/main` - the reuse path copies the last landing's `goldens/QUANT.md` and phase 1 reports its goldens as moved (SSELB, LANDG).
+- A `golden_spawn` SIGSEGV in land.py's gpu step on a diff that cannot reach it is the known flake: re-run phase 1 once before treating it as a refusal (CLN16).
 
 ## Scope, cards, picker
 - A dep added only for order is removed when the card it waits on is held for the maintainer or blocked: check the deps of every card behind a blocked one in the dry run (planner 1016b: TPOS / TEAM / TIER / TCMP waited on a held TURR).
-- Before building a card whose `files:` name scripts/gates.py, land.py or oracle_guard.py, check gates.toml for `[approvals.<CARD>] oracle = "guards"`; without it the guard refuses the first edit - split that part off with `needs:` the approval (LOOPT).
+- Before building a card whose `files:` name scripts/gates.py, land.py or oracle_guard.py, check gates.toml for `[approvals.<CARD>] oracle = "guards"`; without it the guard refuses the first edit - split that part off with `needs:` the approval (LOOPT). A planner filing such a card asks the maintainer for the approval in STATUS at once, so no session is spent on the refusal (LANDG).
 - A `lanes/lane<N>.pid` left by a dead launcher can name a reused THREAD id (`kill -0` succeeds on a tid): `lane_alive(3)` then held every audit for lane 3 from 10-13 to 10-15 (32 sessions). When a periodic job is overdue, check `/proc/<pid>/status` Tgid of each lane file (planner 2026-10-15 19:15; fix in LOOPT).
 - `eligible()` refuses cards whose `files:` overlap in-progress/parked ones; keep `files:` disjoint from `first:` cards, no bracketed notes, no shared crate-map entries (L116 L127 L141 L228).
 - A planner's picker dry run stamps its simulated landings LATER than the real `last_landed_milestone` values (`lead_tmp/planner_1016c/dry.py`), or the interleave never picks M1 / M2 (planner 2026-10-16c).
@@ -289,11 +321,20 @@ here. Do not leave a lesson only as JOURNAL prose.
 - Run an iGPU frame timing only when the 1-min load is under ~8, with a control repeated in the same batch, and check the run's OTHER sections against a known clean run before quoting one: the other lane's CPU load slows every GPU section 35 % to 2x, the sky included (ISPF, ISPD).
 - Price a shader cost with variant WGSL files read by a scratch binary (`OPENBF_X_SHADER`, `artifacts/ispd/x/scratch_env_shader.diff`), one change each, before writing a build card (ISPD).
 - When a cost run's null twin reads sd over 0.1 (the other lane's sweeps), repeat it and quote the best reading per seed over the runs, main's twin counted as main - and say so beside the number (OBST2).
+- Judge a frame-time hitch by the main thread's run-queue ms (the record's `queued`) before blaming a phase - under load a 1 ms draw-list build reads 43 ms; run windowed timings in a private kwin_wayland (`lead_tmp/hitch/tools/krun.sh`), never Xvfb on the RTX (35 ms a present) (HITCH).
+- Run a windowed frame-time A/B only interleaved (A B A B) with the runnable count logged beside each run: one GEO1 binary read 15 and 307 frames over 25 ms minutes apart while an audit swept (HITCH land).
+- Profile with `perf` (flat) and `valgrind --tool=callgrind` (callers; `perf --call-graph dwarf` fails here) on a copied release binary, quoting instruction counts and shares, not wall clock under load (the maintainer, 10-21; HULLC).
+- Sim-only per-function cost = callgrind(N ticks) minus callgrind(1 tick) of the same binary (`--toggle-collect` on a Rust symbol collects 0); price a profile's rest of the list again after its top item lands (HULLC).
+- A bound that answers a per-sample query still pays the per-sample lookup: skip whole samples (a run length the bound vouches for) or the saving is a few % (HULLC).
+- Before building a presentation-only change, add its measuring column to the frame CSV and A/B it on ONE binary with an env switch (same machine, same seed): the off switch is the baseline (RINT).
+- Before pricing a per-fragment switch (dither, discard band, shader variant), census on the CPU the draws per light path and the draws whose every fragment the shader discards: a droppable draw costs a full raster on a weak GPU, and the paths a map really uses decide which variants pay (LODP, ISPS).
 
 ## Audits
 - Re-derive from primary evidence before reading the card/doc/report; give the verifier a workflow agent slot (L112 L256).
 - Revert/switch a landed constant on TODAY's main and at its own commit; a net number can be two opposite effects, run part-off controls (L149 L252 L256).
+- Put an audit's switch build on the LANDING commit and null-prove it against the parent there: later sim landings left main's all-off build equal to the parent on 27 of 256 rounds (AUDIT KNOCK).
 - Judge a recycle / give-up rule by the box each recycled bot covered in its last two minutes (`lead_tmp/obsr/tools/recbox.py`), not by the count: a watch that sees more raises it (OBSR).
+- Read a builder's scratch measurement hook before reproducing its number, and print the game data it edits beside the result: HTGT's hook set the rifle's vehicle scale 0.1 -> 1.0, so its bar fell 10x faster than the game's (AUDIT HTGT).
 
 ## Dead ends (do not retry)
 - Per-bone rigid draws for tauntaun/kaadu: ~35 % of triangles span bones (L86).

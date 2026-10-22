@@ -4,14 +4,14 @@ title: A seat gun's burst is its heat, not n shots: the PS2 counts a burst's n a
 milestone: M2
 value: 4
 phase: build
-status: todo
+status: done
 deps:
 files: engine/crates/core/src/ai/gunner_foot.rs,engine/crates/core/src/ai/gunner.rs,engine/crates/core/src/weapon.rs
 declares: sweep; arena; sim
 needs:
 effort:
-branch:
-resume:
+branch: brstu
+resume: landed cbf6f686 2026-10-21
 created: 2026-10-13
 alpha: yes
 domain: vehicle
@@ -89,3 +89,8 @@ kills on a rule the PS2 does not have. A player at a turret beside a bot's, or f
 - 2026-10-13 audit CLSE4 (lane 1). Filed at value 4 (a PARTLY audit's card). The count of n for a seat is older
   than CLSE4 (card VTAI's bursts were 2-5 with a 0.35-0.75 s pause); CLSE4 made it bite. `files:` overlap card
   CLSE5 (`gunner_foot.rs`): the picker runs them one at a time.
+- 2026-10-21 LANDED 2b5ebf6 + cbf6f68 (lane 1; report `reports/20261021_1925_card_BRSTU.md`, kit `lead_tmp/brstu`).
+  Mounted shots per target-second BF2 0.357 -> 0.428, BF1 0.397 -> 0.473 (up on 23 of 24 vehicle maps; BF1 Hoth
+  0.576 -> 0.549: main fired its turret cannon into its overheat), BF1 mounted kills 498 -> 574 /100 min, seat
+  overheat samples 6,501 -> 1,855 (the rest: 1.15-heat-a-shot lasers and 2-salvo triggers), 256/256 rounds, team kills
+  0.79 -> 0.85 % (mounted 116 -> 148: no friend-in-line check in a seat). Not built: TriggerSingle default by root.

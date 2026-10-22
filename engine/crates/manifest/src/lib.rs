@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod anim_sets;
 pub mod hud;
+pub mod shell;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ManifestInstance {
@@ -106,14 +107,17 @@ pub struct ManifestClass {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub lights: Vec<ManifestClassLight>,
     /// The node rig of an armed building's model (card VTURD,
-    /// `analysis/re-turret-draw.md` 2 [O]): every `skel` node's bind matrix
-    /// and which node each drawn submesh rides, so the viewer can turn the
-    /// gun with its aim. `None` on every other class, and then not written.
+    /// `analysis/re-turret-draw.md` 2 [O]) and of a health / ammo / vehicle
+    /// droid's (base `powerupstation`, card PWST): every `skel` node's bind
+    /// matrix and which node each drawn submesh rides, so the viewer can turn
+    /// the gun with its aim and move the droid's nodes. `None` on every other
+    /// class, and then not written.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turret_rig: Option<ManifestTurretRig>,
 }
 
-/// An armed building's model as rigid parts ([`ManifestClass::turret_rig`]).
+/// An armed building's or a powerup droid's model as rigid parts
+/// ([`ManifestClass::turret_rig`]).
 /// The PS2 keeps one whole model-space matrix per named node and draws each
 /// segment through its node's (`re-turret-draw.md` 2.4), so a part drawn at
 /// the bind pose moves by `node(now) · bind⁻¹`.
@@ -121,9 +125,10 @@ pub struct ManifestClass {
 pub struct ManifestTurretRig {
     /// The model's `skel` nodes, in `skel` order.
     pub nodes: Vec<ManifestRigNode>,
-    /// Per primitive of the drawn model's GLB (its segments in order, bar
-    /// the empty ones): the index in `nodes` of the node it is bound to,
-    /// `None` for a segment bound to none.
+    /// Per primitive of the drawn model's GLB (its segments in order after
+    /// the bake has cut each soft segment into one per node, bar the empty
+    /// ones): the index in `nodes` of the node it is bound to, `None` for a
+    /// segment bound to none.
     pub parts: Vec<Option<u32>>,
 }
 

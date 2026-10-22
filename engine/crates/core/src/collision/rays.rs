@@ -7,7 +7,7 @@
 use super::shape::{Aabb, Body, Cutter, Layers};
 use super::world::{CollisionWorld, HullFilter};
 use super::{point, vector, WALKABLE_MIN_NY};
-use crate::heightfield::Heightfield;
+use crate::heightfield::{HeightProbe, Heightfield};
 use crate::vehicle::VehicleHandle;
 use glam::Vec3;
 
@@ -351,10 +351,13 @@ pub fn ray_heightfield(
     let mut t = 0.0f32;
     let mut prev_t = 0.0f32;
     let mut prev_above = origin.y - hf.height_at(origin.x, origin.z) >= 0.0;
+    // Every error of computing a marched point, with room to spare.
+    let slack = 0.05 + 1e-5 * (origin.abs().element_sum() + max_t);
+    let mut probe = HeightProbe::new(hf);
     while t < max_t {
         t = (t + step).min(max_t);
         let p = origin + dir * t;
-        let above = p.y - hf.height_at(p.x, p.z) >= 0.0;
+        let (above, run) = probe.side(p, dir, slack);
         if above != prev_above {
             // One bisection for a tighter crossing point: if the midpoint is
             // still on the near side the crossing is in [mid, t], else in
@@ -374,6 +377,12 @@ pub fn ray_heightfield(
         }
         prev_t = t;
         prev_above = above;
+        // The samples the probe vouches for keep this side: step past them.
+        let end = t + run;
+        while t < max_t && (t + step).min(max_t) <= end {
+            t = (t + step).min(max_t);
+            prev_t = t;
+        }
         if t >= max_t {
             break;
         }
@@ -900,6 +909,63 @@ mod tests {
             ray_heightfield(&hf, &cut, Vec3::new(0.0, 5.0, -10.0), Vec3::Z, 100.0, 0.5).is_none(),
             "the ramp is cut away here"
         );
+    }
+
+    /// The march's skips change nothing: on a rough grid, rays from over,
+    /// under and on the surface, in and out of the grid, cross where a march
+    /// that lerps every sample crosses, bit for bit (card HULLC).
+    #[test]
+    fn the_probed_march_is_the_plain_march() {
+        fn plain(hf: &Heightfield, o: Vec3, d: Vec3, max_t: f32, step: f32) -> Option<f32> {
+            let side = |p: Vec3| p.y - hf.height_at(p.x, p.z) >= 0.0;
+            let (mut t, mut prev_t, mut prev) = (0.0f32, 0.0f32, side(o));
+            while t < max_t {
+                t = (t + step).min(max_t);
+                let above = side(o + d * t);
+                if above != prev {
+                    let mid = 0.5 * (prev_t + t);
+                    return Some(if side(o + d * mid) == prev {
+                        0.5 * (mid + t)
+                    } else {
+                        mid
+                    });
+                }
+                (prev_t, prev) = (t, above);
+            }
+            None
+        }
+        let mut seed = 0x9E37_79B9u32;
+        let mut rnd = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            seed as f32 / u32::MAX as f32
+        };
+        let n = 17;
+        let hf = Heightfield {
+            size: n,
+            unit: 4.0,
+            offset_x: 30.0,
+            offset_z: 20.0,
+            heights: (0..n * n).map(|_| 12.0 * rnd() - 4.0).collect(),
+        };
+        let mut hits = 0;
+        for _ in 0..20_000 {
+            let o = Vec3::new(90.0 * rnd() - 40.0, 0.0, 90.0 * rnd() - 30.0);
+            let y = hf.height_at(o.x, o.z) + 6.0 * rnd() - 2.0;
+            let o = Vec3::new(o.x, y, o.z);
+            let d = Vec3::new(rnd() - 0.5, 0.4 * rnd() - 0.25, rnd() - 0.5).normalize();
+            let (max_t, step) = (80.0 * rnd(), [0.25, 0.5, 1.0][(rnd() * 2.99) as usize]);
+            let want = plain(&hf, o, d, max_t, step);
+            let got = ray_heightfield(&hf, &[], o, d, max_t, step);
+            assert_eq!(
+                got.map(f32::to_bits),
+                want.map(f32::to_bits),
+                "{o} {d} {max_t} {step}"
+            );
+            hits += usize::from(want.is_some());
+        }
+        assert!(hits > 5_000, "the rays meet the terrain: {hits}");
     }
 
     /// ... and the march CONTINUES past an ignored crossing: a ray that leaves

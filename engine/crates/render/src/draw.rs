@@ -147,7 +147,27 @@ pub enum LightPath {
     Character = 6,
     Glow = 7,
     Unscaled = 8,
+    /// The PS2 BF2's INTERFACE light set (`0x7d6160`, card SSELB,
+    /// `analysis/re-spawn-flow.md` §4.2): what a UI model is lit by - a
+    /// flat ambient of 0.5 and one white light of 1.0 fixed to the camera
+    /// ([`IFACE_AMBIENT`], [`IFACE_DIR_CAMERA`]), no map light. The draw's
+    /// colour is the model's colour word, a factor on that light, not on
+    /// the texel (`game::spawn_preview::colour_unit`).
+    Iface = 9,
 }
+
+/// The interface light set's ambient, GS units (`FUN_00398000` writes 0.5
+/// to both hemisphere colours, B2:392826-392851).
+pub const IFACE_AMBIENT: f32 = 0.5;
+
+/// The interface light's travel direction in the CAMERA's frame (x right,
+/// y up, z toward the viewer): `FUN_00398000` sets (-0.57735, -0.57735,
+/// -0.57735) in the UI scene's frame (B2:392813-392839). That frame's axes
+/// lie on the camera's as written here [M]: of the eight signs, this one
+/// lit the side Snowtrooper of the PS2's Hoth frame closest (mean |lum|
+/// error 10.3 over his pixels, the others 19-36; brighter on his left as
+/// the PS2's, 62 / 71 against 57 / 66; `lead_tmp/sselb/tools/light_score.py`).
+pub const IFACE_DIR_CAMERA: [f32; 3] = [-0.57735, -0.57735, -0.57735];
 
 /// One entry in the draw list.
 #[derive(Debug, Clone, Copy)]
@@ -260,6 +280,22 @@ pub(crate) fn instance_cull(d: &DrawCmd) -> ([f32; 2], [f32; 2]) {
 pub fn fragment_kept(cull: [f32; 2], cull_near: [f32; 2], dist: f32, u: f32) -> bool {
     let lerp = |b: [f32; 2]| b[0] + (b[1] - b[0]) * u;
     !(dist > lerp(cull) || dist < lerp(cull_near))
+}
+
+/// Whether `far_cull` discards EVERY fragment of a draw whose fragments all
+/// lie `near..=far` metres from the eye, at any dither value (card LODP):
+/// the frame drops such a draw before it is submitted. A fragment's
+/// `view_dist` is interpolated between its vertices' distances, so it stays
+/// inside the range of its world box's ([`crate::frustum::distance_range`]).
+/// This is what keeps the far scene's model / LOWD switch at the cost of one
+/// draw per instance: without it every LOWD-bearing instance rasterised both
+/// sides at every distance (BF2 KAM1: 549 model draws past the switch and
+/// the LOWDs of everything near, models 8.0 -> 12.1 ms on an Intel iGPU at
+/// 2880x1920). It is also the PS2's own pick: its far scene takes an object
+/// only when its sphere reaches past `NearSceneRange[1]`, and its near scene
+/// ends at `NearSceneRange[2]` (`analysis/re-lod.md` §0.2, §4.1).
+pub fn all_discarded(cull: [f32; 2], cull_near: [f32; 2], near: f32, far: f32) -> bool {
+    near > cull[0].max(cull[1]) || far < cull_near[0].min(cull_near[1])
 }
 
 /// The terrain foliage's per-instance fade (analysis/re-foliage.md §6, [O]):
@@ -453,6 +489,9 @@ pub struct SkinnedDrawCmd {
     /// The sphere this draw gathers BF2's local lights for
     /// ([`DrawCmd::lit`]); a skinned draw is never prelit.
     pub lit: Option<LitSphere>,
+    /// [`LightPath::Character`] (a soldier in the world) or
+    /// [`LightPath::Iface`] (a spawn screen's soldier); no other path.
+    pub light: LightPath,
 }
 
 impl SkinnedDrawCmd {
@@ -548,5 +587,45 @@ mod lod_tests {
         assert_eq!(c, [100.0, 110.0]);
         let (c, _) = instance_cull(&cmd(Some(50.0), switch(LodSide::Model)));
         assert_eq!(c, [50.0, 50.0]);
+    }
+
+    /// Card LODP: a draw is dropped only when no fragment of its distance
+    /// range survives at any dither value, and the switch's two sides drop
+    /// where the PS2's own pick leaves them out.
+    #[test]
+    fn a_draw_is_dropped_only_when_every_fragment_is_discarded() {
+        let model = instance_cull(&cmd(None, switch(LodSide::Model)));
+        let lowd = instance_cull(&cmd(Some(1000.0), switch(LodSide::Lowd)));
+        let plain = instance_cull(&cmd(None, None));
+        let culled = instance_cull(&cmd(Some(500.0), None));
+        for (c, n) in [model, lowd, plain, culled] {
+            for near in (0..60).map(|m| m as f32 * 20.0) {
+                for len in [0.0, 1.0, 10.0, 29.0, 31.0, 200.0, 2000.0] {
+                    let far = near + len;
+                    let kept = (0..=200)
+                        .map(|k| near + len * k as f32 / 200.0)
+                        .any(|d| dithers().any(|u| fragment_kept(c, n, d, u)));
+                    if all_discarded(c, n, near, far) {
+                        assert!(!kept, "dropped {near}..{far} keeps a fragment");
+                    }
+                }
+            }
+        }
+        let (c, n) = model;
+        assert!(all_discarded(c, n, 131.0, 400.0), "a model wholly past c");
+        assert!(
+            !all_discarded(c, n, 120.0, 400.0),
+            "a model reaching into the band"
+        );
+        assert!(!all_discarded(c, n, 0.0, 2000.0), "a model around the eye");
+        let (c, n) = lowd;
+        assert!(
+            all_discarded(c, n, 0.0, 99.0),
+            "a LOWD wholly nearer than b"
+        );
+        assert!(!all_discarded(c, n, 0.0, 101.0), "a LOWD reaching past b");
+        assert!(all_discarded(c, n, 1001.0, 1200.0), "a LOWD past its cull");
+        let (c, n) = plain;
+        assert!(!all_discarded(c, n, 0.0, 0.0) && !all_discarded(c, n, 1e6, 2e6));
     }
 }

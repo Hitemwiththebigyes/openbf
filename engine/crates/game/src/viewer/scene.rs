@@ -82,6 +82,10 @@ pub struct SceneGpu {
     /// the bind pose until [`SceneGpu::pose_turrets`] is called — the
     /// goldens never call it.
     pub turrets: Vec<super::turret_pose::TurretDraw>,
+    /// Every health / ammo / vehicle droid's draws (card PWST), as placed
+    /// until [`SceneGpu::pose_stations`] is called — the goldens never call
+    /// it.
+    pub stations: Vec<super::stations::StationDraw>,
     /// BF2's local lights the scene itself holds (card BPNT,
     /// `crate::point_light`): the authored ones and the EntityLights. The
     /// upload hands the renderer these plus the posts' at their starting
@@ -174,6 +178,7 @@ impl SceneGpu {
             reindex_after_splice(
                 &mut self.doors,
                 &mut self.turrets,
+                &mut self.stations,
                 &mut self.speckle,
                 &before,
                 after.len(),
@@ -194,6 +199,7 @@ impl SceneGpu {
 fn reindex_after_splice(
     doors: &mut [DoorDraw],
     turrets: &mut [super::turret_pose::TurretDraw],
+    stations: &mut [super::stations::StationDraw],
     speckle: &mut Option<SpeckleAnim>,
     old: &std::ops::Range<usize>,
     new_len: usize,
@@ -216,6 +222,11 @@ fn reindex_after_splice(
             *range = shift(range.start)..shift(range.end);
         }
         t.whole = shift(t.whole.start)..shift(t.whole.end);
+    }
+    for t in stations.iter_mut() {
+        for (range, _) in &mut t.parts {
+            *range = shift(range.start)..shift(range.end);
+        }
     }
     if let Some(s) = speckle {
         s.first.retain(|k| !old.contains(k));
@@ -246,6 +257,9 @@ struct PlacedModel<'a> {
         &'a manifest::ManifestInstance,
         &'a manifest::ManifestTurretRig,
     )>,
+    /// Card PWST: a droid's manifest index, translation and (its main
+    /// model's) node rig.
+    station: Option<(usize, Vec3, Option<&'a manifest::ManifestTurretRig>)>,
     color: Option<[f32; 4]>,
     fade: Option<render::Fade>,
     /// Metres nearer than which the draw is discarded — the far scene's
@@ -782,6 +796,7 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
     let mut skipped: HashMap<String, usize> = HashMap::new();
     let mut doors: Vec<DoorDraw> = Vec::new();
     let mut turrets: Vec<super::turret_pose::TurretDraw> = Vec::new();
+    let mut stations: Vec<super::stations::StationDraw> = Vec::new();
     let path_props = scene
         .manifest
         .foliage
@@ -817,6 +832,11 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
         // distance, re-lod §7.2). Path props are world instances of their
         // class (re-foliage §9) and take the same rule.
         let lowd = bands.and_then(|b| Some((scene.resolve_lowd(&inst.class)?, b)));
+        // PWST: a droid turns whole, its rig's nodes by its own animation.
+        let class = world.then(|| scene.resolve_class(&inst.class)).flatten();
+        let station = class
+            .filter(|c| c.base.eq_ignore_ascii_case(super::stations::STATION_BASE))
+            .map(|c| (ii, Vec3::from(inst.translation), c.turret_rig.as_ref()));
         placed.push(PlacedModel {
             model,
             matrix: instance_matrix(inst.rotation, inst.translation),
@@ -830,14 +850,11 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
                 .flatten()
                 .map(|d| (ii, d)),
             // VTURD: the parts this instance's turret turns.
-            turret: world
-                .then(|| {
-                    scene
-                        .resolve_class(&inst.class)
-                        .and_then(|c| c.turret_rig.as_ref())
-                })
-                .flatten()
+            turret: class
+                .filter(|_| station.is_none())
+                .and_then(|c| c.turret_rig.as_ref())
                 .map(|t| (ii, inst, t)),
+            station,
             color: None,
             fade: None,
             near: None,
@@ -849,6 +866,7 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
                 matrix: instance_matrix(inst.rotation, inst.translation),
                 door: None,
                 turret: None,
+                station: station.map(|(i, at, _)| (i, at, None)),
                 color: None,
                 fade: None,
                 near: None,
@@ -870,6 +888,7 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
                 matrix: instance_matrix(inst.rotation, inst.translation),
                 door: None,
                 turret: None,
+                station: station.map(|(i, at, _)| (i, at, None)),
                 color: None,
                 fade: None,
                 near: Some(near),
@@ -886,6 +905,7 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
                 matrix: f.matrix,
                 door: None,
                 turret: None,
+                station: None,
                 color: Some(f.color),
                 fade: f.fade,
                 near: None,
@@ -988,6 +1008,18 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
             {
                 turning.push((first..draws.len(), k));
             }
+            if let Some((ii, at, rig)) = p.station {
+                let at_k = match stations.iter().position(|s| s.instance == ii) {
+                    Some(j) => j,
+                    None => {
+                        stations.push(super::stations::StationDraw::new(ii, at, m, rig));
+                        stations.len() - 1
+                    }
+                };
+                stations[at_k]
+                    .parts
+                    .push((first..draws.len(), rig.map(|_| k)));
+            }
         }
         if let (false, Some((ii, inst, rig))) = (turning.is_empty(), p.turret) {
             turrets.push(super::turret_pose::TurretDraw::new(
@@ -1063,6 +1095,7 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
         speckle,
         doors,
         turrets,
+        stations,
         lights: crate::point_light::scene_lights(scene),
         ground_lights: crate::point_light::ground_lights(scene),
         post_lights: scene.manifest.source_game == "bf2",
@@ -1628,7 +1661,14 @@ mod tests {
             vec![(4..6, 0), (60..62, 1)],
             60..64,
         )];
-        reindex_after_splice(&mut doors, &mut turrets, &mut speckle, &(10..12), 130);
+        reindex_after_splice(
+            &mut doors,
+            &mut turrets,
+            &mut [],
+            &mut speckle,
+            &(10..12),
+            130,
+        );
         assert_eq!(turrets[0].parts[0].0, 4..6);
         assert_eq!(turrets[0].parts[1].0, 188..190);
         assert_eq!(turrets[0].whole, 188..192);
@@ -1636,10 +1676,24 @@ mod tests {
         assert_eq!(doors[0].parts[1].0, 178..180);
         assert_eq!(speckle.as_ref().unwrap().first, vec![3, 188]);
         // A shrink moves them back; every speckle frame gone drops the layer.
-        reindex_after_splice(&mut doors, &mut turrets, &mut speckle, &(10..140), 2);
+        reindex_after_splice(
+            &mut doors,
+            &mut turrets,
+            &mut [],
+            &mut speckle,
+            &(10..140),
+            2,
+        );
         assert_eq!(doors[0].parts[0].0, 40..42);
         speckle.as_mut().unwrap().first = vec![11];
-        reindex_after_splice(&mut doors, &mut turrets, &mut speckle, &(10..12), 2);
+        reindex_after_splice(
+            &mut doors,
+            &mut turrets,
+            &mut [],
+            &mut speckle,
+            &(10..12),
+            2,
+        );
         assert!(speckle.is_none());
     }
 

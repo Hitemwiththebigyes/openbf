@@ -3,18 +3,41 @@ id: HCORN
 title: A BF1 speeder bike that starts a leg within its 20 m node radius of the leg's first detour corner skips that corner at once and drives into the barrier it went round (card HJAM's corner reach; AUDIT HJAM 2026-10-16): BF1 Tatooine leg 54 -> 55, barrier267's NE corner (-148, 44) - 63 of 72 such starts die within 2 s against the rock at (-150, 37.8), 1 of 56 before HJAM; BF1 Endor legs 4 -> 14 and 34 -> 38 the same. RE what the PS2 does at such a corner first, then fix and test the driver's radius input
 milestone: M3
 value: 4
-phase: re
+phase: build
 status: todo
 deps: HJAM
-files: engine/crates/core/src/ai/route.rs, engine/crates/core/src/ai/hover_drive.rs
+files: engine/crates/core/src/ai/route.rs, engine/crates/core/src/ai/hover_drive.rs, engine/crates/core/src/ai/hover_drive/tests.rs
 declares: sim; sweep
 needs:
 effort:
 branch:
-resume:
+resume: RE done (analysis/re-hover-corners.md). Build part 1 per the card's ## Build: a hover driver's corner walk re-searched from next.from in advance_route (prototype bit 2 in lead_tmp/hcorn/hcorn_x_prototype.patch), the M5/M6 test, bars on tat1 / bf1_end1 / 14 hover maps
 created: 2026-10-16
 alpha: yes
 ---
+## RE result (2026-10-21, lane 2) -> build part 1 (`analysis/re-hover-corners.md`)
+HJAM's corner drop IS the PS2's (BF1 Endor: 389 of 395 corner exits at 2-20 m; all 67 hand-overs of a corner already
+inside 20 m left after one tick) and it kills the PS2's own bikes (5 of its 15 Endor crash kills). What the port gets
+wrong is WHERE the corner walk is planned: the PS2 plans a leg from the waypoint just reached (B1 `FUN_002509b0`, B2
+`FUN_002c0220`; live 200 / 200 Endor legs and 54 / 54 tat1 legs), the port from where the bike stands - which is what
+gives tat1's leg 54 -> 55 its deadly corner (-148, 44). Also at the hover's own radius (BF1 bike 2.44, corners 2.94 m
+out) - split off to card HCRAD (it needs a bake change and halves Endor's crashes below the PS2's).
+Prototype (`lead_tmp/hcorn/hcorn_x_prototype.patch`, switch HCX=2 = this card's rule; HCX=0 = main hash for hash):
+tat1 rock deaths 41 -> 4 and 54 -> 6 (seeds 1-24 / 25-48); bf1_end1 crashes a ride 0.297 / 0.278 -> 0.255 / 0.255
+(PS2 0.28); near-corner driving 0.22 -> 0.01 %; the other 12 hover maps within one block's noise (`ab_bars*.txt`).
+
+## Build (part 1)
+1. `route::advance_route`: when the next leg is planned on arrival at a hub (`next.via_arc` set, `next.from` = the
+   waypoint reached), a HOVER driver's corner walk is searched again from `next.from` (at the unit's y), not from the
+   unit, and `ref_dist` re-taken (the prototype's bit 2, `hcorn_x_prototype.patch`). Soldiers and walkers unchanged.
+2. Tests: (a) a hover driver whose leg starts with its first corner inside ForwardSpeed / 2 moves past it in the same
+   think and fails with the radius `drive` hands `advance_route` zeroed or halved (AUDIT HJAM's M5 / M6); (b) a leg
+   planned on arrival gets the corners seen from the waypoint (a fixture where the unit -> waypoint line crosses a
+   barrier and the waypoint -> waypoint line does not). Mutation-check both.
+3. Bars (24 seeds; the instrument = the patch's HJE / HJD / HJC lines on a scratch copy, `lead_tmp/hcorn/tools/ab.py`):
+   tat1 rider deaths within 3 m of barrier267 <= 10 (main 41 / 54); bf1_end1 crash per ride in 0.22-0.34; near-corner
+   share <= 1 %; the 14 hover maps (`lead_tmp/hcorn/chain2.sh`'s list) crash per ride within noise of main.
+
 ## Why
 AUDIT HJAM (2026-10-16, `engine/artifacts/lead_tmp/audit-hjam/EVIDENCE.md`). Card HJAM gave a hover's driver the PS2's
 node radius at detour corners (ForwardSpeed x 0.5: 20 m for BF1's bike; both ELFs' `FUN_002a6318` / `FUN_00234db0` hover

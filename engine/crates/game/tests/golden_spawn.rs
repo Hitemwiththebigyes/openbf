@@ -28,6 +28,7 @@ fn hud() -> ui::hud::HudModel {
         weapon: None,
         weapon2: None,
         reticle: None,
+        target: None,
         reticle_y: 0.5,
         // The spawn screen owns the death message while it is up.
         dead: false,
@@ -43,6 +44,7 @@ fn hud() -> ui::hud::HudModel {
         map: None,
         squad: None,
         capture: None,
+        ambush: Vec::new(),
         spawn: None,
     }
 }
@@ -174,6 +176,10 @@ fn hot1_pages() -> [(&'static str, usize, ui::spawn_draw::SpawnPage); 3] {
                 team: 0,
                 class: 0,
                 classes: 6,
+                // The battle's start: no points, so the officer (8) and
+                // the dark trooper (12) are refused, black at places 0 / 1
+                // as on the PS2's frame (re-spawn-flow §4.3).
+                refused: 0b11_0000,
             },
         ),
     ]

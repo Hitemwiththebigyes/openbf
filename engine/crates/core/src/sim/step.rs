@@ -12,7 +12,7 @@ use super::state::{Call, DeathCause, Event, Sim, LETHAL_LANDING_SPEED};
 use crate::ai::{self, AiState};
 use crate::collision::{Capsule, AIR_STEP, STEP_HEIGHT};
 use crate::projectile::{Bolt, Shooter, TERRAIN_RAY_STEP};
-use crate::soldier::Stance;
+use crate::soldier::{GroundRules, Stance};
 use crate::unit::{Controller, UnitHandle};
 use crate::weapon::{shot_direction, FireInput};
 use crate::{TICK_DT, TICK_HZ};
@@ -376,8 +376,15 @@ impl Sim {
                 // Death and a seat end the zoom (`re-zoom.md` §4).
                 self.units[i].zoom = None;
             }
-            if !self.units[i].alive {
+            // Card KNOCK (re-knockback §3): a dead unit's body still moves -
+            // the death block first, then the soldier's own update with no
+            // stick, the wall pass and the floor.
+            let corpse = !self.units[i].alive && self.units[i].body;
+            if !self.units[i].alive && !corpse {
                 continue;
+            }
+            if corpse {
+                self.death_block(i);
             }
             if self.units[i].mount.is_some() {
                 self.ride(i, pad_i);
@@ -390,6 +397,13 @@ impl Sim {
             // resolves AFTER the wall pass (card STHOP).
             let mut stepped: Option<bool> = None;
             match self.units[i].controller {
+                _ if corpse => {
+                    stepped = Some(self.units[i].soldier.grounded);
+                    let (consts, rules) = (self.units[i].consts, self.ground_rules);
+                    self.units[i]
+                        .soldier
+                        .step(dt, &PadState::default(), &consts, rules);
+                }
                 Controller::Pacer { vel, period } => {
                     let next = self.units[i].soldier.pos + vel * dt;
                     let g = self.ground_under(next, false);
@@ -465,9 +479,11 @@ impl Sim {
             let in_air = !s0.grounded
                 && matches!(
                     s0.stance,
-                    crate::soldier::Stance::Jump | crate::soldier::Stance::Fall
+                    crate::soldier::Stance::Jump
+                        | crate::soldier::Stance::Fall
+                        | crate::soldier::Stance::Thrown
                 );
-            if self.units[i].alive && !self.collision.is_empty() {
+            if (self.units[i].alive || corpse) && !self.collision.is_empty() {
                 let drop = if in_air { STEP_HEIGHT - AIR_STEP } else { 0.0 };
                 let low = |c: Capsule| Capsule {
                     base: c.base - Vec3::Y * drop,
@@ -502,7 +518,7 @@ impl Sim {
             // plane-following gives a walking soldier vel.y > 0 uphill, and
             // probing from the feet then misses the ramp above them.
             if let Some(was_grounded) = stepped {
-                if self.units[i].alive {
+                if self.units[i].alive || corpse {
                     let s1 = &self.units[i].soldier;
                     let rising = s1.stance == crate::soldier::Stance::Jump && s1.vel.y > 0.0;
                     // The ground query keeps the whole step in the air (a
@@ -523,7 +539,8 @@ impl Sim {
                     self.units[i]
                         .soldier
                         .resolve_ground(dt, fy, fnrm, from.base.y, rules);
-                    let landed = !was_grounded && self.units[i].soldier.grounded;
+                    let landed =
+                        self.units[i].alive && !was_grounded && self.units[i].soldier.grounded;
                     // A hard landing UNDER THE MAP kills, cheat or not (card
                     // KFLR, `sim/bounds.rs`); any other one at the lethal
                     // speed is the fall it was.
@@ -534,6 +551,17 @@ impl Sim {
                         let h = self.handle(i);
                         self.kill_environment(h, DeathCause::Fall);
                     }
+                }
+            }
+            if corpse {
+                // BF2's get-up ends straight in the dead state (no standing
+                // update, §4); a corpse leaves the world after its 4 s.
+                if self.ground_rules == GroundRules::Bf2 {
+                    self.death_block(i);
+                }
+                let s = &self.units[i].soldier;
+                if s.stance == Stance::Dead && s.time_in_stance > crate::soldier::CORPSE_SECS {
+                    self.units[i].body = false;
                 }
             }
         }
@@ -599,8 +627,13 @@ impl Sim {
                 _ => 0,
             };
             // BF1 skips fire processing in the roll states (re-stance-roll
-            // §3.4); BF2 rolls believed to block too.
-            let blocked = self.units[i].soldier.stance == Stance::Roll;
+            // §3.4); BF2 rolls believed to block too. A throw, its tumble and
+            // get-up and the lock after it hold the trigger off too (card
+            // KNOCK, re-knockback §2: the PS2 zeroes the trigger bytes;
+            // PROVISIONAL: the port skips the fire processing, so a held
+            // charge is neither fired nor lost).
+            let blocked =
+                self.units[i].soldier.stance == Stance::Roll || self.units[i].soldier.no_fire();
             // A soldier with more slots than the one in its hands (GREN):
             // the channels decide whether FIRE reaches the primary.
             let mut fire_held = if self.units[i].held.is_empty() {
@@ -798,6 +831,9 @@ impl Sim {
 
         // 5c. The pickups (PWUP): flight, life, the touch.
         self.tick_pickups(dt);
+
+        // 5c'. The health / ammo droids (PWST): each station's clock and pass.
+        self.tick_stations(dt);
 
         // 6. Command posts → bleed → domination → outcome.
         self.update_cps(dt);

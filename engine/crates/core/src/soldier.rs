@@ -189,6 +189,16 @@ pub enum Stance {
     Jump,
     Roll,
     Fall,
+    /// A blast's push threw him (card KNOCK, `analysis/re-knockback.md` §2:
+    /// BF1 state 5, BF2 9): ballistic, no fire, the jump's stick.
+    Thrown,
+    /// Landed fast from a throw (BF1 8, BF2 10): braking on the ground.
+    Tumble,
+    /// Coming to rest after a throw (BF1 9, BF2 11), then standing locked.
+    GetUp,
+    /// A corpse's body (BF1 state 3, BF2 0xf): it slides, is pushed and
+    /// kicked by later blasts, and leaves the world after [`CORPSE_SECS`].
+    Dead,
 }
 
 impl Stance {
@@ -198,9 +208,18 @@ impl Stance {
             Stance::Crouch => 1,
             Stance::Prone => 2,
             Stance::Sprint => 3,
-            Stance::Jump | Stance::Fall => 4,
+            // BF1's thrown state shares the jump / fall case (B1:117557).
+            Stance::Jump | Stance::Fall | Stance::Thrown => 4,
             Stance::Roll => 5,
+            Stance::Tumble | Stance::GetUp | Stance::Dead => 7,
         }]
+    }
+
+    /// The states a blast's push skips (with the two mounted ones, which
+    /// the port tests by the seat): B1 FUN_002009a0 B1:112599, B2
+    /// FUN_00238b80 (§1, §4).
+    pub fn knocked(self) -> bool {
+        matches!(self, Stance::Thrown | Stance::Tumble | Stance::GetUp)
     }
 }
 
@@ -243,6 +262,12 @@ pub struct Soldier {
     /// Last tick's contact kept the flatter floor's normal over a steeper face
     /// it met ([`Soldier::resolve_ground`], the flattest normal; card SKIRT).
     pub kept_flat: bool,
+    /// The draw a throw's landing compares with [`KNOCK_TUMBLE_DRAW`] (card
+    /// KNOCK; the PS2 draws its LCG at the landing, the port at the push).
+    pub knock_draw: f32,
+    /// The get-up's lock also holds the trigger (§2: the PS2 clears the
+    /// trigger bytes while S+0xc0c runs).
+    pub fire_lock: bool,
     /// The previous tick's pad word — the EDGE source for every contextual
     /// button, and (Phase D) for the squad commands `Sim::step` phase 0b reads.
     /// NOT hashed: it is a copy of a pad the input log already determines, so a
@@ -309,6 +334,14 @@ impl GroundRules {
         match self {
             GroundRules::Bf1 => 0.2,
             GroundRules::Bf2 => 1.0,
+        }
+    }
+
+    /// Gravity in the thrown and get-up states ([`BF1_THROWN_GRAVITY`]).
+    fn thrown_gravity(self) -> f32 {
+        match self {
+            GroundRules::Bf1 => BF1_THROWN_GRAVITY,
+            GroundRules::Bf2 => GRAVITY,
         }
     }
 
@@ -389,6 +422,69 @@ const SPRINT_START_SHARE: f32 = 0.9;
 /// PROVISIONAL sprint-recovery threshold for the depleted latch.
 pub const ENERGY_RECOVER_THRESHOLD: f32 = 25.0;
 
+// ── A blast's push and what follows (card KNOCK, `analysis/re-knockback.md`) ──
+
+/// The push's lift: `normalize(d) + (0, this, 0)`, not renormalised (B1
+/// FUN_002009a0, ELF 0x3f19999a; §1).
+pub const KNOCK_LIFT: f32 = 0.6;
+/// BF1's apply (FUN_002008b0, §1): a new v.y over this throws him...
+pub const KNOCK_THROW_VY: f32 = 2.0;
+/// ...else a ground speed over this (DAT_00517874) tumbles him.
+pub const KNOCK_TUMBLE_SPEED: f32 = 2.0;
+/// BF2's apply (FUN_002388b8, §4): thrown when v . floor normal is over
+/// this, else tumbling when |v|^2 is over [`BF2_KNOCK_TUMBLE_SQ`].
+pub const BF2_KNOCK_THROW_VN: f32 = 3.0;
+pub const BF2_KNOCK_TUMBLE_SQ: f32 = 64.0;
+/// BF2's airborne soldier is thrown only by a push this strong (§4: "a
+/// flinch below scale 8 and 5"; PROVISIONAL [H]: which state takes which,
+/// and the flinch itself, are not built).
+pub const BF2_KNOCK_AIR_SCALE: f32 = 5.0;
+/// BF1's gravity in the thrown and get-up states (B1:119278-119299; every
+/// other state has [`GRAVITY`]). BF2 throws with its air integrator: 18
+/// and the drag.
+pub const BF1_THROWN_GRAVITY: f32 = 13.5;
+/// A throw lands only this long into it (B1:117586-117607, B2
+/// B2:160614-160653), then tumbles over [`KNOCK_LAND_FAST`]^2, or over
+/// [`KNOCK_LAND_SLOW`]^2 when the draw is over [`KNOCK_TUMBLE_DRAW`]; else
+/// it gets up.
+pub const THROWN_LAND_AFTER: f32 = 0.3;
+pub const KNOCK_LAND_FAST: f32 = 6.0;
+pub const KNOCK_LAND_SLOW: f32 = 3.0;
+pub const KNOCK_TUMBLE_DRAW: f32 = 0.3;
+/// The integrator's brake (B1:119197-119214): on a floor of normal y over
+/// [`KNOCK_BRAKE_MIN_NY`] (DAT_005178ac) the forward and side speeds each
+/// fall by Acceleration x dt x this (DAT_005178a4) x the state's brake.
+pub const KNOCK_BRAKE_SHARE: f32 = 0.6;
+pub const KNOCK_BRAKE_MIN_NY: f32 = 0.75;
+/// The tumble's brake (B1:117692-117714: 8.4 m/s^2 at Acceleration 70) and
+/// its end: after [`TUMBLE_MIN`] under [`TUMBLE_END_SPEED`], or at the
+/// game's longest (BF1 2.5 s, BF2 0.75 s).
+pub const TUMBLE_BRAKE: f32 = 0.2;
+pub const TUMBLE_MIN: f32 = 0.5;
+pub const TUMBLE_END_SPEED: f32 = 4.0;
+pub const BF1_TUMBLE_MAX: f32 = 2.5;
+pub const BF2_TUMBLE_MAX: f32 = 0.75;
+/// The get-up's brake (B1:117715-117737: 16.8 m/s^2) and its end on the
+/// ground: under [`GETUP_END_SPEED`] or after [`GETUP_MAX`].
+pub const GETUP_BRAKE: f32 = 0.4;
+pub const GETUP_END_SPEED: f32 = 0.6;
+pub const GETUP_MAX: f32 = 1.0;
+/// The lock after the get-up: BF1 the length of `stand_getupfront`, 58
+/// frames (B1:118536-118538; [M] 1.9333 s), no move, turn, fire or jump.
+/// BF2's is `re-anim-banks.md`'s stand-up lock, not re-read (PROVISIONAL).
+pub const BF1_GETUP_LOCK: f32 = 58.0 / 30.0;
+pub const BF2_GETUP_LOCK: f32 = 1.9;
+/// A death kicks the body this much along the hit (B1 FUN_00200f90,
+/// DAT_00517878; BF2 FUN_002395a8's literal; §3 [M] 5.0 +- 0.15 m/s).
+pub const DEATH_KICK: f32 = 5.0;
+/// A corpse's body leaves the world this long into the dead state (B1
+/// B1:117521-117555, B2 B2:160981-161039).
+pub const CORPSE_SECS: f32 = 4.0;
+/// BF2's corpse brake, m/s^2 at a second dead and after (min(t, 1)^2 x
+/// this into FUN_002480a0's acceleration, B2:160997); BF1's is min(t, 1)^2
+/// as the brake ([`KNOCK_BRAKE_SHARE`] x Acceleration: 42 m/s^2).
+pub const BF2_CORPSE_BRAKE: f32 = 100.0;
+
 impl Soldier {
     pub fn new(pos: Vec3) -> Self {
         Self {
@@ -408,6 +504,8 @@ impl Soldier {
             air_time: 0.0,
             floor_overlap: FLOOR_CONTACT_GAP,
             kept_flat: false,
+            knock_draw: 0.0,
+            fire_lock: false,
             prev_buttons: 0,
         }
     }
@@ -529,6 +627,7 @@ impl Soldier {
         self.lock_timer = (self.lock_timer - dt).max(0.0);
         if self.lock_timer <= 0.0 {
             self.lock_hard = false;
+            self.fire_lock = false;
         }
         // BF1 hard lock (FUN_00205cc8 t<10 band): movement + turn frozen.
         let frozen = self.lock_hard && self.lock_timer > 0.0;
@@ -563,6 +662,10 @@ impl Soldier {
                     self.lock_timer = c.soft_lock;
                 }
             }
+            // A throw and its tail take no command; they end in the movement
+            // below, after the update's integration, as on the PS2 (card
+            // KNOCK: the landing row keeps the flight's speed).
+            Stance::Thrown | Stance::Tumble | Stance::GetUp | Stance::Dead => {}
             Stance::Jump | Stance::Fall => {
                 if self.grounded && !first_air {
                     self.set_stance(Stance::Stand);
@@ -708,6 +811,35 @@ impl Soldier {
                 self.vel -= n * vn;
             }
         }
+        if self.stance == Stance::Thrown {
+            // The jump's stick (BF1 cases 4-6; BF2's air integrator), with
+            // no gravity while the floor bit is still set: the update after
+            // the push moves him straight off it (§2 [M]).
+            let grounded = self.grounded;
+            self.air_steer(dt, fwd_in, strafe_in, (t1, t2), c, rules, grounded);
+            if !grounded {
+                self.vel.y -= rules.thrown_gravity() * dt;
+            }
+            self.pos += self.vel * dt;
+            if grounded && self.time_in_stance > THROWN_LAND_AFTER {
+                let sp2 = self.vel.length_squared();
+                let tumble = sp2 > KNOCK_LAND_FAST * KNOCK_LAND_FAST
+                    || (sp2 > KNOCK_LAND_SLOW * KNOCK_LAND_SLOW
+                        && self.knock_draw > KNOCK_TUMBLE_DRAW);
+                self.set_stance(if tumble {
+                    Stance::Tumble
+                } else {
+                    Stance::GetUp
+                });
+            }
+            self.prev_buttons = pad.buttons;
+            return;
+        }
+        if matches!(self.stance, Stance::Tumble | Stance::GetUp | Stance::Dead) {
+            self.knock_slide(dt, (t1, t2), n, c, rules);
+            self.prev_buttons = pad.buttons;
+            return;
+        }
         if matches!(self.stance, Stance::Jump | Stance::Fall) {
             self.air_steer(dt, fwd_in, strafe_in, (t1, t2), c, rules, first_air);
             if !first_air {
@@ -765,6 +897,139 @@ impl Soldier {
         }
 
         self.prev_buttons = pad.buttons;
+    }
+
+    /// The tumble, the get-up and a corpse (card KNOCK, §2-§4): no stick; on
+    /// the floor the forward and side speeds each brake toward 0 by the
+    /// state's rate ([`KNOCK_BRAKE_SHARE`] x Acceleration x the brake; BF1
+    /// only on a floor of normal y over [`KNOCK_BRAKE_MIN_NY`], BF2 a tenth
+    /// of it under its climb limit), in the air gravity (BF1's get-up
+    /// [`BF1_THROWN_GRAVITY`]); then the state's end.
+    fn knock_slide(
+        &mut self,
+        dt: f32,
+        (t1, t2): (Vec3, Vec3),
+        n: Vec3,
+        c: &SoldierConstants,
+        rules: GroundRules,
+    ) {
+        let bf1 = rules == GroundRules::Bf1;
+        let t = self.time_in_stance;
+        let decel = match self.stance {
+            Stance::Tumble => c.acceleration * KNOCK_BRAKE_SHARE * TUMBLE_BRAKE,
+            Stance::GetUp => c.acceleration * KNOCK_BRAKE_SHARE * GETUP_BRAKE,
+            _ => {
+                let k = t.min(1.0) * t.min(1.0);
+                if bf1 {
+                    c.acceleration * KNOCK_BRAKE_SHARE * k
+                } else {
+                    BF2_CORPSE_BRAKE * k
+                }
+            }
+        };
+        if self.grounded {
+            let floor = match rules {
+                GroundRules::Bf1 if n.y > KNOCK_BRAKE_MIN_NY => 1.0,
+                GroundRules::Bf1 => 0.0,
+                GroundRules::Bf2 => rules.slope_control(n.y),
+            };
+            let a = decel * floor * dt;
+            let (f, s) = (self.vel.dot(t1), self.vel.dot(t2));
+            let (nf, ns) = (f - f.clamp(-a, a), s - s.clamp(-a, a));
+            self.vel += t1 * (nf - f) + t2 * (ns - s);
+        } else {
+            let g = if self.stance == Stance::GetUp {
+                rules.thrown_gravity()
+            } else {
+                GRAVITY
+            };
+            self.vel.y -= g * dt;
+        }
+        self.pos += self.vel * dt;
+        let sp2 = self.vel.length_squared();
+        match self.stance {
+            Stance::Tumble => {
+                let max = if bf1 { BF1_TUMBLE_MAX } else { BF2_TUMBLE_MAX };
+                if t > TUMBLE_MIN && (sp2 < TUMBLE_END_SPEED * TUMBLE_END_SPEED || t >= max) {
+                    self.set_stance(Stance::GetUp);
+                }
+            }
+            Stance::GetUp
+                if self.grounded && (sp2 < GETUP_END_SPEED * GETUP_END_SPEED || t > GETUP_MAX) =>
+            {
+                self.set_stance(Stance::Stand);
+                self.lock_timer = if bf1 { BF1_GETUP_LOCK } else { BF2_GETUP_LOCK };
+                self.lock_hard = true;
+                self.fire_lock = true;
+            }
+            _ => {}
+        }
+    }
+
+    /// A blast's push (card KNOCK, §1 / §4): `dir` = normalize(d) + (0,
+    /// [`KNOCK_LIFT`], 0), `scale` = Push x the falloff; `draw` is the
+    /// landing's [`KNOCK_TUMBLE_DRAW`] roll. The caller has tested the
+    /// skipped states ([`Stance::knocked`], a seat).
+    /// - **BF1** (FUN_002008b0): v += dir x scale; a v.y over
+    ///   [`KNOCK_THROW_VY`] throws him, else a ground speed over
+    ///   [`KNOCK_TUMBLE_SPEED`] tumbles him.
+    /// - **BF2** (FUN_002388b8): half the velocity against `dir` goes first;
+    ///   thrown in the air by a push of [`BF2_KNOCK_AIR_SCALE`] or more, on
+    ///   the floor when v . its normal is over [`BF2_KNOCK_THROW_VN`], else
+    ///   tumbling over [`BF2_KNOCK_TUMBLE_SQ`] (its flinch is not built).
+    ///
+    /// The state setter refuses a corpse ([`Stance::Dead`]): it keeps the
+    /// velocity and its state (B1 FUN_00209758).
+    pub fn knock(&mut self, dir: Vec3, scale: f32, rules: GroundRules, draw: f32) {
+        self.knock_draw = draw;
+        let next = match rules {
+            GroundRules::Bf1 => {
+                self.vel += dir * scale;
+                if self.vel.y > KNOCK_THROW_VY {
+                    Some(Stance::Thrown)
+                } else if self.vel.x * self.vel.x + self.vel.z * self.vel.z
+                    > KNOCK_TUMBLE_SPEED * KNOCK_TUMBLE_SPEED
+                {
+                    Some(Stance::Tumble)
+                } else {
+                    None
+                }
+            }
+            GroundRules::Bf2 => {
+                let along = self.vel.dot(dir);
+                if along < 0.0 {
+                    self.vel -= dir * (0.5 * along);
+                }
+                self.vel += dir * scale;
+                if self.stance == Stance::Thrown {
+                    None
+                } else if !self.grounded || matches!(self.stance, Stance::Jump | Stance::Fall) {
+                    (scale >= BF2_KNOCK_AIR_SCALE).then_some(Stance::Thrown)
+                } else if self.vel.dot(self.ground_n) > BF2_KNOCK_THROW_VN {
+                    Some(Stance::Thrown)
+                } else if self.vel.length_squared() > BF2_KNOCK_TUMBLE_SQ {
+                    Some(Stance::Tumble)
+                } else {
+                    None
+                }
+            }
+        };
+        if let Some(s) = next.filter(|&s| s != self.stance && self.stance != Stance::Dead) {
+            self.set_stance(s);
+        }
+    }
+
+    /// A death's kick: [`DEATH_KICK`] m/s along `dir` (§3).
+    pub fn kick(&mut self, dir: Vec3) {
+        self.vel += dir.normalize_or_zero() * DEATH_KICK;
+    }
+
+    /// Thrown, tumbling, getting up, dead, or in the get-up's lock: the
+    /// trigger is held off (§2).
+    pub fn no_fire(&self) -> bool {
+        self.stance.knocked()
+            || self.stance == Stance::Dead
+            || (self.fire_lock && self.lock_timer > 0.0)
     }
 
     /// The jump, applied to the velocity the update's ground mover left (card
@@ -1016,10 +1281,16 @@ impl Soldier {
             self.ground_n.z,
             self.air_time,
             self.floor_overlap,
+            self.knock_draw,
         ] {
             eat(&v.to_bits().to_le_bytes());
         }
-        eat(&[self.stance as u8, self.grounded as u8, self.kept_flat as u8]);
+        eat(&[
+            self.stance as u8,
+            self.grounded as u8,
+            self.kept_flat as u8,
+            self.fire_lock as u8,
+        ]);
     }
 }
 

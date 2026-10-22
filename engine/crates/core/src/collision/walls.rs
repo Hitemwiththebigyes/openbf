@@ -1295,13 +1295,13 @@ mod tests {
         // A low box on a hull at -3 m: its top (0.9 m) is over the step and
         // under the lifted capsule's round bottom — an AT-ST foot.
         let owner = crate::vehicle::VehicleHandle { index: 0, gen: 0 };
-        let part = crate::collision::HullPart {
-            local: Mat4::IDENTITY,
-            shape: Shape::Box {
+        let part = crate::collision::HullPart::new(
+            Mat4::IDENTITY,
+            Shape::Box {
                 half: Vec3::new(0.5, 0.45, 2.0),
             },
-            layers: Layers::ALL,
-        };
+            Layers::ALL,
+        );
         world.set_hull(
             owner,
             &[part],

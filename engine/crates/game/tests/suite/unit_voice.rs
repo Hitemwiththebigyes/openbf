@@ -70,6 +70,7 @@ fn the_events_ask_the_victims_cries() {
         damage,
         age: 0.1,
         health_left,
+        dir: glam::Vec3::NEG_Z,
     };
     let hurt = (me.index, Some("hurt_x".to_owned()), false);
     let death = (me.index, Some("death_x".to_owned()), true);
@@ -138,6 +139,7 @@ fn the_cry_is_the_victims_class() {
             damage: 40.0,
             age: 0.0,
             health_left: 100.0,
+            dir: glam::Vec3::NEG_Z,
         }];
         let got = asked(&w);
         assert_eq!(got[0].0, victim.index);

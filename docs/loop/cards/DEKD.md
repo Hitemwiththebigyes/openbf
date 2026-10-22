@@ -5,7 +5,7 @@ milestone: M1
 value: 4
 phase: build
 status: todo
-deps: DEKU,DEKS
+deps: DEKU
 files: engine/crates/bake/src/droideka.rs,engine/crates/bake/src/main.rs,engine/crates/game/src/droideka_vis.rs,engine/crates/game/src/soldier_vis.rs,engine/crates/game/src/assets.rs,scripts/rebake.sh,engine/goldens/deps.toml
 declares: rebake=side; goldens=(the new droideka sheet, named at build)
 needs:
@@ -14,6 +14,7 @@ branch:
 resume:
 created: 2026-10-03
 alpha: yes
+first: 7
 ---
 ## Why
 `analysis/re-droideka-unit.md` section 4 [O]: the model, its bank and its states are known; the port bakes neither. A unit the sim holds (DEKU) must be seen before it is fielded (DEKF).
@@ -31,3 +32,6 @@ alpha: yes
 ## Notes
 - First person (`droidekafp`, 4 clips) is not in scope.
 - 2026-10-06 planner: `engine/CRATES.md` taken out of `files:`. The picker refuses a card whose files overlap a card in progress, and 22 open cards listed the map, so any one of them held the other 21 (a chain card in progress held WADE and WTHR). The map's row for a new or moved source file is still owed in the same branch (`scripts/size_report.sh --check-map`); a rebase conflict in it is one line. Undo: add the path back.
+
+## Planner note
+Planner 2026-10-21 20:50 (the maintainer via INBOX 17:50 item 3: DEKF + DEKD before DEKS if the shield blocks the draw): dep DEKS dropped, `first: 7`. The shield bubble's draw moves to DEKS; this card draws the body, its clips and sounds.

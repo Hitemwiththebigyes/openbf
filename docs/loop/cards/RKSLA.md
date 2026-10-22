@@ -1,0 +1,28 @@
+---
+id: RKSLA
+title: Rocket hold rules, the RKSLF audit's fixes: test the press-tick shot (BF1's rocket launcher, the torpedo launchers, the bulldog fire on the press), the AI-only condition, the +1 m margin, hulls / soldiers / open air in the check's ray; place the impact blast 0.2 m along the struck surface's normal (the PS2's), not back along the flight; bound a held charge (102 spells over 3 s in 256 rounds, 10.9 s worst, the bot standing)
+milestone: M3
+value: 4
+phase: build
+status: todo
+deps:
+files: engine/crates/core/src/sim/step.rs, engine/crates/core/src/ai/gunner_foot.rs, engine/crates/core/src/sim/combat.rs, engine/crates/core/src/projectile.rs, engine/crates/core/src/weapon.rs, engine/crates/game/src/fx.rs
+declares: sim; sweep; arena
+needs:
+effort:
+branch:
+resume:
+created: 2026-10-20
+alpha: yes
+---
+## Why
+AUDIT RKSLF 2026-10-20 (engine/artifacts/loop/audits.md; evidence engine/artifacts/lead_tmp/audit-rkslf/, wf/summary.txt + summary2.txt). The landed release check works in battle (on-foot rocket blasts killing self / mates 417 -> 11 in 256 rounds, no own-side casualty from a shot it could see), but:
+1. Its one scene test (`sim::step::tests::a_bot_fires_no_rocket_into_the_wall_before_it`) covers a latched salvo and a charge release only. 14 of 21 audit mutations survived: S3 / S7 (a non-charge launcher pressed this tick is not checked - BF1 rep_weap_inf_rocket_launcher, the cis / imp / rep torpedo launchers, BF2 cis_weap_inf_bulldog all fire in the press update: InitialSalvoDelay 0, no MaxPressedTime), S6 (the check would also hold a HUMAN's rocket), R3 / R10 / F2 (the +1 m margin: every holder in the scenes is 2.2-2.4 m from the blast), R4 (blast point sign), R5 (an open-air shot held), R7 / R8 (the ray through hulls / soldiers), R2 / F1 (mounted mates). cc40b5d's premise "every exploding launcher the bots carry is a charge weapon" is false (only the mortars 0.75 and BF2's arc caster 2.5).
+2. The PS2 puts the impact blast at hit + 0.2 x the struck SURFACE NORMAL (B1 FUN_00272d70's argument 4 = the ray cast's normal-out passed into FUN_00276810; the grenade handler in the same slot reflects about it, FUN_0027b068 B1:201281-201300; both audit verifiers), not 0.2 m back along the flight (`core::weapon::EXPLOSION_OFFSET`, [H] in the code; game::fx uses the same).
+3. A held charge has no bound: 102 hold spells over 3 s (99 charge, 87 moved under 2 m), worst 10.9 s (bf2_cor1 s5 slot 32, ticks 8154-8480; tat2 s4 slot 19 3888-4163; bf2_fel1 s3 slot 20 9830-10072); the shot that ends a long spell mostly hits world geometry (183 of 281). One non-charge bot held 7.3 s while boarding next to an enemy vehicle 4.9 m off, and died (bf1_hot1 s4 slot 1, 8566-8783).
+## Acceptance
+- The scene test gains: a non-charge launcher (InitialSalvoDelay 0, TriggerSingle) pressed facing the near wall -> 0 shots, 0 HP lost (audit mutation S3 caught); a human player's rocket at the near wall leaves (S6 caught); a mate 4.5 m from the blast holds it (R3 / R10; friend_in_blast's test at 4.5 m for F2); an open-air shot leaves (R5); an enemy soldier / a hull 2.5 m on the line holds it (R8 / R7). Re-run `lead_tmp/audit-rkslf/tools/mk_mut.py` S3 S6 R3 R5 R7 R8 R10 F2 through `mut_run_nolock.sh` (under ci.lock): each fails a test.
+- The blast at hit + 0.2 x normal (Bolt::spawn returns the hit normal), a test of a glancing wall hit; the fx's drawn explosion at the same point.
+- Held-charge spells over 3 s on the 32-map sweep, seeds 1-8 (the audit's observer, `tools/audit_rk.rs` + `obs_patch.py`, AUDIT_RKH runs): 102 -> 20 or fewer, with on-foot rocket blast self + mate kills not above 11 and on-foot AI exploding shots a round not below 170.
+## Notes
+Also fix: step.rs's comment "as the PS2's put-away cancels one" (the PS2 also cancels a latched salvo when the clip is short, B1:211403); gunner_foot's test note "No roster soldier carries a charge weapon today" (the mortars do). Not built: a deflected bolt neither damages nor explodes on the PS2 (B1 FUN_00276810 returns before both, B1:197917; B2:304600) - only if the port deflects bolts.

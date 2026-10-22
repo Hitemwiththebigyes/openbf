@@ -5,7 +5,7 @@ milestone: M1
 value: 4
 phase: build
 status: todo
-deps: DEKU,DEKS,DEKD,SPL11
+deps: DEKU,DEKD,SPL11
 files: engine/crates/game/src/roster.rs,engine/crates/core/src/ai/droideka.rs,engine/crates/core/src/ai/behave.rs,engine/crates/core/src/ai/mover.rs,engine/crates/core/src/sim/spawn.rs,engine/crates/game/src/walk.rs
 declares: sweep; arena; sim; goldens=(any battle golden with a CIS team: list at build)
 needs:
@@ -14,6 +14,7 @@ branch:
 resume:
 created: 2026-10-03
 alpha: yes
+first: 8
 ---
 ## Why
 UAUD1 / UAUD2: `cis_inf_droideka` is in AddUnitClass on all 13 BF1 and 16 BF2 Clone Wars missions and alive in every CW save state; `ClassRoster::build` rejects it (BASE chain ends at walkerdroid). With DEKU / DEKS / DEKD landed this card puts it into the battle.
@@ -32,3 +33,6 @@ UAUD1 / UAUD2: `cis_inf_droideka` is in AddUnitClass on all 13 BF1 and 16 BF2 Cl
 - deps SPL11 so the form order sits on the new mover seam (bot design); if SPL11 is still held when DEKU / DEKS / DEKD are in, the planner may drop the dep - the hook into today's brain is small (an order field written by the fight state's enter / think / exit).
 - The bot design (analysis/bot-design.md) has no droideka section; this card's rules are the PS2's, deviations to be named there if the maintainer asks.
 - 2026-10-06 planner: `engine/CRATES.md` taken out of `files:`. The picker refuses a card whose files overlap a card in progress, and 22 open cards listed the map, so any one of them held the other 21 (a chain card in progress held WADE and WTHR). The map's row for a new or moved source file is still owed in the same branch (`scripts/size_report.sh --check-map`); a rebase conflict in it is one line. Undo: add the path back.
+
+## Planner note
+Planner 2026-10-21 20:50 (the maintainer via INBOX 17:50 item 3): dep DEKS dropped, `first: 8`. The bot's shield raise (down and over half -> raise) and the player's shield press move to DEKS; this card fields the droideka without a shield.

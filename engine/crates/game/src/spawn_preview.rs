@@ -11,8 +11,12 @@
 //! `lead_tmp/ssel/t1_hot1/s0_team1.png` against `s2_auto.png`), shrunk
 //! about the eye by [`SHRINK`] (a uniform scale about the eye leaves the
 //! picture as it is and brings him within a metre and a half, nearer than
-//! any map piece of a camera shot), lit by the map's lights and tinted by
-//! the colour word read as 0xa0 / 0xff [H].
+//! any map piece of a camera shot). Every screen soldier is lit as the
+//! PS2 lights a UI model (`analysis/re-spawn-flow.md` §4.2): by the
+//! interface light set, not the map's ([`render::LightPath::Iface`]), times
+//! his colour word ([`colour_unit`]). A class the PS2 refuses stands black
+//! there (the colour word 0, B2:394375-394380; `SpawnPage::Class`'s
+//! `refused`, from `Sim::class_refusal`, re-spawn-flow §4.3).
 //!
 //! He is DIMMED with the backdrop [M]: the PS2's frames hold their soldiers
 //! at about half the light they have in play (the Snowtrooper's armour
@@ -50,9 +54,17 @@ pub const SIDE_AT: Vec3 = Vec3::new(-0.80, -1.054, 4.26);
 /// `lead_tmp/sselb/tools/side_iou.py`).
 pub const SOLDIER_YAW: f32 = 0.0;
 
-/// The side preview's colour word 0xffa0a0a0 (`B2:391928`) as a tint of
-/// his light [H].
-pub const SIDE_TINT: f32 = 160.0 / 255.0;
+/// The side preview's colour word 0xffa0a0a0 (`B2:391928`) as a factor on
+/// his light.
+pub const SIDE_TINT: u8 = 0xa0;
+
+/// A colour word's byte as the factor [`render::LightPath::Iface`] puts on
+/// the light: byte / 255 [M] (on the Hoth frames byte / 128 left the side
+/// Snowtrooper clipped white - p50 121 against the PS2's 61 - under every
+/// sign of the light; `lead_tmp/sselb/tools/light_score.py`, `s7/`).
+pub fn colour_unit(byte: u8) -> f32 {
+    f32::from(byte) / 255.0
+}
 
 /// The scale about the eye the screens' soldiers are drawn at (the picture
 /// is the same; module doc).
@@ -156,7 +168,12 @@ pub fn lineup_at(ring: f32) -> (Vec3, [f32; 4]) {
     let x = lerp(SLOTS[i][0], SLOTS[j][0]);
     let z = lerp(SLOTS[i][1], SLOTS[j][1]);
     let colour = std::array::from_fn(|k| {
-        lerp(f32::from(SLOT_COLOURS[i][k]), f32::from(SLOT_COLOURS[j][k])) / 255.0
+        let (a, b) = (SLOT_COLOURS[i][k], SLOT_COLOURS[j][k]);
+        if k == 3 {
+            lerp(f32::from(a), f32::from(b)) / 255.0
+        } else {
+            lerp(colour_unit(a), colour_unit(b))
+        }
     });
     let ui = RING_AT + Vec3::new(x, 0.0, z) * RING_SCALE;
     (ui_to_camera(ui), colour)
@@ -253,6 +270,10 @@ impl Preview {
             }) if *classes > 0 => Some((*team, *class, *classes)),
             _ => None,
         };
+        let refused = match page {
+            Some(SpawnPage::Class { refused, .. }) => *refused,
+            _ => 0,
+        };
         let same_team = matches!((self.lineup, line), (Some((a, _)), Some((b, _, _))) if a == b);
         if who != self.shown
             || (line.is_some() && !same_team)
@@ -268,7 +289,16 @@ impl Preview {
         if let Some((team, class)) = who {
             self.animators.resize_with(1, Animator::default);
             let model = place(cam, SIDE_AT, SOLDIER_YAW);
-            self.stand_nth(0, vis, team, class, model, [SIDE_TINT; 3], dt, &mut out);
+            self.stand_nth(
+                0,
+                vis,
+                team,
+                class,
+                model,
+                [colour_unit(SIDE_TINT); 3],
+                dt,
+                &mut out,
+            );
         }
         if let Some((team, pick, n)) = line {
             let from = self.lineup.map_or(pick, |(_, c)| c);
@@ -296,7 +326,13 @@ impl Preview {
                 }
                 let class = u8::try_from(j).unwrap_or(u8::MAX);
                 let model = place_at(cam, at, SOLDIER_YAW, LINEUP_SHRINK);
-                let tint = [colour[0], colour[1], colour[2]];
+                // A refused class's colour word is (0, 0, 0, 0xff): black
+                // (`FUN_0039a980`, B2:394368-394383).
+                let tint = if refused >> j & 1 != 0 {
+                    [0.0; 3]
+                } else {
+                    [colour[0], colour[1], colour[2]]
+                };
                 self.stand_nth(j, vis, team, class, model, tint, dt, &mut out);
             }
         }
@@ -322,8 +358,14 @@ impl Preview {
             return;
         };
         let tint = |c: &mut [f32; 4]| c[..3].iter_mut().zip(tint).for_each(|(v, t)| *v *= t);
-        body.iter_mut().for_each(|d| tint(&mut d.color));
-        gun.iter_mut().for_each(|d| tint(&mut d.color));
+        body.iter_mut().for_each(|d| {
+            tint(&mut d.color);
+            d.light = render::LightPath::Iface;
+        });
+        gun.iter_mut().for_each(|d| {
+            tint(&mut d.color);
+            d.light = render::LightPath::Iface;
+        });
         out.0.extend(body);
         out.1.extend(gun);
     }

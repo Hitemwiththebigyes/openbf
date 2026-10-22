@@ -27,6 +27,7 @@ pub mod leaf;
 mod look;
 mod pickups;
 mod scene;
+pub mod stations;
 pub mod turret_pose;
 mod upload;
 mod vehicles;

@@ -605,3 +605,70 @@ fn every_flyer_class_reads_the_ps2s_landed_height() {
     }
     println!("LandedHeight: {checked} classes equal the table");
 }
+
+/// Card PWST (`analysis/re-powerup-station.md` §2.2, measured in RAM on NAB1
+/// and HOT1): a conquest battle's `vehicle_pads::install` places every
+/// health, ammo and vehicle droid of the six showcase maps' loaded layers,
+/// each with its instance `Radius` (5.0; the vehicle droids 15.0), and the
+/// classes' numbers are the discs'.
+#[test]
+fn the_showcase_maps_place_their_droids() {
+    let want = [
+        ("bf1_nab1", "bf1_nab1_con", [5, 5, 5]),
+        ("tat1", "tat1_con", [4, 5, 2]),
+        ("bf1_yav2", "bf1_yav2_con", [9, 9, 0]),
+        ("bf2_uta1", "bf2_uta1_con", [7, 10, 0]),
+        ("bf2_myg1", "bf2_myg1_con", [5, 7, 0]),
+        ("bf2_hot1", "bf2_hot1_con", [9, 9, 0]),
+    ];
+    let classes = game::assets::baked_root().join("classes");
+    let mut ran = 0;
+    for (map, mission, [health, ammo, vehicle]) in want {
+        let dir = game::assets::baked_root().join(map);
+        let (Some(m), Ok(mission)) = (
+            conquest_manifest(&dir),
+            MissionDef::load(&missions_dir().join(format!("{mission}.ron"))),
+        ) else {
+            eprintln!("SKIP: no {map} bake");
+            continue;
+        };
+        let mut sim = core::sim::Sim::empty(1);
+        game::vehicle_pads::install(&mut sim, &m, &dir, &classes, &mission.factions())
+            .expect("install");
+        let count = |name: &str, r: f32| {
+            sim.stations
+                .iter()
+                .filter(|s| {
+                    let c = &sim.station_classes[usize::from(s.class)];
+                    c.name == name && s.radius == r
+                })
+                .count()
+        };
+        let got = [
+            count("com_item_healthrecharge", 5.0),
+            count("com_item_weaponrecharge", 5.0),
+            count("com_item_vehiclerecharge", 15.0),
+        ];
+        eprintln!(
+            "{map}: {} stations, health / ammo / vehicle {got:?}",
+            sim.stations.len()
+        );
+        assert_eq!(got, [health, ammo, vehicle], "{map}");
+        assert_eq!(sim.stations.len(), health + ammo + vehicle, "{map}");
+        let bf2 = m.source_game.eq_ignore_ascii_case("bf2");
+        for c in &sim.station_classes {
+            let (delay, hp, clips, veh) = match c.name.as_str() {
+                "com_item_healthrecharge" => (1.0, if bf2 { 25.0 } else { 15.0 }, 0, 0.0),
+                "com_item_weaponrecharge" => (2.0, 0.0, 1, 0.0),
+                "com_item_vehiclerecharge" => (1.0, 0.0, 0, 400.0),
+                other => panic!("{map}: unexpected station class {other}"),
+            };
+            assert_eq!(c.delay, delay, "{map} {}", c.name);
+            assert_eq!(c.health, [hp, 0.0, hp, veh, 0.0], "{map} {}", c.name);
+            let vclip = u32::from(veh > 0.0);
+            assert_eq!(c.ammo, [clips, 0, clips, vclip, 0], "{map} {}", c.name);
+        }
+        ran += 1;
+    }
+    eprintln!("{ran} of 6 maps checked");
+}

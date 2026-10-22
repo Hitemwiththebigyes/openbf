@@ -24,6 +24,9 @@ pub struct MenuModel {
     pub cursor: usize,
     /// Round result line, if the round is over.
     pub outcome_line: Option<String>,
+    /// The shell's settings page (card BSHLA: Options → Game / Audio
+    /// Options): titled by `title`, its first row "Back", no Quit row.
+    pub in_shell: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -67,7 +70,9 @@ pub fn rows(m: &MenuModel) -> Vec<Row> {
     v.push(Row::AiCap);
     v.push(Row::Fov);
     v.push(Row::Music);
-    v.push(Row::Quit);
+    if m.in_shell.is_none() {
+        v.push(Row::Quit);
+    }
     v
 }
 
@@ -167,7 +172,7 @@ pub fn draw_menu(ctx: &egui::Context, m: &MenuModel) -> Vec<MenuAction> {
                 .show(ui, |ui| {
                     ui.vertical_centered(|ui| {
                         ui.label(
-                            RichText::new("PAUSED")
+                            RichText::new(m.in_shell.as_deref().unwrap_or("PAUSED"))
                                 .size(28.0)
                                 .color(Color32::WHITE)
                                 .strong(),
@@ -181,7 +186,14 @@ pub fn draw_menu(ctx: &egui::Context, m: &MenuModel) -> Vec<MenuAction> {
                     for (i, row) in rows.iter().enumerate() {
                         let sel = i == m.cursor;
                         let clicked = match row {
-                            Row::Resume => row_label(ui, sel, "Resume".into(), None),
+                            Row::Resume => {
+                                let back = if m.in_shell.is_some() {
+                                    "Back"
+                                } else {
+                                    "Resume"
+                                };
+                                row_label(ui, sel, back.into(), None)
+                            }
                             Row::Cheat(k) => {
                                 let (_, label, on) = m.cheats[*k];
                                 row_label(
@@ -399,6 +411,7 @@ mod tests {
             music_volume: 1.0,
             cursor: 0,
             outcome_line: None,
+            in_shell: None,
         }
     }
 

@@ -927,3 +927,45 @@ fn a_strafe_twists_the_legs_and_the_aim_turns_back() {
         r.a.aim().eased()
     );
 }
+
+/// Card KNOCK (re-knockback §2): a thrown, tumbling or getting-up body -
+/// alive, or killed by the blast that threw it - plays the PS2's `thrown_*`
+/// clips by its velocity against the body, and every one of them is in both
+/// games' special tables (B1 0x517af0, BF2's simple pairs).
+#[test]
+fn thrown_states_take_the_thrown_clips() {
+    let at = |stance, vel: glam::Vec2, dead| {
+        let mut i = input(0.0);
+        i.stance = stance;
+        i.vel = vel;
+        i.dead = dead;
+        stance_of(&i, Game::Bf1)
+    };
+    let (fwd, back, left) = (
+        glam::Vec2::Y * 9.0,
+        -glam::Vec2::Y * 9.0,
+        glam::Vec2::X * 9.0,
+    );
+    assert_eq!(at(Stance::Thrown, fwd, false), Err(Special::Flying(0)));
+    assert_eq!(at(Stance::Thrown, back, true), Err(Special::Flying(1)));
+    assert_eq!(at(Stance::Thrown, left, false), Err(Special::Flying(2)));
+    assert_eq!(at(Stance::Thrown, -left, false), Err(Special::Flying(3)));
+    assert_eq!(at(Stance::Tumble, back, true), Err(Special::Tumble(true)));
+    assert_eq!(at(Stance::GetUp, fwd, false), Err(Special::Land(false)));
+    assert_eq!(at(Stance::Dead, fwd, true), Err(Special::Dead));
+    for sp in [
+        Special::Flying(0),
+        Special::Flying(1),
+        Special::Flying(2),
+        Special::Flying(3),
+        Special::Tumble(false),
+        Special::Tumble(true),
+        Special::Land(false),
+        Special::Land(true),
+        Special::Rest(false),
+        Special::Rest(true),
+    ] {
+        assert!(bf1::SPECIAL.contains(&sp.name()), "{}", sp.name());
+        assert!(bf2::simple_pair(sp.name()).is_some(), "{}", sp.name());
+    }
+}

@@ -13,6 +13,7 @@ effort:
 branch:
 resume:
 created: 2026-10-15
+alpha: yes
 ---
 ## Why
 Found by card VRIDE's RE (analysis/re-vehicle-riders.md 5, 2.2): a vehicle's TURRET section is the same MountedTurret as a building turret - its tick writes the TurretNodeName / AimerNodeName / barrel matrices into the VEHICLE's pose table (re-turret-draw.md 2) - and a hover's drive also poses the hover's own model by its class's FinAnimation clip (frame a = y + 4 toward b = y + 1 | 7 by c = |p|, the smoothed throttle p and turn y, B1 FUN_001ec768 B1:99627-99635, B2 FUN_0021d8b8 B2:134724-134737). The port draws every hover rigid in its bind pose (game/src/viewer/vehicles.rs): on BF1 NAB1 / TAT1 / YAV2 and BF2 MYG1 / UTA1 a fighter tank fires while its turret looks forward; card VRIDE's gunner hangs from that turret node (re-vehicle-riders 1: hp_active under turret_y) and stays at its rest until this lands.

@@ -14,6 +14,7 @@ branch:
 resume:
 created: 2026-10-03
 alpha: yes
+first: 9
 ---
 ## Why
 `analysis/re-droideka-unit.md` sections 1-2 [O]: the shield is what makes a droideka a droideka - a second health pool with its own collision sphere. Not fielded yet (DEKF), so nothing is declared.
@@ -30,3 +31,6 @@ Tests in `core`: (1) up and unhit, a BF1 shield falls 100.0 /s +- 1 and is down 
 ## Notes
 - [H] in the RE: which phases an explosion passes - PROVISIONAL both (shield then health), named in the code.
 - 2026-10-06 planner: `engine/CRATES.md` taken out of `files:`. The picker refuses a card whose files overlap a card in progress, and 22 open cards listed the map, so any one of them held the other 21 (a chain card in progress held WADE and WTHR). The map's row for a new or moved source file is still owed in the same branch (`scripts/size_report.sh --check-map`); a rebase conflict in it is one line. Undo: add the path back.
+
+## Planner note
+Planner 2026-10-21 20:50 (the maintainer via INBOX 17:50 item 3): `first: 9`, after DEKD and DEKF. This card now also carries the shield bubble's draw (from DEKD: `ShieldEffect droidekashield` at ShieldOffset, r 1.25) and the shield's use (from DEKF: a bot raises it in the attack state when down and over half; the player's secondary-trigger press). Add `deps: DEKD,DEKF` if the bubble needs the drawn body.

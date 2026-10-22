@@ -33,3 +33,6 @@ Leave the arcs a blocked group closes out of the flank search: the arcs the auth
 - tools/blocked.py's count (routes through a blocked arc) is 0 on BF2 KAS2, DEA1 and TAN1, checked against the port's own table (a test or the sweep's flank line listing each route's arcs).
 - A test with a blocked group on a small graph: the flank route must not use the blocked arc (mutation: drop the exclusion -> the test fails).
 - 8-seed sweep: the other 29 maps' flank lines are unchanged (pairs / routes / shares); DEA1's B11 and B7 reported before and after.
+
+## Planner note
+Planner 2026-10-21 20:50: DESTR (the compactor vent / panels and TAN1's turbine as shootable objects) is the same object; read its census first.

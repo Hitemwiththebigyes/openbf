@@ -211,6 +211,9 @@ and NAB2 (captures `cap/*_large`): the big map at α 0.25 with numbered posts, "
 - Scope boundary [H for the build]: WHICH entities become attacker / locked / hint / objective markers is the game's
   tracker logic (`FUN_00179278` per-player tracker, `FUN_0017a908` / `FUN_0017a900` fill, the objective list
   DAT_0066af58 written by `FUN_0017cc00`) — not traced here; no live record in any saved state.
+  **Traced 2026-10-21 (card HATK, `re-hud-attacker.md` §2):** no code sets the attacker bit [receipt:9028bdc3] (the Attacker templates
+  are dead data), and the 64 tracker records are the `bSoldierHints` option's candidates (off by default). The PS2's
+  hit-direction marker is a code-drawn piece, `ambush_icon` at the screen edges (`re-hud-attacker.md` §1).
 
 ## 6. The BF1 twin [V][M]
 BF1's HUD is code (no `hud_` chunk, re-hud.md §1.1); its map element (`*(0x564490)`) keeps the same record: centre

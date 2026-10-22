@@ -1,14 +1,15 @@
 //! What drives a unit, and the log that replays it: the pad ([`PadState`] and
 //! its [`buttons`]), the input log ([`InputLog`]) and [`Sim::run_log`]; and
 //! step 2 of the tick, BF1's aim assist, which bends a player slot's sticks
-//! toward the unit its acquisition picked (`acquire_magnet`, `apply_assist`,
-//! [`Sim::magnet_at`]). The replay, pad-slot and aim-assist tests live here.
+//! toward the unit or vehicle its acquisition picked ([`AimTarget`],
+//! `acquire_magnet`, `apply_assist`, [`Sim::magnet_at`]). The replay, pad-slot and aim-assist tests live here.
 
 use super::state::Sim;
 use crate::aim_assist::{self, AssistEnv, Sticks};
 use crate::collision::lead_point;
 use crate::perception;
-use crate::unit::{Unit, UnitHandle};
+use crate::unit::UnitHandle;
+use crate::vehicle::VehicleHandle;
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
@@ -138,6 +139,55 @@ impl InputLog {
     }
 }
 
+/// What a player's acquisition can pick (card HTGT, `analysis/re-target-hud.md`
+/// §2 [O]): a soldier, or a vehicle or building turret — the PS2's candidates
+/// are every collision object that is alive (or a building) with health.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum AimTarget {
+    Unit(UnitHandle),
+    Vehicle(VehicleHandle),
+}
+
+impl AimTarget {
+    /// The unit, when the target is one.
+    pub fn unit(self) -> Option<UnitHandle> {
+        match self {
+            AimTarget::Unit(h) => Some(h),
+            AimTarget::Vehicle(_) => None,
+        }
+    }
+
+    /// The vehicle or turret, when the target is one.
+    pub fn vehicle(self) -> Option<VehicleHandle> {
+        match self {
+            AimTarget::Vehicle(h) => Some(h),
+            AimTarget::Unit(_) => None,
+        }
+    }
+}
+
+/// What the acquisition and the assist read of a candidate.
+struct Candidate {
+    /// The PS2's team nibble: `None` = team 0 (an empty vehicle, an unowned
+    /// turret).
+    team: Option<u8>,
+    /// The object kind the weapon's `target_kind` tests ([`HealthType`]).
+    kind: u32,
+    /// The acquisition's bounds: centre and radius.
+    ctr: Vec3,
+    r: f32,
+    /// Where the LOS ray aims.
+    aim: Vec3,
+    vel: Vec3,
+    /// The assist's target radius (a soldier's capsule, a vehicle's bounds).
+    assist_r: f32,
+    /// The assist's target centre.
+    assist_ctr: Vec3,
+    /// A vehicle's hull and a turret's building, which the LOS ray passes.
+    hull: Option<VehicleHandle>,
+    building: Option<u32>,
+}
+
 /// The sticky target's cone widening while FIRE is held, π/4 (0x3f490fdb
 /// @0x25f4a8, `analysis/re-aim-assist.md` §3.3).
 const STICKY_WIDEN: f32 = std::f32::consts::FRAC_PI_4;
@@ -162,22 +212,76 @@ pub(crate) fn cone_score(r: f32, slope: f32, maxd: f32, pos: Vec3, dir: Vec3, ct
 }
 
 impl Sim {
+    /// What the acquisition reads of `t`, `None` when it is gone. A
+    /// vehicle's bounds are its `aim_sphere` (a building turret's building),
+    /// else its blast sphere (card VDTH; PROVISIONAL: the PS2 takes the
+    /// object's bounds box), centred in its frame.
+    fn aim_candidate(&self, t: AimTarget) -> Option<Candidate> {
+        match t {
+            AimTarget::Unit(h) => {
+                let u = self.unit(h)?;
+                let (ctr, r) = u.aim_bounds();
+                let cap = u.capsule();
+                Some(Candidate {
+                    team: Some(u.team),
+                    kind: u.kind(),
+                    ctr,
+                    r,
+                    aim: u.aim_point(),
+                    vel: u.soldier.vel,
+                    assist_r: cap.radius,
+                    assist_ctr: cap.center(),
+                    hull: None,
+                    building: None,
+                })
+            }
+            AimTarget::Vehicle(h) => {
+                let v = self.vehicle(h)?;
+                let (c, r) = match (v.aim_sphere, self.blast_setup.get(v.class as usize)) {
+                    (Some(s), _) => s,
+                    (None, Some(Some(b))) => (b.sphere_centre, b.sphere_radius),
+                    _ => (Vec3::ZERO, 0.0),
+                };
+                let ctr = v.pos + v.rot * c;
+                Some(Candidate {
+                    team: v.team,
+                    kind: v.health.health_type as u32,
+                    ctr,
+                    r,
+                    aim: ctr,
+                    vel: v.vel,
+                    assist_r: r,
+                    assist_ctr: ctr,
+                    hull: Some(h),
+                    building: v.instance,
+                })
+            }
+        }
+    }
+
     /// BF1's soldier acquisition, the PlayerController's FUN_0025e098
     /// (`analysis/re-aim-assist.md` §3.3, channel 0): keep the sticky
     /// magnet while it stays in the cone (widened by π/4 while FIRE is held)
-    /// with a clear line; otherwise run the tournament over the units in the
-    /// query box — the lowest [`cone_score`] with a clear line wins, and
-    /// once a filter-passing target is held only filter-passing units may
-    /// replace it. The winner is the magnet only when it passes the weapon's
-    /// Target* bits and lies within LockOnRange + r; it is the reticle's
-    /// pick either way (`Sim::reticle_pick`).
+    /// with a clear line; otherwise run the tournament over the units and
+    /// vehicles in the query box — the lowest [`cone_score`] with a clear
+    /// line wins, and once a filter-passing target is held only
+    /// filter-passing candidates may replace it. The winner is the magnet
+    /// only when it passes the weapon's Target* bits and lies within
+    /// LockOnRange + r; it is the reticle's pick either way
+    /// (`Sim::reticle_pick`), which the HUD's target readout shows
+    /// (`analysis/re-target-hud.md` §2 [O], card HTGT).
     ///
-    /// Port choices: the candidates walk `alive_units()` order (the PS2's
-    /// collision-list order is [H]); the relation is same team = friend,
-    /// else enemy (the PS2's default table for two armies); a unit riding a
-    /// vehicle is no candidate (PROVISIONAL); the query box is tested
-    /// against each unit's bounds sphere and has no 300 cap; the PS2's
-    /// LockOffAngle hold (launchers only) and channel 1 are not ported.
+    /// The candidates are alive units on foot and alive vehicles and
+    /// building turrets but the shooter's own vehicle (BF2 B2:236430-236440:
+    /// alive or a building; a rider is out of the collision world, so its
+    /// vehicle stands for it). Port choices: units first in `alive_units()`
+    /// order, then vehicles in index order (the PS2's collision-list order
+    /// is [H]); the relation is same team = friend, team 0 = 0 (an empty
+    /// vehicle, an unowned turret), else enemy (the PS2's default table for
+    /// two armies); a destroyed turret is no candidate (the PS2 keeps a dead
+    /// building; the port removes it); the query box is tested against each
+    /// candidate's bounds sphere and has no 300 cap; the PS2's LockOffAngle
+    /// hold (launchers only) and channel 1 are not ported.
     pub(super) fn acquire_magnet(&mut self, slot: usize, ph: UnitHandle, fire_held: bool) {
         let Some(p) = self.unit(ph) else {
             self.magnet[slot] = None;
@@ -190,36 +294,41 @@ impl Sim {
         // The cone is centred on the reticle's ray (`re-aim-assist.md`
         // §10.5), not on the view's centre.
         let (pos, dir) = p.aim_ray(self.ground_rules, self.views());
-        let rel = |u: &Unit| -> i8 {
-            if u.team == p.team {
-                1
-            } else {
-                -1
+        let own = p.mount.map(|m| m.vehicle);
+        let own_building = own.and_then(|h| self.vehicle(h)).and_then(|v| v.instance);
+        let rel = |c: &Candidate| -> i8 {
+            match c.team {
+                None => 0,
+                Some(t) if t == p.team => 1,
+                Some(_) => -1,
             }
         };
         let passes =
-            |u: &Unit| (team_bits >> (rel(u) + 1)) & 1 != 0 && (kind_bits >> u.kind()) & 1 != 0;
-        // The LOS ray stops r short of the aim point, on the shooter's side.
-        let clear = |u: &Unit, r: f32| {
-            let aim = u.aim_point();
-            let past = p.mount.map(|m| m.vehicle);
-            perception::los_past(
+            |c: &Candidate| (team_bits >> (rel(c) + 1)) & 1 != 0 && (kind_bits >> c.kind) & 1 != 0;
+        // The LOS ray stops r short of the aim point, on the shooter's side,
+        // and passes the shooter's own vehicle and the target's hull.
+        let clear = |c: &Candidate| {
+            perception::los_seat(
                 self,
                 pos,
-                aim + (pos - aim).normalize_or_zero() * r,
-                crate::collision::HullFilter::except(past),
+                c.aim + (pos - c.aim).normalize_or_zero() * c.r,
+                crate::collision::HullFilter::Except([own, c.hull]),
+                [own_building, c.building],
             )
         };
+        let live = |t: AimTarget| match t {
+            AimTarget::Unit(h) => self.unit(h).is_some_and(|u| u.mount.is_none()),
+            AimTarget::Vehicle(h) => self.vehicle(h).is_some() && Some(h) != own,
+        };
 
-        let mut target = self.magnet[slot].filter(|&h| self.unit(h).is_some());
+        let mut target = self.magnet[slot].filter(|&t| self.aim_candidate(t).is_some());
         let mut valid = target.is_some();
         let mut best = f32::MAX;
-        if let Some(u) = target.and_then(|h| self.unit(h)) {
+        if let Some((t, u)) = target.and_then(|t| Some((t, self.aim_candidate(t)?))) {
             let cone = angle + if fire_held { STICKY_WIDEN } else { 0.0 };
-            let (ctr, r) = u.aim_bounds();
-            let s = cone_score(r, cone, er, pos, dir, ctr);
-            if s >= 0.0 && u.mount.is_none() && clear(u, r) {
-                valid = passes(u) && (ctr - pos).length() <= lor + r;
+            let s = cone_score(u.r, cone, er, pos, dir, u.ctr);
+            if s >= 0.0 && live(t) && clear(&u) {
+                valid = passes(&u) && (u.ctr - pos).length() <= lor + u.r;
                 best = s;
             } else {
                 target = None;
@@ -228,27 +337,31 @@ impl Sim {
         }
         if 0.0 < best {
             let mid = pos + dir * (er * 0.5);
-            for (h, u) in self.alive_units() {
-                if h == ph || u.mount.is_some() {
+            let units = self.alive_units().map(|(h, _)| AimTarget::Unit(h));
+            let vehicles = self.alive_vehicles().map(|(h, _)| AimTarget::Vehicle(h));
+            for t in units.chain(vehicles) {
+                if t == AimTarget::Unit(ph) || !live(t) {
                     continue;
                 }
-                let pass = passes(u);
+                let Some(u) = self.aim_candidate(t) else {
+                    continue;
+                };
+                let pass = passes(&u);
                 if valid && !pass {
                     continue;
                 }
-                let (ctr, r) = u.aim_bounds();
-                if (ctr - mid).abs().cmpgt(Vec3::splat(er + r)).any() || p.in_aim_box(ctr) {
+                if (u.ctr - mid).abs().cmpgt(Vec3::splat(er + u.r)).any() || p.in_aim_box(u.ctr) {
                     continue;
                 }
-                let s = cone_score(r, angle, er, pos, dir, ctr);
-                if 0.0 <= s && s < best && clear(u, r) {
+                let s = cone_score(u.r, angle, er, pos, dir, u.ctr);
+                if 0.0 <= s && s < best && clear(&u) {
                     best = s;
-                    target = Some(h);
-                    valid = pass && (ctr - pos).length() <= lor + r;
+                    target = Some(t);
+                    valid = pass && (u.ctr - pos).length() <= lor + u.r;
                 }
             }
         }
-        let pick = target.and_then(|h| self.unit(h).map(|u| (h, rel(u))));
+        let pick = target.and_then(|t| self.aim_candidate(t).map(|u| (t, rel(&u))));
         self.magnet[slot] = if valid { target } else { None };
         self.reticle_pick[slot] = pick;
     }
@@ -258,21 +371,21 @@ impl Sim {
         &mut self,
         slot: usize,
         ph: UnitHandle,
-        m: UnitHandle,
+        m: AimTarget,
         pad: &PadState,
         dt: f32,
     ) -> PadState {
-        let (Some(p), Some(t)) = (self.unit(ph), self.unit(m)) else {
+        let (Some(p), Some(t)) = (self.unit(ph), self.aim_candidate(m)) else {
             return *pad;
         };
         // The pull steers the reticle's ray (card AIMA), not the chest's.
         let (_, lat, _) = p.aim_frame();
         let (eye, fwd) = p.aim_ray(self.ground_rules, self.views());
-        let cap = t.capsule();
-        let center = cap.center();
+        let cap = p.capsule();
+        let center = t.assist_ctr;
         let speed = self.weapon_classes[p.weapon_class].ordnance.velocity;
         // Ballistic lead (FUN_0026d3f0, flat-fire branch — bolts have no gravity).
-        let lead = lead_point(center - eye, t.soldier.vel, speed).map(|rel| eye + rel);
+        let lead = lead_point(center - eye, t.vel, speed).map(|rel| eye + rel);
         // Sign bridge: aim_assist yaw stick is POSITIVE-LEFT (BF1 f2
         // semantics); our rx is positive-right.
         let mut sticks = Sticks {
@@ -287,8 +400,8 @@ impl Sim {
             aim_fwd: fwd,
             lat,
             target_center: center,
-            target_vel: t.soldier.vel,
-            target_radius: cap.radius,
+            target_vel: t.vel,
+            target_radius: t.assist_r,
             lead_point: lead,
             turn_rate: p.consts.max_turn_speed,
             // Zoomed, the assist's rate is divided as the turn is
@@ -314,7 +427,7 @@ impl Sim {
 
     /// The aim magnet of player slot `slot` (`None` when that slot has no
     /// target, or no such slot). The HUD reads slot 0.
-    pub fn magnet_at(&self, slot: usize) -> Option<UnitHandle> {
+    pub fn magnet_at(&self, slot: usize) -> Option<AimTarget> {
         self.magnet.get(slot).copied().flatten()
     }
 
@@ -496,11 +609,11 @@ mod tests {
         let (mut s, p, o) = range(&[(0, Vec3::new(0.0, 0.0, -20.0))]);
         s.acquire_magnet(0, p, false);
         assert_eq!(s.magnet[0], None);
-        assert_eq!(s.reticle_pick[0], Some((o[0], 1)));
+        assert_eq!(s.reticle_pick[0], Some((AimTarget::Unit(o[0]), 1)));
         let (mut s, p, o) = range(&[(1, Vec3::new(0.0, 0.0, -20.0))]);
         s.acquire_magnet(0, p, false);
-        assert_eq!(s.magnet[0], Some(o[0]));
-        assert_eq!(s.reticle_pick[0], Some((o[0], -1)));
+        assert_eq!(s.magnet[0], Some(AimTarget::Unit(o[0])));
+        assert_eq!(s.reticle_pick[0], Some((AimTarget::Unit(o[0]), -1)));
     }
 
     /// It is a cone, not a ray: an enemy 1 m off the axis at 20 m is inside
@@ -509,7 +622,7 @@ mod tests {
     fn an_enemy_just_off_the_ray_is_the_magnet() {
         let (mut s, p, o) = range(&[(1, Vec3::new(1.0, 0.0, -20.0))]);
         s.acquire_magnet(0, p, false);
-        assert_eq!(s.magnet[0], Some(o[0]));
+        assert_eq!(s.magnet[0], Some(AimTarget::Unit(o[0])));
         // Well outside the cone: nothing.
         let (mut s, p, _) = range(&[(1, Vec3::new(3.0, 0.0, -20.0))]);
         s.acquire_magnet(0, p, false);
@@ -524,7 +637,7 @@ mod tests {
         let (mut s, p, o) = range(&[(1, Vec3::new(0.0, 0.0, -(64.0 + r + 1.0)))]);
         s.acquire_magnet(0, p, false);
         assert_eq!(s.magnet[0], None);
-        assert_eq!(s.reticle_pick[0], Some((o[0], -1)));
+        assert_eq!(s.reticle_pick[0], Some((AimTarget::Unit(o[0]), -1)));
         // Past ExtremeRange + r: not even picked.
         let (mut s, p, _) = range(&[(1, Vec3::new(0.0, 0.0, -(120.0 + r + 1.0)))]);
         s.acquire_magnet(0, p, false);
@@ -539,7 +652,7 @@ mod tests {
         for (firing, kept) in [(true, true), (false, false)] {
             let (mut s, p, o) = range(&[(1, Vec3::new(0.0, 0.0, -20.0))]);
             s.acquire_magnet(0, p, false);
-            assert_eq!(s.magnet[0], Some(o[0]));
+            assert_eq!(s.magnet[0], Some(AimTarget::Unit(o[0])));
             s.unit_mut(o[0]).unwrap().soldier.pos.x = 3.0;
             s.acquire_magnet(0, p, firing);
             assert_eq!(s.magnet[0].is_some(), kept, "firing {firing}");
@@ -557,10 +670,197 @@ mod tests {
         let (mut s, p, o) = range(&[friend, enemy]);
         s.acquire_magnet(0, p, false);
         assert_eq!(s.magnet[0], None);
-        assert_eq!(s.reticle_pick[0], Some((o[0], 1)));
+        assert_eq!(s.reticle_pick[0], Some((AimTarget::Unit(o[0]), 1)));
         let (mut s, p, o) = range(&[enemy, friend]);
         s.acquire_magnet(0, p, false);
-        assert_eq!(s.magnet[0], Some(o[0]));
+        assert_eq!(s.magnet[0], Some(AimTarget::Unit(o[0])));
+    }
+
+    /// A vehicle 20 m down the crosshair, its blast sphere 2 m about a
+    /// point 1 m up; `kind` Hover or a building Turret (no pilot seat).
+    fn put_vehicle(s: &mut Sim, kind: crate::vehicle::VehicleKind) -> VehicleHandle {
+        use crate::vehicle::{BlastSetup, SeatKind, VehicleKind, VehicleSpec};
+        use crate::weapon::HealthType;
+        let turret = kind == VehicleKind::Turret;
+        let v = s.spawn_vehicle(&VehicleSpec {
+            kind,
+            class: 0,
+            home_team: None,
+            neutral_when_empty: true,
+            spawn_pad: None,
+            pos: Vec3::new(0.0, 0.0, -20.0),
+            yaw: 0.0,
+            max_health: 500.0,
+            health_type: if turret {
+                HealthType::Building
+            } else {
+                HealthType::Vehicle
+            },
+            seats: vec![if turret {
+                SeatKind::Gunner(0)
+            } else {
+                SeatKind::Pilot
+            }],
+        });
+        s.blast_setup = vec![Some(BlastSetup {
+            explosion: None,
+            sphere_centre: Vec3::new(0.0, 1.0, 0.0),
+            sphere_radius: 2.0,
+        })];
+        v
+    }
+
+    /// Card HTGT (`re-target-hud.md` §2): a vehicle on the crosshair is the
+    /// reticle's pick, team 0 while empty (relation 0) and an enemy once
+    /// the other team holds it; it is the magnet only for a weapon whose
+    /// TargetVehicle bit is set and that may take its relation.
+    #[test]
+    fn a_vehicle_on_the_crosshair_is_picked_and_magnets_by_the_weapons_bits() {
+        use crate::vehicle::VehicleKind;
+        let (mut s, p, _) = range(&[]);
+        let v = put_vehicle(&mut s, VehicleKind::Hover);
+        let w = s.unit(p).unwrap().weapon_class;
+        s.weapon_classes[w].target_team = 1;
+        s.weapon_classes[w].target_kind = 0x1f;
+        s.acquire_magnet(0, p, false);
+        assert_eq!(s.reticle_pick[0], Some((AimTarget::Vehicle(v), 0)));
+        assert_eq!(
+            s.magnet[0], None,
+            "an enemy-only weapon: team 0 is no magnet"
+        );
+        s.vehicles[v.index as usize].team = Some(1);
+        s.acquire_magnet(0, p, false);
+        assert_eq!(s.reticle_pick[0], Some((AimTarget::Vehicle(v), -1)));
+        assert_eq!(s.magnet[0], Some(AimTarget::Vehicle(v)));
+        // BF1's rifles: TargetVehicle 0 - picked, never the magnet.
+        s.weapon_classes[w].target_kind = 0x07;
+        s.magnet[0] = None;
+        s.acquire_magnet(0, p, false);
+        assert_eq!(s.reticle_pick[0], Some((AimTarget::Vehicle(v), -1)));
+        assert_eq!(s.magnet[0], None);
+        // Its own team's: a friend.
+        s.vehicles[v.index as usize].team = Some(0);
+        s.acquire_magnet(0, p, false);
+        assert_eq!(s.reticle_pick[0], Some((AimTarget::Vehicle(v), 1)));
+    }
+
+    /// A soldier in front of a tank scores lower and takes the pick; a
+    /// destroyed vehicle is no candidate.
+    #[test]
+    fn a_soldier_before_a_vehicle_wins_and_a_wreck_is_no_target() {
+        use crate::vehicle::VehicleKind;
+        let (mut s, p, o) = range(&[(1, Vec3::new(0.0, 0.0, -10.0))]);
+        let v = put_vehicle(&mut s, VehicleKind::Hover);
+        s.acquire_magnet(0, p, false);
+        assert_eq!(s.reticle_pick[0], Some((AimTarget::Unit(o[0]), -1)));
+        s.units[o[0].index as usize].alive = false;
+        s.acquire_magnet(0, p, false);
+        assert_eq!(s.reticle_pick[0], Some((AimTarget::Vehicle(v), 0)));
+        s.vehicles[v.index as usize].alive = false;
+        s.acquire_magnet(0, p, false);
+        assert_eq!(s.reticle_pick[0], None);
+    }
+
+    /// A building turret is picked through its own building's bodies (its
+    /// centre sits inside them); another building in the way still blocks.
+    #[test]
+    fn a_turret_is_picked_through_its_own_building() {
+        use crate::collision::{Body, Shape};
+        use crate::vehicle::VehicleKind;
+        let (mut s, p, _) = range(&[]);
+        let v = put_vehicle(&mut s, VehicleKind::Turret);
+        // Its building's bounds win over a blast sphere of radius 0.
+        s.blast_setup[0].as_mut().unwrap().sphere_radius = 0.0;
+        s.vehicles[v.index as usize].aim_sphere = Some((Vec3::new(0.0, 1.0, 0.0), 3.0));
+        s.vehicles[v.index as usize].instance = Some(7);
+        let mut shell = Body::new(
+            glam::Mat4::from_translation(Vec3::new(0.0, 1.0, -20.0)),
+            Shape::Box {
+                half: Vec3::splat(3.0),
+            },
+        );
+        shell.instance = Some(7);
+        s.collision.push_body(shell);
+        s.acquire_magnet(0, p, false);
+        assert_eq!(s.reticle_pick[0], Some((AimTarget::Vehicle(v), 0)));
+        s.vehicles[v.index as usize].instance = Some(8);
+        s.acquire_magnet(0, p, false);
+        assert_eq!(s.reticle_pick[0], None, "another building's shell blocks");
+    }
+
+    /// The shooter's own vehicle is never its pick.
+    #[test]
+    fn the_shooters_own_vehicle_is_not_picked() {
+        use crate::vehicle::VehicleKind;
+        let (mut s, p, _) = range(&[]);
+        let v = put_vehicle(&mut s, VehicleKind::Hover);
+        assert!(s.seat_unit(p, v, 0));
+        s.acquire_magnet(0, p, false);
+        assert_eq!(s.reticle_pick[0], None);
+    }
+
+    /// Acceptance 3 of card HTGT: the readout reads the picked vehicle's
+    /// health every tick, so shots into its hull move it while the pick
+    /// holds - no hit event in between.
+    #[test]
+    fn shots_into_a_picked_vehicle_drop_its_health_while_it_stays_picked() {
+        use crate::collision::{HullPart, Layers, Shape};
+        use crate::vehicle::VehicleKind;
+        let (mut s, p, _) = range(&[]);
+        let v = put_vehicle(&mut s, VehicleKind::Hover);
+        s.vehicles[v.index as usize].team = Some(1);
+        s.hull_parts = vec![Some(
+            vec![HullPart::new(
+                glam::Mat4::from_translation(Vec3::Y),
+                Shape::Box {
+                    half: Vec3::new(2.0, 1.0, 3.0),
+                },
+                Layers::ALL,
+            )]
+            .into(),
+        )];
+        s.sync_hulls();
+        // The test rifle's bolt does nothing to a vehicle (scale 0, as
+        // BF1's): give it a launcher's full vehicle scale.
+        let w = s.unit(p).unwrap().weapon_class;
+        s.weapon_classes[w].ordnance.scales[crate::weapon::HealthType::Vehicle as usize] = 1.0;
+        let hull = &mut s.vehicles[v.index as usize].health;
+        (hull.max, hull.cur) = (5000.0, 5000.0);
+        let max = hull.max;
+        let mut seen = Vec::new();
+        for _ in 0..90 {
+            s.step(&[fire()]);
+            assert_eq!(
+                s.reticle_pick[0].map(|(t, _)| t),
+                Some(AimTarget::Vehicle(v))
+            );
+            seen.push(s.vehicles[v.index as usize].health.cur);
+        }
+        let last = *seen.last().unwrap();
+        assert!(last < max, "hull {last} of {max}");
+        assert!(seen.windows(2).all(|w| w[1] <= w[0]), "never rises");
+        eprintln!("hull after 90 ticks of fire: {last} of {max}");
+    }
+
+    /// The assist pulls toward a vehicle magnet as toward a soldier.
+    #[test]
+    fn aim_assist_pulls_toward_a_vehicle_target() {
+        use crate::vehicle::VehicleKind;
+        let (mut s, p, _) = range(&[]);
+        let v = put_vehicle(&mut s, VehicleKind::Hover);
+        s.vehicles[v.index as usize].pos.x = 0.8;
+        s.vehicles[v.index as usize].team = Some(1);
+        let w = s.unit(p).unwrap().weapon_class;
+        s.weapon_classes[w].target_kind = 0x1f;
+        for _ in 0..30 {
+            s.step(&[fire()]);
+        }
+        assert_eq!(s.magnet[0], Some(AimTarget::Vehicle(v)));
+        assert!(
+            s.unit(p).unwrap().soldier.yaw < -0.005,
+            "yaw {}",
+            s.unit(p).unwrap().soldier.yaw
+        );
     }
 
     /// An enemy behind a wall fails the LOS ray and is not picked.

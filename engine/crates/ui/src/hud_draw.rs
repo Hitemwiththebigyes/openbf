@@ -113,6 +113,9 @@ pub struct HudFrame {
     /// The capture icon's parts as drawn (`crate::hud_capture`): the part,
     /// its window box and its colour.
     pub capture: Vec<(crate::hud_capture::Part, [f32; 4], [u8; 3])>,
+    /// The hit-direction chevrons as drawn (`crate::hud_ambush`): the edge,
+    /// the sheet's window box and its alpha.
+    pub ambush: Vec<(crate::hud_ambush::Edge, [f32; 4], f32)>,
     meshes: u32,
 }
 
@@ -316,33 +319,72 @@ impl Ctx<'_> {
             return;
         };
         let (x0, y0) = e.rect.origin();
-        let [u0, v0, mut u1, v1] = e.tex_coords;
-        let mut w = e.rect.w;
-        if e.kind == Kind::BarBitmap {
-            // The value shortens the rect from its left edge, and the u range
-            // with it unless ScaleTexture is 0 (`re-hud.md` §2.2 [V]).
-            w *= e.value;
-            if e.scale_texture {
-                u1 = u0 + (u1 - u0) * e.value;
+        let [u0, v0, u1, v1] = e.tex_coords;
+        // The value shortens the rect from its left edge, and the u range
+        // with it unless ScaleTexture is 0 (`re-hud.md` §2.2 [V]).
+        let cut = |v: f32| {
+            let u = if e.scale_texture {
+                u0 + (u1 - u0) * v
+            } else {
+                u1
+            };
+            (x0 + e.rect.w * v, u)
+        };
+        let value = if e.kind == Kind::BarBitmap {
+            e.value
+        } else {
+            1.0
+        };
+        let (x1, u_end) = cut(value);
+        let rgb = self.hud.drawn(i);
+        if x1 > x0 && e.rect.h > 0.0 {
+            self.quad(
+                i,
+                m,
+                s,
+                &Quad {
+                    rect: [x0, y0, x1, y0 + e.rect.h],
+                    uv: [u0, v0, u_end, v1],
+                    color: color(rgb, alpha),
+                    texture,
+                    additive: e.additive,
+                    shadow: e.shadow,
+                    boxed: true,
+                },
+            );
+        }
+        // The flash copy (`re-target-hud.md` §5 [V][O]): the bar's own quad
+        // over the span between the two values — its u range too — fading
+        // out; a fall's top edge sinks to FlashyScale above its bottom:
+        // top = bottom − (h·(1 − f) + FlashyScale·f).
+        if let Some(fl) = e.flash.filter(|_| e.kind == Kind::BarBitmap) {
+            let f = fl.progress();
+            let (a, b) = (fl.from.min(fl.to), fl.from.max(fl.to));
+            let ((xa, ua), (xb, ub)) = (cut(a), cut(b));
+            let bottom = y0 + e.rect.h;
+            let top = if fl.fall() {
+                bottom - (e.rect.h * (1.0 - f) + e.flashy_scale * f)
+            } else {
+                y0
+            };
+            let v_top = v1 - (v1 - v0) * (bottom - top) / e.rect.h.max(1.0e-6);
+            if xb > xa && bottom > top {
+                self.quad(
+                    i,
+                    m,
+                    s,
+                    &Quad {
+                        rect: [xa, top, xb, bottom],
+                        uv: [ua, v_top, ub, v1],
+                        color: color(rgb, alpha * (1.0 - f)),
+                        texture,
+                        additive: e.additive,
+                        shadow: false,
+                        boxed: false,
+                    },
+                );
             }
         }
-        if w <= 0.0 || e.rect.h <= 0.0 {
-            return;
-        }
-        self.quad(
-            i,
-            m,
-            s,
-            &Quad {
-                rect: [x0, y0, x0 + w, y0 + e.rect.h],
-                uv: [u0, v0, u1, v1],
-                color: color(e.drawn, alpha),
-                texture,
-                additive: e.additive,
-                shadow: e.shadow,
-                boxed: true,
-            },
-        );
     }
 
     /// `FUN_003a04b8` (B2:397669–397801, read for this card, [D]): segment k
@@ -363,8 +405,9 @@ impl Ctx<'_> {
         }
         let (ox, oy) = e.rect.origin();
         let (sx, sy) = seg.rect.origin();
+        let own = self.hud.drawn(i);
         let col = color(
-            [0, 1, 2].map(|c| e.drawn[c] * seg.drawn[c] / 255.0),
+            [0, 1, 2].map(|c| own[c] * seg.drawn[c] / 255.0),
             alpha * seg.alpha,
         );
         let start = e.angle_start.to_radians();
@@ -427,7 +470,7 @@ impl Ctx<'_> {
                 at: (0.0, top),
                 h_align: e.h_align,
                 scale: e.text_scale,
-                color: color(e.drawn, alpha),
+                color: color(self.hud.drawn(i), alpha),
                 additive: e.additive,
                 shadow: false,
             },
@@ -519,6 +562,7 @@ impl Ctx<'_> {
             VAlign::Center => (pitch - height) * 0.5,
             VAlign::Bottom => pitch - height,
         };
+        let tint = self.hud.tint(i);
         for line in &ml.shown {
             let a = alpha * line.fader.alpha();
             if a <= 0.0 {
@@ -534,7 +578,7 @@ impl Ctx<'_> {
                     at: (x, oy + line.y * pitch + hang),
                     h_align: e.h_align,
                     scale: e.text_scale,
-                    color: color(line.color, a),
+                    color: color([0, 1, 2].map(|c| line.color[c] * tint[c]), a),
                     additive: e.additive,
                     shadow: ml.shadow,
                 },
@@ -556,7 +600,7 @@ impl Ctx<'_> {
             None => e.local(),
         };
         let m = *parent * local * mesh_frame();
-        self.mesh(i, name, &m, s, color(e.drawn, alpha), e.additive);
+        self.mesh(i, name, &m, s, color(self.hud.drawn(i), alpha), e.additive);
     }
 
     /// The mesh `name` under `m` (mesh units → frame pixels: the element's
@@ -646,7 +690,7 @@ impl Ctx<'_> {
             &Quad {
                 rect: [-hw, -hh, hw, hh],
                 uv: [0.0, 0.0, 1.0, 1.0],
-                color: color([255.0; 3], alpha),
+                color: color(self.hud.tint(i).map(|c| c * 255.0), alpha),
                 texture: sheet,
                 additive: e.additive,
                 shadow: false,
@@ -674,6 +718,10 @@ pub fn draw(hud: &Hud, art: &HudArt, size: [f32; 2]) -> HudFrame {
         art,
         out: HudFrame::default(),
     };
+    if let Some((menus, movie)) = &hud.shell {
+        ctx.shell_page(menus, *movie, size);
+        return ctx.out;
+    }
     let scale = frame_scale(size);
     let box_w = 4.0 / 3.0 * size[1];
     // A spawn screen (card SSELB) dims the backdrop under everything; the
@@ -716,6 +764,11 @@ pub fn draw(hud: &Hud, art: &HudArt, size: [f32; 2]) -> HudFrame {
     // The capture icon: a root group of the PS2's own (card CPBAR).
     if let Some(icon) = hud.capture.as_ref().filter(|_| tree) {
         ctx.capture(icon, size);
+    }
+    // The hit-direction chevrons: one of the PS2's code-drawn pieces (card
+    // HATK).
+    if tree {
+        ctx.ambush(&hud.ambush, size);
     }
     // BF1's squad order cross: over everything, like the PS2's own group.
     if let Some(sq) = hud.squad.as_ref().filter(|_| tree) {
@@ -863,5 +916,67 @@ mod tests {
         let s = frame_scale([640.0, 480.0]);
         assert!((480.0 / s[0] - 378.7).abs() < 0.1, "{}", 480.0 / s[0]);
         assert!((480.0 / s[1] - 427.3).abs() < 0.1, "{}", 480.0 / s[1]);
+    }
+
+    /// The target bar's flash as drawn (`re-target-hud.md` §5): a fall from
+    /// 1.0 to 0.6 draws the fill to 0.6 and, in front of it, a copy over
+    /// 0.6–1.0 at the bar's colour fading with the fall's progress, its top
+    /// sinking toward its bottom until FlashyScale (1 frame pixel of the
+    /// element) is left; the backing and the fill carry the group's tint.
+    #[test]
+    fn a_falling_bar_draws_a_thinning_fading_copy() {
+        let mut hud = crate::hud_tree::fixture::target_hud();
+        let ev = "player1.weapon1.target.healthFraction";
+        hud.send(
+            "player1.weapon1.target.teamColor",
+            EventValue::Color([200, 100, 100]),
+            &|_| false,
+        );
+        hud.send(ev, EventValue::Number(1.0), &|_| false);
+        hud.advance(1.0);
+        hud.send(ev, EventValue::Number(0.6), &|_| false);
+        let size = [640.0, 480.0];
+        let quads = |hud: &Hud| {
+            let f = draw(hud, &HudArt::default(), size);
+            assert_eq!(f.verts.len(), 12, "backing, fill, flash");
+            f.verts
+        };
+        let x = |q: &[HudVertex]| (q[0].pos[0], q[1].pos[0]);
+        let h = |q: &[HudVertex]| q[2].pos[1] - q[0].pos[1];
+        let v0 = quads(&hud);
+        let (back, fill, flash) = (&v0[0..4], &v0[4..8], &v0[8..12]);
+        // The fill ends where the copy starts; the copy spans 0.4 of the
+        // bar's width (the fill is 0.6 of it).
+        assert!((x(fill).1 - x(flash).0).abs() < 1e-3);
+        let full = (x(fill).1 - x(fill).0) / 0.6;
+        assert!(((x(flash).1 - x(flash).0) - 0.4 * full).abs() < 1e-3);
+        assert!(
+            (h(flash) - h(fill)).abs() < 1e-3,
+            "full height at the change"
+        );
+        assert_eq!(flash[0].color, fill[0].color);
+        // The tint: the fill red × (192, 224, 224), the backing (39, 40, 46)
+        // × the same, both at the group's 0.8.
+        let want = [200.0 * 192.0, 100.0 * 224.0, 100.0 * 224.0].map(|c| c / 255.0 / 255.0);
+        for (got, want) in fill[0].color.iter().zip(want) {
+            assert!((got - want).abs() < 1e-4, "{:?}", fill[0].color);
+        }
+        assert!((back[0].color[1] - 40.0 * 224.0 / 255.0 / 255.0).abs() < 1e-4);
+        assert!((fill[0].color[3] - 0.8).abs() < 1e-6);
+        // Half way: half the alpha, the top half way down to FlashyScale.
+        hud.advance(0.5);
+        let v1 = quads(&hud);
+        let (fill1, flash1) = (&v1[4..8], &v1[8..12]);
+        assert!((flash1[0].color[3] - 0.4).abs() < 1e-4);
+        let px = h(fill1)
+            / hud.elems[hud.find("player1targethealth_fill").unwrap()]
+                .rect
+                .h;
+        assert!((h(flash1) - (0.5 * h(fill1) + 0.5 * px)).abs() < 1e-3);
+        // The bottom edge stays put.
+        assert!((flash1[2].pos[1] - fill1[2].pos[1]).abs() < 1e-3);
+        // At the end of the fall time the copy is gone.
+        hud.advance(0.51);
+        assert_eq!(draw(&hud, &HudArt::default(), size).verts.len(), 8);
     }
 }

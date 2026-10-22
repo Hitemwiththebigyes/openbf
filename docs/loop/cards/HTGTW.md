@@ -1,0 +1,64 @@
+---
+id: HTGTW
+title: HTGT's wiring has no tests: 10 of 14 audit mutations of the vehicle pick survive all 1812 tests - pin the building turret's aim sphere install (slice 3b's whole fix), the readout's vehicle names from a built walk, the vehicle magnet in the sim hash, a turned turret's sphere centre, a moving vehicle's assist lead and a turret's Target kind
+milestone: M3
+value: 4
+phase: build
+status: todo
+deps: HTGT
+files: engine/crates/core/src/sim/input.rs, engine/crates/core/src/sim/state.rs, engine/crates/game/src/vehicle_pads.rs, engine/crates/game/src/event_feed.rs, engine/crates/game/src/main/battle.rs
+declares:
+needs:
+effort:
+branch:
+resume:
+created: 2026-10-21
+---
+
+## Why
+AUDIT 2026-10-21 HTGT (PARTLY). The vehicle / turret pick works on real maps (35 classes, 23 maps: every aimed try
+with a clear line picked the vehicle), but most of what makes it work is held by no test. Ten of fourteen mutations of
+the landing (90132e1) pass the whole suite (`cargo nextest --workspace --lib --bins --tests --example arena`: 1812
+passed each time). The worst: deleting `v.aim_sphere = sphere;` in `vehicle_pads::install` brings back exactly the
+defect slice 3b fixed (every building turret a radius-0 point the cone misses: HOT1's dish turret unpicked from 15 m),
+and no test fails. Emptying the readout's vehicle names (`EventFeed::for_walk` or `make_walk`'s
+`walk.vehicle_classes = ...`) gives every vehicle a blank name on the HUD, and no test fails (the feed test sets
+`feed.vehicles` by hand). A ci-only change can undo the card silently.
+Also: the card's "bar 1.0 -> 0.67 under rifle fire" (KAS2 IFT-X) came from a scratch hook that set the BF2 rifle's
+vehicle damage scale from 0.1 to 1.0 (`lead_tmp/htgt/tools/htgt_face_scratch3.diff`, not said in the report). With
+the real rifle the same 210 ticks take the bar 1.0 -> 0.967. The readout reads health every tick either way.
+
+## Evidence
+- Mutation table + runner: `engine/artifacts/lead_tmp/audit-htgt/tools/muts.py`, `mut_one.sh <ID>` (applies in the
+  scratch worktree `openbf-wt/audit-htgt-mut-scratch` at 90132e1, runs the suite under ci.lock, restores + touches);
+  logs `lead_tmp/audit-htgt/logs/mut_<ID>.log`. Control: 1812 passed, 52 skipped.
+- SURVIVED (no test failed): M01 hash drops the vehicle marker byte; M02 hash writes a vehicle magnet as none;
+  M03 a vehicle candidate's kind fixed at 3 (a building turret tested as a vehicle by the weapon's Target bits);
+  M04 a vehicle candidate's velocity zero (assist lead / tracking); M05 the candidate centre ignores the vehicle's
+  rotation (`pos + c`; it matters only for a centre off the pivot in x / z - the census measured the vertical offset alone,
+  0.4-7.7 m, which a turn about y does not move, so the size of this one is unmeasured); M09 the held target kept
+  without `live()`; M10 black box writes a vehicle as -1 - slot; M11 `EventFeed::for_walk` never fills vehicle
+  names; M12 `make_walk` never sets `walk.vehicle_classes`; M13 `install` never stores `aim_sphere`.
+- CAUGHT: M06 (blast sphere ignored: 4 tests), M07 (target hull not passed), M08 (target building not passed),
+  M14 (readout id top bit).
+- Rifle scale: `lead_tmp/audit-htgt/runA.log` (hook as the builder ran it: 0.98 / 0.90 / 0.82 / 0.73 / 0.67) vs
+  `runB.log` (HTGT_REAL=1: 0.998 / 0.99 / 0.982 / 0.973 / 0.967); "HTGT scales before [1,1,1,0.1,0.1,0.1,0.1]".
+
+## Acceptance
+1. Re-run `lead_tmp/audit-htgt/tools/mut_one.sh <ID>` on the branch (point `WT` in muts.py at the branch worktree,
+   or re-make the patterns): M13, M11 (or M12: the name must come from a walk the battle setup builds), M02, M05, M04
+   and M03 each FAIL at least one test; paste the MUTRESULT lines. M01, M09, M10 may stay (say why if they do).
+   Test ideas: `install` on a fixture world with one armed building -> its vehicle's `aim_sphere` is Some and the
+   acquisition picks it from 15 m with a radius-0 blast sphere; a feed built through `EventFeed::for_walk` from a walk
+   with `vehicle_classes` names the picked vehicle; `hash()` of Unit(i,g) vs Vehicle(i,g) vs none all differ; a
+   turret turned 90 deg with an off-centre aim sphere is picked where its building is, not where the unturned sphere
+   would be; a vehicle moving across the line of sight pulls the assist ahead of it; a weapon with TargetVehicle but
+   not TargetBuilding magnets the hover and not the turret.
+2. The HTGT card's acceptance line and the report say the IFT-X numbers were taken with the rifle's vehicle scale
+   forced to 1.0 (or re-take them with a launcher, as acceptance 3 of HTGT asked: a rocket into a picked vehicle).
+
+## Notes
+- Behaviour-neutral (tests only, plus any small seam a test needs): every gate should read identical; declare nothing.
+- The pick itself held in the audit's census (`lead_tmp/audit-htgt/census3/`, `census_summary.txt`, hook
+  `tools/census_hook_main.diff` on main 982999c): 5268 aimed tries at 15 / 40 m, 3345 picked the vehicle, all 1824
+  misses had the acquisition's own LOS blocked and in none was the vehicle the first surface on the line to its centre.

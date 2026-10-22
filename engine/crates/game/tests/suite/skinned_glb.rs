@@ -139,6 +139,7 @@ fn skinned_glb_round_trip() {
         model,
         palette: pal.clone(),
         layer: uploaded[0].2,
+        light: render::LightPath::Character,
         lit: None,
     };
     r.render_frame(&cam, &[], &[draw], [1.0, 0.0, 0.0, 1.0], None)

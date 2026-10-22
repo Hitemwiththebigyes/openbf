@@ -159,7 +159,8 @@ pub enum SpawnPage {
     /// The class panel: the class's name, its lines (blank ones keep
     /// their pitch) and the help lines "Back" and "Select Character";
     /// the team, its picked class and its class count stand the 3-D
-    /// line-up (`game::spawn_preview`).
+    /// line-up (`game::spawn_preview`); `refused` has bit `j` set for each
+    /// class `j` the game refuses (drawn black there).
     Class {
         title: String,
         lines: Vec<String>,
@@ -168,6 +169,7 @@ pub enum SpawnPage {
         team: u8,
         class: usize,
         classes: usize,
+        refused: u32,
     },
 }
 
@@ -191,13 +193,13 @@ fn shell_screen(size: [f32; 2], shift: f32) -> Screen {
 }
 
 /// Anchors (`[ours]` Hor+).
-enum Anchor {
+pub(crate) enum Anchor {
     Centre,
     Left,
     Right,
 }
 
-fn screen_at(size: [f32; 2], a: Anchor) -> Screen {
+pub(crate) fn screen_at(size: [f32; 2], a: Anchor) -> Screen {
     let extra = size[0] - 4.0 / 3.0 * size[1];
     shell_screen(
         size,
@@ -212,7 +214,14 @@ fn screen_at(size: [f32; 2], a: Anchor) -> Screen {
 const NONE: usize = usize::MAX;
 
 impl Ctx<'_> {
-    fn sheet(&mut self, s: &Screen, rect: [f32; 4], uv: [f32; 4], texture: &str, alpha: f32) {
+    pub(crate) fn sheet(
+        &mut self,
+        s: &Screen,
+        rect: [f32; 4],
+        uv: [f32; 4],
+        texture: &str,
+        alpha: f32,
+    ) {
         self.quad(
             NONE,
             &Mat4::IDENTITY,
@@ -230,7 +239,7 @@ impl Ctx<'_> {
     }
 
     /// One text run in the shell's units; `None` when the font is missing.
-    fn label(
+    pub(crate) fn label(
         &mut self,
         s: &Screen,
         font: &str,
@@ -275,7 +284,7 @@ impl Ctx<'_> {
 
     /// A bar of three pieces: two square ends of the row's height, the
     /// centre stretched between them.
-    fn bar(&mut self, s: &Screen, [x0, y0, x1, y1]: [f32; 4], pieces: [&str; 3]) {
+    pub(crate) fn bar(&mut self, s: &Screen, [x0, y0, x1, y1]: [f32; 4], pieces: [&str; 3]) {
         let h = y1 - y0;
         let full = [0.0, 0.0, 1.0, 1.0];
         self.sheet(s, [x0, y0, x0 + h, y1], full, pieces[0], PIECE_ALPHA);
@@ -304,7 +313,7 @@ impl Ctx<'_> {
 
     /// A help line: the pad icon at the safe area's edge, its label beside
     /// it on the inside.
-    fn help(&mut self, size: [f32; 2], right: bool, icon: &str, text: &str) {
+    pub(crate) fn help(&mut self, size: [f32; 2], right: bool, icon: &str, text: &str) {
         let (a, ix) = if right {
             (Anchor::Right, SAFE_X[1] - ICON[0])
         } else {
@@ -679,6 +688,7 @@ mod tests {
             team: 0,
             class: 0,
             classes: 1,
+            refused: 0,
         };
         let size = [2520.0, 1080.0];
         let f = draw(&page, size);

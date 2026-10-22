@@ -14,9 +14,14 @@ use std::io::BufWriter;
 use std::path::Path;
 
 /// Every file under the disc's `DATA/_LVL_PS2/` but its FMV (`MOVIES/`, 1-1.2
-/// GB a disc, never read) to `<out>/DATA/_LVL_PS2/...` (card PACK: the user's
-/// own ISO is the only input). A file already there at the same size is left
-/// alone, so a second run writes nothing.
+/// GB a disc) to `<out>/DATA/_LVL_PS2/...` (card PACK: the user's own ISO is
+/// the only input) - save [`KEPT_MOVIES`], which the shell bake reads. A file
+/// already there at the same size is left alone, so a second run writes
+/// nothing.
+/// The movies the port plays: BF2's shell background (card BSHLA, 260 MB;
+/// `bake shell`).
+const KEPT_MOVIES: [&str; 1] = ["DATA/_LVL_PS2/MOVIES/SHELL.MVS"];
+
 fn extract_iso(iso: &str, out: &str) -> Result<()> {
     let f = std::fs::File::open(iso).with_context(|| iso.to_string())?;
     let mut disc = mungefs::iso::Iso::open(std::io::BufReader::new(f))
@@ -24,7 +29,9 @@ fn extract_iso(iso: &str, out: &str) -> Result<()> {
     let want: Vec<usize> = (0..disc.files.len())
         .filter(|&i| {
             let p = &disc.files[i].path;
-            p.starts_with("DATA/_LVL_PS2/") && !p.starts_with("DATA/_LVL_PS2/MOVIES/")
+            p.starts_with("DATA/_LVL_PS2/")
+                && (!p.starts_with("DATA/_LVL_PS2/MOVIES/")
+                    || KEPT_MOVIES.iter().any(|m| p.eq_ignore_ascii_case(m)))
         })
         .collect();
     if want.is_empty() {
@@ -172,6 +179,19 @@ fn main() -> Result<()> {
             println!("baked the terrain light texture -> {}/{name}.ktx2", args[3]);
             Ok(())
         }
+        Some("shell") if args.len() == 7 => {
+            // <SHELL.LVL> <MOVIES/SHELL.MVS> <SOUND/SHELL.LVL> <CORE.LVL> <out>
+            let s = bake::shell::bake_shell(&args[2], &args[3], &args[4], &args[5], &args[6])?;
+            println!(
+                "baked shell: {} movies ({} segments), textures {:?}, music {} -> {}/shell",
+                s.movies.len(),
+                s.movies.iter().map(|m| m.segments.len()).sum::<usize>(),
+                s.textures,
+                s.music,
+                args[6]
+            );
+            Ok(())
+        }
         Some("sounds") if args.len() == 4 || args.len() == 5 => {
             // <sound lvl> <mapdir> [the game's CORE.LVL: the Inherit templates]
             let r = bake::sounds::bake_sounds(&args[2], &args[3], args.get(4).map(String::as_str))?;
@@ -267,6 +287,7 @@ fn main() -> Result<()> {
                  \x20 bake classes    <file.lvl>   <out.ron>      entc/wpnc/ordc/expc props\n\
                  \x20 bake loadscreen <load.lvl>   <mapdir>       load screen sequence/pool\n\
                  \x20 bake sounds     <sound.lvl>  <mapdir> [CORE.LVL]  sample banks + snd_ props (templates from CORE)\n\
+                 \x20 bake shell     <SHELL.LVL> <SHELL.MVS> <SOUND/SHELL.LVL> <CORE.LVL> <outdir>  BF2 shell logo, menu movie, music\n\
                  \x20 bake sound-names <classes dir> <lua roots> <mapdir>...  names.ron\n\
                  \x20 bake global-sound <lvl[,lvl]> <outdir> [ref.lvl,...]  stream VO to OGG\n\
                  \x20 bake beep       <core.lvl>   <outdir>       BF1 loading beep renders\n\

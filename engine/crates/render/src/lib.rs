@@ -90,6 +90,7 @@ pub use capture::{encode_png, encode_png_rgb};
 pub use device::HEADLESS_FORMAT;
 pub use draw::{
     fragment_kept, DrawCmd, DrawLayer, Fade, LightPath, LodSide, LodSwitch, SkinnedDrawCmd,
+    IFACE_AMBIENT, IFACE_DIR_CAMERA,
 };
 pub use filter::{box_side, FrameFilter};
 pub use frame::{FrameStats, OverlayFn};
@@ -141,7 +142,7 @@ pub enum RenderError {
 /// dynamic-offset alignment).
 const PALETTE_STRIDE: usize = MAX_JOINTS * 64;
 
-/// GPU-side globals, layout mirrored in shader.wgsl `Globals` (352 bytes —
+/// GPU-side globals, layout mirrored in shader.wgsl `Globals` (368 bytes —
 /// `globals_matches_the_wgsl_uniform_size` pins it).
 /// Pattern from an earlier wgpu project `CameraUniform` (camera_m.rs): repr(C) + explicit pads.
 #[repr(C)]
@@ -207,6 +208,9 @@ struct Globals {
     /// draws when `character_ambient_on` is 1.
     character_ambient: [f32; 3],
     character_ambient_on: f32,
+    /// [`IFACE_DIR_CAMERA`] in the world, for [`LightPath::Iface`] draws.
+    iface_dir: [f32; 3],
+    _pad11: f32,
 }
 
 enum Target {
@@ -394,8 +398,9 @@ mod tests {
         // (direction + the sun's Static flag, colour + its own) = 224, plus
         // the water's seven ([`WaterShading`]: the eye shift, the specular,
         // the two speckle colours, the speckle's axis, light and shift) = 336,
-        // plus the character ambient's row (colour + its on flag) = 352.
-        assert_eq!(std::mem::size_of::<Globals>(), 352);
+        // plus the character ambient's row (colour + its on flag) = 352, plus
+        // the interface light's direction = 368.
+        assert_eq!(std::mem::size_of::<Globals>(), 368);
         assert_eq!(std::mem::size_of::<Globals>() % 16, 0);
     }
 }

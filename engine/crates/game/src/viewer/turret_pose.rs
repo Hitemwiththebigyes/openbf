@@ -335,7 +335,15 @@ pub fn rigged_turrets(scene: &crate::assets::Scene) -> Vec<RiggedTurret> {
         .instances
         .iter()
         .filter_map(|inst| {
-            let rig = scene.resolve_class(&inst.class)?.turret_rig.as_ref()?;
+            let class = scene.resolve_class(&inst.class)?;
+            // A droid's rig is its own animation's (card PWST).
+            if class
+                .base
+                .eq_ignore_ascii_case(super::stations::STATION_BASE)
+            {
+                return None;
+            }
+            let rig = class.turret_rig.as_ref()?;
             Some(RiggedTurret {
                 pos: Vec3::from(inst.translation),
                 model: super::instance_matrix(inst.rotation, inst.translation),

@@ -90,6 +90,9 @@ pub struct HudPass {
     texture_bgl: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     textures: Vec<wgpu::BindGroup>,
+    /// The textures rewritten every frame ([`HudPass::add_stream_texture`]):
+    /// the handle, the texture and its size.
+    streams: Vec<(HudTexture, wgpu::Texture, [u32; 2])>,
     white: wgpu::BindGroup,
     vertices: Option<(wgpu::Buffer, u64)>,
     indices: Option<(wgpu::Buffer, u64)>,
@@ -295,6 +298,7 @@ impl HudPass {
             texture_bgl,
             sampler,
             textures: Vec::new(),
+            streams: Vec::new(),
             white,
             vertices: None,
             indices: None,
@@ -323,6 +327,88 @@ impl HudPass {
         )?;
         self.textures.push(bg);
         Some(HudTexture(self.textures.len() as u32 - 1))
+    }
+
+    /// A `width` x `height` RGBA8 texture of display values whose texels
+    /// [`HudPass::write_stream_texture`] replaces (the shell's movie, card
+    /// BSHLA); black until written.
+    pub fn add_stream_texture(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        width: u32,
+        height: u32,
+    ) -> Option<HudTexture> {
+        let texture = crate::made::texture(
+            device,
+            &wgpu::TextureDescriptor {
+                label: Some("hud stream"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+        );
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let bg = crate::made::bind_group(
+            device,
+            &wgpu::BindGroupDescriptor {
+                label: Some("hud stream bg"),
+                layout: &self.texture_bgl,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&self.sampler),
+                    },
+                ],
+            },
+        );
+        self.textures.push(bg);
+        let t = HudTexture(self.textures.len() as u32 - 1);
+        self.streams.push((t, texture, [width, height]));
+        self.write_stream_texture(queue, t, &vec![0; (width * height * 4) as usize]);
+        Some(t)
+    }
+
+    /// Replace a stream texture's texels; ignored when `rgba` is not its
+    /// size or `t` is not a stream texture.
+    pub fn write_stream_texture(&self, queue: &wgpu::Queue, t: HudTexture, rgba: &[u8]) {
+        let Some((_, texture, [w, h])) = self.streams.iter().find(|(s, ..)| *s == t) else {
+            return;
+        };
+        if rgba.len() != (*w * *h * 4) as usize {
+            return;
+        }
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            rgba,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(*w * 4),
+                rows_per_image: Some(*h),
+            },
+            wgpu::Extent3d {
+                width: *w,
+                height: *h,
+                depth_or_array_layers: 1,
+            },
+        );
     }
 
     /// Draw `batches` over `view` (call from the renderer's overlay hook).

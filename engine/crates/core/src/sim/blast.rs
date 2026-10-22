@@ -5,8 +5,10 @@
 //! objects in an axis-aligned box, keep those a ray from the blast reaches
 //! past buildings and terrain, and hand each the class's damage times the
 //! falloff on its sphere (§3) through the bolt's TakeDamage (§4). A soldier
-//! riding a vehicle takes none (§5). Push (§5) is card KNOCK's: the class
-//! carries its numbers and [`Sim::explode`] marks where it goes.
+//! riding a vehicle takes none (§5). Then card KNOCK's death kick and push
+//! (`analysis/re-knockback.md` [O]): a corpse's body is gathered too, a dead
+//! body is kicked, and the soldiers the class pushes are thrown
+//! ([`Sim::kick_and_push`]).
 
 use super::state::{Event, Sim};
 use crate::soldier::Stance;
@@ -22,11 +24,13 @@ pub const BLAST_GATHER_MAX: usize = 20;
 /// A soldier's collision sphere as a blast measures it — `(height of the
 /// centre above the feet, radius w)` — per stance, measured in BF1 RAM over
 /// 2,652 soldiers (§3 [V-RAM]; the code that writes them was not found [H]).
-/// PROVISIONAL: sprint, jump, fall and roll take the standing sphere.
+/// PROVISIONAL: sprint, jump, fall, roll and the throw take the standing
+/// sphere; the tumble and get-up are posture 1 (the crouch's) and a corpse
+/// posture 2 (the prone's: §6 measured +0.35, w 1.6221 on corpses).
 pub fn soldier_blast_sphere(stance: Stance) -> (f32, f32) {
     match stance {
-        Stance::Crouch => (0.75, 1.102_27),
-        Stance::Prone => (0.35, 1.622_066),
+        Stance::Crouch | Stance::Tumble | Stance::GetUp => (0.75, 1.102_27),
+        Stance::Prone | Stance::Dead => (0.35, 1.622_066),
         _ => (1.0, 1.462_635),
     }
 }
@@ -87,7 +91,10 @@ impl Sim {
         };
         let mut gathered: Vec<(Victim, Vec3, f32)> = Vec::new();
         for (i, u) in self.units.iter().enumerate() {
-            if !u.alive || source.is_some_and(|v| u.mount.is_some_and(|m| m.vehicle == v)) {
+            // A corpse's body is in the world too (card KNOCK, §3).
+            if !(u.alive || u.body)
+                || source.is_some_and(|v| u.mount.is_some_and(|m| m.vehicle == v))
+            {
                 continue;
             }
             let (lift, w) = soldier_blast_sphere(u.soldier.stance);
@@ -117,28 +124,85 @@ impl Sim {
             if !crate::perception::los_past(self, pos, c, crate::collision::HullFilter::Static) {
                 continue;
             }
-            // Card KNOCK: the push (`vt+0x84`, §5) goes here, on the same
-            // gather and LOS, when `e.push_outer > 0`.
-            if e.damage_outer <= 0.0 {
-                continue;
-            }
-            let f = blast_falloff((c - pos).length(), w, e.damage_inner, e.damage_outer);
-            if f <= 0.0 {
-                continue;
-            }
+            let f = if e.damage_outer > 0.0 {
+                blast_falloff((c - pos).length(), w, e.damage_inner, e.damage_outer)
+            } else {
+                0.0
+            };
             match victim {
-                Victim::Unit(h) => self.blast_unit(h, &desc, f, attacker, attacker_is_player, team),
-                Victim::Vehicle(h) => {
-                    self.damage_vehicle_by(h, &desc, f, attacker, team);
+                Victim::Unit(h) => {
+                    if f > 0.0 {
+                        let dir = (c - pos).normalize_or_zero();
+                        self.blast_unit(h, &desc, f, attacker, attacker_is_player, team, dir);
+                    }
+                    self.kick_and_push(h, e, pos, c, w);
                 }
+                Victim::Vehicle(h) if f > 0.0 => {
+                    let dir = (c - pos).normalize_or_zero();
+                    self.damage_vehicle_by(h, &desc, f, attacker, team, Some(dir));
+                }
+                Victim::Vehicle(_) => {}
             }
         }
+    }
+
+    /// After a soldier's splash (card KNOCK, `analysis/re-knockback.md`):
+    /// - **the death kick** (B1 FUN_00200e68 -> FUN_00200f90, §3): a body
+    ///   whose unit is dead - this blast's kill or an older corpse - gets
+    ///   [`crate::soldier::DEATH_KICK`] along normalize(feet - blast);
+    /// - **the push** (`vt+0x84`, B1 FUN_002009a0, §1): unless the class
+    ///   pushes only the dead and this one lives (BF2's `PushDeadOnly`,
+    ///   [`ExplosionClass::push_dead_only`], §4), or it is mounted, thrown,
+    ///   tumbling or getting up: [`crate::soldier::Soldier::knock`] with
+    ///   normalize(c - blast) + (0, 0.6, 0) and Push x the falloff of
+    ///   PushRadiusInner / Outer on the same sphere as the damage. BF1's
+    ///   droids are pushed like the clones: the ChunkFrequency roll is card
+    ///   DCHK's (a named, temporary deviation).
+    fn kick_and_push(&mut self, h: UnitHandle, e: &ExplosionClass, pos: Vec3, c: Vec3, w: f32) {
+        let Some(u) = self
+            .units
+            .get(h.index as usize)
+            .filter(|u| u.gen == h.gen && (u.alive || u.body))
+        else {
+            return;
+        };
+        let (alive, mounted) = (u.alive, u.mount.is_some());
+        let rules = self.ground_rules;
+        let i = h.index as usize;
+        if !alive {
+            let feet = self.units[i].soldier.pos;
+            self.units[i].soldier.kick(feet - pos);
+        }
+        let dead_only = e
+            .push_dead_only
+            .unwrap_or(rules == crate::soldier::GroundRules::Bf2);
+        if e.push <= 0.0 || (dead_only && alive) || mounted {
+            return;
+        }
+        if self.units[i].soldier.stance.knocked() {
+            return;
+        }
+        let d = c - pos;
+        let len = d.length();
+        if len <= 1e-4 {
+            return;
+        }
+        let f = blast_falloff(len, w, e.push_inner, e.push_outer);
+        if f <= 0.0 {
+            return;
+        }
+        let draw = self.lcg.unit();
+        let dir = d / len + Vec3::Y * crate::soldier::KNOCK_LIFT;
+        self.units[i].soldier.knock(dir, e.push * f, rules, draw);
+        self.nav_stats.knocks += 1;
     }
 
     /// One soldier's splash (B1 FUN_00200e68 → FUN_00221600, §3-§5): riders
     /// of anything but a building turret skip; TakeDamage with the falloff
     /// as the multiplier; D12's human damage layer as for a bolt; the kill
-    /// through [`Sim::unit_killed`].
+    /// through [`Sim::unit_killed`]; `dir` is the hit's way for the
+    /// event (card HATK).
+    #[allow(clippy::too_many_arguments)]
     fn blast_unit(
         &mut self,
         h: UnitHandle,
@@ -147,6 +211,7 @@ impl Sim {
         attacker: Option<UnitHandle>,
         attacker_is_player: bool,
         team: Option<u8>,
+        dir: Vec3,
     ) {
         // A rider died in an earlier chained blast, or was killed above.
         let Some(v) = self.unit(h) else {
@@ -187,6 +252,7 @@ impl Sim {
                 damage,
                 age: 0.0,
                 health_left,
+                dir,
             });
         }
         if killed {
@@ -443,5 +509,178 @@ mod tests {
             unit: other,
             cause: DeathCause::Blast
         }));
+    }
+
+    // ── Card KNOCK (`analysis/re-knockback.md`; PS2 rows in
+    //    `lead_tmp/knock/out/`) ─────────────────────────────────────────────
+
+    /// BF1's thermal detonator (`push_table.txt`): Damage 320 over 4.5-6.5,
+    /// Push 10 over PushRadius 4.5-4.5.
+    fn thermal() -> ExplosionClass {
+        ExplosionClass {
+            damage: 320.0,
+            damage_inner: 4.5,
+            damage_outer: 6.5,
+            push: 10.0,
+            push_inner: 4.5,
+            push_outer: 4.5,
+            ..Default::default()
+        }
+    }
+
+    fn sim_for(rules: crate::soldier::GroundRules) -> Sim {
+        let mut s = sim();
+        s.ground_rules = rules;
+        s
+    }
+
+    fn vel(s: &Sim, h: UnitHandle) -> Vec3 {
+        s.units[h.index as usize].soldier.vel
+    }
+
+    /// `bf1_hot1_knock.json` trial 2, P (§6): feet 2.01 m from the blast,
+    /// which is 0.12 m above them: dv (9.13, 10.01, 0.76) and thrown. The
+    /// same soldier 7.5 m off, one tumbling and a rider: nothing.
+    #[test]
+    fn knock_bf1_pushes_the_living_and_skips_the_knocked() {
+        let mut s = sim_for(crate::soldier::GroundRules::Bf1);
+        let e = ExplosionClass {
+            damage: 0.0,
+            damage_outer: 0.0,
+            ..thermal()
+        };
+        let p = s
+            .spawn(&UnitSpec::trooper(1, Vec3::new(2.0015, 0.0, 0.167)))
+            .unwrap();
+        let far = s
+            .spawn(&UnitSpec::trooper(1, Vec3::new(-7.5, 0.0, 0.0)))
+            .unwrap();
+        let tum = s
+            .spawn(&UnitSpec::trooper(1, Vec3::new(0.0, 0.0, -2.0)))
+            .unwrap();
+        s.units[tum.index as usize].soldier.stance = Stance::Tumble;
+        s.explode(&e, Vec3::new(0.0, 0.12, 0.0), None, Some(0));
+        let want = Vec3::new(9.13, 10.01, 0.76);
+        assert!(
+            (vel(&s, p) - want).abs().max_element() < 0.02,
+            "{:?}",
+            vel(&s, p)
+        );
+        assert_eq!(s.units[p.index as usize].soldier.stance, Stance::Thrown);
+        assert_eq!(vel(&s, far), Vec3::ZERO, "outside PushRadius + w/2");
+        assert_eq!(vel(&s, tum), Vec3::ZERO, "a tumbling soldier is skipped");
+        assert_eq!(s.nav_stats.knocks, 1);
+    }
+
+    /// A soldier the blast kills (§3, B1 of trial 2): pushed and kicked while
+    /// still standing, so thrown; his death (the dead state, the item drop)
+    /// waits for the landing and the get-up - 2.5-3.6 s on the PS2. The kill
+    /// itself is at the blast.
+    #[test]
+    fn knock_bf1_the_blast_killed_fly_and_die_at_the_landing() {
+        let mut s = sim_for(crate::soldier::GroundRules::Bf1);
+        let b = s
+            .spawn(&UnitSpec::trooper(1, Vec3::new(1.5, 0.0, 0.0)))
+            .unwrap();
+        s.units[b.index as usize].health.cur = 1.0;
+        s.explode(&thermal(), Vec3::new(0.0, 0.12, 0.0), None, Some(0));
+        let u = &s.units[b.index as usize];
+        assert!(!u.alive && u.body && u.drop_due);
+        assert_eq!(u.soldier.stance, Stance::Thrown);
+        // push (n + 0.6 up) x 10 + kick 5 x normalize(feet - blast).
+        let n = (Vec3::new(1.5, 1.0, 0.0) - Vec3::new(0.0, 0.12, 0.0)).normalize();
+        let k = Vec3::new(1.5, -0.12, 0.0).normalize() * 5.0;
+        let want = (n + Vec3::Y * 0.6) * 10.0 + k;
+        assert!((u.soldier.vel - want).abs().max_element() < 1e-4);
+        let mut ticks = 0;
+        while s.units[b.index as usize].soldier.stance != Stance::Dead {
+            let st = s.units[b.index as usize].soldier.stance;
+            s.step(&[]);
+            ticks += 1;
+            if s.units[b.index as usize].soldier.stance == Stance::Dead {
+                assert_eq!(st, Stance::Stand, "dies standing, after the get-up");
+            }
+            assert!(ticks < 200);
+        }
+        let secs = ticks as f32 / 30.0;
+        assert!((2.5..=3.6).contains(&secs), "{secs} s");
+        assert!(!s.units[b.index as usize].drop_due, "the drop came with it");
+    }
+
+    /// `bf1_hot1_knock.json` trial 2, C1 (§3 [M]): a corpse 0.9 s dead 2.35 m
+    /// from the blast takes no damage here and gets push + kick (-14.91, 7.22,
+    /// 0.00); its body slides and leaves the world 4.0 s into the dead state.
+    #[test]
+    fn knock_bf1_a_corpse_is_pushed_kicked_and_gone_at_four_seconds() {
+        let mut s = sim_for(crate::soldier::GroundRules::Bf1);
+        let c = s
+            .spawn(&UnitSpec::trooper(1, Vec3::new(-2.3535, 0.0, 0.0)))
+            .unwrap();
+        s.unit_killed(c, None);
+        let u = &mut s.units[c.index as usize];
+        u.soldier.stance = Stance::Dead;
+        u.soldier.time_in_stance = 0.9;
+        let hp = u.health.cur;
+        s.explode(&thermal(), Vec3::new(0.0, 0.04, 0.0), None, Some(0));
+        let want = Vec3::new(-14.91, 7.22, 0.0);
+        assert!(
+            (vel(&s, c) - want).abs().max_element() < 0.05,
+            "{:?}",
+            vel(&s, c)
+        );
+        assert_eq!(s.units[c.index as usize].health.cur, hp);
+        assert_eq!(s.units[c.index as usize].soldier.stance, Stance::Dead);
+        let mut ticks = 0;
+        while s.units[c.index as usize].body {
+            s.step(&[]);
+            ticks += 1;
+            assert!(ticks < 200);
+        }
+        let dead_for = 0.9 + ticks as f32 / 30.0;
+        assert!((dead_for - 4.0).abs() <= 1.5 / 30.0, "{dead_for}");
+        let x = s.units[c.index as usize].soldier.pos.x;
+        assert!(x < -10.0, "it slid away: {x}");
+        // Out of the world: the next blast neither gathers nor moves it.
+        let v = vel(&s, c);
+        s.explode(&thermal(), Vec3::new(x + 1.0, 0.0, 0.0), None, Some(0));
+        assert_eq!(vel(&s, c), v);
+    }
+
+    /// BF2 (§4): a thermal detonator (PushDeadOnly by default) hurts the
+    /// living and pushes none; a class that authors PushDeadOnly 0 throws
+    /// him - `bf2_hot1flag_knock.json`, P: (-4.80, 8.71, -8.34).
+    #[test]
+    fn knock_bf2_pushes_only_the_dead_unless_the_class_says() {
+        let feet = Vec3::new(3.031, -0.0199, -7.4046) - Vec3::new(4.5896, 0.1, -4.6986);
+        let blast = Vec3::new(0.0, -feet.y, 0.0);
+        let at = Vec3::new(feet.x, 0.0, feet.z);
+        let bf2 = ExplosionClass {
+            damage: 450.0,
+            damage_inner: 4.5,
+            damage_outer: 6.5,
+            push: 10.0,
+            push_inner: 6.5,
+            push_outer: 6.5,
+            ..Default::default()
+        };
+        let mut s = sim_for(crate::soldier::GroundRules::Bf2);
+        let p = s.spawn(&UnitSpec::trooper(1, at)).unwrap();
+        s.units[p.index as usize].health.cur = 30000.0;
+        s.explode(&bf2, blast, None, Some(0));
+        assert!(s.units[p.index as usize].health.cur < 30000.0, "damaged");
+        assert_eq!(vel(&s, p), Vec3::ZERO, "and not pushed");
+        assert_eq!(s.units[p.index as usize].soldier.stance, Stance::Stand);
+        let off = ExplosionClass {
+            push_dead_only: Some(false),
+            ..bf2
+        };
+        s.explode(&off, blast, None, Some(0));
+        let want = Vec3::new(-4.80, 8.71, -8.34);
+        assert!(
+            (vel(&s, p) - want).abs().max_element() < 0.02,
+            "{:?}",
+            vel(&s, p)
+        );
+        assert_eq!(s.units[p.index as usize].soldier.stance, Stance::Thrown);
     }
 }

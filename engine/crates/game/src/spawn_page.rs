@@ -14,7 +14,7 @@ pub fn page(
     feed: &crate::event_feed::EventFeed,
     slot: usize,
 ) -> Option<ui::spawn_draw::SpawnPage> {
-    use core::sim::{SideChoice, SpawnStage};
+    use core::sim::{ClassRefusal, SideChoice, SpawnStage};
     use ui::spawn_draw::SpawnPage;
     if !walk.sim.spawn_screens {
         return None;
@@ -67,18 +67,36 @@ pub fn page(
                 .get(pick)
                 .cloned()
                 .unwrap_or_else(|| class.label.clone());
-            // "Unit Count: %d": the team's members on the field in this
-            // class (`FUN_0036f538`, B2:367976). The port has no unlocks,
-            // so never the "Max" form nor a refusal line.
-            let count = walk
-                .sim
-                .units
-                .iter()
-                .filter(|u| u.alive && u.team == team && usize::from(u.spec.class) == pick)
-                .count();
-            let mut text = feed
-                .text_by_hash(0xecf8_496f, "Unit Count: %d\r\n\r\n")
-                .replacen("%d", &count.to_string(), 1);
+            // The refusal line first, then "Unit Count: %d" - with "Max: %d"
+            // for a class with a cost (`FUN_00396430`, B2:392035-392058,
+            // re-spawn-flow §4.3); the count is the team's members on the
+            // field in this class (`FUN_0036f538`).
+            let mut text = match walk.sim.class_refusal(slot, team, pick) {
+                Some(ClassRefusal::Points(n)) => feed
+                    .text_by_hash(0x155a_b074, "Get %d more points to unlock!\r\n")
+                    .replacen("%d", &n.to_string(), 1),
+                Some(ClassRefusal::TooMany) => {
+                    feed.text_by_hash(0xd3cd_201e, "Too many units already!\r\n")
+                }
+                None => String::new(),
+            };
+            let count = walk.sim.class_count(team, pick);
+            let max = walk.sim.classes[usize::from(team)]
+                .get(pick)
+                .and_then(|c| c.max.filter(|_| c.unlock_points >= 1));
+            match max {
+                Some(max) => text.push_str(
+                    &feed
+                        .text_by_hash(0xcb22_a09f, "Unit Count: %d  Max: %d\r\n\r\n")
+                        .replacen("%d", &count.to_string(), 1)
+                        .replacen("%d", &max.to_string(), 1),
+                ),
+                None => text.push_str(
+                    &feed
+                        .text_by_hash(0xecf8_496f, "Unit Count: %d\r\n\r\n")
+                        .replacen("%d", &count.to_string(), 1),
+                ),
+            }
             text.push_str(&feed.text_by_hash(0xfe98_f5cf, "Equipment:"));
             text.push('\n');
             // The primary first, then the other slots in slot order.
@@ -116,6 +134,9 @@ pub fn page(
                 team,
                 class: pick,
                 classes: t.classes.len(),
+                refused: (0..t.classes.len().min(32))
+                    .filter(|&j| walk.sim.class_refusal(slot, team, j).is_some())
+                    .fold(0, |m, j| m | 1 << j),
             })
         }
         SpawnStage::Accepted => None,
@@ -223,6 +244,45 @@ mod tests {
                     (back.as_str(), accept.as_str()),
                     ("Back", "Select Character")
                 );
+            }
+            p => panic!("{p:?}"),
+        }
+        // A class with a cost (re-spawn-flow §4.3): the refusal line
+        // first, the count with its max, and the class drawn black.
+        w.sim.classes[team] = vec![core::unit::UnitClass {
+            consts: core::soldier::SoldierConstants::default(),
+            max_health: 300.0,
+            health_type: core::weapon::HealthType::Person,
+            weapon_class: 0,
+            spare_clips: 6,
+            weapon_slot: 0,
+            slots: std::sync::Arc::new([]),
+            jet: false,
+            capture_posts: true,
+            drops: core::sim::DropTable::default(),
+            min: 1,
+            max: Some(4),
+            unlock_points: 12,
+        }];
+        w.sim.set_spawn_points(0, 5);
+        match page(&w, &feed, 0) {
+            Some(SpawnPage::Class { lines, refused, .. }) => {
+                assert_eq!(
+                    lines[..2],
+                    [
+                        "Get 7 more points to unlock!".to_owned(),
+                        format!("Unit Count: {mates}  Max: 4"),
+                    ]
+                );
+                assert_eq!(refused & 1, 1);
+            }
+            p => panic!("{p:?}"),
+        }
+        w.sim.set_spawn_points(0, 12);
+        match page(&w, &feed, 0) {
+            Some(SpawnPage::Class { lines, refused, .. }) => {
+                assert_eq!(lines[0], format!("Unit Count: {mates}  Max: 4"));
+                assert_eq!(refused & 1, 0);
             }
             p => panic!("{p:?}"),
         }

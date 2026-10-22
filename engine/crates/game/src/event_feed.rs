@@ -23,6 +23,13 @@
 //! team as the viewer sees it, a post line the capturing / losing team's, a
 //! death with no killer nobody's grey.
 //!
+//! The target readout (card HTGT, `analysis/re-target-hud.md` §3-4): what
+//! the reticle picks, by its class's name and health ([`EventFeed::target`]).
+//!
+//! The hit-direction chevrons (card HATK, `analysis/re-hud-attacker.md`):
+//! the edge each hit on the viewer lights ([`ambush_edge`],
+//! [`EventFeed::take_ambush`]), drawn by `ui::hud_ambush`.
+//!
 //! The statistics (§5, §9): kills less two per team kill, and BF2's points
 //! from its own table (PS2 RAM [M]) — see [`points`].
 //!
@@ -33,11 +40,14 @@
 //!   must not read them again.
 //! - **An identical line is one line** while the first is still up.
 
-use core::sim::{Event, Sim};
+use core::sim::{AimTarget, Event, Sim};
 use core::unit::UnitHandle;
+use core::vehicle::{SeatKind, VehicleKind};
+use glam::Quat;
 use manifest::hud::HudLocl;
 use std::path::Path;
-use ui::hud::{message_color, HudMessage, HudStats};
+use ui::hud::{message_color, HudMessage, HudStats, HudTarget};
+use ui::hud_ambush::Edge;
 use ui::hud_squad::{self, SquadCross};
 
 /// `[ours]` Post lines on every map. The BF2 PS2 shows none (its events 4
@@ -311,8 +321,14 @@ pub struct EventFeed {
     /// ([`Texts::class_name`], else the roster's label). Empty for a feed
     /// built without a walk.
     classes: [Vec<String>; 2],
+    /// The vehicle and building-turret classes' names, by `Vehicle::class`
+    /// ([`Texts::class_name`], else the class's `Label`, else its ODF name).
+    vehicles: Vec<String>,
     /// The lines made since the last [`EventFeed::take`], oldest first.
     out: Vec<HudMessage>,
+    /// The chevron edges the viewer's hits lit since the last
+    /// [`EventFeed::take_ambush`] (card HATK).
+    ambush: Vec<Edge>,
     /// What was said lately, and when (the one-line rule).
     recent: Vec<(String, u64)>,
     /// The tick whose events were already read.
@@ -347,9 +363,11 @@ impl EventFeed {
             teams: [team(factions[0]), team(factions[1])],
             posts: post_keys.iter().map(|k| texts.post_name(k)).collect(),
             classes: [Vec::new(), Vec::new()],
+            vehicles: Vec::new(),
             order_labels: ORDER_LABELS.map(|l| texts.order_label(l)),
             texts,
             out: Vec::new(),
+            ambush: Vec::new(),
             recent: Vec::new(),
             seen: None,
             owners: Vec::new(),
@@ -379,6 +397,20 @@ impl EventFeed {
                 })
                 .collect()
         });
+        feed.vehicles = walk
+            .vehicle_classes
+            .iter()
+            .enumerate()
+            .map(|(i, c)| {
+                feed.texts.class_name(c).unwrap_or_else(|| {
+                    walk.vehicle_labels
+                        .get(i)
+                        .cloned()
+                        .flatten()
+                        .unwrap_or_else(|| c.clone())
+                })
+            })
+            .collect();
         feed
     }
 
@@ -489,6 +521,9 @@ impl EventFeed {
         self.note_capture_regions(sim);
 
         for e in &sim.events {
+            if let Some(edge) = ambush_edge(sim, viewer, e) {
+                self.ambush.push(edge);
+            }
             match *e {
                 Event::Kill { shooter, victim } => {
                     let (k, v) = (
@@ -641,6 +676,62 @@ impl EventFeed {
         std::mem::take(&mut self.out)
     }
 
+    /// The chevron edges lit since the last call (`HudModel::ambush`).
+    pub fn take_ambush(&mut self) -> Vec<Edge> {
+        std::mem::take(&mut self.ambush)
+    }
+
+    /// What player slot `slot`'s reticle picks (`Sim::reticle_pick`) as the
+    /// target readout shows it (`re-target-hud.md` §3-4 [V][O]): its class's
+    /// name (`entity.<side>.<rest>`, as the spawn screen names it), health /
+    /// max health, the relation the pick carries. The sim's sides are both
+    /// armies, so no soldier is a team-0 target; an empty vehicle or an
+    /// unowned building turret is (card HTGT). The sim has no shields, and
+    /// the classes' `HideHealthBar` drop (§2: two BF2 classes) is not ported.
+    pub fn target(&self, sim: &Sim, slot: usize) -> Option<HudTarget> {
+        let (t, relation) = sim.reticle_pick.get(slot).copied().flatten()?;
+        let fraction = |h: &core::weapon::Health| {
+            if h.max > 0.0 {
+                (h.cur / h.max).clamp(0.0, 1.0)
+            } else {
+                0.0
+            }
+        };
+        match t {
+            AimTarget::Unit(h) => {
+                let u = sim.unit(h)?;
+                let name = self.classes[usize::from(u.team.min(1))]
+                    .get(usize::from(u.spec.class))
+                    .cloned()
+                    .unwrap_or_default();
+                Some(HudTarget {
+                    id: (u64::from(h.gen) << 32) | u64::from(h.index),
+                    name,
+                    health_fraction: fraction(&u.health),
+                    relation,
+                    team0: false,
+                    shield: None,
+                })
+            }
+            AimTarget::Vehicle(h) => {
+                let v = sim.vehicle(h)?;
+                Some(HudTarget {
+                    // Top bit: a vehicle's id never equals a unit's.
+                    id: (1 << 63) | (u64::from(h.gen & 0x7fff_ffff) << 32) | u64::from(h.index),
+                    name: self
+                        .vehicles
+                        .get(v.class as usize)
+                        .cloned()
+                        .unwrap_or_default(),
+                    health_fraction: fraction(&v.health),
+                    relation,
+                    team0: v.team.is_none(),
+                    shield: None,
+                })
+            }
+        }
+    }
+
     /// The viewer's statistics as BF2 publishes them (§5).
     pub fn stats(&self, sim: &Sim, viewer: UnitHandle) -> HudStats {
         HudStats {
@@ -651,6 +742,40 @@ impl EventFeed {
             captures: self.captures,
         }
     }
+}
+
+/// The chevron a hit on `viewer` lights (card HATK, `analysis/re-hud-attacker.md`
+/// §3-4 [V][O]): the PS2 calls its trigger from the TakeDamage of the unit a
+/// local player controls, alive at the call, before the damage is known — so
+/// any hit, a killing one or one that takes nothing. The shot's way goes into
+/// that unit's own (left, up, forward) rows: the soldier's facing, or the
+/// vehicle he pilots (BF2's callers: the soldier, hover and walker; no
+/// flyer [H], no building turret). A collision (no direction) lights none.
+pub fn ambush_edge(sim: &Sim, viewer: UnitHandle, e: &Event) -> Option<Edge> {
+    let me = sim.units.get(viewer.index as usize)?;
+    let (dir, rot) = match *e {
+        Event::Hit { victim, dir, .. } if victim == viewer => (
+            dir,
+            Quat::from_rotation_y(me.soldier.yaw + std::f32::consts::PI),
+        ),
+        Event::VehicleHit {
+            vehicle,
+            dir: Some(dir),
+            ..
+        } => {
+            let m = me.mount.filter(|m| m.vehicle == vehicle)?;
+            let v = sim.vehicle(vehicle)?;
+            let piloted = v.seats.get(usize::from(m.seat)).map(|s| s.kind) == Some(SeatKind::Pilot);
+            if !piloted || !matches!(v.kind, VehicleKind::Hover | VehicleKind::Walker) {
+                return None;
+            }
+            (dir, v.rot)
+        }
+        _ => return None,
+    };
+    // Both frames: left = +X, up = +Y, forward = +Z turned by `rot` (a
+    // soldier's yaw 0 faces -Z, `render::Camera`).
+    ui::hud_ambush::edge(rot.inverse() * dir)
 }
 
 #[cfg(test)]
@@ -676,6 +801,9 @@ mod tests {
             ("level.hoth.cp5", "Echo Base"),
             ("weapons.imp.weap.inf_rifle", "Blaster Rifle"),
             ("ifs.sideselect.chooseteam", "Select a team"),
+            ("entity.all.inf_soldier", "Rebel Soldier"),
+            ("entity.imp.inf_rifleman", "Stormtrooper"),
+            ("entity.imp.hover_fightertank", "Fighter Tank"),
         ] {
             entries.push((manifest::hud::locl_key(key), text.to_string()));
         }
@@ -761,6 +889,185 @@ mod tests {
             text: text.into(),
             color,
         }
+    }
+
+    /// Card HTGT (`re-target-hud.md` §3-4): the reticle's pick by its
+    /// class's Locl name and health — a Rebel at 300 then 150 of 300 reads
+    /// 1.0 then 0.5, enemy; a team-mate a friend; no pick, no target.
+    #[test]
+    fn the_target_is_the_reticles_pick_by_class_name() {
+        let mut s = scene();
+        s.feed.classes = [
+            vec![s
+                .feed
+                .texts
+                .class_name("all_inf_soldier")
+                .expect("entity key")],
+            vec![s
+                .feed
+                .texts
+                .class_name("imp_inf_rifleman")
+                .expect("entity key")],
+        ];
+        let [r0, _] = s.rebels;
+        s.sim.reticle_pick.resize(1, None);
+        assert_eq!(s.feed.target(&s.sim, 0), None);
+        let u = &mut s.sim.units[r0.index as usize];
+        u.health.max = 300.0;
+        u.health.cur = 300.0;
+        s.sim.reticle_pick[0] = Some((AimTarget::Unit(r0), -1));
+        let t = s.feed.target(&s.sim, 0).expect("picked");
+        assert_eq!((t.name.as_str(), t.health_fraction), ("Rebel Soldier", 1.0));
+        assert_eq!(t.color(), ui::hud::target_color::ENEMY);
+        s.sim.units[r0.index as usize].health.cur = 150.0;
+        assert_eq!(s.feed.target(&s.sim, 0).unwrap().health_fraction, 0.5);
+        s.sim.reticle_pick[0] = Some((AimTarget::Unit(s.mate), 1));
+        let t = s.feed.target(&s.sim, 0).unwrap();
+        assert_eq!(t.name, "Stormtrooper");
+        assert_eq!(t.color(), ui::hud::target_color::FRIEND);
+        s.sim.reticle_pick[0] = Some((AimTarget::Unit(r0), -1));
+        assert_ne!(
+            t.id,
+            s.feed.target(&s.sim, 0).unwrap().id,
+            "one id per unit"
+        );
+    }
+
+    /// Card HTGT slice 3: a picked vehicle reads its class's Locl name and
+    /// its hull's health; empty it is a team-0 target (white), crewed by the
+    /// other team an enemy; its id is not a unit's.
+    #[test]
+    fn a_picked_vehicle_reads_its_class_name_and_hull() {
+        use core::vehicle::{SeatKind, VehicleKind, VehicleSpec};
+        let mut s = scene();
+        s.feed.vehicles = vec![s
+            .feed
+            .texts
+            .class_name("imp_hover_fightertank")
+            .expect("entity key")];
+        let v = s.sim.spawn_vehicle(&VehicleSpec {
+            kind: VehicleKind::Hover,
+            class: 0,
+            home_team: None,
+            neutral_when_empty: true,
+            spawn_pad: None,
+            pos: Vec3::new(0.0, 0.0, -20.0),
+            yaw: 0.0,
+            max_health: 1000.0,
+            health_type: core::weapon::HealthType::Vehicle,
+            seats: vec![SeatKind::Pilot],
+        });
+        s.sim.reticle_pick.resize(1, None);
+        s.sim.reticle_pick[0] = Some((AimTarget::Vehicle(v), 0));
+        let t = s.feed.target(&s.sim, 0).expect("picked");
+        assert_eq!((t.name.as_str(), t.health_fraction), ("Fighter Tank", 1.0));
+        assert!(t.team0);
+        assert_eq!(t.color(), ui::hud::target_color::NONE);
+        let veh = &mut s.sim.vehicles[v.index as usize];
+        veh.health.cur = 250.0;
+        veh.team = Some(1);
+        s.sim.reticle_pick[0] = Some((AimTarget::Vehicle(v), -1));
+        let t = s.feed.target(&s.sim, 0).unwrap();
+        assert_eq!(t.health_fraction, 0.25);
+        assert!(!t.team0);
+        assert_eq!(t.color(), ui::hud::target_color::ENEMY);
+        let unit = s.sim.handle(v.index as usize);
+        s.sim.reticle_pick[0] = Some((AimTarget::Unit(unit), -1));
+        if let Some(u) = s.feed.target(&s.sim, 0) {
+            assert_ne!(u.id, t.id, "a vehicle's id is not its index's unit's");
+        }
+        s.sim.vehicles[v.index as usize].alive = false;
+        s.sim.reticle_pick[0] = Some((AimTarget::Vehicle(v), -1));
+        assert_eq!(s.feed.target(&s.sim, 0), None, "a wreck reads nothing");
+    }
+
+    /// Card HATK (`re-hud-attacker.md` §3): a hit on the player lights the
+    /// edge toward the shooter in HIS frame - a Rebel at +X shooting him
+    /// (the shot travelling -X, a little down) is on his right facing -Z,
+    /// behind him facing -X, on his left facing +Z, and in front of him
+    /// (nothing) facing +X; another unit's hit lights nothing.
+    #[test]
+    fn a_hit_on_the_player_lights_the_edge_toward_the_shooter() {
+        let mut s = scene();
+        let (me, mate, rebel) = (s.me, s.mate, s.rebels[0]);
+        let from = s.sim.units[rebel.index as usize].soldier.pos + Vec3::Y * 1.6;
+        let to = s.sim.units[me.index as usize].soldier.pos + Vec3::Y * 1.0;
+        let hit = |victim| Event::Hit {
+            shooter: rebel,
+            victim,
+            damage: 10.0,
+            age: 0.5,
+            health_left: 100.0,
+            dir: (to - from).normalize(),
+        };
+        let edges = |s: &mut Scene, yaw: f32, victim| {
+            s.sim.units[me.index as usize].soldier.yaw = yaw;
+            happen(s, &[hit(victim)]);
+            s.feed.take_ambush()
+        };
+        use std::f32::consts::{FRAC_PI_2, PI};
+        // Yaw 0 faces -Z (positive yaw turns left).
+        assert_eq!(edges(&mut s, 0.0, me), [Edge::Right]);
+        assert_eq!(edges(&mut s, FRAC_PI_2, me), [Edge::Bottom]);
+        assert_eq!(edges(&mut s, PI, me), [Edge::Left]);
+        assert_eq!(edges(&mut s, -FRAC_PI_2, me), []);
+        assert_eq!(edges(&mut s, 0.0, mate), []);
+        assert!(s.feed.take_ambush().is_empty(), "taken once");
+    }
+
+    /// A hit on the hover he pilots lights the edge in the HULL's frame (its
+    /// left +X, forward +Z); a gunner's seat, a collision, or a flyer light
+    /// none (BF2's callers: soldier, hover, walker).
+    #[test]
+    fn a_hit_on_his_hover_lights_the_hulls_edge() {
+        use core::vehicle::{Mount, SeatKind, VehicleKind, VehicleSpec};
+        let mut s = scene();
+        let me = s.me;
+        let spec = |kind, yaw| VehicleSpec {
+            kind,
+            class: 0,
+            home_team: None,
+            neutral_when_empty: true,
+            spawn_pad: None,
+            pos: Vec3::ZERO,
+            yaw,
+            max_health: 1000.0,
+            health_type: core::weapon::HealthType::Vehicle,
+            // A building turret has gunner seats only.
+            seats: if kind == VehicleKind::Turret {
+                vec![SeatKind::Gunner(0)]
+            } else {
+                vec![SeatKind::Pilot, SeatKind::Gunner(0)]
+            },
+        };
+        let mut edges = |kind, yaw, seat, dir: Option<Vec3>| {
+            let v = s.sim.spawn_vehicle(&spec(kind, yaw));
+            s.sim.units[me.index as usize].mount = Some(Mount { vehicle: v, seat });
+            // The soldier's own facing must not matter.
+            s.sim.units[me.index as usize].soldier.yaw = 1.0;
+            let rot = s.sim.vehicle(v).unwrap().rot;
+            let ev = Event::VehicleHit {
+                shooter: Some(s.rebels[0]),
+                vehicle: v,
+                damage: 10.0,
+                dir: dir.map(|d| rot * d),
+            };
+            happen(&mut s, &[ev]);
+            s.feed.take_ambush()
+        };
+        // Travelling toward the hull's right (-X): from its left.
+        let from_left = Some(Vec3::new(-1.0, -0.1, 0.0).normalize());
+        assert_eq!(edges(VehicleKind::Hover, 0.0, 0, from_left), [Edge::Left]);
+        assert_eq!(edges(VehicleKind::Walker, 2.0, 0, from_left), [Edge::Left]);
+        let from_behind = Some(Vec3::new(0.0, -0.1, 1.0).normalize());
+        assert_eq!(
+            edges(VehicleKind::Hover, 1.0, 0, from_behind),
+            [Edge::Bottom]
+        );
+        assert_eq!(edges(VehicleKind::Hover, 0.0, 1, from_left), []);
+        assert_eq!(edges(VehicleKind::Hover, 0.0, 0, None), []);
+        assert_eq!(edges(VehicleKind::Flyer, 0.0, 0, from_left), []);
+        assert_eq!(edges(VehicleKind::Turret, 0.0, 0, from_left), []);
     }
 
     /// Card EVMSG's gate (`re-event-messages.md` §1.1): only a human's death

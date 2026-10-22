@@ -1124,3 +1124,131 @@ fn the_floor_is_lost_at_the_top_of_a_climb_only_under_the_climb_limit() {
     );
     assert_eq!(lost_at(GroundRules::Bf2, 0.72), None, "over BF2's 0.7");
 }
+
+// ── Card KNOCK: the throw, the tumble, the get-up and the lock ─────────────
+// PS2 reference: `lead_tmp/knock/out/bf1_hot1_knock.json` trial 2, the player
+// P (re-knockback.md §2 / §6): feet (171.183, -6.920, 50.595), the thermal
+// detonator's blast at (169.182, -6.800, 50.428), Push 10, PushRadius 4.5.
+
+/// One tick on a level floor at y = 0, BF1's rules.
+fn tick1(s: &mut Soldier, pad: &PadState, c: &SoldierConstants) {
+    s.step(DT, pad, c, GroundRules::Bf1);
+    s.resolve_ground(DT, 0.0, Vec3::Y, 0.0, GroundRules::Bf1);
+}
+
+/// P's push direction: normalize(the standing sphere centre - blast) +
+/// (0, 0.6, 0).
+fn p_dir() -> Vec3 {
+    let d = Vec3::new(171.183, -6.92 + 1.0, 50.595) - Vec3::new(169.182, -6.8, 50.428);
+    d.normalize() + Vec3::Y * KNOCK_LIFT
+}
+
+#[test]
+fn knock_bf1_the_ps2_players_impulse() {
+    let mut s = Soldier::new(Vec3::ZERO);
+    s.knock(p_dir(), 10.0, GroundRules::Bf1, 0.0);
+    let want = Vec3::new(9.128, 10.013, 0.761);
+    assert!((s.vel - want).abs().max_element() < 0.02, "{:?}", s.vel);
+    assert_eq!(s.stance, Stance::Thrown);
+    // Under 2 m/s of lift and of ground speed: the velocity only.
+    let mut s = Soldier::new(Vec3::ZERO);
+    s.knock(Vec3::new(1.0, 0.0, 0.0), 1.5, GroundRules::Bf1, 0.0);
+    assert_eq!((s.stance, s.vel), (Stance::Stand, Vec3::new(1.5, 0.0, 0.0)));
+    // Along the ground over 2 m/s: straight to the tumble.
+    s.knock(Vec3::new(1.0, 0.0, 0.0), 1.0, GroundRules::Bf1, 0.0);
+    assert_eq!(s.stance, Stance::Tumble);
+    // A corpse keeps its state and takes the velocity (FUN_00209758).
+    let mut s = Soldier::new(Vec3::ZERO);
+    s.stance = Stance::Dead;
+    s.knock(p_dir(), 10.0, GroundRules::Bf1, 0.0);
+    assert_eq!(s.stance, Stance::Dead);
+    assert!(s.vel.y > 10.0);
+}
+
+/// §2 [M], update by update: the push's tick sets the velocity; the next
+/// moves him with no gravity (the floor bit is still set); then g 13.5 with
+/// the horizontal 9.16 m/s unchanged; on the ground at update 46, tumbling
+/// at 47; the tumble at 8.4 m/s^2 to under 4 m/s, the get-up at 16.8 to
+/// rest, then the 1.9333 s lock with no move and no fire; at rest 18.7 m
+/// from the start 2.4 s after the blast.
+#[test]
+fn knock_bf1_the_ps2_players_flight() {
+    let c = SoldierConstants::default();
+    let idle = PadState::default();
+    let mut s = Soldier::new(Vec3::ZERO);
+    s.knock(p_dir(), 10.0, GroundRules::Bf1, 0.0);
+    let (vy0, h0) = (s.vel.y, Vec2::new(s.vel.x, s.vel.z).length());
+    tick1(&mut s, &idle, &c);
+    assert!((s.pos.y - vy0 * DT).abs() < 1e-5, "no gravity on update 1");
+    assert_eq!(s.vel.y, vy0);
+    assert!(!s.grounded);
+    let mut n = 1;
+    while !s.grounded {
+        let vy = s.vel.y;
+        tick1(&mut s, &idle, &c);
+        n += 1;
+        if !s.grounded {
+            assert!((vy - s.vel.y - 13.5 * DT).abs() < 1e-4, "g 13.5");
+        }
+        assert!((Vec2::new(s.vel.x, s.vel.z).length() - h0).abs() < 1e-4);
+        assert!(s.no_fire());
+        assert!(n < 60);
+    }
+    assert_eq!(n, 46, "on the ground at update 46");
+    assert_eq!(s.stance, Stance::Thrown);
+    tick1(&mut s, &idle, &c);
+    assert_eq!(s.stance, Stance::Tumble, "tumbling at update 47");
+    assert!((Vec2::new(s.vel.x, s.vel.z).length() - h0).abs() < 1e-4);
+    let mut t = 47;
+    let mut last = h0;
+    while s.stance == Stance::Tumble {
+        tick1(&mut s, &idle, &c);
+        t += 1;
+        let sp = Vec2::new(s.vel.x, s.vel.z).length();
+        if s.stance == Stance::Tumble {
+            assert!(sp >= 4.0);
+        }
+        last = sp;
+    }
+    assert_eq!(s.stance, Stance::GetUp);
+    assert!(last < 4.0 && last > 3.4, "{last}");
+    while s.stance == Stance::GetUp {
+        tick1(&mut s, &idle, &c);
+        t += 1;
+    }
+    assert_eq!(s.stance, Stance::Stand);
+    assert!((s.lock_timer - 58.0 / 30.0).abs() < 1e-6);
+    let secs = t as f32 * DT;
+    let dist = Vec2::new(s.pos.x, s.pos.z).length();
+    assert!((secs - 2.4).abs() <= 0.1, "{secs} s");
+    assert!((dist - 18.7).abs() <= 0.3, "{dist} m");
+    // Locked: the stick moves nothing, the trigger is held off.
+    let at = s.pos;
+    for _ in 0..55 {
+        tick1(&mut s, &full_fwd(), &c);
+        assert!(s.no_fire());
+    }
+    assert!((s.pos - at).length() < 1e-4, "no move while locked");
+    // It runs out 58 or 59 updates on (1.935 s on the PS2).
+    for _ in 0..4 {
+        tick1(&mut s, &full_fwd(), &c);
+    }
+    assert!(!s.no_fire());
+    assert!(s.vel.length() > 0.5, "free after the lock");
+}
+
+/// The landing's draw (B1:117586-117607): between 3 and 6 m/s a throw
+/// tumbles only when the draw is over 0.3, else it gets up.
+#[test]
+fn knock_landing_speed_and_draw() {
+    let c = SoldierConstants::default();
+    for (draw, want) in [(0.9, Stance::Tumble), (0.1, Stance::GetUp)] {
+        let mut s = Soldier::new(Vec3::ZERO);
+        s.knock(Vec3::new(0.78, 0.6, 0.0), 5.0, GroundRules::Bf1, draw);
+        assert_eq!(s.stance, Stance::Thrown);
+        while s.stance == Stance::Thrown {
+            tick1(&mut s, &PadState::default(), &c);
+        }
+        assert_eq!(s.stance, want, "draw {draw}");
+    }
+}

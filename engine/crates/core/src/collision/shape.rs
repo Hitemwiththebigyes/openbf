@@ -490,19 +490,34 @@ impl Body {
     /// (`game::assets::Scene::collision_world`) once the class rule has said
     /// which subsets the body is in.
     pub fn with_layers(to_world: Mat4, shape: Shape, layers: Layers) -> Body {
+        let closed = shape.closed();
+        Body::placed(to_world, shape, layers, closed)
+    }
+
+    /// [`Body::with_layers`] with `closed` already known (card HULLC): a
+    /// mover or a hull part re-placed every tick keeps its shape, so the
+    /// mesh weld is not run again.
+    pub(super) fn placed(to_world: Mat4, shape: Shape, layers: Layers, closed: bool) -> Body {
         Body {
             aabb: Aabb::transformed(shape.local_aabb(), to_world),
             to_local: to_world.inverse(),
             iso: isometry_of(to_world),
             to_world,
-            closed: match &shape {
-                Shape::Mesh(m) => watertight(m),
-                _ => false,
-            },
+            closed,
             shape,
             layers,
             owner: None,
             instance: None,
+        }
+    }
+}
+
+impl Shape {
+    /// [`Body::closed`] for this shape: a watertight mesh; never a primitive.
+    fn closed(&self) -> bool {
+        match self {
+            Shape::Mesh(m) => watertight(m),
+            _ => false,
         }
     }
 }
@@ -572,6 +587,49 @@ pub struct HullPart {
     pub local: Mat4,
     pub shape: Shape,
     pub layers: Layers,
+    /// [`Body::closed`] of `shape`, worked out once by [`HullPart::new`]
+    /// (card HULLC: `set_hull` places every part every tick).
+    pub(super) closed: bool,
+}
+
+impl HullPart {
+    pub fn new(local: Mat4, shape: Shape, layers: Layers) -> HullPart {
+        HullPart {
+            local,
+            closed: shape.closed(),
+            shape,
+            layers,
+        }
+    }
+
+    /// The same part: the same placement bit for bit, layers and shape (a
+    /// mesh by identity - the hull holding it keeps it alive, so its address
+    /// cannot be reused).
+    pub(super) fn same_as(&self, o: &HullPart) -> bool {
+        let bits = |m: &Mat4| m.to_cols_array().map(f32::to_bits);
+        bits(&self.local) == bits(&o.local)
+            && self.layers == o.layers
+            && match (&self.shape, &o.shape) {
+                (Shape::Mesh(a), Shape::Mesh(b)) => Arc::ptr_eq(a, b),
+                (Shape::Sphere { radius: a }, Shape::Sphere { radius: b }) => {
+                    a.to_bits() == b.to_bits()
+                }
+                (
+                    Shape::Cylinder {
+                        radius: a,
+                        half_height: c,
+                    },
+                    Shape::Cylinder {
+                        radius: b,
+                        half_height: d,
+                    },
+                ) => a.to_bits() == b.to_bits() && c.to_bits() == d.to_bits(),
+                (Shape::Box { half: a }, Shape::Box { half: b }) => {
+                    a.to_array().map(f32::to_bits) == b.to_array().map(f32::to_bits)
+                }
+                _ => false,
+            }
+    }
 }
 
 /// A terrain cutter: a convex volume the terrain is punched out of. See
@@ -587,8 +645,124 @@ pub struct Cutter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::collision::tests::{floor_quad, mesh_body, slab};
+    use crate::collision::tests::{box_mesh, floor_quad, mesh_body, slab};
     use crate::collision::CollisionWorld;
+
+    /// Card HULLC: a hull part's and a mover's `closed` is worked out once,
+    /// where the shape is made, and is what [`watertight`] says of the same
+    /// mesh - on the part, on the hull bodies `set_hull` places every tick,
+    /// and on a body `move_body` re-places.
+    #[test]
+    fn closed_is_computed_once_and_matches_watertight() {
+        let owner = crate::vehicle::VehicleHandle { index: 0, gen: 0 };
+        let half = Vec3::new(1.0, 1.5, 2.0);
+        let shapes = [false, true].map(|open| box_mesh(Vec3::ZERO, half, open).shape);
+        let want: Vec<bool> = shapes
+            .iter()
+            .map(|s| match s {
+                Shape::Mesh(m) => watertight(m),
+                _ => unreachable!(),
+            })
+            .collect();
+        assert_eq!(want, [true, false], "the fixture: one sealed box, one open");
+        let parts: Vec<HullPart> = shapes
+            .iter()
+            .map(|s| HullPart::new(Mat4::from_translation(Vec3::Y), s.clone(), Layers::ALL))
+            .chain([HullPart::new(
+                Mat4::IDENTITY,
+                Shape::Box { half },
+                Layers::ALL,
+            )])
+            .collect();
+        let want = [want[0], want[1], false];
+        assert_eq!(parts.iter().map(|p| p.closed).collect::<Vec<_>>(), want);
+        let mut w = CollisionWorld::new(
+            shapes
+                .iter()
+                .map(|s| Body::new(Mat4::IDENTITY, s.clone()))
+                .collect(),
+            Vec::new(),
+        );
+        for pose in [
+            Mat4::IDENTITY,
+            Mat4::from_translation(Vec3::new(5.0, 0.0, -3.0)),
+        ] {
+            w.set_hull(owner, &parts, pose);
+            let got: Vec<bool> = w.hull(owner).iter().map(|b| b.closed).collect();
+            assert_eq!(got, want, "set_hull at {pose:?}");
+        }
+        for (i, &closed) in want.iter().take(2).enumerate() {
+            w.move_body(i, Mat4::from_translation(Vec3::X * 3.0));
+            assert_eq!(w.bodies()[i].closed, closed, "move_body {i}");
+        }
+    }
+
+    /// Card HULLC: `set_hull` keeps a hull placed by the same vehicle from
+    /// the same parts at the same pose, and re-places it on any change - a
+    /// new pose, a part's layers, an equal mesh that is another `Arc`, a new
+    /// generation in the slot.
+    #[test]
+    fn set_hull_keeps_only_an_unchanged_hull() {
+        let owner = crate::vehicle::VehicleHandle { index: 2, gen: 0 };
+        let half = Vec3::new(1.0, 1.5, 2.0);
+        let mesh = box_mesh(Vec3::ZERO, half, false).shape;
+        let part = |shape: Shape, layers| HullPart::new(Mat4::IDENTITY, shape, layers);
+        let parts = vec![part(mesh.clone(), Layers::ALL)];
+        let mut w = CollisionWorld::new(Vec::new(), Vec::new());
+        let at = |x: f32| Mat4::from_translation(Vec3::new(x, 0.0, 0.0));
+        let probe = |w: &CollisionWorld, o| {
+            w.hull(o)
+                .iter()
+                .map(|b| (b.aabb.min.x, b.layers, b.closed))
+                .collect::<Vec<_>>()
+        };
+        w.set_hull(owner, &parts, at(0.0));
+        assert_eq!(probe(&w, owner), [(-1.0, Layers::ALL, true)]);
+        w.set_hull(owner, &parts, at(0.0));
+        assert_eq!(probe(&w, owner), [(-1.0, Layers::ALL, true)], "kept");
+        w.set_hull(owner, &parts, at(4.0));
+        assert_eq!(probe(&w, owner), [(3.0, Layers::ALL, true)], "a new pose");
+        let ordnance = vec![part(mesh.clone(), Layers::ORDNANCE)];
+        w.set_hull(owner, &ordnance, at(4.0));
+        assert_eq!(probe(&w, owner), [(3.0, Layers::ORDNANCE, true)], "layers");
+        let open = vec![part(
+            box_mesh(Vec3::ZERO, half, true).shape,
+            Layers::ORDNANCE,
+        )];
+        w.set_hull(owner, &open, at(4.0));
+        assert_eq!(
+            probe(&w, owner),
+            [(3.0, Layers::ORDNANCE, false)],
+            "another mesh"
+        );
+        let next = crate::vehicle::VehicleHandle { index: 2, gen: 1 };
+        w.set_hull(next, &open, at(4.0));
+        assert!(
+            w.hull(owner).is_empty(),
+            "the old generation's hull is gone"
+        );
+        assert_eq!(
+            probe(&w, next),
+            [(3.0, Layers::ORDNANCE, false)],
+            "a new generation"
+        );
+        // An equal mesh in a new `Arc` is another mesh: placed again (its
+        // `closed` would be the same; the hull now holds the new `Arc`).
+        let Shape::Mesh(m) = &open[0].shape else {
+            unreachable!()
+        };
+        let copy = vec![part(Shape::Mesh(Arc::new((**m).clone())), Layers::ORDNANCE)];
+        w.set_hull(next, &copy, at(4.0));
+        let Shape::Mesh(held) = &w.hull(next)[0].shape else {
+            unreachable!()
+        };
+        let Shape::Mesh(c) = &copy[0].shape else {
+            unreachable!()
+        };
+        assert!(Arc::ptr_eq(held, c), "an equal mesh in a new Arc");
+        w.set_hull(next, &[], at(4.0));
+        assert!(w.hull(next).is_empty(), "no part, no hull");
+    }
 
     /// [`Capsule::stepped`] is exactly the capsule the AI's forward probe used
     /// to build for itself (`ai::probe_capsule`, deleted in A.4 when the wall

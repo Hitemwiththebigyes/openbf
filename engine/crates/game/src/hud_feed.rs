@@ -39,6 +39,10 @@ pub struct HudView {
     /// The squad cross's parts of the last layout.
     squad: Vec<(ui::hud_squad::Part, [f32; 4], f32)>,
     settled: bool,
+    /// The shell movie's texture and the frame waiting to be written into
+    /// it (card BSHLA).
+    movie: Option<HudTexture>,
+    movie_frame: Option<(Vec<u8>, u32, u32)>,
 }
 
 fn read_ron<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
@@ -158,6 +162,8 @@ impl HudView {
             texture_dirs: vec![
                 common.join("textures"),
                 common.join("fonts"),
+                // The shell's own sheets (`logo`, card BSHLA).
+                crate::shell_movie::shell_dir(assets_dir).join("textures"),
                 bf1_fonts,
                 assets_dir.join("side_bf2/textures"),
                 assets_dir.join("common_bf1/textures"),
@@ -172,6 +178,8 @@ impl HudView {
             boxes: Vec::new(),
             squad: Vec::new(),
             settled: false,
+            movie: None,
+            movie_frame: None,
         })
     }
 
@@ -288,6 +296,32 @@ impl HudView {
         self.squad = frame.squad;
     }
 
+    /// Lay the shell's page `menus` out for a `size` window (card BSHLA):
+    /// the movie's last frame under it when `movie` (see
+    /// [`HudView::set_movie_frame`]), the HUD tree not at all.
+    pub fn update_shell(&mut self, menus: &ui::shell_ps2::ShellMenus, movie: bool, size: [u32; 2]) {
+        let movie = movie && (self.movie.is_some() || self.movie_frame.is_some());
+        self.hud.shell = Some((menus.clone(), movie));
+        let frame = ui::hud_draw::draw(&self.hud, &self.art, [size[0] as f32, size[1] as f32]);
+        self.hud.shell = None;
+        self.verts.clear();
+        self.verts.extend(frame.verts.iter().map(|v| HudVertex {
+            pos: v.pos,
+            uv: v.uv,
+            color: v.color,
+        }));
+        self.indices = frame.indices;
+        self.batches = frame.batches;
+        self.boxes = frame.boxes;
+        self.squad = frame.squad;
+    }
+
+    /// The shell movie's newest frame (RGBA8 display values), written into
+    /// its texture at the next paint.
+    pub fn set_movie_frame(&mut self, rgba: Vec<u8>, width: u32, height: u32) {
+        self.movie_frame = Some((rgba, width, height));
+    }
+
     /// The window box `[x0, y0, x1, y1]` the element called `name` was drawn
     /// in by the last [`HudView::update`]; `None` when it drew nothing.
     pub fn bounds(&self, name: &str) -> Option<[f32; 4]> {
@@ -335,8 +369,28 @@ impl HudView {
         let pass = self
             .pass
             .get_or_insert_with(|| HudPass::new(device, queue, format, display));
+        if let Some((rgba, w, h)) = self.movie_frame.take() {
+            let t = match self.movie {
+                Some(t) => Some(t),
+                None => pass.add_stream_texture(device, queue, w, h),
+            };
+            if let Some(t) = t {
+                pass.write_stream_texture(queue, t, &rgba);
+            }
+            self.movie = t;
+        }
         let mut batches = Vec::with_capacity(self.batches.len());
         for b in &self.batches {
+            if b.texture == ui::shell_ps2::MOVIE_SHEET {
+                batches.push(HudBatch {
+                    texture: self.movie,
+                    additive: b.additive,
+                    depth: b.depth,
+                    first: b.first,
+                    count: b.count,
+                });
+                continue;
+            }
             let texture = match self.textures.get(&b.texture) {
                 Some(t) => *t,
                 None => {

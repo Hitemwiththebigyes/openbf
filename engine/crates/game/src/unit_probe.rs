@@ -140,7 +140,7 @@ pub struct Probe {
     pub speed: f32,
     pub grounded: bool,
     /// `core::soldier::Stance` as 0 stand, 1 crouch, 2 prone, 3 sprint,
-    /// 4 jump, 5 roll, 6 fall.
+    /// 4 jump, 5 roll, 6 fall, 7 thrown, 8 tumble, 9 get-up, 10 dead.
     pub stance: u8,
     pub hp: f32,
     /// The vehicle slot and seat it rides, or -1.
@@ -277,7 +277,7 @@ pub struct Probe {
 pub const LEGEND: &[(&str, &str)] = &[
     ("id/gen", "unit slot and generation"),
     ("class", "index into names.classes[team]"),
-    ("stance", "0 stand 1 crouch 2 prone 3 sprint 4 jump 5 roll 6 fall"),
+    ("stance", "0 stand 1 crouch 2 prone 3 sprint 4 jump 5 roll 6 fall 7 thrown 8 tumble 9 getup 10 dead"),
     ("veh/seat", "vehicle slot ridden (-1 on foot) and seat"),
     ("locus/hub/floor_dy", "H hub, A arc, N nearest (off the graph), - none; that hub; feet minus the hub's top floor"),
     ("level", "0 on the playable level, >0 metres below it, -1 unknown"),
@@ -311,6 +311,10 @@ pub fn stance_code(s: core::soldier::Stance) -> u8 {
         Stance::Jump => 4,
         Stance::Roll => 5,
         Stance::Fall => 6,
+        Stance::Thrown => 7,
+        Stance::Tumble => 8,
+        Stance::GetUp => 9,
+        Stance::Dead => 10,
     }
 }
 

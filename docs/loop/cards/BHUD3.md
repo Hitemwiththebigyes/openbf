@@ -53,3 +53,6 @@ hidden only because nothing publishes their events, or their art is not baked.
 
 ## Notes
 - 2026-10-13 06:42 (lane 2, card CPBAR's RE; re-capture-display.md 3.4): BF2's HUD is NOT all layout data. The pause menu switches TEN code-drawn HUD pieces on and off together (B2:385841-385850: FUN_00393900, FUN_00393028, FUN_0038e9c0, FUN_00391200, FUN_0037e6d8 = the capture icon, FUN_00389b48, FUN_0037df18, FUN_003835f0, FUN_0037ed58, FUN_00390d20). One is read (the capture icon, card CPBAR); the other nine are not - read them on a PS2 frame before calling the player's HUD complete. A layout search that finds no element is not an absence on screen.
+
+## Planner note
+Planner 2026-10-21 20:50: the heat ring + overheat line moved to card OVHT (the maintainer's 10-21 ask, both games); leave them out here.

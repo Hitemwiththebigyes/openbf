@@ -4,14 +4,14 @@ title: The head-to-head's per-team tier is refereed by no test past the spawn sk
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: parked
 deps: ARVS
 files: engine/crates/core/src/sim/state.rs, engine/crates/core/src/sim/spawn.rs, engine/crates/core/src/sim/step.rs, engine/crates/core/src/sim/combat.rs, engine/crates/core/src/ai/behave.rs, engine/crates/core/src/ai/gunner_foot.rs, engine/crates/core/src/ai/snipe.rs, engine/crates/core/src/ai/man.rs, engine/crates/game/examples/arena.rs
 declares:
-needs:
+needs: maintainer - the RTX is lost (nvidia-smi / Vulkan see only Intel + llvmpipe); reboot, then the card lands as is
 effort:
-branch:
-resume:
+branch: arvsa
+resume: built + gated (gates2: every non-gpu gate PASS/identical, ci 1832->1844 = the 12 new tests); land with land.py ARVSA once the RTX is back (nvidia-smi -L) - the gpu gate refused ADAPTER LOST 2026-10-21 20:15; diff is tests + arena.rs refactor, no golden can move
 created: 2026-10-20
 alpha: yes
 domain: tooling

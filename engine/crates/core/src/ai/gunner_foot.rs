@@ -248,12 +248,17 @@ pub(super) fn run(
     // "the unit may move toward it" wants it walking, not frozen.
     //
     // D11 adds FIRE DISCIPLINE on top: a burst of `st.burst` shots, then the
-    // weapon class's pause, then a freshly drawn length ([`fire_discipline`]).
+    // weapon class's pause, then a freshly drawn length ([`fire_discipline`];
+    // card BRSTU: an unlimited weapon's burst runs on its heat, not a count).
     // The counter is decremented when the PREVIOUS tick's press actually
     // produced a shot — `Unit.last_shot_tick` is written in `Sim::step`
     // phase 4, after `think` has already run for this tick — so a weapon
     // that is reloading, overheated or rate-limited costs the bot nothing.
-    fire_discipline(sim, me, u, st, wc, &skill);
+    let meter = Meter {
+        heat: u.weapon.heat,
+        unlimited: u.weapon.rounds(wc).is_none(),
+    };
+    fire_discipline(sim, me, u, st, wc, meter, &skill);
     // Card FFLN: a friend in the line of fire. The shot waits (below); the
     // behaviour steps a holder with no Tactician's position aside.
     let line = enemy.and_then(|e| {
@@ -305,7 +310,7 @@ pub(super) fn run(
             // Card FFLN: on target, and a friend is in the way — no shot.
             nt.line_held = u32::from(on_target && line.is_some());
             let on_target = on_target && line.is_none();
-            let want_fire = on_target && sim.tick >= st.pause_until;
+            let want_fire = on_target && st.burst > 0 && sim.tick >= st.pause_until;
             if let Armed::Draw(button) = armed {
                 // The switch is an edge, and dead while a trigger is down.
                 if sim.tick.is_multiple_of(2) {
@@ -625,7 +630,13 @@ pub(super) fn stance_factor(stance: Stance) -> f32 {
         Stance::Crouch => 1.5,
         Stance::Prone | Stance::Sprint | Stance::Jump => 2.0,
         Stance::Roll => 3.0,
-        Stance::Stand | Stance::Fall => 1.0,
+        // Not one of the five either (OURS): a thrown or fallen body.
+        Stance::Stand
+        | Stance::Fall
+        | Stance::Thrown
+        | Stance::Tumble
+        | Stance::GetUp
+        | Stance::Dead => 1.0,
     }
 }
 
@@ -680,30 +691,95 @@ fn carries_human(sim: &Sim, u: &Unit) -> bool {
             })
 }
 
-/// D11's burst counter, once per tick before the fire decision: the previous
-/// tick's shot spends one, an empty burst starts the pause - counted from
-/// that last shot - and a spent pause draws the next burst (on foot and in a
-/// seat, VTAI). `wc` is the weapon fired: the bounds and the pause are its
-/// class's Barrage keys (card CLSE4). Not built: the PS2 starts a burst only
-/// when the weapon's heat / ammo meter affords it, and a bot that stops
-/// wanting to fire owes no pause (`analysis/re-soldier-ai.md` 20.3).
+/// [`AiState::burst`] of a weapon with unlimited rounds: a burst that no
+/// shot count ends (card BRSTU).
+pub(super) const HEAT_BURST: u8 = u8::MAX;
+
+/// The weapon a burst is fired with, as [`fire_discipline`] reads it.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Meter {
+    /// The weapon's heat now, 0..1 (`WeaponState::heat`).
+    pub heat: f32,
+    /// Unlimited rounds: `RoundsPerClip` under 1 or an endless reserve.
+    pub unlimited: bool,
+}
+
+/// D11's burst counter, once per tick before the fire decision (on foot and
+/// in a seat, VTAI); FIRE goes down only while a burst runs (`st.burst > 0`)
+/// and the pause has passed. `wc` is the weapon fired: the bounds and the
+/// pause are its class's Barrage keys (card CLSE4).
+///
+/// Card BRSTU (`analysis/re-soldier-ai.md` 23.2, B2 `FUN_002bac98`, B1
+/// `FUN_0023c9c8`): the PS2's n counts ROUNDS spent, so a weapon with
+/// unlimited rounds (every seat gun, the repeater, the chaingun) is never
+/// held to n ([`HEAT_BURST`]). The meter is the heat: a burst starts only
+/// when n shots' heat fits in what is left ([`heat_fits`]) and ends when
+/// one more salvo would not ([`heat_spent`]), then the class's pause from
+/// that tick. With `HeatPerShot` 0 an unlimited burst lasts as long as the
+/// bot fires. A counted weapon's burst: the previous tick's shot spends one
+/// and an empty burst starts the pause, counted from that last shot.
+/// Not built: a bot that stops wanting to fire owes no pause on the PS2
+/// (23.3), and its next burst draws a new n. So the n a waiting burst tests
+/// is redrawn each tick here: an n kept until the want drops would hold a
+/// gun whose n shots cost exactly a full meter (not over 1, so not capped:
+/// BF1 Hoth's turret cannon, 4 x 0.25) off for as long as it has a target.
 pub(super) fn fire_discipline(
     sim: &Sim,
     me: UnitHandle,
     u: &Unit,
     st: &mut AiState,
     wc: &crate::weapon::WeaponClass,
+    m: Meter,
     skill: &crate::skill::Skill,
 ) {
-    if st.burst > 0 && sim.tick > 0 && u.last_shot_tick == sim.tick - 1 {
+    // A weapon switch across the two kinds ends the burst, owing nothing.
+    if (st.burst == HEAT_BURST) != m.unlimited && st.burst != 0 {
+        st.burst = 0;
+    }
+    if st.burst > 0 && st.burst != HEAT_BURST && sim.tick > 0 && u.last_shot_tick == sim.tick - 1 {
         st.burst -= 1;
         if st.burst == 0 {
             st.pause_until = u.last_shot_tick + pause_ticks(sim.ground_rules, wc, skill);
         }
     }
-    if st.burst == 0 && sim.tick >= st.pause_until {
-        st.burst = burst_len(sim.ground_rules, wc, me, sim.tick, skill);
+    if st.burst > 0 && heat_spent(wc, m.heat) {
+        st.burst = 0;
+        st.pause_until = sim.tick + pause_ticks(sim.ground_rules, wc, skill);
     }
+    if st.burst == 0 && sim.tick >= st.pause_until {
+        let n = burst_len(sim.ground_rules, wc, me, sim.tick, skill);
+        if heat_fits(wc, n, m.heat) {
+            st.burst = if m.unlimited { HEAT_BURST } else { n };
+        }
+    }
+}
+
+/// One salvo's heat (`HeatPerShot` x `ShotsPerSalvo`), and the salvo's shot
+/// count (at least one).
+fn salvo_heat(wc: &WeaponClass) -> (f32, f32) {
+    let s = wc.shots_per_salvo.max(1) as f32;
+    (wc.heat_per_shot * s, s)
+}
+
+/// The PS2's start test (state 2): n shots' heat, whole salvos, capped at
+/// 0.99, under what is left of the meter.
+fn heat_fits(wc: &WeaponClass, n: u8, heat: f32) -> bool {
+    let (h, s) = salvo_heat(wc);
+    let mut cost = (f32::from(n) / s).ceil() * h;
+    if cost > 1.0 {
+        cost = 0.99;
+    }
+    cost < 1.0 - heat
+}
+
+/// The PS2's end test (state 3): the heat is within one salvo (capped at
+/// 0.99) and 0.0001 of full.
+fn heat_spent(wc: &WeaponClass, heat: f32) -> bool {
+    let (mut h, _) = salvo_heat(wc);
+    if h >= 1.0 {
+        h = 0.99;
+    }
+    1.0 - h - 0.0001 <= heat
 }
 
 /// Card STTAP: one tick of a bot's trigger on a `TriggerSingle` weapon
@@ -721,7 +797,7 @@ pub(super) fn fire_discipline(
 ///   1 → 2 → −1 → −2 → 1 while the bot wants to fire, a fresh press every
 ///   fourth tick; a sniper first passes `FUN_0023c698`'s `U(2, 3)` s cooldown.
 ///   PROVISIONAL: that function's `weapon+0xcc == 0` test is taken as true.
-fn tap(
+pub(super) fn tap(
     sim: &Sim,
     me: UnitHandle,
     st: &mut AiState,
@@ -1687,6 +1763,68 @@ mod tests {
             crate::soldier::GroundRules::Bf1,
         ] {
             bursts_with_a_pause(rules);
+        }
+    }
+
+    /// Card BRSTU (`analysis/re-soldier-ai.md` 23.2): a hand weapon with
+    /// unlimited rounds (the repeater's kind: `RoundsPerClip` 0, heat a
+    /// shot) is not held to the class's 3-6 shots - a bot on foot fires it
+    /// until its heat is a shot short of full, and it never overheats.
+    #[test]
+    fn an_unlimited_hand_weapon_bursts_on_its_heat() {
+        let _style = crate::ai::tests::all_stand();
+        use crate::sim::{Event, Sim};
+        use crate::unit::{Controller, UnitSpec};
+        for rules in [
+            crate::soldier::GroundRules::Bf1,
+            crate::soldier::GroundRules::Bf2,
+        ] {
+            let mut s = Sim::empty(5);
+            s.ground_rules = rules;
+            s.weapon_classes[0] = WeaponClass {
+                rounds_per_clip: 0,
+                heat_per_shot: 0.1,
+                heat_recover_rate: 0.4,
+                heat_threshold: 0.5,
+                ..WeaponClass::bf1_rifle()
+            };
+            let shooter = s
+                .spawn(&UnitSpec {
+                    controller: Controller::Ai,
+                    ..UnitSpec::trooper(0, Vec3::ZERO)
+                })
+                .unwrap();
+            let t = s
+                .spawn(&UnitSpec::trooper(1, Vec3::new(0.0, 0.0, -8.0)))
+                .unwrap();
+            let (mut shots, mut peak) = (Vec::new(), 0.0f32);
+            for _ in 0..1800 {
+                s.step(&[PadState::default()]);
+                s.unit_mut(t).unwrap().health.cur = 300.0;
+                let u = s.unit(shooter).unwrap();
+                assert!(!u.weapon.overheated, "{rules:?}: overheated at {}", s.tick);
+                peak = peak.max(u.weapon.heat);
+                if s.events
+                    .iter()
+                    .any(|e| matches!(e, Event::Shot { unit, .. } if *unit == shooter))
+                {
+                    shots.push(s.tick);
+                }
+            }
+            let mut runs = vec![1u32];
+            for w in shots.windows(2) {
+                if w[1] - w[0] > 7 {
+                    runs.push(1);
+                } else {
+                    *runs.last_mut().unwrap() += 1;
+                }
+            }
+            assert!(runs.len() >= 4, "{rules:?}: {runs:?}");
+            assert!(
+                runs[..runs.len() - 1].iter().all(|&n| n > 6),
+                "{rules:?}: {runs:?}"
+            );
+            assert!(peak > 0.85, "{rules:?}: peak heat {peak}");
         }
     }
 

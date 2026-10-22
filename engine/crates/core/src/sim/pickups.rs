@@ -198,6 +198,23 @@ fn give_clips(w: &mut WeaponState, class: &WeaponClass, clips: u32, cap: u32) ->
     changed
 }
 
+/// §5.4 for a unit: `clips` more to every weapon it holds, each to its cap
+/// (the items and the stations, card PWST, share it).
+pub(super) fn give_ammo(classes: &[WeaponClass], u: &mut Unit, clips: u32) -> bool {
+    if clips == 0 {
+        return false;
+    }
+    let wc = &classes[u.weapon_class];
+    let cap = reserve_cap(&u.spec, u.weapon_slot, wc);
+    let mut ammo = give_clips(&mut u.weapon, wc, clips, cap);
+    for w in &mut u.held {
+        let wc = &classes[w.class];
+        let cap = reserve_cap(&u.spec, w.slot, wc);
+        ammo |= give_clips(&mut w.state, wc, clips, cap);
+    }
+    ammo
+}
+
 /// Does `u`'s body touch `p`'s box (§5.7)? The body is an upright capsule of
 /// [`BODY_RADIUS`] whose axis stands [`BODY_AHEAD`] in front of the feet.
 fn touches(u: &Unit, p: &Pickup, c: &ItemClass) -> bool {
@@ -346,18 +363,7 @@ impl Sim {
             if health {
                 u.health.cur = (u.health.cur + c.health).min(u.health.max);
             }
-            let mut ammo = false;
-            if c.ammo > 0 {
-                let wc = &classes[u.weapon_class];
-                let cap = reserve_cap(&u.spec, u.weapon_slot, wc);
-                ammo |= give_clips(&mut u.weapon, wc, c.ammo, cap);
-                let spec = u.spec.clone();
-                for w in &mut u.held {
-                    let wc = &classes[w.class];
-                    let cap = reserve_cap(&spec, w.slot, wc);
-                    ammo |= give_clips(&mut w.state, wc, c.ammo, cap);
-                }
-            }
+            let ammo = give_ammo(classes, u, c.ammo);
             let energy = c.energy > 0.0 && u.soldier.energy < u.consts.energy_bar;
             if energy {
                 u.soldier.energy = (u.soldier.energy + c.energy).min(u.consts.energy_bar);

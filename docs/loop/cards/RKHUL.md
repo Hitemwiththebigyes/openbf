@@ -4,14 +4,14 @@ title: Rockets and bolts pass through walkers and some speeders: a vehicle hull'
 milestone: M2
 value: 5
 phase: build
-status: todo
+status: done
 deps:
 files: engine/crates/game/src/assets.rs, engine/crates/game/src/vehicle_pads.rs
-declares:
+declares: rebake=side; sweep
 needs:
 effort:
-branch:
-resume:
+branch: rkhul
+resume: landed a88147b8 2026-10-21; BARC/STAP not fixed -> card RKBARC
 created: 2026-10-20
 alpha: yes
 ---

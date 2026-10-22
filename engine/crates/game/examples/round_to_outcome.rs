@@ -2939,6 +2939,7 @@ impl HeavyCensus {
                     shooter: Some(s),
                     vehicle,
                     damage,
+                    ..
                 } => {
                     if let Some(u) = foot(s) {
                         let c = sim

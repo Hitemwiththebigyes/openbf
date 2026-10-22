@@ -37,3 +37,6 @@ faction, SPSEL).
 
 ## Planner note (2026-09-30, M-ALPHA)
 `defer: post-alpha` — not needed for the alpha's six showcase maps or its checklist. Value 3 (kept).
+
+## Planner note
+Planner 2026-10-21 20:50: the maintainer (INBOX 17:50 item 4) wants BF1 unlocks and a career unlock too: cards UNLK1 (BF1 tiers), UNLK2 (career counter), UNLK3 (stages + the class-select line) follow this one.

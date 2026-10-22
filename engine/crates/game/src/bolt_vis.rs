@@ -90,6 +90,9 @@ struct Tracked {
     start: Vec3,
     end: Vec3,
     head: Vec3,
+    /// The head the tick before (its start on the bolt's first tick): a
+    /// frame between ticks draws the head between the two (card RINT).
+    prev_head: Vec3,
     dir: Vec3,
     age: f32,
     struck: bool,
@@ -113,6 +116,12 @@ struct Remnant {
     terrain: bool,
     /// The head before its last step (the light's midpoint on the reach).
     prev: Vec3,
+}
+
+/// A bolt's head drawn `t` of the way from the last tick's head to the
+/// newest (card RINT; `t` = 1 draws the tick's own).
+pub fn drawn_head(prev: Vec3, head: Vec3, t: f32) -> Vec3 {
+    prev.lerp(head, t)
 }
 
 /// The drawn start of a bolt spawned at `spawn` flying along `dir` toward
@@ -272,7 +281,8 @@ impl BoltVis {
             }
             let k = key(b);
             let spawn = b.pos - b.vel * b.age;
-            let start = match old.get(&k) {
+            let old_t = old.get(&k);
+            let start = match old_t {
                 Some(t) => t.start,
                 None => {
                     let dir = b.vel.normalize_or_zero();
@@ -297,6 +307,7 @@ impl BoltVis {
                 start,
                 end: b.end,
                 head,
+                prev_head: old_t.map_or(start, |t| t.head),
                 dir,
                 age: b.age,
                 struck: !matches!(b.hit, Hit::None),
@@ -432,22 +443,23 @@ impl BoltVis {
         t
     }
 
-    /// This frame's bolts, uploading any texture not yet loaded.
+    /// This frame's bolts, uploading any texture not yet loaded. With the
+    /// walk's render blend on (card RINT) a bolt in flight is drawn the
+    /// frame's fraction of the way from its last head to its newest; a hit
+    /// bolt's remnant stays at its impact.
     pub fn draws(&mut self, r: &mut Renderer, walk: &WalkSim) -> Vec<BoltDraw> {
         let glow = self.texture(r, GLOW_TEXTURE);
         let mut out = Vec::new();
+        let blend = match walk.blend.on {
+            true => crate::render_blend::fraction(walk),
+            false => 1.0,
+        };
         let items: Vec<(usize, Vec3, Vec3, f32, f32, f32)> = self
             .tracked
             .iter()
             .map(|t| {
-                (
-                    t.class,
-                    t.head,
-                    t.dir,
-                    (t.head - t.start).length(),
-                    t.age,
-                    1.0,
-                )
+                let head = drawn_head(t.prev_head, t.head, blend);
+                (t.class, head, t.dir, (head - t.start).length(), t.age, 1.0)
             })
             .chain(
                 self.remnants

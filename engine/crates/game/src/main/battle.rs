@@ -336,6 +336,7 @@ pub(super) fn make_walk(scene: &game::assets::Scene, b: &BattleSetup) -> WalkSim
                 walk.vehicle_riders = p.riders;
                 walk.vehicle_engines = p.engines;
                 walk.vehicle_labels = p.labels;
+                walk.vehicle_classes = p.classes.clone();
                 vehicle_classes = p.classes;
             }
             Err(e) => eprintln!("vehicle pads unavailable ({e:#})"),
@@ -479,6 +480,8 @@ pub(super) fn hud_model(
         weapon,
         weapon2,
         reticle,
+        // The reticle's pick by name and health (card HTGT).
+        target: on_foot.then(|| feed.target(&walk.sim, slot)).flatten(),
         reticle_y: walk.reticle_y(),
         dead: !me.alive,
         // A human waits for no spawn wave (card SSELA): its timer only.
@@ -493,6 +496,7 @@ pub(super) fn hud_model(
                 / core::TICK_HZ as f32
         }),
         messages: feed.take(),
+        ambush: feed.take_ambush(),
         stats: Some(feed.stats(&walk.sim, walk.player)),
         player_team: me.team,
         map: walk.minimap.as_ref().map(|m| match &spawn {

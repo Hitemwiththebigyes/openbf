@@ -47,7 +47,7 @@
 use crate::sounds::Handed;
 use crate::unit_probe::Probe;
 use crate::walk::WalkSim;
-use core::sim::{DeathCause, Event, PadState, Sim};
+use core::sim::{AimTarget, DeathCause, Event, PadState, Sim};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -169,6 +169,15 @@ pub struct Frame {
     pub units: Vec<Probe>,
 }
 
+/// A pick or magnet as [`HumanRow::reticle`] writes it: a unit's slot, or
+/// -2 - a vehicle's.
+fn target_code(t: AimTarget) -> i32 {
+    match t {
+        AimTarget::Unit(h) => h.index as i32,
+        AimTarget::Vehicle(h) => -2 - h.index as i32,
+    }
+}
+
 /// The human at one tick.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 pub struct HumanRow {
@@ -197,7 +206,8 @@ pub struct HumanRow {
     pub clip: u32,
     pub spare: u32,
     /// The unit slot the reticle is on (`Sim::reticle_pick`) and its colour
-    /// code, the aim assist's magnet target; -1 none.
+    /// code, the aim assist's magnet target; -1 none, -2 - N vehicle slot N
+    /// (card HTGT: vehicles and building turrets are picked too).
     pub reticle: i32,
     pub reticle_k: i8,
     pub magnet: i32,
@@ -835,9 +845,9 @@ impl Ring {
             weapon: u.weapon_class as u32,
             clip: u.weapon.clip,
             spare: u.weapon.spare,
-            reticle: pick.map_or(-1, |(h, _)| h.index as i32),
+            reticle: pick.map_or(-1, |(t, _)| target_code(t)),
             reticle_k: pick.map_or(0, |(_, k)| k),
-            magnet: sim.magnet_at(0).map_or(-1, |h| h.index as i32),
+            magnet: sim.magnet_at(0).map_or(-1, target_code),
             veh: u.mount.map_or(-1, |m| m.vehicle.index as i32),
             seat: u.mount.map_or(0, |m| m.seat),
         }
@@ -1311,9 +1321,9 @@ fn focus_of(walk: &WalkSim) -> Focus {
         (a, b) => a.or(b).unwrap_or(-1.0),
     };
     let reticle = sim.reticle_pick.first().copied().flatten();
-    let (unit, how) = if let Some((h, _)) = reticle {
+    let (unit, how) = if let Some(h) = reticle.and_then(|(t, _)| t.unit()) {
         (h.index as i32, "reticle")
-    } else if let Some(h) = sim.magnet_at(0) {
+    } else if let Some(h) = sim.magnet_at(0).and_then(AimTarget::unit) {
         (h.index as i32, "magnet")
     } else {
         // The alive unit nearest the view axis, within 8 degrees and 200 m.

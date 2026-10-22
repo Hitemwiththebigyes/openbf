@@ -21,7 +21,7 @@ use anyhow::{anyhow, Context, Result};
 use core::flash::MuzzleFlashLook;
 use core::impact::{ExplosionLook, ImpactLook};
 use core::laser::LaserLook;
-use core::sim::{DropTable, ItemClass};
+use core::sim::{DropTable, ItemClass, StationClass};
 use core::soldier::SoldierConstants;
 use core::unit::{SlotSpec, UnitClass};
 use core::weapon::{
@@ -92,6 +92,8 @@ pub struct ClassRoster {
     pub min: u32,
     /// Mission maximum — BF2 only.
     pub max: Option<u32>,
+    /// The ODF's `PointsToUnlock` (0 = none; `UnitClass::unlock_points`).
+    pub unlock_points: u32,
 }
 
 /// One slot of a class's drop table: the item (`None` when the slot names a
@@ -879,6 +881,125 @@ pub fn item_class_from_db(db: &ClassDb, item: &str) -> Option<ItemClass> {
     })
 }
 
+/// A `powerupstation` class's numbers (card PWST, `re-powerup-station.md`
+/// §2.1): `PowerupDelay`, and per health type the health and clips one pass
+/// gives (`SoldierHealth` / `SoldierAmmo` fill the person and droid slots,
+/// then `Person..BuildingHealth` / `..Ammo` their own; no disc class authors
+/// both forms), with the sounds the game layer plays. `None` when the db has
+/// no such class or it is not a `powerupstation`.
+pub fn station_class_from_db(db: &ClassDb, class: &str) -> Option<StationClass> {
+    let name = db.resolve(class)?;
+    if db.engine_base(name) != Some("powerupstation") {
+        return None;
+    }
+    let f = |key: &str| db.prop_f32(name, key);
+    let sound = |key: &str| {
+        db.prop(name, key)
+            .and_then(|v| v.split_whitespace().next())
+            .map(str::to_owned)
+    };
+    const TYPES: [&str; 5] = ["Person", "Animal", "Droid", "Vehicle", "Building"];
+    let mut health = [0.0f32; 5];
+    let mut ammo = [0u32; 5];
+    if let Some(h) = f("SoldierHealth") {
+        (health[0], health[2]) = (h, h);
+    }
+    if let Some(a) = f("SoldierAmmo") {
+        let a = a.max(0.0) as u32;
+        (ammo[0], ammo[2]) = (a, a);
+    }
+    for (i, t) in TYPES.iter().enumerate() {
+        if let Some(h) = f(&format!("{t}Health")) {
+            health[i] = h;
+        }
+        if let Some(a) = f(&format!("{t}Ammo")) {
+            ammo[i] = a.max(0.0) as u32;
+        }
+    }
+    Some(StationClass {
+        name: name.to_ascii_lowercase(),
+        delay: f("PowerupDelay").unwrap_or(core::sim::STATION_DELAY_DEFAULT),
+        health,
+        ammo,
+        geometry: db
+            .prop(name, "GeometryName")
+            .map(|g| g.trim().to_ascii_lowercase())
+            .unwrap_or_default(),
+        powerup_sound: sound("PowerupSound"),
+        ambient_sound: sound("AmbientSound"),
+        anim: station_anim(db, name),
+    })
+}
+
+/// A station class's animation keys (re-powerup-station §2.1, §6): the
+/// class keeps the first 4 `ActiveRotateNode`s.
+fn station_anim(db: &ClassDb, name: &str) -> core::sim::StationAnim {
+    let node = |key: &str| {
+        db.prop(name, key)
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(str::to_owned)
+    };
+    core::sim::StationAnim {
+        rotate_speed: db.prop_f32(name, "IdleRotateSpeed").unwrap_or(0.0),
+        wait_time: db.prop_f32(name, "IdleWaitTime").unwrap_or(0.0),
+        wobble_node: node("IdleWobbleNode"),
+        wobble_factor: db.prop_f32(name, "IdleWobbleFactor").unwrap_or(0.0),
+        rotate_nodes: db
+            .props_all(name, "ActiveRotateNode")
+            .into_iter()
+            .map(|v| v.trim().to_owned())
+            .take(4)
+            .collect(),
+        spin_node: node("ActiveSpinNode"),
+    }
+}
+
+/// The stations of `instances` (card PWST, §2.2, §3): every instance whose
+/// class is a `powerupstation`, at its origin with its `Radius` (an
+/// instance without one has no region and serves nobody, §3: left out).
+/// With `unbuilt_zones` (BF2) a class with a build zone
+/// (`manifest::BUILD_ZONE_PROP`, the `*_unbuilt` stations) starts unbuilt
+/// and gives nothing (§7): left out too. Registers the classes with `sim`.
+pub fn add_stations(
+    sim: &mut core::sim::Sim,
+    instances: &[manifest::ManifestInstance],
+    db: &ClassDb,
+    unbuilt_zones: bool,
+) -> usize {
+    let radius_key = crate::classdb::fnv1a_lowercase("Radius");
+    let mut n = 0;
+    for inst in instances {
+        let Some(name) = db.resolve(&inst.class).map(str::to_owned) else {
+            continue;
+        };
+        if unbuilt_zones && db.prop_hash(&name, manifest::BUILD_ZONE_PROP).is_some() {
+            continue;
+        }
+        let Some(class) = station_class_from_db(db, &name) else {
+            continue;
+        };
+        let radius = inst
+            .props
+            .iter()
+            .rev()
+            .find(|(k, _)| *k == radius_key)
+            .and_then(|(_, v)| v.trim().parse::<f32>().ok())
+            .unwrap_or(0.0);
+        if radius <= 0.0 {
+            continue;
+        }
+        let c = sim.add_station_class(class);
+        sim.stations.push(core::sim::Station::new(
+            c,
+            glam::Vec3::from(inst.translation),
+            radius,
+        ));
+        n += 1;
+    }
+    n
+}
+
 /// A soldier class's drop table with its items resolved
 /// ([`ClassDb::drop_table`]).
 pub fn drop_entries(db: &ClassDb, soldier: &str) -> Vec<DropEntry> {
@@ -991,6 +1112,9 @@ impl ClassRoster {
             drops: drop_entries(db, class),
             min,
             max,
+            unlock_points: db
+                .prop_f32(class, "PointsToUnlock")
+                .map_or(0, |p| p.max(0.0) as u32),
         })
     }
 
@@ -1018,6 +1142,7 @@ impl ClassRoster {
             capture_posts: true,
             min: self.min,
             max: self.max,
+            unlock_points: self.unlock_points,
         }
     }
 

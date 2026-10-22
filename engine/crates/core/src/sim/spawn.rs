@@ -45,6 +45,45 @@ pub enum SideChoice {
     Auto = 2,
 }
 
+/// The class screen's carousel input for one slot (card SSELB,
+/// `FUN_00399dd8`, `analysis/re-spawn-flow.md` §4.1): `armed` = a step has
+/// fired and the push is still held (`SD+0x25`, cleared once it is let go),
+/// `slide` = ticks left of the line-up's slide (`SD+0x33` / `+0x3c`). A
+/// push fires only while not armed and not sliding, so a step during a
+/// slide is dropped, and a push HELD through a slide steps again when it
+/// ends (the arm is set only by a step that fired, B2:393674-393678).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Carousel {
+    pub armed: bool,
+    pub slide: u8,
+}
+
+/// A slide's length in ticks: `+0x3c` starts at 0, gains dt x 3 in the
+/// step's own update (the step runs before the slide's advance,
+/// `FUN_00399dd8` -> `FUN_0039a980`, B2:393714) and the slide ends in the
+/// update it reaches 1 (B2:394131-394136). BF2's step is 0x3d088888, so
+/// dt x 3 = 0x3dcccccc, and the EE's add rounds toward zero: ten adds read
+/// 0x3f7ffffd, under 1, and the eleventh ends it [D] - PROVISIONAL until a
+/// PS2 row pins the boundary update.
+pub const CLASS_SLIDE_TICKS: u8 = 11;
+
+/// The bits that push the class carousel (and the map's post, sideways).
+const CAROUSEL: u32 = buttons::SPAWN_CLASS_NEXT
+    | buttons::SPAWN_CLASS_PREV
+    | buttons::SPAWN_POST_LEFT
+    | buttons::SPAWN_POST_RIGHT;
+
+/// Why the class screen refuses a human a class (card SSELB, the PS2's
+/// `FUN_00364290`, `analysis/re-spawn-flow.md` §4.3): the panel's first line
+/// and the black line-up soldier.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ClassRefusal {
+    /// "Get %d more points to unlock!": this many more points.
+    Points(u32),
+    /// "Too many units already!": an unlock class at its max.
+    TooMany,
+}
+
 impl SideChoice {
     /// One row down (`step` +1) or up (-1), wrapping over the three rows.
     pub fn moved(self, step: i32) -> SideChoice {
@@ -898,6 +937,9 @@ impl Sim {
         if self.side_choice.len() != n {
             self.side_choice.resize(n, SideChoice::Team1);
         }
+        if self.class_carousel.len() != n {
+            self.class_carousel.resize(n, Carousel::default());
+        }
     }
 
     /// Card SSELA: put human slot `slot` behind the spawn screens - the game
@@ -1151,6 +1193,7 @@ impl Sim {
         if self.spawn_choice.len() != self.players.len()
             || self.spawn_post_choice.len() != self.players.len()
             || self.spawn_stage.len() != self.players.len()
+            || self.class_carousel.len() != self.players.len()
         {
             self.sync_slot_tables();
         }
@@ -1170,7 +1213,8 @@ impl Sim {
             let bits = held & mask;
             let rose = bits & !self.prev_spawn_bits[s];
             self.prev_spawn_bits[s] = bits;
-            if rose == 0 {
+            let carousel = self.spawn_screens && self.spawn_stage[s] == SpawnStage::Class;
+            if rose == 0 && !carousel {
                 continue;
             }
             let unit = self.players[s].and_then(|h| self.units.get(h.index as usize));
@@ -1181,6 +1225,14 @@ impl Sim {
             }
             let team = unit.map_or(0, |u| u.team);
             let body = unit.map(|u| u.soldier.pos);
+            if carousel {
+                // The step runs every update on the HELD push, before the
+                // accept (`FUN_00398000` B2:393025-393027, then its X).
+                self.class_carousel_step(s, team, bits);
+                if rose == 0 {
+                    continue;
+                }
+            }
             if self.spawn_screens {
                 self.spawn_screen_input(s, team, body, bits, rose, held);
                 continue;
@@ -1246,6 +1298,10 @@ impl Sim {
             SpawnStage::Map if accept => {
                 if self.spawn_post_selected(s).is_some() {
                     self.spawn_stage[s] = SpawnStage::Class;
+                    // The arm is shared with the map's push (`SD+0x25`,
+                    // `FUN_0039a058`): a push held into the class screen
+                    // steps only after it is let go.
+                    self.class_carousel[s].armed = bits & CAROUSEL != 0;
                 }
             }
             SpawnStage::Map => {
@@ -1261,6 +1317,13 @@ impl Sim {
                 let Some(h) = self.players[s] else {
                     return;
                 };
+                // A refused class plays the back sound and stays
+                // (`FUN_00398000`, B2:393070-393077).
+                let n = self.classes[usize::from(team.min(1))].len();
+                let c = usize::from(self.spawn_choice[s]).min(n.saturating_sub(1));
+                if self.class_refusal(s, team, c).is_some() {
+                    return;
+                }
                 let i = h.index as usize;
                 self.respawn_slot(i);
                 if self.units[i].alive {
@@ -1270,21 +1333,81 @@ impl Sim {
                 }
             }
             SpawnStage::Class if back => self.spawn_stage[s] = SpawnStage::Map,
-            SpawnStage::Class => {
-                let n = self.classes[usize::from(team.min(1))].len() as u32;
-                let next = rose & (buttons::SPAWN_CLASS_NEXT | buttons::SPAWN_POST_LEFT) != 0;
-                let prev = rose & (buttons::SPAWN_CLASS_PREV | buttons::SPAWN_POST_RIGHT) != 0;
-                if n == 0 || !(next || prev) {
-                    return;
-                }
-                let c = u32::from(self.spawn_choice[s]).min(n - 1);
-                self.spawn_choice[s] = if next {
-                    ((c + 1) % n) as u8
-                } else {
-                    ((c + n - 1) % n) as u8
-                };
-            }
+            // The carousel steps in `class_carousel_step`, every tick.
+            SpawnStage::Class => {}
             SpawnStage::Accepted => {}
+        }
+    }
+
+    /// Card SSELB: one update of slot `s`'s class carousel on the class
+    /// screen, `bits` held (the PS2's `FUN_00399dd8`, re-spawn-flow §4.1):
+    /// D-pad Left / `SPAWN_CLASS_NEXT` = the next class, Right / `PREV` = the
+    /// previous, wrapping; a push steps once (re-armed when let go), never
+    /// while the line-up slides, and a push held through the slide steps
+    /// again as it ends. Then the slide advances (`FUN_0039a980`, run only
+    /// on the class screen, so a slide left by Back resumes on return).
+    fn class_carousel_step(&mut self, s: usize, team: u8, bits: u32) {
+        let next = bits & (buttons::SPAWN_CLASS_NEXT | buttons::SPAWN_POST_LEFT) != 0;
+        let prev = bits & CAROUSEL != 0 && !next;
+        let n = self.classes[usize::from(team.min(1))].len() as u32;
+        let mut k = self.class_carousel[s];
+        if k.armed {
+            // Let go: re-armed (B2:393680-393682).
+            if !(next || prev) {
+                k.armed = false;
+            }
+        } else if (next || prev) && k.slide == 0 && n > 0 {
+            let c = u32::from(self.spawn_choice[s]).min(n - 1);
+            self.spawn_choice[s] = if next {
+                ((c + 1) % n) as u8
+            } else {
+                ((c + n - 1) % n) as u8
+            };
+            k.armed = true;
+            k.slide = CLASS_SLIDE_TICKS;
+        }
+        k.slide = k.slide.saturating_sub(1);
+        self.class_carousel[s] = k;
+    }
+
+    /// Card SSELB: player slot `s`'s points ([`Sim::spawn_points`]).
+    pub fn set_spawn_points(&mut self, s: usize, points: i32) {
+        if self.spawn_points.len() <= s {
+            self.spawn_points.resize(s + 1, 0);
+        }
+        self.spawn_points[s] = points;
+    }
+
+    /// How many of `team`'s units are on the field in class `class` (the
+    /// panel's "Unit Count", `FUN_0036f538`: members with a live unit).
+    pub fn class_count(&self, team: u8, class: usize) -> u32 {
+        self.units
+            .iter()
+            .filter(|u| u.alive && u.team == team && usize::from(u.spec.class) == class)
+            .count() as u32
+    }
+
+    /// Card SSELB: whether the class screen refuses player slot `s` class
+    /// `class` of `team`, as the PS2's `FUN_00364290` does
+    /// (`analysis/re-spawn-flow.md` §4.3): under the class's
+    /// `PointsToUnlock` with the slot's [`Sim::spawn_points`]; and a class
+    /// with a cost whose team already fields its max. A class without a cost
+    /// has no max test. Bots never ask (the PS2 checks a human only). Not
+    /// built: the droideka pool test (no BF2 line-up has a droideka class),
+    /// and the PS2 shows Max only when it is under the member records, which
+    /// every authored max is.
+    pub fn class_refusal(&self, s: usize, team: u8, class: usize) -> Option<ClassRefusal> {
+        let c = self.classes[usize::from(team.min(1))].get(class)?;
+        let cost = i64::from(c.unlock_points);
+        let points = i64::from(self.spawn_points.get(s).copied().unwrap_or(0));
+        if cost != 0 && points < cost {
+            return Some(ClassRefusal::Points((cost - points) as u32));
+        }
+        match c.max {
+            Some(max) if cost >= 1 && self.class_count(team, class) >= max => {
+                Some(ClassRefusal::TooMany)
+            }
+            _ => None,
         }
     }
 
@@ -1421,6 +1544,7 @@ mod tests {
             drops: crate::sim::DropTable::default(),
             min,
             max,
+            unlock_points: 0,
         }
     }
 
@@ -2598,6 +2722,89 @@ mod tests {
             u.soldier.pos
         );
         assert_eq!(s.battle.teams[1].alive_players, 1);
+    }
+
+    /// Card SSELB (`FUN_00399dd8`, re-spawn-flow §4.1): on the class screen
+    /// a push steps once and re-arms only when let go; a fresh push while
+    /// the line-up slides (11 ticks) is dropped, and a push HELD through the
+    /// slide steps again in the tick after it ends.
+    #[test]
+    fn a_class_step_during_the_slide_is_dropped() {
+        let mut s = screens_sim(6, false);
+        let c = s.classes[0][0].clone();
+        s.classes[0] = vec![c; 5];
+        tap(&mut s, buttons::SPAWN_POST_RIGHT);
+        tap(&mut s, buttons::SPAWN_ACCEPT);
+        assert_eq!(s.spawn_stage[0], SpawnStage::Class);
+        assert_eq!(s.spawn_choice[0], 0);
+        // A tap (tick 0 pressed, tick 1 let go), then a second push on
+        // ticks 2..=9: still sliding, dropped.
+        tap(&mut s, buttons::SPAWN_POST_LEFT);
+        assert_eq!(s.spawn_choice[0], 1, "Left = the next class");
+        for _ in 0..8 {
+            s.step(&[press(buttons::SPAWN_POST_LEFT)]);
+            assert_eq!(s.spawn_choice[0], 1, "a step during the slide is dropped");
+        }
+        // Still held: the slide ended at tick 10, the held push fires at 11.
+        s.step(&[press(buttons::SPAWN_POST_LEFT)]);
+        assert_eq!(s.spawn_choice[0], 1);
+        s.step(&[press(buttons::SPAWN_POST_LEFT)]);
+        assert_eq!(
+            s.spawn_choice[0], 2,
+            "held through the slide: steps at its end"
+        );
+        // Held on: armed, no repeat.
+        for _ in 0..30 {
+            s.step(&[press(buttons::SPAWN_POST_LEFT)]);
+        }
+        assert_eq!(s.spawn_choice[0], 2, "a held push steps once");
+        // Straight from Left to Right without letting go: still armed.
+        s.step(&[press(buttons::SPAWN_POST_RIGHT)]);
+        assert_eq!(s.spawn_choice[0], 2, "no let-go, no step");
+        // Let go, then Right: back one, wrapping past 0 to the last.
+        s.step(&[PadState::default()]);
+        tap(&mut s, buttons::SPAWN_POST_RIGHT);
+        assert_eq!(s.spawn_choice[0], 1);
+        for _ in 0..CLASS_SLIDE_TICKS {
+            s.step(&[PadState::default()]);
+        }
+        tap(&mut s, buttons::SPAWN_CLASS_PREV);
+        for _ in 0..CLASS_SLIDE_TICKS {
+            s.step(&[PadState::default()]);
+        }
+        tap(&mut s, buttons::SPAWN_POST_RIGHT);
+        assert_eq!(s.spawn_choice[0], 4, "Right off class 0 wraps to the last");
+        // The accept during a slide takes the class already stepped to.
+        assert!(tap(&mut s, buttons::SPAWN_ACCEPT));
+        assert_eq!(s.spawn_choice[0], 4);
+    }
+
+    /// Card SSELB (re-spawn-flow §4.3, the PS2's `FUN_00364290`): a class
+    /// that costs points refuses the accept until the slot has them (the
+    /// panel's count of points still needed), and once it is at its max
+    /// refuses as "too many"; a class without a cost has no max test.
+    #[test]
+    fn a_locked_class_refuses_the_accept_until_the_points_are_there() {
+        let mut s = screens_sim(5, false);
+        s.classes[0][0].max = Some(0);
+        s.classes[0][1].unlock_points = 8;
+        s.classes[0][1].max = Some(1);
+        tap(&mut s, buttons::SPAWN_ACCEPT);
+        assert_eq!(s.spawn_stage[0], SpawnStage::Class);
+        assert_eq!(s.class_refusal(0, 0, 0), None, "no cost: no max test");
+        tap(&mut s, buttons::SPAWN_POST_LEFT);
+        assert_eq!(s.spawn_choice[0], 1);
+        assert_eq!(s.class_refusal(0, 0, 1), Some(ClassRefusal::Points(8)));
+        assert!(!tap(&mut s, buttons::SPAWN_ACCEPT), "refused: stays");
+        assert_eq!(s.spawn_stage[0], SpawnStage::Class);
+        s.set_spawn_points(0, 5);
+        assert_eq!(s.class_refusal(0, 0, 1), Some(ClassRefusal::Points(3)));
+        assert!(!tap(&mut s, buttons::SPAWN_ACCEPT));
+        s.set_spawn_points(0, 8);
+        assert!(tap(&mut s, buttons::SPAWN_ACCEPT), "unlocked");
+        assert_eq!(slot0(&s).spec.class, 1);
+        assert_eq!(s.class_count(0, 1), 1);
+        assert_eq!(s.class_refusal(0, 0, 1), Some(ClassRefusal::TooMany));
     }
 
     /// Acceptance 2: after a death the slot is not back before 4.0 s nor

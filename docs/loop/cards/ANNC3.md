@@ -4,14 +4,14 @@ title: The music follows the listener's FACTION too (the mission's music calls a
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: parked
 deps:
 files: engine/crates/game/src/music.rs,engine/crates/core/src/music.rs,engine/crates/game/src/announce.rs,engine/crates/core/src/announcer.rs,engine/crates/game/src/main/battle.rs
 declares:
-needs:
+needs: maintainer - the RTX is lost (nvidia-smi: Unknown Error for 0000:01:00.0; Vulkan sees only Intel RPL-S + llvmpipe); reboot / reset it, then clear this needs and the next land job lands branch annc3 c007fd3 (every non-gpu gate PASS, byte-identical sim)
 effort:
-branch:
-resume:
+branch: annc3
+resume: LAND once nvidia-smi -L lists the RTX: land.py ANNC3 (gpu expected PASS, ci MOVED = 4 new tests). Land session 2026-10-21 19:56 found the adapter still lost and did not run land.py. Never regenerate goldens from an iGPU run.
 created: 2026-10-05
 alpha: yes
 domain: behaviour
@@ -35,3 +35,9 @@ declares: nothing (presentation).
 - 2026-10-06 planner: both neighbours this card waited for have landed - ERAM (8d6c15a: the shell loads `<map>_con_cw.ron` for a Clone Wars pair and seats the player on his army's team; `game::mission::pick`) and SNDE (e45d75a: a Music's stream property resolves in the mission's own sub-level, which is what fixed Bespin Platforms CW's music takes). Re-read item 1 against `WalkSim::with_teams_seat` before building: the player can now sit on team 1, so "script team n = port team n - 1" may already hold for a mission's own pair and the open case is the cross-era pair.
 - 2026-10-06 planner: **item 5, from MUSV's report (no card held it after MUSV closed): BF1's music state rule is still PROVISIONAL** (`core/src/music.rs` `state_bf1`; `analysis/re-ambience-music.md` section 11). Check it live on the PS2 with `engine/artifacts/lead_tmp/ambm/tools/ram_music.py` (the manager's state word against the reinforcement counts over one BF1 round) and drop the PROVISIONAL label or fix the thresholds. Acceptance: the RAM log's state changes against the port's `MUSIC_LOG` for the same ticket counts, pasted. If the PCSX2 session does not fit this card's session, split it off as a `measure` card rather than dropping it.
 - 2026-10-06 planner: MUSV also found that a windowed battle and a headless one cannot be compared tick for tick (an idle human sits in a slot: AI 24 / 25 against 25 / 25). Acceptance 2's MUSIC_LOG runs are headless; do not ask for "the same game times" from a window.
+- 2026-10-21 build (lane 1, report `reports/20261021_1955_card_ANNC3.md`): branch annc3 c007fd3, all four items built and
+  checked. (1) `music::tests::factions` passes. (2) Bake census, 57 missions x 12 pairs: foreign-army entries 3420 -> 320
+  of 6840 (left only on single-era banks); headless MUSIC_LOG + `MUSIC_ARMIES=rep,cis` on bf2_kam1 / bf1_kas2: 36 of 36 ->
+  0 of 37, sim hashes unchanged. (3) T7: `bf1s_no_post_line_repeats_at_every_loss`. (4) HUD: BF2 reads the script's
+  rate (verifier 6/6). 8 mutations caught. PARKED: the RTX was lost mid-gates (gpu moved 97 goldens on the iGPU); every
+  other gate PASS. Item 5 split off as card MUSB1.

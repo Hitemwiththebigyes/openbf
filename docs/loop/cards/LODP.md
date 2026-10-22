@@ -3,14 +3,14 @@ id: LODP
 title: Card LOD's far switch costs 4 ms a frame on BF2 KAM1 at 2880x1920 on the Intel iGPU (94 -> 68 fps, models 7.9 -> 11.9 ms; OPENBF_LOD=0 restores it) - find what the switch draws extra and keep the PS2's look at the old cost
 milestone: M0
 value: 5
-phase: measure
-status: todo
+phase: build
+status: done
 deps:
-files:
-declares:
+files: engine/crates/render/src/draw.rs, engine/crates/render/src/frame.rs, engine/crates/render/src/frustum.rs
+declares: goldens=maps/bf1_yav2.png,maps/bf2_hot1.png,maps/tat1.png
 needs:
 effort:
-branch:
+branch: lodp
 resume:
 created: 2026-10-20
 alpha: yes

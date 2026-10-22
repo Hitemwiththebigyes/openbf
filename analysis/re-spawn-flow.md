@@ -199,8 +199,88 @@ below; it read `DAT_00600b30`'s ELF word 1 and its writers: the splitscreen coun
   trooper at place 1, feet at y 334, x about 131; the officer at place 0; the Snowtrooper in front, x 230): the eye 500
   units before the screen plane, 1.25 px across and 1.507 px down per unit of the 640 x 480 frame, the far vanishing
   point at y 201. The port maps the scene into the camera's frame with it (`game/src/spawn_preview.rs` `lineup_at`).
-- Not built: the selected flag's pose (vtable +0x54), the dropped step during a slide (the port's sim takes it), the
-  third vector `DAT_006a5070` (25, 0, -25).
+- [V] (card SSELB slice 9) The arm `SD+0x25` is set only by a step that FIRED (B2:393674-393678) and cleared when the
+  push falls under x^2 0.04 (B2:393680-393682); a push blocked by the slide leaves it clear, so a push HELD through a
+  slide steps again in the update after the slide ends. The input runs first and then the slide's advance in the same
+  update (`FUN_00398000` B2:393025-393027 calls `FUN_00399dd8`, which ends in `FUN_0039a980`, B2:393714; jal words at
+  0x3985f4 / 0x39a01c, the only calls). [D] BF2's step is 0x3d088888, dt x 3 = 0x3dcccccc (separate mul.s / add.s,
+  0x39a9fc / 0x39aa08, then c.le.s 1.0), and the EE's add rounds toward zero: ten adds read 0x3f7ffffd (< 1), so the
+  slide ends in its 11th update counting the step's own and a held push repeats every 11 updates (PROVISIONAL until a
+  PS2 row pins the boundary; the verifier's catch - IEEE nearest would give 10). The accept (X, B2:393040-393075) has no slide test. The arm is
+  shared with the map's push (`FUN_0039a058`, B2:393792-393969) and set when the display opens (`FUN_00396a00`,
+  B2:392362). Built: `Sim::class_carousel` (`core/src/sim/spawn.rs`).
+- Not built: the selected flag's pose (vtable +0x54), the third vector `DAT_006a5070` (25, 0, -25).
+
+### 4.2 The screen soldiers' light (OPUS RE 2026-10-21, card SSELB slice 7) - [O] UNAUDITED
+
+Hops: the UI scene's draw walk `FUN_005a3d40` -> the UI model `FUN_0037f110` / the soldier `FUN_0037fd30` -> the model
+renderer's slot +0xc `FUN_0057cf60` (and `FUN_001de2a8`) -> the light set `0x7d6160` -> its writer on the spawn screens
+`FUN_00398000`. Checks run: `re_check fn` on every cited line; `writers` / grep of every global below; the ELF words for
+the vtable slots (0x62d9b8 = 0x37f110, 0x64febc = 0x57cf60, 0x62f2b4 = 0x398000); `absent b2 0x6a4ff0 0x6a5008
+0x6a5020 0x6a5038 --elf` [receipt:49141124] (no reference outside `FUN_00398000`); one opus verifier (C1-C4, C6-C9
+SUPPORTED, C5 PARTLY: see the [M] line below).
+- [V][O] The draw walk hands each element its colour word (+0x40..+0x43) times the UI colour `DAT_0076c200` / 255
+  (B2:738032-738046, `FUN_005a3d40`); `DAT_0076c200` is white, written only by `FUN_0057ca38` (B2:712404-712427).
+- [V][O] Every UI model draw passes the flag 0x4000000: the model `FUN_0037f110` (B2:378477), the soldier
+  `FUN_0037fd30` (body B2:379314 / 379336, weapons B2:379302 / 379307, attachments B2:379352). The renderer's slot +0xc
+  (vtable 0x64feb0, `FUN_0057cd68` B2:712517; ELF word 0x64febc = `FUN_0057cf60`) then lights the model with the fixed
+  set **0x7d6160** instead of the lights gathered at its place (`FUN_00597e98`): B2:712762-712787; `FUN_001de2a8` the
+  same, B2:90223-90227. So a UI model never takes the map's sun, ambient or local lights.
+- [V][O] 0x7d6160 is the INTERFACE light set (`FUN_005a38b8`, B2:737633-737647: two lights 0x7d5fa0 / 0x7d6080, the
+  hemisphere colours at +0x50 / +0x60, their mean at +0x1c); Lua's `ScriptCB_SetIFaceLighting` and
+  `ScriptCB_SetSunlight` write it too (B2:29244-29273, B2:28890-28897), and `FUN_00386480` saves, sets and restores it
+  around its own draw (B2:382784-382852).
+- [V][O] On the spawn screens `FUN_00398000` (slot +0xc of the spawn display's vtable 0x62f2a8, `FUN_00394c50`
+  B2:391376) sets it on EVERY call, before its first return (B2:392811-392851): light 0's travel direction
+  (-0.57735, -0.57735, -0.57735), colour (1, 1, 1, 1) (packed x 128 by `FUN_00595a78`: GS 1.0); both hemisphere colours
+  (0.5, 0.5, 0.5, 1) and their mean the same - a flat ambient of 0.5. The constants `DAT_006a4ff0..6a5044` have no
+  other writer (once-guards in the function itself).
+- [V][O] Colour words: the side preview 0xffa0a0a0 (B2:391928), the line-up the lerp of the place words 0xb4 grey
+  (`FUN_0039a5f8`); a class the game refuses (`FUN_00364290` == 0) gets `DAT_0076c220` = (0, 0, 0, 0xff) instead
+  (`FUN_0039a980`, B2:394368-394383): a black silhouette (the Hoth frame's dark trooper and officer, torso median 6).
+- [M] Light 0 is ON at draw time (the verifier: `FUN_005a45d0`'s light constructor runs after `FUN_005a38b8` and
+  zeroes the enable bit, and `FUN_005a38b8` has two more callers, so the code alone does not settle it): rendered with
+  the ambient alone the side Snowtrooper's p50 is 31 against the PS2's 61; with the light, 67.
+- [M] The direction lies on the port camera's frame as written (x right, y up, z toward the viewer: the light comes
+  from the upper right, in front): of the eight signs this one scores the side Snowtrooper best (mean |lum| error over
+  his pixels 10.3; the others 19-36 at the same colour scale), brighter on his screen right as the PS2's (62 / 71
+  against 57 / 66). The colour word acts as byte / 255 on the light: byte / 128 clips him white under every sign
+  (p50 105-121 against 61). Side p50/95/99 port 67/97/109, PS2 61/93/102 (before: the map's lights, 65/123/130).
+  `lead_tmp/sselb/tools/light_score.py`, renders in `lead_tmp/sselb/s7/`.
+- Port: `render::LightPath::Iface` (`IFACE_AMBIENT`, `IFACE_DIR_CAMERA`), `game/src/spawn_preview.rs`. Not built: the
+  refused classes' black (the port has no unlocks).
+
+### 4.3 Which class the game refuses (OPUS RE 2026-10-21, card SSELB slice 8) - [O] UNAUDITED
+
+Hops: `FUN_00364290` (the refusal test) -> its four callers -> the cost's setter `FUN_0026a340` and the max's
+`AddUnitClass`. Checks run: `re_check fn` on every cited line; `callers` + the ELF's `jal` words (0x34e544, 0x3964f8,
+0x3986d0, 0x39b3c8: exactly four); `absent b2 FUN_00364290 0x364290 --elf` [receipt:2f92f869]; `word` 0x26a4e0 (lui
+0x714b / ori 0x2463) and 0x61fc20 ("%d"); `writers DAT_00661334`. One opus verifier: C1-C6 and C8-C12 SUPPORTED, C4 /
+C7 / C12 narrowed (folded in below).
+- [V][O] `FUN_00364290(stats, class, out)` (B2:360335-360391) refuses (returns 0) when the member's team or the class is
+  missing (out = 1); when the points `FUN_00361900(stats, 1)` = the s16 at stats+0x1fc (the non-hero points,
+  B2:358435-358442) are below the class's cost `+0x374` and the cost is not 0 (out = 1, "Get N more points"); and, for a
+  cost >= 1 only, when the team's members with a live unit of that class (`FUN_0036f538`) are at or over its max
+  (`FUN_0036f520` = team+0x54[i]) (out = 0, "Too many units already!"). A class with no cost has no max test.
+- [V][O] The cost is the ODF's `PointsToUnlock` (hash 0x714b2463, `FUN_0026a340` B2:186907-186909, "%d"); the max is
+  `AddUnitClass`'s fourth argument / the `SetupTeams` slot's third (default 0x7fffffff, B2:32651-32695 ->
+  `FUN_0036fd98` writes +0x50 min / +0x54 max). On the BF2 disc: every officer 8, the dark trooper, wookiee, jet
+  trooper (and the CIS special) 12, the `_hunt` / `_training` variants 0 (the baked `classes/bf2_*.ron`).
+- [V][O] The last test (B2:360378-360383) is an IsKindOf on the droideka class type (`DAT_00689308`,
+  "EntityDroidekaClass"): a non-droideka class passes; a droideka class needs a free slot in the "EntityDroideka"
+  memory pool (+0x34 capacity, +0x3c [H] live count), else out = 0.
+- [V][O] Four callers only [receipt:2f92f869]: the panel `FUN_00396430` (B2:392034), the accept `FUN_00398000`
+  (B2:393072: refused -> the sound +0x7c and stay), the line-up colour `FUN_0039a980` (B2:394375: refused -> black) and
+  the member respawn `FUN_0034e1f0` (B2:345006), which checks only a HUMAN member (+0x130 >= 0) whose class index is not
+  0: a refused one goes back to class 0 (`FUN_0034f2c0`) and the screen (`FUN_0034ffe0`). **No bot is refused**: AI
+  members skip the check and the AI pick (`FUN_0036f198`, via `FUN_0034ffe0`) reads min / max only (max - 1 with a human
+  on the team or under 60 s on the clock), never the cost.
+- [V][O] The panel (B2:392035-392058): the refusal line first (0xd3cd201e, or 0x155ab074 with cost - points), then
+  "Unit Count" 0xecf8496f with the count alone when max > `DAT_00661334` (every member record allocated, all teams:
+  +1 per member in `FUN_0036e3e0`) or the cost < 1, else 0xcb22a09f with count and max.
+- Port (slice 8): the human's refusal and the panel lines, the black line-up. Not built: the droideka pool test (no
+  playable droideka class in a BF2 line-up); the refused human's fall back to class 0 at a respawn (the port's screens
+  always ask).
 
 ## 5. The spawn [V][L][O]
 

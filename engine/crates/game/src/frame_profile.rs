@@ -23,8 +23,11 @@
 //!
 //! CSV columns: `frame,dt_ms,` then one per lap in the order the first frame
 //! called [`FrameProfile::lap`] (a lap a later frame skipped is empty), then
-//! `acquire_ms,draw_calls,gpu_ms,gpu,ticks,ai_ms,hook_ms,made` - `gpu` is
-//! `section=ms` pairs joined by `;`, `made` the count of GPU objects made.
+//! `acquire_ms,draw_calls,gpu_ms,gpu,ticks,ai_ms,hook_ms,made,cam_x,cam_y,cam_z,me_x,me_y,me_z` -
+//! `gpu` is `section=ms` pairs joined by `;`, `made` the count of GPU objects
+//! made, `cam_*` the drawn camera's place and `me_*` the drawn player's feet
+//! (card RINT: a frame whose camera stood while the player moved; empty
+//! outside a battle).
 //! Wall clock: it measures the machine, nothing here reaches the sim.
 
 use serde::{Deserialize, Serialize};
@@ -406,6 +409,8 @@ pub struct FrameProfile {
     reads: (u64, u64),
     /// The main thread's (on-CPU, queued) ns at this frame's start.
     sched: (u64, u64),
+    /// This frame's drawn camera and player (`FrameProfile::drawn`).
+    drawn: Option<(glam::Vec3, glam::Vec3)>,
 }
 
 /// The calling thread's (on-CPU, runnable-but-waiting) ns so far, from
@@ -464,6 +469,7 @@ impl FrameProfile {
             pending: None,
             reads: pak::reads(),
             sched: (0, 0),
+            drawn: None,
         })
     }
 
@@ -527,6 +533,12 @@ impl FrameProfile {
         self.t = now;
     }
 
+    /// The frame's drawn camera place and the drawn player's feet (the
+    /// CSV's `cam_*` / `me_*`, card RINT).
+    pub fn drawn(&mut self, camera: glam::Vec3, player: glam::Vec3) {
+        self.drawn = Some((camera, player));
+    }
+
     /// One sim tick ran in this frame: its AI ms and its hook's.
     pub fn tick(&mut self, ai_ms: f32, hook_ms: f64) {
         self.ticks += 1;
@@ -548,7 +560,7 @@ impl FrameProfile {
                 c.columns = self.laps.iter().map(|l| l.0).collect();
                 let _ = writeln!(
                     c.out,
-                    "frame,dt_ms,{},acquire_ms,draw_calls,gpu_ms,gpu,ticks,ai_ms,hook_ms,made",
+                    "frame,dt_ms,{},acquire_ms,draw_calls,gpu_ms,gpu,ticks,ai_ms,hook_ms,made,cam_x,cam_y,cam_z,me_x,me_y,me_z",
                     c.columns.join(",")
                 );
             }
@@ -563,9 +575,12 @@ impl FrameProfile {
                 })
                 .collect();
             let parts: Vec<String> = gpu.iter().map(|(l, ms)| format!("{l}={ms:.3}")).collect();
+            let drawn = self.drawn.take().map_or(",,,,,".to_owned(), |(c, m)| {
+                format!("{},{},{},{},{},{}", c.x, c.y, c.z, m.x, m.y, m.z)
+            });
             let _ = writeln!(
                 c.out,
-                "{},{dt_ms:.3},{},{:.3},{},{gpu_ms:.3},{},{},{:.3},{:.3},{}",
+                "{},{dt_ms:.3},{},{:.3},{},{gpu_ms:.3},{},{},{:.3},{:.3},{},{drawn}",
                 c.frame,
                 laps.join(","),
                 r.acquire_ms(),

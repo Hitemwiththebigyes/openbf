@@ -6,7 +6,9 @@
 //! bot's perception SEES (`perception::scan` looks from the seat's eye along
 //! the gun's look), aimed at through the lead point and the aim error (BF2: the target's own);
 //! FIRE waits for the tier's reaction, the weapon's range, D11's bursts and
-//! pauses, and the gun within [`AIM_TOLERANCE`] of the aim point.
+//! pauses, and the gun within [`AIM_TOLERANCE`] of the aim point. Card
+//! BRSTU: a seat gun with unlimited rounds bursts on its heat, not a shot
+//! count, and a single-shot seat gun is tapped.
 //!
 //! OURS, PROVISIONAL (the PS2's AI gunner, B1 FUN_00223850's MountedTurret
 //! acquisition, re-vehicles §9, is located, not transcribed): the look goes
@@ -26,7 +28,7 @@
 //! own aim, `FUN_00236700`, B1:191963-191967); and it sees from its muzzle
 //! (`perception::scan`).
 
-use super::gunner_foot::{fire_discipline, seen_aim};
+use super::gunner_foot::{fire_discipline, seen_aim, tap, Meter};
 use super::state::AiState;
 use super::AIM_TOLERANCE;
 use crate::fmath;
@@ -106,22 +108,42 @@ pub(super) fn aim(
         }
     }
 
-    fire_discipline(sim, me, u, st, wc, &skill);
-    let (Some(e), Some(p)) = (enemy, point) else {
-        return at;
+    // Card BRSTU: the seat gun's own heat, and its rounds - unlimited when
+    // the class's `RoundsPerClip` is under 1 or the slot's `WeaponAmmo` is.
+    let meter = Meter {
+        heat: seat_heat(sim, u).unwrap_or(0.0),
+        unlimited: w.infinite || wc.infinite_ammo(),
     };
-    let on = (p - s.muzzle).normalize_or_zero().dot(s.barrel) >= fmath::sin_cos(AIM_TOLERANCE).1;
-    let range = (e.capsule().center() - s.muzzle).length();
-    let ready = held.is_some_and(|c| perception::fireable(&c, sim.tick, tier.reaction_ticks));
-    if ready
-        && on
-        && range <= wc.ordnance.max_range()
-        && sim.tick >= st.pause_until
-        && wc.max_pressed_time <= 0.0
-    {
+    fire_discipline(sim, me, u, st, wc, meter, &skill);
+    let shot = enemy.zip(point).is_some_and(|(e, p)| {
+        let on =
+            (p - s.muzzle).normalize_or_zero().dot(s.barrel) >= fmath::sin_cos(AIM_TOLERANCE).1;
+        let range = (e.capsule().center() - s.muzzle).length();
+        let ready = held.is_some_and(|c| perception::fireable(&c, sim.tick, tier.reaction_ticks));
+        ready && on && range <= wc.ordnance.max_range() && wc.max_pressed_time <= 0.0
+    });
+    if wc.trigger_single {
+        // Card BRSTU: a single-shot seat gun is TAPPED, by on foot's rule
+        // (card STTAP; one trigger function for every seat on the PS2,
+        // `re-soldier-ai.md` 23.2) - a held trigger fires it once.
+        if tap(sim, me, st, wc, &skill, shot) {
+            pad.buttons |= buttons::FIRE;
+        }
+    } else if shot && st.burst > 0 && sim.tick >= st.pause_until {
         pad.buttons |= buttons::FIRE;
     }
     at
+}
+
+/// The heat of the first weapon of `u`'s seat gun.
+fn seat_heat(sim: &Sim, u: &crate::unit::Unit) -> Option<f32> {
+    let m = u.mount?;
+    let g = sim
+        .vehicle(m.vehicle)?
+        .guns
+        .get(usize::from(m.seat))?
+        .as_ref()?;
+    Some(g.weapons.first()?.heat)
 }
 
 /// The sticks that turn a [`gun::Turn`] look toward `want` (the rest when

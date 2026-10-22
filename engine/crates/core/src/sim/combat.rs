@@ -9,6 +9,7 @@
 use super::state::{DeathCause, Event, Sim};
 use crate::impact::Surface;
 use crate::projectile::{Bolt, Hit, Target};
+use crate::soldier::Stance;
 use crate::unit::{Controller, UnitHandle};
 use crate::TICK_HZ;
 
@@ -85,9 +86,16 @@ impl Sim {
                     damage,
                     age: b.age,
                     health_left,
+                    dir: b.vel.normalize_or_zero(),
                 });
                 if killed {
                     self.unit_killed(h, Some(b.owner));
+                    // The direct hit's death kick along the shot (B1
+                    // FUN_00200c30 -> FUN_00200f90, re-knockback §3).
+                    let u = &mut self.units[h.index as usize];
+                    if u.body {
+                        u.soldier.kick(b.vel);
+                    }
                 }
                 self.bolt_explodes(b);
             }
@@ -110,7 +118,14 @@ impl Sim {
                     struck: true,
                 });
                 self.push_impact(b, Surface::Vehicle, Some(vh));
-                self.damage_vehicle(vh, &desc, 1.0, Some((b.owner, b.team)));
+                self.damage_vehicle_by(
+                    vh,
+                    &desc,
+                    1.0,
+                    Some(b.owner),
+                    Some(b.team),
+                    Some(b.vel.normalize_or_zero()),
+                );
                 self.bolt_explodes(b);
             }
             // A model wall ends the flight exactly as the terrain sheet does:
@@ -204,7 +219,14 @@ impl Sim {
         v.deaths += 1;
         v.respawn_at = Some(respawn_at);
         v.spawn_slot = Some(slot);
-        self.drop_item(h, None);
+        // Card KNOCK (re-knockback §3): a soldier killed on foot keeps his
+        // body; its item drop waits for the dead state (`Sim::death_block`).
+        // A rider's is made now, as before (the seat's x 9 throw is not built).
+        v.body = v.mount.is_none();
+        v.drop_due = v.body;
+        if !v.body {
+            self.drop_item(h, None);
+        }
         self.battle.on_death(victim_team as usize, victim_is_player);
         // Phase D: the squad rules for a death, both of them.
         crate::squad::on_unit_died(self, h);
@@ -237,6 +259,27 @@ impl Sim {
                 unit: h,
                 cause: DeathCause::Blast,
             }),
+        }
+    }
+
+    /// The death block of a dead unit's body (card KNOCK, re-knockback §3: B1
+    /// B1:116889-116968, B2 B2:159605-159669): skipped while it is thrown,
+    /// tumbling or getting up - a soldier a blast kills dies when he has
+    /// landed - else the body enters [`Stance::Dead`] and the kill's item
+    /// drop comes now. (The droid's chunk death is card DCHK's.)
+    pub(super) fn death_block(&mut self, i: usize) {
+        let u = &self.units[i];
+        if u.alive || !u.body || u.soldier.stance.knocked() || u.soldier.stance == Stance::Dead {
+            return;
+        }
+        let drop = u.drop_due;
+        let u = &mut self.units[i];
+        u.drop_due = false;
+        u.soldier.stance = Stance::Dead;
+        u.soldier.time_in_stance = 0.0;
+        if drop {
+            let h = self.handle(i);
+            self.drop_item(h, None);
         }
     }
 
@@ -384,6 +427,47 @@ mod tests {
         }
         let n = s.nav_stats;
         assert_eq!((n.unit_kills, n.team_kills, n.self_kills), (1, 1, 0));
+    }
+
+    /// Card KNOCK (re-knockback §3, B1 FUN_00200c30): a bolt that kills
+    /// kicks the body 5 m/s along the shot; the body then brakes to rest in
+    /// the dead state.
+    #[test]
+    fn a_killing_bolt_kicks_the_body() {
+        use crate::projectile::{Bolt, Hit, Target};
+        use crate::soldier::Stance;
+        let mut s = Sim::empty(3);
+        s.heightfield = Some(crate::sim::tests::flat_ground());
+        let shooter = s.spawn(&UnitSpec::trooper(0, Vec3::ZERO)).unwrap();
+        let v = s.spawn(&UnitSpec::trooper(1, Vec3::X * 6.0)).unwrap();
+        s.units[v.index as usize].health.cur = 1.0;
+        let dir = Vec3::new(3.0, 0.0, 4.0);
+        s.resolve_bolt(&Bolt {
+            pos: Vec3::ZERO,
+            vel: dir * 40.0,
+            remaining: 0.0,
+            age: 0.0,
+            owner: shooter,
+            team: 0,
+            weapon_class: 0,
+            hit: Hit::Target(Target::Unit(v)),
+            end: Vec3::ZERO,
+            shooter_is_player: false,
+        });
+        let u = &s.units[v.index as usize];
+        assert!(!u.alive && u.body);
+        assert!((u.soldier.vel - Vec3::new(3.0, 0.0, 4.0)).length() < 1e-5);
+        for _ in 0..60 {
+            s.step(&[]);
+        }
+        let u = &s.units[v.index as usize];
+        assert_eq!(u.soldier.stance, Stance::Dead);
+        assert_eq!(u.soldier.vel, Vec3::ZERO, "at rest");
+        let moved = u.soldier.pos - Vec3::X * 6.0;
+        assert!(
+            moved.length() > 1.0 && moved.x > 0.0 && moved.z > 0.0,
+            "{moved:?}"
+        );
     }
 
     /// Card RKEX: a struck bolt whose ordnance names an impact explosion
@@ -565,6 +649,7 @@ mod tests {
         assert_eq!(s.bolts.len(), 1, "trigger shot spawned");
         let b = &s.bolts[0];
         assert_eq!(b.hit, Hit::Target(Target::Unit(t)));
+        let way = b.vel.normalize();
         // From the fire point to the capsule's front face at 19.5 m (radius
         // 0.5), where the reticle's ray meets it (card AIMA).
         let flight = (b.end - s.unit(p).unwrap().fire_point()).length();
@@ -593,6 +678,16 @@ mod tests {
             _ => None,
         });
         assert!(end.unwrap() >= 19.5 / 80.0);
+        // The hit carries the way the bolt flew (card HATK's chevrons):
+        // from the shooter toward the target.
+        let dir = s.events.iter().find_map(|e| match e {
+            Event::Hit { dir, .. } => Some(*dir),
+            _ => None,
+        });
+        let dir = dir.unwrap();
+        assert!((dir - way).length() < 1e-6, "{dir} {way}");
+        let at = (s.unit(t).unwrap().soldier.pos - s.unit(p).unwrap().soldier.pos).normalize();
+        assert!(dir.dot(at) > 0.99, "{dir} {at}");
     }
 
     /// §9.6 TTK: five BF1 rifle hits kill a 300 HP trooper; the kill pays

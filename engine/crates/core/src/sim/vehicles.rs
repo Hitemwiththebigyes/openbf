@@ -370,12 +370,13 @@ impl Sim {
         attacker: Option<(UnitHandle, u8)>,
     ) -> f32 {
         let (shooter, team) = (attacker.map(|(u, _)| u), attacker.map(|(_, t)| t));
-        self.damage_vehicle_by(h, desc, multiplier, shooter, team)
+        self.damage_vehicle_by(h, desc, multiplier, shooter, team, None)
     }
 
     /// [`Sim::damage_vehicle`] with the attacker's unit and team apart: a
     /// blast's team is its source's even when no unit is credited (an empty
-    /// vehicle's death blast, [`Sim::explode`]).
+    /// vehicle's death blast, [`Sim::explode`]), and the way the hit
+    /// travelled (`Event::VehicleHit`'s `dir`).
     pub(super) fn damage_vehicle_by(
         &mut self,
         h: VehicleHandle,
@@ -383,6 +384,7 @@ impl Sim {
         multiplier: f32,
         shooter: Option<UnitHandle>,
         team: Option<u8>,
+        dir: Option<Vec3>,
     ) -> f32 {
         let ff = self.friendly_fire_scale;
         let tick = self.tick;
@@ -406,6 +408,7 @@ impl Sim {
             shooter,
             vehicle: h,
             damage,
+            dir,
         });
         if killed {
             self.destroy_vehicle(h, shooter);
@@ -1191,7 +1194,8 @@ mod tests {
         assert!(s.events.contains(&Event::VehicleHit {
             shooter: None,
             vehicle: v,
-            damage: 100.0
+            damage: 100.0,
+            dir: None,
         }));
         // Belly-first (n·up = 1) halves the scale; a factor 2 other body.
         assert_eq!(s.impact_vehicle(v, -15.0, 1.0, 0.0, t, sc, 2.0), 100.0);
@@ -1556,13 +1560,13 @@ mod tests {
     fn boxed(s: &mut Sim) {
         use crate::collision::{HullPart, Layers, Shape};
         s.hull_parts = vec![Some(
-            vec![HullPart {
-                local: glam::Mat4::from_translation(Vec3::Y),
-                shape: Shape::Box {
+            vec![HullPart::new(
+                glam::Mat4::from_translation(Vec3::Y),
+                Shape::Box {
                     half: Vec3::new(2.0, 1.0, 3.0),
                 },
-                layers: Layers::ALL,
-            }]
+                Layers::ALL,
+            )]
             .into(),
         )];
     }
@@ -1653,7 +1657,8 @@ mod tests {
         assert!(s.events.contains(&Event::VehicleHit {
             shooter: Some(p),
             vehicle: v,
-            damage: 8.0
+            damage: 8.0,
+            dir: Some(Vec3::NEG_Z),
         }));
         assert_eq!(s.vehicle(v).unwrap().health.cur, 892.0);
     }

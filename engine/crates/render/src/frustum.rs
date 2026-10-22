@@ -67,6 +67,14 @@ impl Frustum {
     }
 }
 
+/// The nearest and farthest distance from `eye` to any point of the world
+/// box `lo..hi` (card LODP: [`crate::draw::all_discarded`]'s range).
+pub fn distance_range(lo: Vec3, hi: Vec3, eye: Vec3) -> (f32, f32) {
+    let near = eye.clamp(lo, hi).distance(eye);
+    let far = (eye - lo).abs().max((eye - hi).abs()).length();
+    (near, far)
+}
+
 /// World-space AABB of a model-space box under `model`.
 pub fn transformed_aabb(model: &Mat4, lo: Vec3, hi: Vec3) -> (Vec3, Vec3) {
     // Transform the centre and extend by the absolute value of the rotated
@@ -139,5 +147,29 @@ mod tests {
         assert!((hi.y - lo.y - 4.0).abs() < 1e-4, "{lo:?} {hi:?}");
         assert!(((lo.x + hi.x) / 2.0 - 10.0).abs() < 1e-4, "{lo:?} {hi:?}");
         assert!(((lo.z + hi.z) / 2.0 + 10.0).abs() < 1e-4, "{lo:?} {hi:?}");
+    }
+
+    #[test]
+    fn distance_range_bounds_every_point_of_the_box() {
+        let (lo, hi) = (Vec3::new(10.0, -2.0, 5.0), Vec3::new(20.0, 3.0, 9.0));
+        for eye in [
+            Vec3::ZERO,
+            Vec3::new(15.0, 0.0, 7.0),
+            Vec3::new(-30.0, 40.0, 8.0),
+        ] {
+            let (near, far) = distance_range(lo, hi, eye);
+            for k in 0..27 {
+                let t = Vec3::new((k % 3) as f32, (k / 3 % 3) as f32, (k / 9) as f32) / 2.0;
+                let d = (lo + (hi - lo) * t).distance(eye);
+                assert!(
+                    near - 1e-4 <= d && d <= far + 1e-4,
+                    "{d} outside {near}..{far}"
+                );
+            }
+        }
+        // An eye inside the box is 0 from it; its far corner is the farthest point.
+        let (near, far) = distance_range(lo, hi, Vec3::new(12.0, 0.0, 6.0));
+        assert_eq!(near, 0.0);
+        assert!((far - Vec3::new(8.0, 3.0, 3.0).length()).abs() < 1e-5);
     }
 }

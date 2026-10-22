@@ -4,14 +4,14 @@ title: Render interpolation: the sim stays 30 Hz, the windowed game draws positi
 milestone: M1
 value: 5
 phase: build
-status: todo
+status: done
 deps: HITCH
-files: engine/crates/game/src/walk.rs, engine/crates/game/src/main/windowed.rs, engine/crates/game/src/soldier_vis.rs, engine/crates/game/src/viewer/vehicles.rs, engine/crates/game/src/bolt_vis.rs
+files: engine/crates/game/src/render_blend.rs, engine/crates/game/src/walk.rs, engine/crates/game/src/main/windowed.rs, engine/crates/game/src/bolt_vis.rs, engine/crates/game/src/frame_profile.rs
 declares:
 needs:
 effort:
-branch:
-resume:
+branch: rint
+resume: landed 982999c7 2026-10-21
 created: 2026-10-20
 alpha: yes
 ---
@@ -42,3 +42,16 @@ applied at the display's rate if the PS2-measured feel allows; FEEL_NOTES line e
 
 ## Notes
 Opened by the planner 2026-10-20 17:50 on the maintainer's approval; waits on HITCH (deps) so its recorder can measure it.
+## Landed 2026-10-21 17:55 (982999c, lane 1; report `reports/20261021_1756_card_RINT.md`)
+`game::render_blend`: the pose before each tick kept (`WalkSim::advance_with`), the frame's draw lists built with the
+units' feet / yaw / pitch, the vehicles' place / turn / gun looks / walker aim and the zoom ease blended at accum / TICK
+(`WalkSim::blend_in`), restored bit for bit before anything else reads the walk (`blend_out`); a new generation, an alive
+flip, a seat change or a jump over 5 m (unit) / 10 m (vehicle) snaps. Bolts' heads blend in `BoltVis::draws`.
+Acceptance, KAS2 bf2, 70 s autopilot, no vsync (~1100 fps), RTX, `lead_tmp/rint/stood.py` on the frame CSV's new
+cam_* / me_* columns, frames resampled at the display rate, past 5 s:
+- 144 Hz: frames drawing the camera where the frame before did, while the player moved: 7376 / 9326 (79.1 %) -> 0 / 9220
+- 60 Hz: 1950 / 3900 (50.0 %) -> 0 / 3901; every frame: 97.3 % -> 0
+- even motion (`jitter.py`, 144 Hz): a frame's camera step against its 1/15 s mean, p50 deviation 1.00 -> 0.05, p90 5.00 -> 0.13
+Before = the same binary with `OPENBF_RENDER_BLEND=0` (`lead_tmp/hitch/win/bf2_kas2_rint_blend{0,1}/`).
+Not blended (stepping at 30 Hz still): a walker's posed legs, doors / stations, a bolt's drawn START (the fire point read
+at its tick: up to ~0.2 m off a running shooter's drawn gun for a frame), the spawn backdrop.

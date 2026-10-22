@@ -150,6 +150,7 @@ fn main() -> anyhow::Result<()> {
                 model,
                 palette: palette.clone(),
                 layer: *layer,
+                light: render::LightPath::Character,
                 lit: None,
             });
         }

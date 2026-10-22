@@ -4,14 +4,14 @@ title: Two ground movers to the PS2's, one build in soldier.rs: (a) BF1 soldiers
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: parked
 deps:
 files: engine/crates/core/src/soldier.rs
 declares: sim; sweep; arena; leak
-needs:
+needs: maintainer - the RTX is lost (nvidia-smi: Unknown Error); reboot, then the card lands as is
 effort:
-branch:
-resume:
+branch: bf1bk
+resume: built + gated (lead_tmp/bf1bk/gates/SUMMARY.md: ci 1832->1834 = the 2 new tests, sim/sweep/arena MOVED = declared, fidelity PASS both blocks, leak/ordnance/simhash PASS; gpu not run - adapter lost). land.py BF1BK once nvidia-smi -L shows the RTX; soldier.rs is not golden-skipped, so land's gpu gate decides goldens
 created: 2026-10-02
 alpha: yes
 domain: physics

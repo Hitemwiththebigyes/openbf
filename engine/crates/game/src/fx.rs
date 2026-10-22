@@ -680,8 +680,17 @@ impl Fx {
                 // `EnergyGainEffect` — the class defaults, which no disc
                 // class overrides. At the taker (PROVISIONAL: the PS2's
                 // follows it, one at a time per unit).
+                // A station's give runs the same effects (PWST,
+                // re-powerup-station §5.1); a vehicle served shows none.
                 Event::ItemTaken {
                     unit,
+                    health,
+                    ammo,
+                    energy,
+                    ..
+                }
+                | Event::StationServed {
+                    unit: Some(unit),
                     health,
                     ammo,
                     energy,

@@ -22,7 +22,10 @@
 //!
 //! Which classes: an `entc` whose BASE chain ends in `armedbuilding` /
 //! `armedbuildingdynamic` and that authors `TurretNodeName` itself or by a
-//! parent in the same LVL. The class keys the pose needs (the turret, aimer
+//! parent in the same LVL; and every health / ammo / vehicle droid (base
+//! `powerupstation`, card PWST, `analysis/re-powerup-station.md` §6 [O]),
+//! whose idle turn, wobble, arms and socket move its nodes the same way
+//! (both droid models are soft over their bones, one node a vertex). The class keys the pose needs (the turret, aimer
 //! and barrel node names, `PitchTurnFactor`, `BarrelRecoil`) stay in the
 //! class db, where the game reads the seat's section.
 
@@ -37,6 +40,9 @@ pub const PROP_TURRETNODENAME: u32 = 0xb69a_7cb4;
 
 /// The engine bases of a building turret (`game::vehicle_class::TURRET_BASES`).
 const BASES: [&str; 2] = ["armedbuilding", "armedbuildingdynamic"];
+
+/// The engine base of a health / ammo / vehicle droid (card PWST).
+pub const STATION_BASE: &str = "powerupstation";
 
 /// An LVL's turret classes with what their rigs need, from the map bake's
 /// flattened walk (first of a name wins, the walk's own rule).
@@ -106,7 +112,8 @@ impl TurretRigs {
                     .any(|p| p.key_hash == PROP_TURRETNODENAME)
             });
             let geom = links.iter().find_map(|&i| entcs[i].geometry_name());
-            let (true, true, Some(geom)) = (armed, node, geom) else {
+            let station = STATION_BASE.eq_ignore_ascii_case(root);
+            let (true, Some(geom)) = ((armed && node) || station, geom) else {
                 continue;
             };
             let geom = geom.to_ascii_lowercase();
@@ -318,9 +325,13 @@ mod tests {
     }
 
     fn class(name: &str) -> ManifestClass {
+        class_named(name, "armedbuilding")
+    }
+
+    fn class_named(name: &str, base: &str) -> ManifestClass {
         ManifestClass {
             name: name.into(),
-            base: "armedbuilding".into(),
+            base: base.into(),
             geometry: None,
             collision: vec![],
             door: None,
@@ -416,5 +427,56 @@ mod tests {
         let on: Vec<_> = r.parts.iter().map(name).collect();
         assert!(on.contains(&Some("turret_main".into())), "{on:?}");
         assert!(on.contains(&Some("main_cylinder".into())), "{on:?}");
+    }
+
+    /// Data-gated: BF1's health and ammo droids (`COMMON.LVL`, card PWST)
+    /// are cut into one part per node, every triangle kept, and the rig puts
+    /// a part on each node the class's animation names (re-powerup-station
+    /// §6: the FX-7's two arms and socket, the gonk's body and feet).
+    #[test]
+    fn the_droids_cut_into_their_animated_nodes() {
+        let Some(buf) = lvl("bf1", "COMMON/ENG/COMMON.LVL") else {
+            eprintln!("SKIP: COMMON.LVL not present");
+            return;
+        };
+        let chunks = mungefs::content_chunks(mungefs::open(&buf).unwrap()).unwrap();
+        let rigs = TurretRigs::of(&chunks);
+        let poser = crate::bind_pose::BindPose::of(&chunks);
+        for (class, geom, nodes) in [
+            (
+                "com_item_healthrecharge",
+                "com_item_healthrecharge",
+                &[
+                    "bone_root",
+                    "ph_tester_arm10",
+                    "ph_tester_arm6",
+                    "equipment_operator_arm_socket",
+                ][..],
+            ),
+            (
+                "com_item_weaponrecharge",
+                "com_item_weaponrecharge",
+                &["gonk1", "foot_l2", "foot_r1"][..],
+            ),
+        ] {
+            let stored = model(&chunks, geom);
+            let posed = poser.pose(&stored).unwrap().unwrap_or(stored);
+            let cut = rigs.split(&posed).unwrap().expect("a soft droid is cut");
+            let tris = |m: &Model| m.segments.iter().map(|s| s.triangles.len()).sum::<usize>();
+            assert_eq!(tris(&cut), tris(&posed), "{geom}");
+            let mut k = class_named(class, STATION_BASE);
+            let models = HashMap::from([(geom.to_string(), cut.clone())]);
+            eprintln!("{:?}", rigs.attach(&models, std::iter::once(&mut k)));
+            let r = k.turret_rig.expect("a rig");
+            let on: HashSet<String> = r
+                .parts
+                .iter()
+                .flatten()
+                .map(|&i| r.nodes[i as usize].name.to_ascii_lowercase())
+                .collect();
+            for n in nodes {
+                assert!(on.contains(*n), "{geom}: {n} not in {on:?}");
+            }
+        }
     }
 }

@@ -19,6 +19,8 @@
 //! rest (the hovernaut, the K-wing, the MTT, the Hailfire, the TIE bomber, the
 //! troop transport) keep their body as stored and take each `BNAM` segment
 //! through its bone's bind matrix (card VBIND, `crate::bind_pose::pose_bnam`).
+//! The collision prims rest at the same bind pose: each `XFRM` is in its
+//! `PRNT` bone's frame (card RKHUL, [`crate::bind_pose::prims_at_bind`]).
 //! The result goes through the world models' writer and ALPHA RULE v2
 //! (`crate::glb::model_to_glb`, `crate::alpha`), which draws any `MTRL` word —
 //! including the 0x02 alpha test `rep_walk_atte` carries and the 0x04 + 0x80
@@ -198,6 +200,22 @@ impl Index {
         }
         out.bone_space = false;
         Ok((out, bones))
+    }
+
+    /// A geometry's `prim` bodies in model space at the bind pose (card
+    /// RKHUL): each through its `PRNT` bone's bind matrix, by the skeleton
+    /// named as the prims' model, else as the geometry. Also the count of
+    /// undecoded prims dropped.
+    fn rest_prims(
+        &self,
+        p: &mungefs::coll::Primitives,
+        geometry: &str,
+    ) -> (Vec<manifest::ManifestPrim>, usize) {
+        let (mut prims, unknown) = crate::map::manifest_prims(p);
+        if let Some(skel) = self.skel_of(&p.model, geometry) {
+            crate::bind_pose::prims_at_bind(skel, &mut prims);
+        }
+        (prims, unknown)
     }
 
     /// The skeleton a model is posed by: named as the model, else as its
@@ -402,7 +420,12 @@ pub fn bake_vehicles(
     let textures = crate::soldier::bake_textures_flagged(inner, &wanted, &flags, out, pc.as_ref())?;
 
     // Collision: the coll mesh and prim bodies named as a geometry or any of
-    // its LOD models, in geometry order.
+    // its LOD models, in geometry order. A prim's `XFRM` is in its `PRNT`
+    // bone's frame (card RKHUL): it is written in model space at the bind
+    // pose, as the drawn model is. [D] BF2's spider walker: through their
+    // bones its four foot spheres (r 2.5) sit at y 2.50, on the ground under
+    // the drawn feet, and its body sphere 6.19 m up; as stored they all lay
+    // within 2.9 m of the origin, and rockets passed through the body.
     let mut collision: Vec<ManifestCollision> = Vec::new();
     let mut collision_index = HashMap::new();
     for g in &geometries {
@@ -421,7 +444,7 @@ pub fn bake_vehicles(
                 let slot =
                     crate::map::collision_slot(&p.model, &mut collision, &mut collision_index);
                 if collision[slot].prims.is_empty() {
-                    let (prims, unknown) = crate::map::manifest_prims(p);
+                    let (prims, unknown) = ix.rest_prims(p, &g.name);
                     if unknown > 0 {
                         eprintln!(
                             "prim 0x{offset:X}: {} dropped {unknown} primitive(s) of an undecoded kind",
@@ -543,5 +566,58 @@ mod tests {
         assert!(is_vehicle_base("commandflyer"));
         assert!(!is_vehicle_base("armedbuilding"));
         assert!(!is_vehicle_base("prop"));
+    }
+
+    /// Data-gated (card RKHUL): BF2's spider walker's collision prims rest
+    /// on its drawn model at the bind pose. The four foot spheres (r 2.5)
+    /// touch the ground the drawn feet stand on, the body sphere sits 6.2 m
+    /// up inside the drawn body, and every prim's centre is inside the drawn
+    /// model's box - as stored they all lay within 2.9 m of the origin.
+    #[test]
+    fn a_walkers_prims_rest_on_its_drawn_model() {
+        let Some(cis) = side("bf2", "CIS.LVL") else {
+            eprintln!("SKIP: BF2 CIS.LVL not present");
+            return;
+        };
+        let chunks = mungefs::content_chunks(mungefs::open(&cis).unwrap()).unwrap();
+        let ix = index(&chunks).unwrap();
+        let geom = "cis_walk_spider";
+        let top = top_lod(&ix, geom).unwrap();
+        let (m, _) = ix.model_space(&top, geom).unwrap();
+        let mut lo = [f32::MAX; 3];
+        let mut hi = [f32::MIN; 3];
+        for p in m.segments.iter().flat_map(|s| &s.positions) {
+            for k in 0..3 {
+                lo[k] = lo[k].min(p[k]);
+                hi[k] = hi[k].max(p[k]);
+            }
+        }
+        let (stored, _) = &ix.prims[geom];
+        let (prims, _) = ix.rest_prims(stored, geom);
+        assert_eq!(prims.len(), 17);
+        for p in &prims {
+            let t = p.translation;
+            assert!(
+                (0..3).all(|k| t[k] > lo[k] - 0.01 && t[k] < hi[k] + 0.01),
+                "{} at {t:?} outside the drawn {lo:?}..{hi:?}",
+                p.name
+            );
+        }
+        let at = |n: &str| prims.iter().find(|p| p.name == n).unwrap().translation;
+        for foot in ["p_foot1", "p_foot2", "p_foot3", "p_foot4"] {
+            let t = at(foot);
+            assert!(
+                (t[1] - 2.5 - lo[1]).abs() < 0.3,
+                "{foot} y {} drawn floor {}",
+                t[1],
+                lo[1]
+            );
+            assert!(t[0].abs() > 6.5, "{foot} x {}", t[0]);
+        }
+        assert!((at("p_main")[1] - 6.19).abs() < 0.05);
+        // Control: the stored XFRMs are the ones the hull missed by.
+        let raw = crate::map::manifest_prims(stored).0;
+        let main = raw.iter().find(|p| p.name == "p_main").unwrap();
+        assert!(main.translation[1].abs() < 0.01);
     }
 }

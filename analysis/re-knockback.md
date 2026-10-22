@@ -1,6 +1,36 @@
 # OPUS RE (2026-10-07) - [O] UNAUDITED
 # RE: blast knockback and the death kick - who a blast pushes, what a pushed soldier does, the droid chunk death (card KNOCK)
 
+> **AUDIT 2026-10-21 (loop lane 1, PARTLY: `engine/artifacts/loop/audits.md`; follow-up card KNOCK2).** Two separate
+> verifiers checked 17 claims against the decomp, and none was refuted. The PS2 rows of §6 were recomputed with a new
+> parser, and the ELF words were decoded.
+>
+> Held: §1-§3 for BF1 (the push and its skip set, the apply, the state setter's refusal, the splash kick, the direct
+> hit's kick, the thrown / tumble / get-up timings and thresholds, the brake, the lock, the corpse, the death block);
+> §4's PushDeadOnly gate and its default; §2's clip ids.
+>
+> Corrections:
+> 1. §4 "States": BF2's tumble (10) and get-up (0xb) do not brake like BF1's. FUN_00240bf8 (B2:160735-160812) passes
+>    the air integrator FUN_00248560 an acceleration of -2.5 (tumble) or -10 (get-up) times the velocity along the
+>    body rows, plus the stick. There is no floor test. BF2's corpse brake (FUN_002480a0) also works in the air, and
+>    on the floor it adds the slope's gravity shift (one verifier; the air part from both).
+> 2. §2 / §4: the speed^2 tests at the thrown landing, the tumble's end and the get-up's end are horizontal
+>    (x^2 + z^2). The B1 sites 0x207aa8 / 0x207e40 / 0x207f14 are `vmul.xz` then `vaddz.x`. The B2 sites per one
+>    verifier: 0x243488 / 0x244278 / 0x2448e8 / 0x244a8c. The tests at the moment of the knock keep the form given
+>    in §1 / §4.
+> 3. §7, counted as the port reads the classes (BASE inheritance): Push > 0 on 108 of 183 BF2 explosion classes, not
+>    84, because 24 faction classes inherit the com_ class's push. "Every infantry weapon authors Inner = Outer" holds
+>    for BF1 only: BF2's detpack is 2 - 3.5, timebomb 4 - 6, bulldog 1 - 2, incinerator 0 - 0.3 and arccaster
+>    0 - 0.5. com_weap_inf_force_push_exp (PushDeadOnly 1, Push 0) is in the bake.
+> 4. §2 clips: FUN_0022a0a8 picks a clip only when the state changes, and it reads the per-update displacement of the
+>    body matrix (argument 1[5]), not S+0xa20. After ids 0x10 / 0x11 (the get-up clip of the lock) a death rests too.
+> 5. §1: FUN_00209758 runs the zoom drop (S+0xc4c = 1) before its state-3 / same-state refusal. The lock clears the
+>    trigger bytes whenever S+0xc0c > 0, not only in (0, 10).
+> 6. Neither verifier found a state or lock gate on BF1's enter path (FUN_0020a4f0, FUN_0020b2c8): a thrown soldier
+>    can board [H: the controller's vt+0x4c was not opened].
+>
+> Evidence: `engine/artifacts/lead_tmp/audit-knock/wf/results.json` (V1, V2, N1, N4).
+
 **The question** (card KNOCK; `re-vehicle-death.md` §5 and its audit banner left it open): a blast with Push > 0
 calls a soldier's push. What does the soldier then do - which state, which clip, how long, can he act; which five
 states are skipped; when does a droid soldier blow apart instead and what spawns; what does the droid class do; and

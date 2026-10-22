@@ -4,14 +4,14 @@ title: Explosions throw soldiers as the PS2's do: BF1 pushes every gathered sold
 milestone: M3
 value: 5
 phase: build
-status: todo
+status: done
 deps: VDTH
 files: engine/crates/core/src/sim/blast.rs,engine/crates/core/src/sim/combat.rs,engine/crates/core/src/sim/step.rs,engine/crates/core/src/soldier.rs,engine/crates/core/src/soldier/tests.rs,engine/crates/core/src/unit.rs,engine/crates/core/src/weapon.rs,engine/crates/game/src/soldier_vis.rs,engine/crates/game/src/animator.rs
 declares: sim; sweep; arena
 needs:
 effort:
-branch:
-resume: RE done (analysis/re-knockback.md, 6f52332 + 95f4e25; rows in lead_tmp/knock/out/). Build in three commits, tests first from the PS2 rows of section 6: (1) the dead keep a body - a dead unit stays in the tick for 4.0 s with a velocity (gravity 18, the brake of section 3 / 4), is in Sim::explode's gather, and a kill by a bolt or a blast adds the 5 m/s kick (combat.rs, blast.rs); (2) the push in Sim::explode (blast.rs's marked spot; ExplosionClass reads PushDeadOnly, BF1 classes false) + Soldier stances Thrown / Tumble / GetUp with the lock, the blast-killed thrown and dying at the landing; (3) game: the corpse's draw follows the body, the thrown / tumble / rest clips if the baked sets hold them. Droids: card DCHK.
+branch: knock
+resume: landed 4a41d85a 2026-10-21
 created: 2026-09-28
 alpha: yes
 first: 9
@@ -71,3 +71,9 @@ In the port a blast only damages, and a dead unit freezes where it stood.
   class sets PushDeadOnly 0" was wrong (two do); the five skipped states are thrown, tumble, get-up and the two
   mounted ones.
 - 2026-10-20 (the maintainer): grenades and rockets in the originals have a radius that both damages and PUSHES soldiers inside it, so a grenade can throw you without killing you, depending on health and distance. The port's blasts only damage (RKEX builds the rocket's explosion and uses this push). Build both games' rules as read in the resume.
+- 2026-10-21 build (lane 2): b35255c (the push, the stances, the dead's body, the late death, the bolt kick; 8 tests from the
+  PS2 rows, 6 mutations each failing a named test) + b98fabb (the thrown_* clips). Gates twice: every row PASS or a declared
+  move, fidelity PASS, goldens unchanged. Sweep A/B seeds 1-8 against a 9e381b1 build: finished 256/256 both, recycles
+  48 -> 38, floor 15 -> 19, under-map 1 -> 0, attacker-less blast 6 -> 17 (BF2 Geonosis; 40 seeds 21 -> 50, traced: an empty
+  pad hover's decay explosion on both builds - note on VPAD2). Report `reports/20261021_1100_card_KNOCK.md`.
+

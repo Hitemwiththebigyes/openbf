@@ -446,6 +446,9 @@ pub struct SoundLib {
     /// Each unit's ONE voice for its hurt and death cries, by unit slot
     /// (card UCRY, [`SoundLib::cry`]).
     cries: HashMap<u32, Cry>,
+    /// Each station's ambient handle: sounding until this time on the
+    /// library's clock, by station index (card PWST, [`SoundLib::station_ambient`]).
+    station_voices: HashMap<u16, f32>,
     /// Weighted-pick state (audio-only randomness; never touches the sim).
     seed: u32,
     pub played: u64,
@@ -702,6 +705,7 @@ impl SoundLib {
             loops: HashMap::new(),
             ambient: HashMap::new(),
             cries: HashMap::new(),
+            station_voices: HashMap::new(),
             seed: 0x1234_5678,
             played: 0,
             handed: None,
@@ -819,6 +823,20 @@ impl SoundLib {
             takes,
             ids,
         })
+    }
+
+    /// A streamed property's takes in its list order and its gain (the
+    /// shell's `shell_soundtrack`, card BSHLA); `None` when it names no
+    /// indexed stream.
+    pub fn stream_takes(&self, name: &str) -> Option<(f32, Vec<audio::StreamTake>)> {
+        let (p, _) = self.find_named(name)?;
+        let stream = p.stream?;
+        let takes: Vec<audio::StreamTake> = p
+            .segments
+            .iter()
+            .filter_map(|(id, _)| self.music_takes.get(&(stream, *id)).cloned())
+            .collect();
+        (!takes.is_empty()).then_some((p.gain, takes))
     }
 
     /// A `soundparameterized` record (a vehicle's `EngineSound`) by name
@@ -1604,6 +1622,44 @@ impl SoundLib {
         }
     }
 
+    /// A tick's station ambient asks (card PWST, re-ambience-music §5.2):
+    /// each `(station, hash, pos)` whose handle is not sounding asks its
+    /// `AmbientSound` at the station like any one-shot (its
+    /// `PlayProbability`, its range: B1 `FUN_002a9750` 235630, B2
+    /// `FUN_003674c0` 362446 ask every update while the handle is inactive);
+    /// what starts holds the handle for the take's length.
+    pub fn station_ambient(&mut self, asks: &[(u16, u32, Vec3)], ears: Vec3) -> Vec<Start> {
+        let mut out = Vec::new();
+        for &(station, hash, pos) in asks {
+            if self
+                .station_voices
+                .get(&station)
+                .is_some_and(|t| *t > self.now)
+            {
+                continue;
+            }
+            let from = out.len();
+            self.start(hash, pos, ears, &mut out);
+            if let Some(s) = out.get(from) {
+                let (path, pitch) = (s.path.clone(), s.pitch.max(0.05));
+                let secs = self.decoded(&path).map_or(0.0, |d| d.duration_secs());
+                self.station_voices.insert(station, self.now + secs / pitch);
+            }
+        }
+        out
+    }
+
+    /// [`SoundLib::station_ambient`] through the mixer.
+    pub fn play_station_ambient(
+        &mut self,
+        audio: &mut audio::Audio,
+        asks: &[(u16, u32, Vec3)],
+        listener: &Listener,
+    ) {
+        let starts = self.station_ambient(asks, listener.pos);
+        self.mix(audio, &starts, listener);
+    }
+
     /// A take decoded without the mixer, for its length ([`decode_noted`]).
     fn decoded(&mut self, path: &Path) -> Option<&audio::SoundData> {
         if !self.cache.contains_key(path) {
@@ -2108,6 +2164,7 @@ mod tests {
             loops: HashMap::new(),
             ambient: HashMap::new(),
             cries: HashMap::new(),
+            station_voices: HashMap::new(),
             seed: 0x1234_5678,
             played: 0,
             handed: None,
@@ -2561,6 +2618,55 @@ mod tests {
         assert!(l.crying(7) && !l.crying(8));
         let got = l.cries(&[(9, hurt, pos), (10, death, pos)], ears);
         assert_eq!(got.iter().map(|g| g.0).collect::<Vec<_>>(), vec![9, 10]);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Card PWST: a station's `AmbientSound` holds ONE handle (re-ambience-
+    /// music §5.2) - asked every tick while it is not sounding, through the
+    /// property's draw; a sounding take blocks every ask of its station until
+    /// it ends, another station's handle is its own, a listener out of range
+    /// starts nothing.
+    #[test]
+    fn a_station_has_one_ambient_handle() {
+        let dir = std::env::temp_dir().join(format!("openbf-pwst-{}", std::process::id()));
+        let mut l = lib();
+        l.map.dir = dir.clone();
+        for i in [1, 7] {
+            one_second_wav(&dir.join(format!("b/{i}.wav")));
+        }
+        let (sure, rare) = (fnv1a_lowercase("exp_high"), fnv1a_lowercase("rare"));
+        let (pos, ears) = (Vec3::new(10.0, 0.0, 0.0), Vec3::ZERO);
+        let dt = 1.0 / 30.0;
+        let mut sink = Vec::new();
+        // A sure draw starts at once, then holds the handle for its 1 s take.
+        let mut starts = Vec::new();
+        for _ in 0..60 {
+            starts.push(
+                l.station_ambient(&[(0, sure, pos), (1, sure, pos)], ears)
+                    .len(),
+            );
+            l.tick(dt, ears, &mut sink);
+        }
+        assert_eq!(starts[0], 2, "both stations start on the first ask");
+        assert!(starts[1..30].iter().all(|n| *n == 0), "{starts:?}");
+        assert_eq!(starts[30..32].iter().sum::<usize>(), 2, "{starts:?}");
+        // A 0.25 draw: once the take ends the asks resume, so the gap past
+        // the take is about 1 / 0.25 ticks.
+        let (mut n, mut ticks) = (0, 0);
+        while n < 200 {
+            n += l.station_ambient(&[(2, rare, pos)], ears).len();
+            l.tick(dt, ears, &mut sink);
+            ticks += 1;
+        }
+        let gap = ticks as f32 / n as f32 - 30.0;
+        assert!(
+            (2.5..6.0).contains(&gap),
+            "ticks per start past the take {gap}"
+        );
+        // Out of range (the property mutes from 450 m): no start, no hold.
+        let far = Vec3::new(500.0, 0.0, 0.0);
+        assert!(l.station_ambient(&[(3, sure, far)], ears).is_empty());
+        assert_eq!(l.station_ambient(&[(3, sure, pos)], ears).len(), 1);
         let _ = std::fs::remove_dir_all(dir);
     }
 }

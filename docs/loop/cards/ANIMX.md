@@ -36,3 +36,6 @@ Card ANIM answered the layers, the weapon sets and the action layer (analysis/re
 ## Acceptance
 One analysis note per question taken, [O] claims with the five checks and a verifier; a RAM count like ANIM's
 (clips on the players of every posed soldier) where a table is claimed.
+
+## Planner note
+Planner 2026-10-21 20:50: the thrown pick for a grenade throw is GTHRW's (the maintainer 10-21); the sprint fallback is SPRCL's.

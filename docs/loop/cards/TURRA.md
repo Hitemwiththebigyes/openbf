@@ -60,3 +60,6 @@ on main 51.1 % of seated time has nothing really hittable; a bot remembers one c
   gunners (`lead_tmp/audit-turr/tools/obs3_patch.py` gives them); sweep 256/256; kills a minute within the noise.
 - Re-run `lead_tmp/audit-turr/tools/chain_mut.sh` (its done list emptied): only M21 (and argued M2 / D3) survive.
 - B8 unchanged: BF2 KAM1 seat share 3-10 %, 0 quiet long spells, 0 endgame ticks (8 seeds).
+
+## Planner note
+Planner 2026-10-21 20:50: TCOL gives building turrets their hull (first 4); exit 3 can be refereed once it lands.

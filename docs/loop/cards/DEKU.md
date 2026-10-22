@@ -14,6 +14,7 @@ branch:
 resume:
 created: 2026-10-03
 alpha: yes
+first: 6
 ---
 ## Why
 DEKA's RE (`analysis/re-droideka-unit.md` [O], `analysis/re-droideka.md`): the PS2 fields 2-4 droidekas in every BF1 Clone Wars battle and 1-2 in BF2's; the port has no such unit. This card is the unit itself in `core`, driven by a Controllable-style input (so a player or a bot can drive it later), with nothing fielded yet - every gate PASS, nothing declared.
@@ -32,3 +33,6 @@ Tests in `core` (each printed in the report): (1) the transition table equals th
 - New constants not in section 0's [O] set are PROVISIONAL (crash damage, the legs' lag).
 - The shield is DEKS, the draw DEKD, the roster and the bots DEKF.
 - 2026-10-06 planner: `engine/CRATES.md` taken out of `files:`. The picker refuses a card whose files overlap a card in progress, and 22 open cards listed the map, so any one of them held the other 21 (a chain card in progress held WADE and WTHR). The map's row for a new or moved source file is still owed in the same branch (`scripts/size_report.sh --check-map`); a rebase conflict in it is one line. Undo: add the path back.
+
+## Planner note
+Planner 2026-10-21 20:50 (the maintainer via INBOX 17:50 item 3): `first: 6` - the droideka playable and fielded first; order DEKU, DEKD, DEKF, then DEKS.

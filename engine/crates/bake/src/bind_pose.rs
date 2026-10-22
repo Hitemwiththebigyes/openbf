@@ -156,22 +156,33 @@ impl BindPose {
                 .find(|g| g.name.eq_ignore_ascii_case(geometry))?;
             g.best_model().and_then(named)
         });
-        let Some((skel, m0)) = skel.and_then(|s| s.bind_matrices().ok().map(|m| (s, m))) else {
-            return;
-        };
-        for p in prims.iter_mut() {
-            let Some(mat) = skel.index_of(&p.parent).map(|b| &m0[b]) else {
-                continue;
-            };
-            if *mat == IDENTITY {
-                continue;
-            }
-            // Row vectors: the prim's frame is `XFRM · bind`.
-            for row in p.rotation.iter_mut() {
-                *row = xform_dir(mat, *row);
-            }
-            p.translation = xform_point(mat, p.translation);
+        if let Some(skel) = skel {
+            prims_at_bind(skel, prims);
         }
+    }
+}
+
+/// Collision prims in model space at `skel`'s bind pose: each prim's `XFRM`
+/// through its `PRNT` bone's bind matrix. A prim whose `PRNT` the skeleton
+/// lacks, or whose bone binds at the identity, is left as stored. The door
+/// rule ([`BindPose::rest_prims`]) and the vehicle bake's (card RKHUL,
+/// `crate::vehicle`: every walker's legs and body, the BARC speeder's hull).
+pub fn prims_at_bind(skel: &Skeleton, prims: &mut [manifest::ManifestPrim]) {
+    let Ok(m0) = skel.bind_matrices() else {
+        return;
+    };
+    for p in prims.iter_mut() {
+        let Some(mat) = skel.index_of(&p.parent).map(|b| &m0[b]) else {
+            continue;
+        };
+        if *mat == IDENTITY {
+            continue;
+        }
+        // Row vectors: the prim's frame is `XFRM · bind`.
+        for row in p.rotation.iter_mut() {
+            *row = xform_dir(mat, *row);
+        }
+        p.translation = xform_point(mat, p.translation);
     }
 }
 

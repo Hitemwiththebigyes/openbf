@@ -53,6 +53,8 @@ fn play_event_sounds(
         asks.push((c.unit, hash, c.pos));
     });
     sl.play_cries(audio, &asks, &listener);
+    // The stations' ambient chatter, one handle per station (card PWST).
+    sl.play_station_ambient(audio, &game::event_sounds::station_asks(walk), &listener);
     // The sounds of the explosions' effects (`Fx::take_sounds`).
     for (name, pos) in effects {
         sl.play(audio, name, *pos, &listener);
@@ -355,6 +357,11 @@ fn hud_title(walk: &WalkSim) -> String {
 
 // ── Windowed viewer (winit 0.30 ApplicationHandler + gilrs) ──────────────────
 
+/// The BF2 PS2 shell's front screens (card BSHLA).
+#[path = "windowed/front.rs"]
+mod front;
+use front::FrontShell;
+
 enum Screen {
     Shell,
     Loading,
@@ -436,6 +443,14 @@ struct App {
     round_recorded: bool,
     /// Previous frame's menu-relevant buttons (edge detection).
     prev_menu_buttons: u32,
+    /// The menu bits the keyboard holds (the shell only: arrows, Enter as
+    /// Cross + Start, Escape / Backspace as Back; card BSHLA).
+    keys_held: u32,
+    /// The bits pressed since the last frame read them: a tap that is let
+    /// go inside one frame still counts.
+    keys_tapped: u32,
+    /// The PS2 shell's front screens (`None` until the shell first draws).
+    front: Option<FrontShell>,
     /// One click of L3 sprints (`input::SprintLatch`).
     sprint_latch: input::SprintLatch,
     /// `OPENBF_AUTOPILOT=1` in dev mode: [`autopilot_pad`] drives the player.
@@ -574,6 +589,9 @@ pub(super) fn run_windowed(v: ViewerArgs) -> Result<()> {
         blackbox: None,
         snapshot_requested: false,
         prev_menu_buttons: 0,
+        keys_held: 0,
+        keys_tapped: 0,
+        front: None,
         sprint_latch: input::SprintLatch::default(),
         autopilot: game::dev::on() && std::env::var("OPENBF_AUTOPILOT").is_ok_and(|v| v == "1"),
         quit_at: quit_at(),
@@ -708,6 +726,10 @@ impl App {
 
     /// Shell → loading screen (BF1 sequence + beep), then the battle.
     fn begin_loading(&mut self) {
+        // The shell music stops with the shell.
+        if let Some(f) = self.front.as_mut() {
+            f.music = None;
+        }
         let maps = game::assets::discover_maps(&self.assets_dir);
         let Some((name, source_game, dir)) = maps.get(self.shell.map_idx).cloned() else {
             eprintln!("no baked map selected");
@@ -876,6 +898,7 @@ impl App {
         self.hud_view = load_hud_view(&dir, renderer);
         self.bolts = game::bolt_vis::BoltVis::new(&self.assets_dir, &scene.manifest.source_game);
         let mut walk = make_walk(&scene, &setup);
+        walk.blend = game::render_blend::Blend::from_env();
         self.foley = game::foley::Foley::load(&scene.dir, &walk);
         self.engines = game::engine_sound::EngineSounds::new(&scene.dir, &walk);
         self.ambience =
@@ -1024,6 +1047,11 @@ impl App {
                         now |= bit;
                     }
                 }
+                // The shell's Back is Triangle, as its help line shows
+                // (re-bf2-shell §3.4); Circle too, as everywhere else.
+                if matches!(self.screen, Screen::Shell) && pad.is_pressed(Button::North) {
+                    now |= 32;
+                }
                 // The left stick presses the same arms as the D-pad.
                 now |= input::stick_arms(
                     pad.value(gilrs::Axis::LeftStickX),
@@ -1032,7 +1060,12 @@ impl App {
                 );
             }
         }
-        let edges = now & !self.prev_menu_buttons;
+        let mut tapped = 0;
+        if matches!(self.screen, Screen::Shell) {
+            now |= self.keys_held;
+            tapped = std::mem::take(&mut self.keys_tapped);
+        }
+        let edges = (now & !self.prev_menu_buttons) | tapped;
         self.prev_menu_buttons = now;
         edges
     }
@@ -1048,52 +1081,6 @@ impl App {
         match g.gamepads().next() {
             Some((_, pad)) => input::pad_from_gamepad(&pad),
             None => PadState::default(),
-        }
-    }
-}
-
-impl App {
-    /// Shell frame: navigate, maybe start, draw.
-    fn redraw_shell(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
-        let edges = self.menu_edges();
-        let input = ui::menu::MenuInput {
-            up: edges & 1 != 0,
-            down: edges & 2 != 0,
-            left: edges & 4 != 0,
-            right: edges & 8 != 0,
-            confirm: edges & 16 != 0,
-            back: false,
-        };
-        let mut actions = ui::shell::navigate(&mut self.shell, input);
-        self.seed_shell_from_map();
-        let model = self.shell.clone();
-        let mut clicked = Vec::new();
-        if let (Some(r), Some(overlay), Some(window)) =
-            (&mut self.renderer, &mut self.overlay, &self.window)
-        {
-            let warning = self.pad_warning.as_deref();
-            let paint = overlay.begin(window, |ctx| {
-                clicked = ui::shell::draw_shell(ctx, &model);
-                if let Some(w) = warning {
-                    ui::hud::draw_pad_warning(ctx, w);
-                }
-            });
-            if let Err(e) = r.render_with_overlay(
-                &Camera::default(),
-                &[],
-                [0.05, 0.06, 0.10, 1.0],
-                Some(&mut |dev, q, enc, view, size| overlay.paint(&paint, dev, q, enc, view, size)),
-            ) {
-                eprintln!("render: {e}");
-                event_loop.exit();
-            }
-        }
-        actions.extend(clicked);
-        for a in actions {
-            match a {
-                ui::shell::ShellAction::Start => self.begin_loading(),
-                ui::shell::ShellAction::Quit => event_loop.exit(),
-            }
         }
     }
 }
@@ -1156,6 +1143,9 @@ pub(super) fn run_shell(assets_dir: PathBuf, missions_dir: PathBuf) -> Result<()
         paused: false,
         menu_cursor: 0,
         prev_menu_buttons: 0,
+        keys_held: 0,
+        keys_tapped: 0,
+        front: None,
         sprint_latch: input::SprintLatch::default(),
         autopilot: game::dev::on() && std::env::var("OPENBF_AUTOPILOT").is_ok_and(|v| v == "1"),
         quit_at: quit_at(),
@@ -1233,6 +1223,7 @@ impl winit::application::ApplicationHandler for App {
                     self.bolts =
                         game::bolt_vis::BoltVis::new(&self.assets_dir, &scene.manifest.source_game);
                     let mut walk = make_walk(&scene, &self.setup);
+                    walk.blend = game::render_blend::Blend::from_env();
                     self.foley = game::foley::Foley::load(&scene.dir, &walk);
                     self.engines = game::engine_sound::EngineSounds::new(&scene.dir, &walk);
                     self.ambience = game::ambience::Ambience::load(
@@ -1371,6 +1362,37 @@ impl winit::application::ApplicationHandler for App {
                     },
                 ..
             } => self.snapshot_requested = self.blackbox.is_some(),
+            WindowEvent::KeyboardInput {
+                event:
+                    winit::event::KeyEvent {
+                        physical_key: winit::keyboard::PhysicalKey::Code(code),
+                        state,
+                        repeat,
+                        ..
+                    },
+                ..
+            } => {
+                use winit::keyboard::KeyCode as K;
+                let bit = match code {
+                    K::ArrowUp => 1,
+                    K::ArrowDown => 2,
+                    K::ArrowLeft => 4,
+                    K::ArrowRight => 8,
+                    K::Enter | K::NumpadEnter => 16 | 64,
+                    K::Escape | K::Backspace => 32,
+                    _ => 0,
+                };
+                if state == winit::event::ElementState::Pressed {
+                    self.keys_held |= bit;
+                    // The system's key repeat steps the arrows, never a
+                    // confirm or a back.
+                    if !repeat || bit < 16 {
+                        self.keys_tapped |= bit;
+                    }
+                } else {
+                    self.keys_held &= !bit;
+                }
+            }
             WindowEvent::Resized(size) => {
                 if let Some(r) = &mut self.renderer {
                     r.resize(size.width, size.height);
@@ -1387,7 +1409,7 @@ impl winit::application::ApplicationHandler for App {
                 }
 
                 if matches!(self.screen, Screen::Shell) {
-                    self.redraw_shell(event_loop);
+                    self.redraw_shell(event_loop, dt);
                     if let Some(w) = &self.window {
                         w.request_redraw();
                     }
@@ -1456,6 +1478,7 @@ impl winit::application::ApplicationHandler for App {
                                 .as_ref()
                                 .map_or(self.profile.settings.music_volume, |m| m.volume),
                             cursor: self.menu_cursor,
+                            in_shell: None,
                             outcome_line: walk.sim.outcome.map(|w| match w {
                                 core::sim::OUTCOME_DRAW => "Time up — both teams win".to_string(),
                                 _ => format!(
@@ -1527,6 +1550,11 @@ impl winit::application::ApplicationHandler for App {
                             let (w, h) = r.size();
                             w as f32 / h.max(1) as f32
                         });
+                        // The class screen's unlocks read the player's
+                        // points as the feed has scored them (card SSELB,
+                        // re-spawn-flow §4.3).
+                        let points = self.feed.stats(&walk.sim, walk.player).points;
+                        walk.sim.set_spawn_points(0, points);
                         walk.advance_with(dt, std::slice::from_ref(&pad), |walk| {
                             let hook_t0 = std::time::Instant::now();
                             self.fx.ingest(walk);
@@ -1661,6 +1689,11 @@ impl winit::application::ApplicationHandler for App {
                     if let Some(p) = self.frame_profile.as_mut() {
                         p.lap("update_ms");
                     }
+                    // From here to the draw lists' end the walk holds the
+                    // pose blended between its last two ticks (card RINT):
+                    // the camera, units and vehicles drawn at the display's
+                    // rate. Restored below, before anything else reads it.
+                    walk.blend_in();
                     let models = self
                         .soldier_vis
                         .as_ref()
@@ -1698,7 +1731,13 @@ impl winit::application::ApplicationHandler for App {
                     // Spawn screen while dead: the post and class it shows
                     // are the sim's (card SPSEL), moved by the pad bits.
                     spawn = spawn_model(walk, &self.feed);
-                    walk.camera()
+                    let camera = walk.camera();
+                    if let (Some(p), Some(me)) =
+                        (self.frame_profile.as_mut(), walk.sim.unit(walk.player))
+                    {
+                        p.drawn(camera.position, me.soldier.pos);
+                    }
+                    camera
                 } else {
                     self.drive_fly_camera(dt);
                     self.cam
@@ -1729,6 +1768,7 @@ impl winit::application::ApplicationHandler for App {
                         Some((walk, _)) => {
                             gpu.pose_doors(&walk.sim.doors);
                             gpu.pose_turrets(&walk.sim, &walk.vehicle_seats);
+                            gpu.pose_stations(&walk.sim);
                             self.holos.advance(walk);
                             game::point_light::submit(
                                 r,
@@ -1774,6 +1814,11 @@ impl winit::application::ApplicationHandler for App {
                         let (body, gun) = self.spawn_preview.draws(vis, page, &camera, step);
                         skinned.extend(body);
                         draws.extend(gun);
+                    }
+                    // The tick's own pose back (card RINT): the menu's
+                    // actions and the next tick read it.
+                    if let Some((walk, _)) = self.walk.as_mut() {
+                        walk.blend_out();
                     }
                     let hud_hidden = self.hud_hidden;
                     let pad_warning = self.pad_warning.clone();
@@ -1867,6 +1912,10 @@ impl winit::application::ApplicationHandler for App {
                         eprintln!("render: {e}");
                         event_loop.exit();
                     }
+                }
+                // Without a renderer the draw window above is skipped.
+                if let Some((walk, _)) = self.walk.as_mut() {
+                    walk.blend_out();
                 }
                 if let (Some(at), Some((walk, _))) = (self.quit_at, self.walk.as_ref()) {
                     self.quit_clicked |= walk.sim.tick >= at;

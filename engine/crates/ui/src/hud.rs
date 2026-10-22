@@ -2,7 +2,8 @@
 //! model as the events BF2's own HUD tree listens to (`crate::hud_tree`,
 //! drawn by `crate::hud_draw` and the renderer's HUD pass) — the bars and
 //! counts, the event lines of `player1systemMessages` and the statistics
-//! pop-up (card EVMSG, `analysis/re-event-messages.md`) — and [`draw_hud`]
+//! pop-up (card EVMSG, `analysis/re-event-messages.md`), the target's name
+//! and health (card HTGT, `analysis/re-target-hud.md`) — and [`draw_hud`]
 //! paints in egui what that tree does not carry yet: the round banner, the
 //! round timer, the pad warning.
 
@@ -68,6 +69,53 @@ pub struct HudStats {
     pub captures: i32,
 }
 
+/// What the reticle picks, as BF2's target readout shows it
+/// (`re-target-hud.md` §3 [V][O]): the class's name over a bar of its health
+/// (or its shield while that holds), in the relation's colour.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct HudTarget {
+    /// Which object: a change of id is a new target (disable, then the new
+    /// name and value, §3).
+    pub id: u64,
+    /// The class's localised name (`entity.<side>.<rest>`, §4).
+    pub name: String,
+    /// Health / max health, 0..1.
+    pub health_fraction: f32,
+    /// The viewer's relation to the target's team: > 0 friend, < 0 enemy,
+    /// 0 neutral.
+    pub relation: i8,
+    /// The target's team is 0 (props, empty vehicles, unowned turrets):
+    /// white whatever the relation.
+    pub team0: bool,
+    /// While a shield holds: its localised label ("Shield") and its
+    /// fraction, shown in the bar's place.
+    pub shield: Option<(String, f32)>,
+}
+
+/// BF2's `target.teamColor` values (`re-target-hud.md` §3 [V][V-RAM][O]:
+/// `FUN_0036fec8`'s four words, read in RAM as 0156d5ff, c86464ff, ffffffff,
+/// dfdf20ff).
+pub mod target_color {
+    pub const FRIEND: [u8; 3] = [1, 86, 213];
+    pub const ENEMY: [u8; 3] = [200, 100, 100];
+    /// A team-0 target, and the colour sent when the target is lost.
+    pub const NONE: [u8; 3] = [255, 255, 255];
+    /// A non-zero team neutral to the viewer.
+    pub const NEUTRAL: [u8; 3] = [223, 223, 32];
+}
+
+impl HudTarget {
+    /// The bar's and the reticle's colour (`FUN_003b3398` B2:410224–410253).
+    pub fn color(&self) -> [u8; 3] {
+        match self.relation {
+            _ if self.team0 => target_color::NONE,
+            r if r > 0 => target_color::FRIEND,
+            r if r < 0 => target_color::ENEMY,
+            _ => target_color::NEUTRAL,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct HudModel {
     /// Faction keys or display names, team 0 / team 1.
@@ -90,8 +138,12 @@ pub struct HudModel {
     /// `None` = the row is off.
     pub weapon2: Option<HudWeapon>,
     /// The reticle: `None` hides it; else the relation of what the crosshair
-    /// picks (−1 enemy, 1 friend, 0 nothing) — `Sim::reticle_pick`.
+    /// picks (−1 enemy, 1 friend, 0 nothing) — `Sim::reticle_pick`. A
+    /// [`HudModel::target`] colours it instead.
     pub reticle: Option<i8>,
+    /// The reticle's pick as the target readout shows it (card HTGT);
+    /// `None` = nothing picked.
+    pub target: Option<HudTarget>,
     /// Where the reticle sits: a fraction of the window's height from the
     /// top (`game::walk::WalkSim::reticle_y`; [`reticle_y`] is the PS2's
     /// place for a camera section's tilt).
@@ -119,6 +171,9 @@ pub struct HudModel {
     /// The command-post capture icon (card CPBAR); `None` = not in a post's
     /// capture region, or nothing to show there.
     pub capture: Option<crate::hud_capture::CaptureIcon>,
+    /// The edges the player's hits lit since the last frame (card HATK,
+    /// `crate::hud_ambush::edge`); each restarts its chevron once.
+    pub ambush: Vec<crate::hud_ambush::Edge>,
     /// The spawn screen drawn in the HUD's frame (card SSELB,
     /// `crate::spawn_draw`); `None` = none up.
     pub spawn: Option<crate::spawn_draw::SpawnPage>,
@@ -138,12 +193,16 @@ pub fn reticle_y(tilt: f32, tan_half_fov_y: f32) -> f32 {
     0.5 - 0.5 * tilt.tan() / tan_half_fov_y
 }
 
-/// The reticle's colour by what it picks: enemy, nothing, friend. Nothing is
-/// the tree's own white — the PS2's reticle element holds ff ff ff in RAM
-/// with no target (HOT1 state, element 0x187d000). Enemy and friend are the
-/// BF1 RAM values (`analysis/re-aim-assist.md` §3.7 [O]), PROVISIONAL for
-/// BF2's `target.teamColor`.
-pub const RETICLE_COLORS: [[u8; 3]; 3] = [[200, 100, 100], [255, 255, 255], [100, 200, 100]];
+/// The reticle's colour by what it picks: enemy, nothing, friend — BF2's
+/// `target.teamColor`, which the reticle listens to (`re-target-hud.md` §3
+/// [V][O]: BF2's friend is blue, not BF1's green). Nothing is the tree's own
+/// white — the PS2's reticle element holds ff ff ff in RAM with no target
+/// (HOT1 state, element 0x187d000).
+pub const RETICLE_COLORS: [[u8; 3]; 3] = [
+    target_color::ENEMY,
+    target_color::NONE,
+    target_color::FRIEND,
+];
 
 /// Publish `m` as the 1-player HUD's events (`re-hud.md` §3). Change-gated
 /// like the PS2's publishers, so call it every frame. `has_mesh` answers
@@ -238,6 +297,9 @@ pub fn feed(hud: &mut Hud, m: &HudModel, has_mesh: &dyn Fn(&str) -> bool) {
     hud.map = m.map.clone();
     hud.squad = m.squad.clone();
     hud.capture = m.capture;
+    for &e in &m.ambush {
+        hud.ambush.hit(e);
+    }
     hud.spawn = m.spawn.clone();
     let mut put = |event: &str, v: EventValue| hud.publish(event, v, has_mesh);
     if alive && m.map.is_some() {
@@ -264,15 +326,20 @@ pub fn feed(hud: &mut Hud, m: &HudModel, has_mesh: &dyn Fn(&str) -> bool) {
     }
 
     // The reticle sits where the aim ray goes on screen (card AIMA).
+    // The target first: a lost one sends white, then the reticle's own.
+    let target = m.target.as_ref().filter(|_| alive && m.reticle.is_some());
+    feed_target(hud, target, has_mesh);
+    let mut put = |event: &str, v: EventValue| hud.publish(event, v, has_mesh);
     if let (Some(rel), true) = (m.reticle, alive) {
         put(
             "player1.weapon1.reticule.position",
             EventValue::Position([0.5, m.reticle_y]),
         );
-        put(
-            "player1.weapon1.target.teamColor",
-            EventValue::Color(RETICLE_COLORS[(rel.clamp(-1, 1) + 1) as usize]),
-        );
+        let c = match target {
+            Some(t) => t.color(),
+            None => RETICLE_COLORS[(rel.clamp(-1, 1) + 1) as usize],
+        };
+        put("player1.weapon1.target.teamColor", EventValue::Color(c));
     }
 
     // The event lines: the colour first, then the text (the three senders,
@@ -398,6 +465,80 @@ pub fn feed(hud: &mut Hud, m: &HudModel, has_mesh: &dyn Fn(&str) -> bool) {
     );
 }
 
+/// The target readout's events (`re-target-hud.md` §3 [V][O],
+/// `FUN_003b3398`): on a change of target `disable` and `disableShieldName`
+/// first, then — no new target — `teamColor` white, else the new `className`;
+/// every update with a target its colour and the shield's fraction and name
+/// while one holds, else `disableShieldName` and the health's fraction.
+fn feed_target(hud: &mut Hud, t: Option<&HudTarget>, has_mesh: &dyn Fn(&str) -> bool) {
+    const ID: &str = "hud.target.id";
+    let id = EventValue::Text(t.map(|t| t.id.to_string()).unwrap_or_default());
+    if hud.last(ID) != Some(&id) {
+        let first = hud.last(ID).is_none();
+        hud.publish(ID, id, has_mesh);
+        if !first {
+            hud.send("player1.weapon1.target.disable", EventValue::None, has_mesh);
+            hud.send(
+                "player1.weapon1.target.disableShieldName",
+                EventValue::None,
+                has_mesh,
+            );
+        }
+        for e in [
+            "player1.weapon1.target.className",
+            "player1.weapon1.target.healthFraction",
+            "player1.weapon1.target.shieldName",
+        ] {
+            hud.forget(e);
+        }
+        if t.is_none() {
+            hud.forget("player1.weapon1.target.teamColor");
+            hud.publish(
+                "player1.weapon1.target.teamColor",
+                EventValue::Color(target_color::NONE),
+                has_mesh,
+            );
+        }
+    }
+    let Some(t) = t else {
+        return;
+    };
+    let mut put = |event: &str, v: EventValue| hud.publish(event, v, has_mesh);
+    put(
+        "player1.weapon1.target.className",
+        EventValue::Text(t.name.clone()),
+    );
+    put(
+        "player1.weapon1.target.teamColor",
+        EventValue::Color(t.color()),
+    );
+    let fraction = match &t.shield {
+        Some((label, f)) => {
+            put(
+                "player1.weapon1.target.shieldName",
+                EventValue::Text(label.clone()),
+            );
+            *f
+        }
+        None => {
+            if hud.last("player1.weapon1.target.shieldName").is_some() {
+                hud.forget("player1.weapon1.target.shieldName");
+                hud.send(
+                    "player1.weapon1.target.disableShieldName",
+                    EventValue::None,
+                    has_mesh,
+                );
+            }
+            t.health_fraction
+        }
+    };
+    hud.publish(
+        "player1.weapon1.target.healthFraction",
+        EventValue::Number(fraction.clamp(0.0, 1.0)),
+        has_mesh,
+    );
+}
+
 fn panel() -> Frame {
     Frame::new()
         .fill(Color32::from_black_alpha(140))
@@ -491,6 +632,7 @@ mod tests {
             weapon: None,
             weapon2: None,
             reticle: Some(0),
+            target: None,
             reticle_y: 0.5,
             dead: false,
             respawn_in: None,
@@ -502,6 +644,7 @@ mod tests {
             map: None,
             squad: None,
             capture: None,
+            ambush: Vec::new(),
             spawn: None,
         }
     }
@@ -542,5 +685,109 @@ mod tests {
         m.outcome = Some(2);
         m.time_left = Some(0.0);
         let _ = ctx.run(egui::RawInput::default(), |ctx| draw_hud(ctx, &m));
+    }
+
+    /// The target readout's feed (`re-target-hud.md` §3): a picked enemy at
+    /// full then half health sends its name, 1.0 then 0.5 and the enemy red
+    /// to the bar and the reticle alike; a friend is blue, a team-0 object
+    /// white; a switch keeps the readout up; losing the pick fades it out
+    /// and turns the bar white.
+    #[test]
+    fn the_target_readout_follows_the_pick() {
+        let mut hud = crate::hud_tree::fixture::target_hud();
+        let fill = hud.find("player1targethealth_fill").unwrap();
+        let name = hud.find("player1targetinfo_classNameNEW").unwrap();
+        let shield = hud.find("player1targetinfo_shieldName").unwrap();
+        let color = "player1.weapon1.target.teamColor";
+        let enemy = HudTarget {
+            id: 7,
+            name: "Clone Trooper".into(),
+            health_fraction: 1.0,
+            relation: -1,
+            team0: false,
+            shield: None,
+        };
+        let mut m = model();
+        m.target = Some(enemy.clone());
+        let step = |hud: &mut Hud, m: &HudModel| {
+            feed(hud, m, &|_| false);
+            hud.advance(1.0 / 30.0);
+        };
+        step(&mut hud, &m);
+        assert_eq!(hud.elems[name].text, "Clone Trooper");
+        assert_eq!(hud.elems[fill].value, 1.0);
+        assert_eq!(hud.elems[fill].fader.state, 2, "shown at once");
+        assert_eq!(hud.elems[name].fader.state, 2);
+        assert_eq!(hud.elems[fill].color, [200.0, 100.0, 100.0]);
+        assert_eq!(hud.last(color), Some(&EventValue::Color([200, 100, 100])));
+        m.target.as_mut().unwrap().health_fraction = 0.5;
+        step(&mut hud, &m);
+        assert_eq!(hud.elems[fill].value, 0.5);
+        assert!(hud.elems[fill].flash.is_some_and(|f| f.fall()));
+        // A friend at the same health: a new target, kept up.
+        m.target = Some(HudTarget {
+            id: 8,
+            name: "Super Battle Droid".into(),
+            relation: 1,
+            ..enemy.clone()
+        });
+        step(&mut hud, &m);
+        assert_eq!(hud.elems[name].text, "Super Battle Droid");
+        assert_eq!(hud.elems[fill].color, [1.0, 86.0, 213.0]);
+        assert_eq!(hud.elems[fill].fader.state, 2, "a switch keeps the bar up");
+        assert_eq!(hud.elems[name].fader.state, 2);
+        // A team-0 turret is white, whatever the relation; a droideka's
+        // shield shows its label and the shield's fraction.
+        m.target = Some(HudTarget {
+            id: 9,
+            name: "Laser Turret".into(),
+            team0: true,
+            shield: Some(("Shield".into(), 0.25)),
+            ..enemy.clone()
+        });
+        step(&mut hud, &m);
+        assert_eq!(hud.elems[fill].color, [255.0; 3]);
+        assert_eq!(hud.elems[shield].text, "Shield");
+        assert_eq!(hud.elems[shield].fader.state, 2);
+        assert_eq!(hud.elems[fill].value, 0.25);
+        m.target.as_mut().unwrap().shield = None;
+        step(&mut hud, &m);
+        assert!(hud.elems[shield].fader.state >= 3, "the shield line goes");
+        assert_eq!(hud.elems[fill].value, 1.0);
+        // A neutral team: yellow.
+        m.target = Some(HudTarget {
+            id: 10,
+            relation: 0,
+            ..enemy.clone()
+        });
+        step(&mut hud, &m);
+        assert_eq!(hud.elems[fill].color, [223.0, 223.0, 32.0]);
+        // Lost: everything fades out over its 1 s, keeping the last value;
+        // the bar turns white at once.
+        m.target = None;
+        step(&mut hud, &m);
+        for i in [fill, name] {
+            assert_eq!(
+                hud.elems[i].fader.state, 4,
+                "{} fades out",
+                hud.elems[i].name
+            );
+        }
+        assert_eq!(hud.elems[fill].color, [255.0; 3]);
+        assert_eq!(hud.last(color), Some(&EventValue::Color([255, 255, 255])));
+        for _ in 0..31 {
+            step(&mut hud, &m);
+        }
+        assert_eq!(hud.elems[fill].fader.state, 0, "gone after 1 s");
+    }
+
+    /// BF2's reticle colours (`re-target-hud.md` §3): friend blue, not BF1's
+    /// green.
+    #[test]
+    fn the_reticle_takes_bf2s_target_colours() {
+        assert_eq!(
+            RETICLE_COLORS,
+            [[200, 100, 100], [255, 255, 255], [1, 86, 213]]
+        );
     }
 }

@@ -107,6 +107,11 @@ pub enum Event {
         /// cry's 2 % test reads it (card UCRY, `analysis/re-unit-chatter.md`
         /// 2.7: B1 `FUN_001bc190` 64387).
         health_left: f32,
+        /// The way the shot travelled, unit length (card HATK: the HUD's
+        /// hit-direction chevrons, `analysis/re-hud-attacker.md` §3): a
+        /// bolt's velocity; a blast's victim centre less the blast centre
+        /// (PROVISIONAL, §10), zero when they coincide.
+        dir: Vec3,
     },
     Kill {
         shooter: UnitHandle,
@@ -235,6 +240,9 @@ pub enum Event {
         shooter: Option<UnitHandle>,
         vehicle: crate::vehicle::VehicleHandle,
         damage: f32,
+        /// The way the bolt or blast travelled, as [`Event::Hit`]'s `dir`;
+        /// `None` for a collision.
+        dir: Option<Vec3>,
     },
     /// A vehicle's hull pool ran out and it is gone this tick, no wreck
     /// (re-vehicles §6, [`Sim::destroy_vehicle`]). The game layer reads the
@@ -266,6 +274,20 @@ pub enum Event {
         pos: Vec3,
         health: bool,
         ammo: bool,
+        energy: bool,
+    },
+    /// A station served a unit or a vehicle (card PWST): its `PowerupSound`
+    /// at `pos` (the station's), and the unit's gain effect for what it
+    /// gave. `station` indexes [`Sim::stations`].
+    StationServed {
+        station: u16,
+        unit: Option<UnitHandle>,
+        vehicle: Option<crate::vehicle::VehicleHandle>,
+        pos: Vec3,
+        health: bool,
+        ammo: bool,
+        /// BF2 energy: no disc station class gives any (§2.2), always
+        /// false today.
         energy: bool,
     },
     /// A door's trigger was entered: its `OpenSound` plays (queue DRV,
@@ -477,6 +499,17 @@ pub struct Sim {
     /// or a slot holds a non-default value, so every sim that never opens the
     /// screens keeps its hash.
     pub side_choice: Vec<super::spawn::SideChoice>,
+    /// Card SSELB: per player slot, the class carousel's input state (the
+    /// PS2's `SD+0x25` arm and `SD+0x33` slide, `FUN_00399dd8`): a held
+    /// step fires once, and a step while the line-up slides is dropped.
+    /// Parallel to `players`; hashed only while some slot's is not idle.
+    pub class_carousel: Vec<super::spawn::Carousel>,
+    /// Card SSELB: per player slot, the human's points (the PS2's stats+0x1fc,
+    /// `analysis/re-spawn-flow.md` §4.3), which unlock a class on the class
+    /// screen ([`Sim::class_refusal`]). An INPUT the game writes from the
+    /// slot's event feed before each tick (the feed scores the points); not
+    /// hashed, like the pads. Missing = 0.
+    pub spawn_points: Vec<i32>,
     /// How many AI this team has EVER spawned — the cursor `ai_class` walks
     /// the class table with. Hashed (it decides the next AI's class).
     pub ai_spawned: [u32; 2],
@@ -523,6 +556,12 @@ pub struct Sim {
     pub item_pool: usize,
     /// The items on the field, in drop order. HASHED when there is one.
     pub pickups: Vec<super::pickups::Pickup>,
+    /// The `powerupstation` classes (card PWST, `sim/stations.rs`). SETUP
+    /// data like `item_classes`, NOT hashed.
+    pub station_classes: Vec<super::stations::StationClass>,
+    /// The placed health / ammo / vehicle droids, in manifest order. HASHED
+    /// when there is one.
+    pub stations: Vec<super::stations::Station>,
     pub battle: Battle,
     pub cheats: Cheats,
     /// BF1 DAT_00517508 / BF2 DAT_005fcbe0: the profile's friendly-fire
@@ -537,13 +576,15 @@ pub struct Sim {
     pub assist_armed: bool,
     /// Aim-assist state per player slot (parallel to `players`).
     pub assist: Vec<AssistState>,
-    /// Aim magnet per player slot (parallel to `players`).
-    pub magnet: Vec<Option<UnitHandle>>,
+    /// Aim magnet per player slot (parallel to `players`): a unit, or a
+    /// vehicle / building turret (card HTGT).
+    pub magnet: Vec<Option<super::input::AimTarget>>,
     /// What each player slot's crosshair picks, with its relation (−1
-    /// enemy, 1 friend): the PS2's K+0x30 / K+0x40, which the HUD reticle
-    /// colours by (`analysis/re-aim-assist.md` §3.7, card RETC). Written by
-    /// `acquire_magnet`; NOT hashed while nothing in the sim reads it.
-    pub reticle_pick: Vec<Option<(UnitHandle, i8)>>,
+    /// enemy, 0 team 0, 1 friend): the PS2's K+0x30 / K+0x40, which the HUD
+    /// reticle colours by (`analysis/re-aim-assist.md` §3.7, card RETC) and
+    /// the target readout shows (card HTGT). Written by `acquire_magnet`;
+    /// NOT hashed while nothing in the sim reads it.
+    pub reticle_pick: Vec<Option<(super::input::AimTarget, i8)>>,
     pub events: Vec<Event>,
     /// The unit driven by each pad passed to [`Sim::step`], indexed by player
     /// slot: slot `s` is driven by `pads[s]`. A slot whose entry is `None` has
@@ -710,6 +751,9 @@ pub struct NavStats {
     /// because its blast would land on its own side
     /// (`ai::release_blasts_own_side`).
     pub blast_holds: u64,
+    /// Card KNOCK: soldiers and corpses a blast's push reached
+    /// (`Sim::kick_and_push`).
+    pub knocks: u64,
     /// Bolts fired by an AI unit that HIT somebody — the numerator of the
     /// sweep's `hit_rate`, against `ai_shots`.
     pub ai_hits: u64,
@@ -840,6 +884,8 @@ impl Sim {
             spawn_screens: false,
             spawn_stage: Vec::new(),
             side_choice: Vec::new(),
+            class_carousel: Vec::new(),
+            spawn_points: Vec::new(),
             ai_spawned: [0, 0],
             units: Vec::new(),
             vehicles: Vec::new(),
@@ -854,6 +900,8 @@ impl Sim {
             item_classes: Vec::new(),
             item_pool: super::pickups::ITEM_POOL_DEFAULT,
             pickups: Vec::new(),
+            station_classes: Vec::new(),
+            stations: Vec::new(),
             battle: Battle::new([250, 250]),
             cheats: Cheats::default(),
             friendly_fire_scale: 1.0,
@@ -1220,9 +1268,17 @@ impl Sim {
         // flattened list of `Some`s).
         let handle_or_none =
             |h: Option<UnitHandle>| h.map_or((u32::MAX, u32::MAX), |h| (h.index, h.gen));
+        // A vehicle magnet (card HTGT) carries a marker byte first, so a
+        // unit magnet hashes as it did before vehicles could be one.
         eat(&(self.magnet.len() as u32).to_le_bytes());
         for m in &self.magnet {
-            let (i, g) = handle_or_none(*m);
+            let (i, g) = match *m {
+                Some(super::input::AimTarget::Vehicle(h)) => {
+                    eat(&[0x56]);
+                    (h.index, h.gen)
+                }
+                m => handle_or_none(m.and_then(super::input::AimTarget::unit)),
+            };
             eat(&i.to_le_bytes());
             eat(&g.to_le_bytes());
         }
@@ -1276,6 +1332,18 @@ impl Sim {
                 eat(&[*st as u8, *side as u8]);
             }
         }
+        // The class carousel (card SSELB): NOTHING while every slot's is idle.
+        if self
+            .class_carousel
+            .iter()
+            .any(|c| *c != super::spawn::Carousel::default())
+        {
+            eat(b"SSELB");
+            eat(&(self.class_carousel.len() as u32).to_le_bytes());
+            for c in &self.class_carousel {
+                eat(&[u8::from(c.armed), c.slide]);
+            }
+        }
         // The AI fill cursor: which class the next AI of each team takes.
         for n in &self.ai_spawned {
             eat(&n.to_le_bytes());
@@ -1321,6 +1389,13 @@ impl Sim {
             eat(&(self.pickups.len() as u32).to_le_bytes());
             for p in &self.pickups {
                 p.hash_into(&mut eat);
+            }
+        }
+        // The stations (PWST): nothing at all when there are none.
+        if !self.stations.is_empty() {
+            eat(&(self.stations.len() as u32).to_le_bytes());
+            for s in &self.stations {
+                s.hash_into(&mut eat);
             }
         }
         h
@@ -1589,6 +1664,7 @@ mod tests {
             .unwrap();
         assert_eq!(t, tb);
         assert_eq!(a.hash(), b.hash());
+        let t = crate::sim::AimTarget::Unit(t);
         a.magnet[0] = Some(t);
         b.magnet[1] = Some(t);
         assert_ne!(a.hash(), b.hash(), "which slot holds the magnet is hashed");
@@ -1644,13 +1720,16 @@ mod tests {
         // Card SKIRT (2026-10-15) moved it on purpose, 301ed5aeda7aae76 ->
         // 5affffe147952dc0: the format - a soldier's hash eats what is left of
         // the floor overlap and whether last tick kept the flatter normal.
+        // Card KNOCK (2026-10-21) moved it on purpose, 5affffe147952dc0 ->
+        // f9f37400e0f3171e: the format - a soldier's hash eats its landing
+        // draw and the get-up's fire lock (`knock_draw`, `fire_lock`).
         let mut sim = Sim::new(42);
         for _ in 0..100 {
             sim.step(&[PadState::default()]);
         }
         assert_eq!(
             format!("{:016x}", sim.hash()),
-            "5affffe147952dc0",
+            "f9f37400e0f3171e",
             "the command-free hash format moved"
         );
 

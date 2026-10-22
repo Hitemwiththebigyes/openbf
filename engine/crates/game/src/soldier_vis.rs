@@ -1359,6 +1359,7 @@ impl SoldierVisuals {
                 model,
                 palette: palette.to_vec(),
                 layer: *layer,
+                light: render::LightPath::Character,
                 // BF2's local lights reach the soldier (card BPNT).
                 lit: Some(crate::point_light::soldier_sphere(
                     model.transform_point3(glam::Vec3::ZERO),

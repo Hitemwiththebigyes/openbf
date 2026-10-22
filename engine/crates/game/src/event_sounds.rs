@@ -1,6 +1,6 @@
 //! A sim tick's events as sounds: which sound property each one starts, and
 //! where (fire / reload / impact / explosion / weapon change / empty click /
-//! door / the squad's answer to an order).
+//! door / the squad's answer to an order / a station's chatter).
 //! Called once per stepped tick (`WalkSim::advance_with`, card EVTK):
 //! `Sim::events` keeps a tick's events until the next step, so a render frame
 //! that steps no tick would start every sound again, and one that steps two
@@ -136,6 +136,15 @@ pub fn each(walk: &WalkSim, ears: Vec3, mut play: impl FnMut(&str, Vec3)) {
             Event::ItemTaken { item, pos, .. } => {
                 let c = walk.sim.item_classes.get(usize::from(*item));
                 if let Some(n) = c.and_then(|c| c.pickup_sound.as_ref()) {
+                    play(n, *pos);
+                }
+            }
+            // A station's `PowerupSound` at the station, once per unit it
+            // served (PWST, re-powerup-station §5.1).
+            Event::StationServed { station, pos, .. } => {
+                let s = walk.sim.stations.get(usize::from(*station));
+                let c = s.and_then(|s| walk.sim.station_classes.get(usize::from(s.class)));
+                if let Some(n) = c.and_then(|c| c.powerup_sound.as_ref()) {
                     play(n, *pos);
                 }
             }
@@ -293,6 +302,25 @@ pub fn cries<'a>(walk: &'a WalkSim, mut cry: impl FnMut(Cry<'a>)) {
     }
 }
 
+/// Each station's `AmbientSound` ask this tick (card PWST,
+/// re-ambience-music §5.2: the FX-7's `droid_fx7_idle_chatter`), as
+/// `(station, property hash, the station's place)` for
+/// `SoundLib::station_ambient`. The PS2 asks every update while the building
+/// is intact; the port has no broken station yet (card PWSTD), so every one.
+pub fn station_asks(walk: &WalkSim) -> Vec<(u16, u32, Vec3)> {
+    let sim = &walk.sim;
+    sim.stations
+        .iter()
+        .enumerate()
+        .filter_map(|(i, s)| {
+            let c = sim.station_classes.get(usize::from(s.class))?;
+            let name = c.ambient_sound.as_deref()?;
+            let i = u16::try_from(i).ok()?;
+            Some((i, crate::classdb::fnv1a_lowercase(name), s.pos))
+        })
+        .collect()
+}
+
 /// Whether a shot starts its weapon's `FireSound` (card SNDX; B1
 /// `FUN_00288d10` 211389 / 211421, B2 `FUN_0032e8c0` 323541 / 323581): the
 /// trigger pull starts one, and a later shot of the pull another only when the
@@ -362,6 +390,14 @@ pub fn sound_names(
         let hash = crate::classdb::fnv1a_lowercase(&e.record);
         names.entry(hash).or_insert_with(|| e.record.clone());
     }
+    // So are the stations' (card PWST).
+    for c in &walk.sim.station_classes {
+        for n in [&c.powerup_sound, &c.ambient_sound].into_iter().flatten() {
+            names
+                .entry(crate::classdb::fnv1a_lowercase(n))
+                .or_insert_with(|| n.clone());
+        }
+    }
     names
 }
 
@@ -424,6 +460,10 @@ impl SoundLog {
         });
         if let Some(lib) = lib.as_mut() {
             starts.extend(lib.cries(&asks, ears).into_iter().map(|(_, s)| s));
+        }
+        // Card PWST: the stations' ambient asks start in the `start` rows.
+        if let Some(lib) = lib.as_mut() {
+            starts.extend(lib.station_ambient(&station_asks(walk), ears));
         }
         if let Some(lib) = lib.as_mut() {
             lib.tick(core::TICK_DT, ears, &mut starts);

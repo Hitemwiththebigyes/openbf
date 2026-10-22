@@ -69,6 +69,9 @@ struct Globals {
     // BF1's character ambient, flat, for LIGHT_CHARACTER draws while
     // character_ambient_on is 1 (`render::Lighting::character_ambient`).
     character_ambient: vec3<f32>, character_ambient_on: f32,
+    // `render::IFACE_DIR_CAMERA` in the world (travel direction), for
+    // LIGHT_IFACE draws.
+    iface_dir: vec3<f32>, _pad11: f32,
 };
 
 @group(0) @binding(0) var<uniform> globals: Globals;
@@ -446,6 +449,9 @@ const LIGHT_UNLIT_ADD: u32 = 4u;
 const LIGHT_CHARACTER: u32 = 6u;
 const LIGHT_GLOW: u32 = 7u;
 const LIGHT_UNSCALED: u32 = 8u;
+const LIGHT_IFACE: u32 = 9u;
+// `render::IFACE_AMBIENT`.
+const IFACE_AMBIENT: f32 = 0.5;
 
 fn shade_unfogged(in: VsOut) -> vec4<f32> {
     let uv = in.uv + material.scroll.xy * globals.time;
@@ -485,6 +491,13 @@ fn shade_unfogged(in: VsOut) -> vec4<f32> {
         ambient_g = linear_to_srgb(globals.character_ambient);
     }
     let detail = detail_factor(uv);
+    // The PS2's interface light set (card SSELB, `render::LightPath::Iface`):
+    // a flat ambient and one white light fixed to the camera, in GS units,
+    // times the model's colour word; no map light.
+    if in.light == LIGHT_IFACE {
+        let sum = (IFACE_AMBIENT + max(dot(n, -globals.iface_dir), 0.0)) * in.color.rgb;
+        return vec4<f32>(gs_lit(texel.rgb * detail, sum), base.a);
+    }
     // `in.point`: BF2's local lights (`point_sum`), already in GS units.
     if in.light == 0u || in.light == LIGHT_CHARACTER {
         return vec4<f32>(gs_lit(base.rgb * detail, ambient_g + sun_g + light2_g + in.point), base.a);

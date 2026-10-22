@@ -881,9 +881,11 @@ pub fn body_layers(
 /// collision `cg` in model space, each in the subsets the class's lists put
 /// it in (the vehicle classes read the same six properties as a building,
 /// analysis/re-collision-layers.md §8) — the `coll` mesh, then the prims
-/// the port builds, each at its `XFRM` (PROVISIONAL: its `PRNT` bone taken
-/// as identity, as for the map's instances). Bodies in neither subset are
-/// left out.
+/// the port builds, each at its `XFRM`. A side vehicle's bake has already
+/// put each `XFRM` through its `PRNT` bone's bind matrix (card RKHUL,
+/// `bake::bind_pose::prims_at_bind`); a map's own vehicle class keeps the
+/// map bake's rule (PROVISIONAL: `PRNT` taken as identity outside doors).
+/// Bodies in neither subset are left out.
 pub fn hull_parts(
     cg: &CollisionGeom,
     class_collision: &[(String, String)],
@@ -897,11 +899,11 @@ pub fn hull_parts(
             layers != Layers::NONE,
             core::collision::trimesh(&cpu.positions, &cpu.indices),
         ) {
-            out.push(HullPart {
-                local: glam::Mat4::IDENTITY,
-                shape: Shape::Mesh(arc),
+            out.push(HullPart::new(
+                glam::Mat4::IDENTITY,
+                Shape::Mesh(arc),
                 layers,
-            });
+            ));
         }
     }
     for p in &cg.prims {
@@ -909,11 +911,11 @@ pub fn hull_parts(
         let Some(shape) = prim_shape(p).filter(|_| layers != Layers::NONE) else {
             continue;
         };
-        out.push(HullPart {
-            local: crate::viewer::instance_matrix(p.rotation, p.translation),
+        out.push(HullPart::new(
+            crate::viewer::instance_matrix(p.rotation, p.translation),
             shape,
             layers,
-        });
+        ));
     }
     out
 }

@@ -1876,3 +1876,38 @@ fn own_skeleton_classes_carry_their_root_scale() {
         assert_eq!(anim.root_scale, scale, "{game} {class}");
     }
 }
+
+/// Card SSELB (re-spawn-flow §4.3): a class's `PointsToUnlock` - every BF2
+/// officer 8, the BF2 specials 12, every other class 0, and no BF1 class
+/// any (BF1 has no unlocks).
+#[test]
+fn only_the_bf2_officers_and_specials_cost_points() {
+    let Some(dir) = classes_dir() else { return };
+    let mut costs = Vec::new();
+    for (game, a, b) in [
+        ("bf2", "imp", "all"),
+        ("bf2", "rep", "cis"),
+        ("bf1", "all", "imp"),
+    ] {
+        let ([ra, rb], _) = FactionRoster::pair(&dir, game, [a, b], None).expect("rosters");
+        for r in [&ra, &rb] {
+            for c in &r.classes {
+                if c.unlock_points != 0 {
+                    costs.push((game, c.class.clone(), c.unlock_points));
+                }
+            }
+        }
+    }
+    costs.sort();
+    eprintln!("{costs:?}");
+    assert!(costs.iter().all(|(g, ..)| *g == "bf2"), "{costs:?}");
+    for (_, class, cost) in &costs {
+        let want = if class.contains("officer") { 8 } else { 12 };
+        assert_eq!(*cost, want, "{class}");
+    }
+    let has = |n: &str| costs.iter().any(|(_, c, _)| c == n);
+    assert!(
+        has("imp_inf_officer") && has("imp_inf_dark_trooper"),
+        "{costs:?}"
+    );
+}

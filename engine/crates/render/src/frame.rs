@@ -31,7 +31,8 @@ use glam::Mat4;
 pub struct FrameStats {
     /// `draw_indexed` calls issued, across every pass.
     pub draw_calls: u32,
-    /// Draws whose world AABB was entirely outside the frustum.
+    /// Draws whose world AABB was entirely outside the frustum, or whose
+    /// distance bands discard every fragment (`draw::all_discarded`).
     pub culled: u32,
     /// Draws submitted (list length minus `culled`).
     pub submitted: u32,
@@ -234,6 +235,8 @@ impl Renderer {
             _pad10: 0.0,
             character_ambient: self.lighting.character_ambient.unwrap_or([0.0; 3]),
             character_ambient_on: f32::from(u8::from(self.lighting.character_ambient.is_some())),
+            iface_dir: iface_dir(camera).to_array(),
+            _pad11: 0.0,
         };
         self.queue
             .write_buffer(&self.globals_buf, 0, bytemuck::bytes_of(&globals));
@@ -284,14 +287,20 @@ impl Renderer {
         // Frustum culling: drop draws whose world AABB is entirely outside the
         // view. Conservative (see `frustum`), so a committed golden must be
         // byte-identical with it on — that, not the unit tests, is the proof
-        // it removes nothing visible.
+        // it removes nothing visible. The same box drops a draw whose
+        // distance bands discard every fragment it could make
+        // (`draw::all_discarded`, card LODP: the far switch's model past the
+        // switch, its LOWD wholly nearer).
         let mut culled = 0u32;
+        let eye = camera.position;
         let visible = |d: &DrawCmd, f: &frustum::Frustum, meshes: &[GpuMesh]| -> bool {
             let Some(m) = meshes.get(d.mesh.0 as usize) else {
                 return true;
             };
             let (lo, hi) = frustum::transformed_aabb(&d.model, m.bounds.0, m.bounds.1);
-            f.intersects_aabb(lo, hi)
+            let (near, far) = frustum::distance_range(lo, hi, eye);
+            let (cull, cull_near) = crate::draw::instance_cull(d);
+            f.intersects_aabb(lo, hi) && !crate::draw::all_discarded(cull, cull_near, near, far)
         };
         let keep: Vec<bool> = if self.cull {
             let f =
@@ -420,8 +429,9 @@ impl Renderer {
                     // A skinned draw carries no COL0: the PS2's normal light
                     // set (hemisphere + Light1 + Light2), with BF1's
                     // character ambient where the map has one — every
-                    // skinned draw the port makes is a soldier.
-                    light: LightPath::Character as u32 | crate::affine::layer_bit(d.layer),
+                    // skinned draw the port makes is a soldier — or, for a
+                    // spawn screen's soldier, the interface set.
+                    light: d.light as u32 | crate::affine::layer_bit(d.layer),
                     fade: mesh::NO_FADE,
                     lights: skinned_lights(d.lit),
                 })
@@ -1096,10 +1106,17 @@ pub(crate) fn continue_pass<'e>(
 /// Sort/instancing key for the depth-tested runs. The LAYER leads, so an
 /// instanced run never spans two pipelines and the pass switches at most
 /// six times (Opaque, Mask, TerrainLayer, FarSheet, Spec, Water, then
-/// Speckle); mesh and texture group the run.
-fn draw_key(d: &DrawCmd) -> (u32, u32, u32) {
+/// Speckle); mesh and texture group the run. Within a layer the far switch's
+/// LOWDs (card LOD) come after every other draw (card LODP): a LOWD straddling
+/// the switch spans the screen around an eye inside its building, and drawn
+/// last its pixels behind the nearer models fail the depth test before they
+/// are shaded (BF2 KAM1 at its spawn: models 9.9 -> 6.8 ms on an Intel iGPU
+/// at 2880x1920). The model and its LOWD never share a pixel, so the order
+/// moves no colour.
+fn draw_key(d: &DrawCmd) -> (u32, u32, u32, u32) {
     (
         draw_key_layer(d.layer),
+        matches!(d.lod, Some(l) if l.side == crate::draw::LodSide::Lowd) as u32,
         d.mesh.0,
         d.texture.map_or(u32::MAX, |t| t.0),
     )
@@ -1144,10 +1161,33 @@ fn draw_key_layer(layer: DrawLayer) -> u32 {
     }
 }
 
+/// [`crate::IFACE_DIR_CAMERA`] turned into the world by `camera`'s axes.
+fn iface_dir(camera: &Camera) -> glam::Vec3 {
+    let [x, y, z] = crate::IFACE_DIR_CAMERA;
+    let (right, forward) = (camera.right().normalize_or_zero(), camera.forward());
+    let up = right.cross(forward);
+    (right * x + up * y - forward * z).normalize_or_zero()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{MeshHandle, SkinnedMeshHandle};
+
+    /// The interface light turns with the camera: looking down -Z it is the
+    /// camera-frame direction itself; turned a quarter left (looking down
+    /// -X) the camera's x axis is the world's -Z and its z axis +X.
+    #[test]
+    fn the_interface_light_is_fixed_to_the_camera() {
+        let k = 1.0 / 3f32.sqrt();
+        let close = |a: glam::Vec3, b: glam::Vec3| (a - b).length() < 1e-5;
+        let mut cam = Camera::default();
+        assert!(close(iface_dir(&cam), glam::Vec3::new(-k, -k, -k)));
+        cam.yaw = std::f32::consts::FRAC_PI_2;
+        assert!(close(iface_dir(&cam), glam::Vec3::new(-k, -k, k)));
+        cam.position = glam::Vec3::new(5.0, 2.0, -3.0);
+        assert!(close(iface_dir(&cam), glam::Vec3::new(-k, -k, k)));
+    }
 
     /// The blend pass composites far to near through [`sort_far_to_near`],
     /// and a tie keeps the input order (a stable sort), so two draws at one
@@ -1185,6 +1225,7 @@ mod tests {
             model: at(z),
             palette: Vec::new(),
             layer,
+            light: LightPath::Character,
             lit: None,
         };
         let skinned = [
@@ -1227,6 +1268,30 @@ mod tests {
             draw_key(&DrawCmd::textured(m, t, Mat4::IDENTITY)),
             draw_key(&DrawCmd::textured(m, t, Mat4::IDENTITY).with_cull(Some(800.0)))
         );
+    }
+
+    /// Card LODP: the far switch's LOWDs sort after every other draw of
+    /// their layer, and still before the next layer.
+    #[test]
+    fn a_lowd_sorts_last_in_its_layer() {
+        let (m, t) = (MeshHandle(0), TextureHandle(0));
+        let side = |side| {
+            Some(crate::LodSwitch {
+                fade_begin: 60.0,
+                fade_end: 90.0,
+                side,
+            })
+        };
+        let lowd =
+            draw_key(&DrawCmd::textured(m, t, Mat4::IDENTITY).with_lod(side(crate::LodSide::Lowd)));
+        let model = draw_key(
+            &DrawCmd::textured(MeshHandle(9), t, Mat4::IDENTITY)
+                .with_lod(side(crate::LodSide::Model)),
+        );
+        let plain = draw_key(&DrawCmd::textured(MeshHandle(9), t, Mat4::IDENTITY));
+        let masked = draw_key(&DrawCmd::textured_masked(m, t, Mat4::IDENTITY));
+        assert!(model < lowd && plain < lowd && lowd < masked);
+        assert_eq!(model, plain, "the model side batches as any draw");
     }
 
     /// The specular pass adds over its base, so it sorts after every opaque

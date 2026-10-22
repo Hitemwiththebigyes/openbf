@@ -86,6 +86,7 @@ fn two_bone_bar_follows_its_palette() {
         model: Mat4::IDENTITY,
         palette,
         layer: DrawLayer::Opaque,
+        light: render::LightPath::Character,
         lit: None,
     };
     let clear = [1.0, 0.0, 0.0, 1.0];
@@ -182,6 +183,7 @@ fn render_scene(
             model: at(z),
             palette: vec![Mat4::IDENTITY],
             layer,
+            light: render::LightPath::Character,
             lit: None,
         });
     }
@@ -361,6 +363,7 @@ fn a_skinned_draw_on_any_other_pass_is_refused() {
             model: Mat4::IDENTITY,
             palette: vec![Mat4::IDENTITY],
             layer,
+            light: render::LightPath::Character,
             lit: None,
         };
         let err = r

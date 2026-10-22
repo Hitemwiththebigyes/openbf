@@ -66,3 +66,11 @@ Read `engine/artifacts/loop/STATUS.md`, the git log and the JOURNAL - and ALWAYS
 of `engine/artifacts/loop/PERF.md` (card PERF: the largest bot count per map that holds 60 fps on the maintainer's machine and on
 the mid-class-2020-laptop proxy, sim ms per tick, and what changed since the last time). If PERF.md does not exist yet,
 say so.
+
+## Profiling tools on this machine (the maintainer, 2026-10-21)
+`perf` 7.2 and `valgrind` 3.27 (callgrind, massif, dhat) are installed; `samply`, `heaptrack` and `flamegraph` are not.
+Flat profile of a release binary: `perf record -F 499 -o <file> -- <bin>`, then `perf report --no-children --sort symbol
+--stdio` (own processes only; `perf record --call-graph dwarf` FAILS here). For callers: `valgrind --tool=callgrind`
+(~50x slower) and `callgrind_annotate --tree=caller --inclusive=yes`. Copy the binary first, run under the memory cap +
+`timeout`; wall clock is void while the loop loads the machine - quote instruction counts and shares. First finding: card
+HULLC (vehicle hulls re-welded every tick, 37.6 % of the sim on BF2 KAS2).

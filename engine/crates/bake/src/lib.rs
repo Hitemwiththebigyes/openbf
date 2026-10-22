@@ -26,6 +26,7 @@ pub mod loadscreen;
 pub mod lowres_glb;
 pub mod map;
 pub mod ogg;
+pub mod shell;
 pub mod side_classes;
 pub mod skin_glb;
 pub mod soldier;

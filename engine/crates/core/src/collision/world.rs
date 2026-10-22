@@ -319,6 +319,10 @@ impl HullFilter {
 struct Hull {
     owner: VehicleHandle,
     bodies: Vec<Body>,
+    /// What `bodies` were placed from (card HULLC): a call with the same
+    /// parts at the same pose (a parked vehicle, every tick) keeps them.
+    pose: glam::Mat4,
+    parts: Vec<HullPart>,
 }
 
 /// The map's collision: placed bodies plus the terrain cutters. Static after
@@ -414,7 +418,7 @@ impl CollisionWorld {
         let Some(b) = self.bodies.get(i) else {
             return;
         };
-        let mut moved = Body::with_layers(to_world, b.shape.clone(), b.layers);
+        let mut moved = Body::placed(to_world, b.shape.clone(), b.layers, b.closed);
         moved.owner = b.owner;
         moved.instance = b.instance;
         let inside = self
@@ -445,24 +449,42 @@ impl CollisionWorld {
     /// Place vehicle `owner`'s hull: each of `parts` at `pose · part.local`,
     /// replacing whatever the slot held (any generation). No part → no hull.
     pub fn set_hull(&mut self, owner: VehicleHandle, parts: &[HullPart], pose: glam::Mat4) {
+        let slot = self
+            .hulls
+            .binary_search_by_key(&owner.index, |h| h.owner.index);
+        if let Ok(k) = slot {
+            let h = &self.hulls[k];
+            let bits = |m: &glam::Mat4| m.to_cols_array().map(f32::to_bits);
+            if h.owner == owner
+                && bits(&h.pose) == bits(&pose)
+                && h.parts.len() == parts.len()
+                && h.parts.iter().zip(parts).all(|(a, b)| a.same_as(b))
+            {
+                // Every body would be placed again bit for bit as it is.
+                return;
+            }
+        }
         let bodies: Vec<Body> = parts
             .iter()
             .map(|p| {
-                let mut b = Body::with_layers(pose * p.local, p.shape.clone(), p.layers);
+                let mut b = Body::placed(pose * p.local, p.shape.clone(), p.layers, p.closed);
                 b.owner = Some(owner);
                 b
             })
             .collect();
-        match self
-            .hulls
-            .binary_search_by_key(&owner.index, |h| h.owner.index)
-        {
-            Ok(k) if bodies.is_empty() => {
+        let hull = || Hull {
+            owner,
+            bodies,
+            pose,
+            parts: parts.to_vec(),
+        };
+        match slot {
+            Ok(k) if parts.is_empty() => {
                 self.hulls.remove(k);
             }
-            Ok(k) => self.hulls[k] = Hull { owner, bodies },
-            Err(_) if bodies.is_empty() => {}
-            Err(k) => self.hulls.insert(k, Hull { owner, bodies }),
+            Ok(k) => self.hulls[k] = hull(),
+            Err(_) if parts.is_empty() => {}
+            Err(k) => self.hulls.insert(k, hull()),
         }
     }
 

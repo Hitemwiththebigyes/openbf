@@ -4,14 +4,14 @@ title: The BF2 PS2 shell's title and stack menus (card BSHL's RE): bake the shel
 milestone: M5
 value: 5
 phase: build
-status: todo
+status: done
 deps: BSHL
 files: engine/crates/bake/src/main.rs, engine/crates/bake/src/lib.rs, engine/crates/bake/src/shell.rs, engine/crates/ui/src/shell.rs, engine/crates/ui/src/menu.rs, engine/crates/game/src/assets.rs, engine/crates/game/src/main/windowed.rs, scripts/rebake.sh
-declares: goldens=shell.png; rebake=common
+declares: goldens=shell_title.png,shell_main.png,shell_singleplayer.png,shell_options.png; rebake=common
 needs:
 effort:
-branch:
-resume:
+branch: bshla
+resume: landed f5c94429 2026-10-21
 created: 2026-10-20
 first: 6
 ---

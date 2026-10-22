@@ -86,6 +86,11 @@ fn scene(bot: Vec3, enemy: Vec3, weapon: usize, yaw: Option<[f32; 2]>) -> Scene 
 
 /// [`scene`] with the turret's gun `g`.
 fn scene_with(bot: Vec3, enemy: Vec3, g: GunSetup) -> Scene {
+    scene_classes(bot, enemy, g, &[])
+}
+
+/// [`scene_with`], the weapon classes `more` added from index 2 on.
+fn scene_classes(bot: Vec3, enemy: Vec3, g: GunSetup, more: &[WeaponClass]) -> Scene {
     let mut s = Sim::empty(5);
     s.heightfield = Some(crate::heightfield::Heightfield {
         size: 2,
@@ -100,6 +105,9 @@ fn scene_with(bot: Vec3, enemy: Vec3, g: GunSetup) -> Scene {
         ..WeaponClass::bf1_rifle()
     });
     assert_eq!(charge, 1);
+    for wc in more {
+        s.add_weapon_class(wc.clone());
+    }
     s.seat_setup = vec![Some(SeatSetup {
         radius: 3.0,
         boardable: vec![true],
@@ -920,4 +928,258 @@ fn a_turret_on_another_floor_is_given_up_not_boarded_from_below() {
     );
     assert!(!seated(&sc.s, b, v), "boarded from the floor below");
     assert_eq!(sc.s.nav_stats.man_boards, 0);
+}
+
+/// Card BRSTU's scene: the bot seated at the turret, an immortal enemy 35 m
+/// in front, the gun firing `wc` with `infinite` rounds (else 5 spare
+/// clips) under `rules`.
+fn seat_gun_scene(wc: WeaponClass, infinite: bool, rules: crate::soldier::GroundRules) -> Scene {
+    let mut g = gun_setup(2, None);
+    g.weapons[0].infinite = infinite;
+    g.weapons[0].spare_clips = if infinite { 0 } else { 5 };
+    let mut sc = scene_classes(
+        Vec3::new(3.0, 0.0, -3.0),
+        Vec3::new(2.0, 0.0, 35.0),
+        g,
+        &[wc],
+    );
+    sc.s.ground_rules = rules;
+    sit(&mut sc);
+    sc
+}
+
+/// One tick of the seat gun: (shots fired this tick, heat, overheated).
+type GunTick = (u64, f32, bool);
+
+/// Step `ticks` and read the seat gun each tick.
+fn gun_ticks(sc: &mut Scene, ticks: u64) -> Vec<GunTick> {
+    // (The gun's state is made on its first tick in a seat.)
+    let seat = |s: &Sim| {
+        let g = s
+            .vehicle(sc.v)
+            .unwrap()
+            .guns
+            .first()
+            .and_then(Option::as_ref);
+        g.map_or((0, 0.0, false), |g| {
+            let w = &g.weapons[0];
+            (w.shots_fired, w.heat, w.overheated)
+        })
+    };
+    let mut last = seat(&sc.s).0;
+    (0..ticks)
+        .map(|_| {
+            sc.s.step(&[]);
+            let (n, heat, hot) = seat(&sc.s);
+            let shots = n - last;
+            last = n;
+            (shots, heat, hot)
+        })
+        .collect()
+}
+
+/// Runs of shooting ticks: each `(first tick, last tick, shots)`, a run
+/// broken by a gap of more than `gap` ticks.
+fn shot_runs(t: &[GunTick], gap: usize) -> Vec<(usize, usize, u64)> {
+    let mut runs: Vec<(usize, usize, u64)> = Vec::new();
+    for (k, &(n, _, _)) in t.iter().enumerate() {
+        if n == 0 {
+            continue;
+        }
+        match runs.last_mut() {
+            Some(r) if k - r.1 <= gap => {
+                r.1 = k;
+                r.2 += n;
+            }
+            _ => runs.push((k, k, n)),
+        }
+    }
+    runs
+}
+
+/// A heat gun: 0.1 a shot, 5 shots a second, cooling 0.4 a second.
+fn heat_gun() -> WeaponClass {
+    WeaponClass {
+        heat_per_shot: 0.1,
+        heat_recover_rate: 0.4,
+        heat_threshold: 0.5,
+        shot_delay: [0.2, 0.2],
+        rounds_per_clip: 0,
+        ..WeaponClass::bf1_rifle()
+    }
+}
+
+/// Card BRSTU (`analysis/re-soldier-ai.md` 23.2): a bot at a turret whose
+/// gun has unlimited rounds and heat fires each burst until the heat is one
+/// shot short of full - far past the class's 3-6 shots - and never
+/// overheats; between bursts it waits the class's pause, counted from the
+/// burst's end (the cooled gun affords the next burst at once).
+#[test]
+fn a_heat_gun_turret_bursts_until_one_shot_short_of_full_and_never_overheats() {
+    for rules in [
+        crate::soldier::GroundRules::Bf1,
+        crate::soldier::GroundRules::Bf2,
+    ] {
+        let mut sc = seat_gun_scene(heat_gun(), true, rules);
+        let t = gun_ticks(&mut sc, 20 * HZ);
+        assert!(
+            t.iter().all(|&(_, _, hot)| !hot),
+            "{rules:?}: the gun overheated"
+        );
+        let runs = shot_runs(&t, 7);
+        assert!(runs.len() >= 3, "{rules:?}: {runs:?}");
+        let u = sc.s.unit(sc.bot).unwrap();
+        let skill = sc.s.difficulty_of(u.team).skill_at(u.skill);
+        let factor = match rules {
+            crate::soldier::GroundRules::Bf2 => skill.pause_mult,
+            crate::soldier::GroundRules::Bf1 => 1.0,
+        };
+        let pause = (factor * 2.0 * HZ as f32).round() as usize;
+        // Every whole burst (not the last, cut by the test's end).
+        for w in runs.windows(2) {
+            let (a, b) = (w[0], w[1]);
+            // The burst's last heat is within a shot of full.
+            let peak = t[a.0..=a.1].iter().map(|x| x.1).fold(0.0, f32::max);
+            assert!(peak > 0.85 && peak < 1.0, "{rules:?}: peak {peak} in {a:?}");
+            assert!(a.2 > 6, "{rules:?}: a burst of {} shots: {runs:?}", a.2);
+            // The pause: the class's, from the burst's end (the end test
+            // runs on the tick after its last shot).
+            let gap = b.0 - a.1;
+            assert!(
+                gap >= pause && gap <= pause + 3,
+                "{rules:?}: gap {gap} ticks, pause {pause}: {runs:?}"
+            );
+        }
+    }
+}
+
+/// Card BRSTU: an unlimited gun with no heat fires for as long as it has a
+/// target - one burst over the 20 s.
+#[test]
+fn a_gun_with_no_heat_fires_for_as_long_as_it_has_a_target() {
+    let wc = WeaponClass {
+        rounds_per_clip: 0,
+        ..heat_gun()
+    };
+    let wc = WeaponClass {
+        heat_per_shot: 0.0,
+        ..wc
+    };
+    let mut sc = seat_gun_scene(wc, true, crate::soldier::GroundRules::Bf2);
+    let t = gun_ticks(&mut sc, 20 * HZ);
+    let runs = shot_runs(&t, 7);
+    assert_eq!(runs.len(), 1, "{runs:?}");
+    assert!(runs[0].2 > 80, "{runs:?}");
+}
+
+/// Card BRSTU: a seat weapon with COUNTED rounds (its class's clip and the
+/// slot's 5 spare clips) keeps CLSE4's rule - bursts of its class's own
+/// Barrage keys (1 shot, 3 s: mutation GN1, the default class's 3-6 / 2 s,
+/// fails) - and a single-shot seat gun is tapped, a shot a press.
+#[test]
+fn a_counted_seat_weapon_stops_after_n_with_its_classes_pause() {
+    let wc = WeaponClass {
+        barrage: [1, 1],
+        barrage_delay: 3.0,
+        ..WeaponClass::bf1_rifle()
+    };
+    let mut sc = seat_gun_scene(wc, false, crate::soldier::GroundRules::Bf1);
+    let t = gun_ticks(&mut sc, 20 * HZ);
+    let runs = shot_runs(&t, 7);
+    assert!(runs.len() >= 4, "{runs:?}");
+    for w in runs.windows(2) {
+        assert_eq!(w[0].2, 1, "{runs:?}");
+        let gap = w[1].0 - w[0].1;
+        assert!(
+            (3 * HZ as usize..=3 * HZ as usize + 3).contains(&gap),
+            "gap {gap}: {runs:?}"
+        );
+    }
+}
+
+/// Card BRSTU: a `TriggerSingle` seat gun fires on a fresh press only, so
+/// the bot taps it (on foot's STTAP rule): a held trigger would fire once.
+#[test]
+fn a_single_shot_seat_gun_is_tapped() {
+    let wc = WeaponClass {
+        trigger_single: true,
+        ..heat_gun()
+    };
+    let wc = WeaponClass {
+        heat_per_shot: 0.0,
+        ..wc
+    };
+    let mut sc = seat_gun_scene(wc, true, crate::soldier::GroundRules::Bf2);
+    let t = gun_ticks(&mut sc, 20 * HZ);
+    let shots: u64 = t.iter().map(|x| x.0).sum();
+    assert!(shots >= 10, "{shots} shots in 20 s");
+}
+
+/// Card BRSTU: a burst starts only when n shots' heat fits in what is left
+/// (the PS2's state 2). A slow-cooling gun (0.05 a second) is still hot when
+/// the 2 s pause ends, so the bot waits past it, and every burst it starts
+/// has room for at least the class's 3 shots - never the one or two a
+/// start at the pause's end would leave before the end test.
+#[test]
+fn a_heat_burst_waits_until_its_shots_fit() {
+    let wc = WeaponClass {
+        heat_recover_rate: 0.05,
+        ..heat_gun()
+    };
+    let mut sc = seat_gun_scene(wc, true, crate::soldier::GroundRules::Bf1);
+    let t = gun_ticks(&mut sc, 60 * HZ);
+    assert!(t.iter().all(|&(_, _, hot)| !hot), "the gun overheated");
+    let runs = shot_runs(&t, 7);
+    assert!(runs.len() >= 4, "{runs:?}");
+    for w in runs.windows(2) {
+        let b = w[1];
+        assert!(b.2 >= 3, "a burst of {} shots: {runs:?}", b.2);
+        // The heat the tick before the burst: room for 3 shots' 0.3.
+        let before = t[b.0 - 1].1;
+        assert!(before < 0.7, "started at heat {before}: {runs:?}");
+    }
+    let waits = runs
+        .windows(2)
+        .filter(|w| w[1].0 - w[0].1 > 3 * HZ as usize)
+        .count();
+    assert!(waits > 0, "no burst waited past the 2 s pause: {runs:?}");
+}
+
+/// Card BRSTU: BF1 Hoth's turret cannon (0.25 heat a shot, two salvos a
+/// trigger, cooling 0.4 a second): a drawn n of 4 costs exactly a full
+/// meter, which never fits - the bot draws again while it waits, so it keeps
+/// firing burst after burst. With n kept until the want drops (the PS2's
+/// state 2) the gunner stood with a target and a cold gun for the rest of
+/// the round (53 % of its target time in a sweep).
+#[test]
+fn a_burst_whose_n_costs_a_full_meter_is_drawn_again() {
+    let wc = WeaponClass {
+        heat_per_shot: 0.25,
+        heat_recover_rate: 0.4,
+        heat_threshold: 0.25,
+        shot_delay: [0.4, 0.4],
+        salvo_count: 2,
+        salvo_delay: [0.15, 0.15],
+        initial_salvo_delay: 0.0,
+        rounds_per_clip: 0,
+        ..WeaponClass::bf1_rifle()
+    };
+    for rules in [
+        crate::soldier::GroundRules::Bf1,
+        crate::soldier::GroundRules::Bf2,
+    ] {
+        let mut sc = seat_gun_scene(wc.clone(), true, rules);
+        let t = gun_ticks(&mut sc, 60 * HZ);
+        let runs = shot_runs(&t, 15);
+        assert!(
+            runs.len() >= 12,
+            "{rules:?}: {} bursts in 60 s: {runs:?}",
+            runs.len()
+        );
+        let longest = runs.windows(2).map(|w| w[1].0 - w[0].1).max().unwrap_or(0);
+        assert!(
+            longest < 4 * HZ as usize,
+            "{rules:?}: a {longest}-tick wait: {runs:?}"
+        );
+    }
 }

@@ -61,8 +61,10 @@ pub const SOLDIER_RADIUS: f32 = 0.5;
 /// BF2 per-stance capsule heights (DAT_0061ed50: 1.9 / 1.6 / 0.55).
 pub fn capsule_height(stance: Stance) -> f32 {
     match stance {
-        Stance::Crouch => 1.6,
-        Stance::Prone | Stance::Roll => 0.55,
+        // The tumble and get-up take the crouch's posture, a corpse the
+        // prone's (card KNOCK, `re-knockback.md` §2 / §3: posture 1 / 2).
+        Stance::Crouch | Stance::Tumble | Stance::GetUp => 1.6,
+        Stance::Prone | Stance::Roll | Stance::Dead => 0.55,
         _ => 1.9,
     }
 }
@@ -193,8 +195,8 @@ pub struct IdealCamera {
 /// §3.6). Roll takes prone's, as the capsule does (PROVISIONAL).
 pub fn aim_point_height(stance: Stance) -> f32 {
     match stance {
-        Stance::Crouch => 0.6,
-        Stance::Prone | Stance::Roll => 0.2,
+        Stance::Crouch | Stance::Tumble | Stance::GetUp => 0.6,
+        Stance::Prone | Stance::Roll | Stance::Dead => 0.2,
         _ => 1.4,
     }
 }
@@ -277,6 +279,15 @@ pub struct Unit {
     /// Soldier-class `CapturePosts` (re-cp-capture.md): soldiers/walkerdroids
     /// count toward captures, vehicles and BF1 heroes don't.
     pub capture_posts: bool,
+    /// Card KNOCK (`analysis/re-knockback.md` §3): a dead unit whose body is
+    /// still in the world - it flies, tumbles and slides
+    /// ([`crate::soldier::Stance::Dead`]), blasts kick and push it, and it
+    /// leaves after [`crate::soldier::CORPSE_SECS`] dead or at the respawn.
+    /// A unit killed in a seat, or by the world, has none.
+    pub body: bool,
+    /// The kill's item drop waits for the dead state (B1 FUN_001ffec0 runs
+    /// from the death block: a thrown soldier drops where he lands).
+    pub drop_due: bool,
     /// The total push the WALL PASS applied to this unit this tick (`Sim::step`
     /// phase 3a, `CollisionWorld::push_out`), zero when it touched nothing.
     /// Horizontal by construction.
@@ -496,6 +507,9 @@ impl Unit {
         for v in [self.wall_push.x, self.wall_push.y, self.wall_push.z] {
             eat(&v.to_bits().to_le_bytes());
         }
+        if self.body {
+            eat(&[1, self.drop_due as u8]);
+        }
         // Phase D: the squad order, and NOTHING AT ALL when there is none (not
         // even a 0 byte — brief addendum 3). That is what keeps a command-free
         // sim's hash byte-identical to the pre-Phase-D one, which is the whole
@@ -582,6 +596,12 @@ pub struct UnitClass {
     pub min: u32,
     /// BF2 `SetupTeams` slot maximum; BF1 authors none.
     pub max: Option<u32>,
+    /// The ODF's `PointsToUnlock` (BF2: every officer 8, the specials 12; BF1
+    /// none = 0): the points a HUMAN needs to take this class, and with a
+    /// cost the class's `max` caps the humans' pick too
+    /// (`analysis/re-spawn-flow.md` §4.3, [`crate::sim::Sim::class_refusal`]).
+    /// Bots are never refused.
+    pub unlock_points: u32,
 }
 
 impl UnitClass {
@@ -865,6 +885,8 @@ impl UnitSpec {
             spec: self.clone(),
             capture_posts: self.capture_posts,
             wall_push: Vec3::ZERO,
+            body: false,
+            drop_due: false,
             last_shot_tick: u64::MAX,
             last_hit: None,
             command: None,

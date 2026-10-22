@@ -157,6 +157,32 @@ pub struct TurretDef {
     pub rot: glam::Quat,
 }
 
+/// A building turret's acquisition sphere (card HTGT, `Vehicle::aim_sphere`):
+/// the box around its building's bodies (`Body::instance`), as a centre in
+/// the turret's frame (at `pos`, turned by `rot`) and half the box's
+/// diagonal; `None` when the building has no body. The PS2 picks the
+/// building by its bounds (`analysis/re-target-hud.md` §2).
+pub fn building_sphere(
+    world: &core::collision::CollisionWorld,
+    instance: u32,
+    pos: Vec3,
+    rot: glam::Quat,
+) -> Option<(Vec3, f32)> {
+    let mut b = core::collision::Aabb::empty();
+    for body in world
+        .bodies()
+        .iter()
+        .filter(|b| b.instance == Some(instance))
+    {
+        b.add(body.aabb.min);
+        b.add(body.aabb.max);
+    }
+    (!b.is_empty()).then(|| {
+        let c = (b.min + b.max) * 0.5;
+        (rot.inverse() * (c - pos), (b.max - b.min).length() * 0.5)
+    })
+}
+
 /// The instance matrix (rows = the model's axes in the world, as
 /// `viewer::instance_matrix` draws it) as a rotation; `None` when it is not
 /// a proper rotation.
@@ -413,11 +439,16 @@ pub fn install(
     for p in &b.pads {
         sim.add_vehicle_pad(p.clone());
     }
+    // The health / ammo / vehicle droids (card PWST): the same db, the same
+    // mode-merged instances.
+    crate::roster::add_stations(sim, &m.instances, &db, game == "bf2");
     for t in &b.turrets {
         let h = sim.spawn_vehicle(&t.spec);
+        let sphere = building_sphere(&sim.collision, t.instance, t.spec.pos, t.rot);
         if let Some(v) = sim.vehicle_mut(h) {
             v.rot = t.rot;
             v.instance = Some(t.instance);
+            v.aim_sphere = sphere;
         }
     }
     // The hover numbers per class (card HOVR): `Sim::tick_hovers` moves
@@ -907,6 +938,37 @@ pub fn seat_setup(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Card HTGT: a turret's acquisition sphere is the box around its own
+    /// building's bodies only, its centre in the turret's turned frame.
+    #[test]
+    fn a_turrets_sphere_bounds_its_own_building() {
+        use core::collision::{Body, CollisionWorld, Shape};
+        let body = |at: Vec3, instance: u32| {
+            let mut b = Body::new(
+                glam::Mat4::from_translation(at),
+                Shape::Box {
+                    half: Vec3::splat(1.0),
+                },
+            );
+            b.instance = Some(instance);
+            b
+        };
+        let world = CollisionWorld::new(
+            vec![
+                body(Vec3::new(10.0, 1.0, 0.0), 5),
+                body(Vec3::new(14.0, 1.0, 0.0), 5),
+                body(Vec3::new(40.0, 1.0, 0.0), 6),
+            ],
+            Vec::new(),
+        );
+        let turn = glam::Quat::from_rotation_y(std::f32::consts::FRAC_PI_2);
+        let (c, r) = building_sphere(&world, 5, Vec3::new(10.0, 0.0, 0.0), turn).unwrap();
+        // The box (9..15, 0..2, -1..1): centre (12, 1, 0), half-diagonal.
+        assert!((turn * c - Vec3::new(2.0, 1.0, 0.0)).length() < 1e-5, "{c}");
+        assert!((r - Vec3::new(6.0, 2.0, 2.0).length() * 0.5).abs() < 1e-5);
+        assert_eq!(building_sphere(&world, 7, Vec3::ZERO, turn), None);
+    }
 
     /// Card VTURB: an armed building's `BuildingSection` lines split its
     /// ODF like a vehicle's; its ring is the gunner sections alone, its hull

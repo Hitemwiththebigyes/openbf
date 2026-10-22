@@ -13,9 +13,13 @@
 //! lines.
 //!
 //! `Map` is laid out by `crate::hud_map` (card BMAP).
+//! A BarBitmap's flash copy over the span its value left or gained (card
+//! HTGT, `analysis/re-target-hud.md` §5) is [`BarFlash`]; a group's `Color`
+//! multiplies what its children draw ([`Hud::tint`], §6).
+//!
 //! Not interpreted (they wait for their own cards): `Target`,
 //! `ObjectiveList`, `BorderedBox`, the localised static `Text("key")` lines,
-//! the BarBitmap flash copy, `UseChangeColor`.
+//! `UseChangeColor`.
 
 use glam::{Mat4, Vec3};
 use manifest::hud::{HudArg, HudFont, HudLayout, HudNode};
@@ -421,6 +425,32 @@ impl MultiLine {
     }
 }
 
+/// A BarBitmap's flash (`re-target-hud.md` §5 [V][O], `FUN_0039f978` /
+/// `FUN_0039fce8` / `FUN_0039f790`): a copy of the bar one z in front over
+/// the span between the old and the new value, fading out over the
+/// direction's time; on a fall its top edge sinks toward its bottom, to
+/// `FlashyScale` frame pixels tall at the end.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BarFlash {
+    /// The value before the change.
+    pub from: f32,
+    /// The value after it.
+    pub to: f32,
+    pub t: f32,
+    pub time: f32,
+}
+
+impl BarFlash {
+    /// 0 at the change, 1 when the copy is gone.
+    pub fn progress(&self) -> f32 {
+        (self.t / self.time).clamp(0.0, 1.0)
+    }
+
+    pub fn fall(&self) -> bool {
+        self.to < self.from
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Elem {
     pub name: String,
@@ -456,6 +486,19 @@ pub struct Elem {
     pub shadow: bool,
     pub value: f32,
     pub scale_texture: bool,
+    /// `FlashyScale`: a falling flash's last height (default 0.2,
+    /// B2:397156–397161).
+    pub flashy_scale: f32,
+    /// The flash times by direction (`#2b76908f` rise, `#2deba703` fall;
+    /// default 0 = no flash).
+    pub flash_rise: f32,
+    pub flash_fall: f32,
+    /// The flash under way.
+    pub flash: Option<BarFlash>,
+    /// Whether the element was up at the end of the last [`Hud::advance`]
+    /// (the PS2's "drawn last update", +0x370 bit 35): a value change while
+    /// hidden flashes nothing.
+    pub shown_last: bool,
     // BarSegmented.
     pub angle_start: f32,
     pub angle_end: f32,
@@ -518,6 +561,11 @@ impl Elem {
             shadow: false,
             value: 1.0,
             scale_texture: true,
+            flashy_scale: 0.2,
+            flash_rise: 0.0,
+            flash_fall: 0.0,
+            flash: None,
+            shown_last: false,
             angle_start: 0.0,
             angle_end: 0.0,
             segments: 0,
@@ -588,9 +636,15 @@ pub struct Hud {
     /// The command-post capture icon this frame (`crate::hud_capture`);
     /// `None` draws none.
     pub capture: Option<crate::hud_capture::CaptureIcon>,
+    /// The hit-direction chevrons' timers (`crate::hud_ambush`, card HATK):
+    /// set by [`crate::hud::feed`], faded by [`Hud::advance`].
+    pub ambush: crate::hud_ambush::Ambush,
     /// The spawn screen up this frame (`crate::spawn_draw`, card SSELB);
     /// `None` draws none.
     pub spawn: Option<crate::spawn_draw::SpawnPage>,
+    /// The shell's page up this frame and whether its movie has a frame
+    /// (`crate::shell_ps2`, card BSHLA); it draws alone.
+    pub shell: Option<(crate::shell_ps2::ShellMenus, bool)>,
     /// Per font: each glyph's pen advance in texels (what a MultiLineText
     /// wraps its words by). Empty until [`Hud::set_fonts`].
     advances: HashMap<String, HashMap<u32, f32>>,
@@ -701,7 +755,9 @@ impl Hud {
             map: None,
             squad: None,
             capture: None,
+            ambush: Default::default(),
             spawn: None,
+            shell: None,
             advances: HashMap::new(),
         };
         for n in &layout.nodes {
@@ -821,6 +877,9 @@ impl Hud {
                 }
                 "value" => e.value = num(c, 0).unwrap_or(1.0),
                 "scaletexture" => e.scale_texture = num(c, 0).unwrap_or(1.0) != 0.0,
+                "flashyscale" => e.flashy_scale = num(c, 0).unwrap_or(0.2),
+                "#2b76908f" => e.flash_rise = num(c, 0).unwrap_or(0.0),
+                "#2deba703" => e.flash_fall = num(c, 0).unwrap_or(0.0),
                 "anglestart" => e.angle_start = num(c, 0).unwrap_or(0.0),
                 "angleend" => e.angle_end = num(c, 0).unwrap_or(0.0),
                 "numsegments" => e.segments = num(c, 0).unwrap_or(0.0).max(0.0) as u32,
@@ -1065,7 +1124,27 @@ impl Hud {
                         e.color_pulse_rate = *v;
                         e.pulse_timer = e.pulse_timer.min(*v);
                     }
-                    (Listen::Value, EventValue::Number(v)) => e.value = v.clamp(0.0, 1.0),
+                    (Listen::Value, EventValue::Number(v)) => {
+                        let v = v.clamp(0.0, 1.0);
+                        let time = if v < e.value {
+                            e.flash_fall
+                        } else {
+                            e.flash_rise
+                        };
+                        if e.kind == Kind::BarBitmap
+                            && (v - e.value).abs() > 1.0e-4
+                            && e.shown_last
+                            && time > 1.0e-4
+                        {
+                            e.flash = Some(BarFlash {
+                                from: e.value,
+                                to: v,
+                                t: 0.0,
+                                time,
+                            });
+                        }
+                        e.value = v;
+                    }
                     (Listen::Number, EventValue::Number(v)) => {
                         e.text = if is_infinite(*v) {
                             let dashes = if e.infinite_dashes { "--" } else { "" };
@@ -1122,6 +1201,7 @@ impl Hud {
     /// One frame of fades, colour easing and pulses (`re-hud.md` §2.1 [V]:
     /// `FUN_0039da30`).
     pub fn advance(&mut self, dt: f32) {
+        self.ambush.advance(dt);
         for e in &mut self.elems {
             e.fader.advance(dt);
             if let Some(ml) = e.lines.as_deref_mut() {
@@ -1129,6 +1209,13 @@ impl Hud {
                     e.fader.hide();
                 }
             }
+            if let Some(f) = &mut e.flash {
+                f.t += dt;
+                if f.t >= f.time {
+                    e.flash = None;
+                }
+            }
+            e.shown_last = e.fader.state != 0;
             if e.fader.state == 0 {
                 continue;
             }
@@ -1148,6 +1235,32 @@ impl Hud {
                 }
             }
         }
+    }
+
+    /// What element `i`'s ancestors multiply its drawn colour by, 0..1 per
+    /// channel: the product of their drawn colours over 255
+    /// (`re-target-hud.md` §6 [M][O]: the target bar measured at teamColor ×
+    /// (192, 224, 224) and the health bar at its fill × (255, 231, 255), each
+    /// within 2 levels). [D] every ancestor, not only the parent — the data
+    /// colours no nested group.
+    pub fn tint(&self, i: usize) -> [f32; 3] {
+        let mut t = [1.0; 3];
+        let mut p = self.elems[i].parent;
+        while let Some(k) = p {
+            let d = self.elems[k].drawn;
+            for c in 0..3 {
+                t[c] *= (d[c] / 255.0).clamp(0.0, 1.0);
+            }
+            p = self.elems[k].parent;
+        }
+        t
+    }
+
+    /// Element `i`'s drawn colour with its ancestors' tint ([`Hud::tint`]).
+    pub fn drawn(&self, i: usize) -> [f32; 3] {
+        let t = self.tint(i);
+        let d = self.elems[i].drawn;
+        [0, 1, 2].map(|c| d[c] * t[c])
     }
 
     /// The alpha an element is drawn at: its fade × `Alpha`, times its
@@ -1214,6 +1327,147 @@ fn number_color(keys: &[(f32, [f32; 3])], v: f32) -> Option<[u8; 3]> {
         [0, 1, 2].map(|i| a.1[i] + (b.1[i] - a.1[i]) * t)
     };
     Some(c.map(|x| x.round().clamp(0.0, 255.0) as u8))
+}
+
+/// The 1-player layout's target readout as the disc has it
+/// (`re-target-hud.md` §6, the `1playerhud` dump lines 863–946): the bar
+/// group, its backing and fill, and the name group's class name.
+#[cfg(test)]
+pub(crate) mod fixture {
+    use super::Hud;
+    use manifest::hud::{HudArg, HudLayout, HudNode};
+
+    fn node(name: &str, args: &[HudArg], children: Vec<HudNode>) -> HudNode {
+        HudNode {
+            name: name.into(),
+            args: args.to_vec(),
+            children,
+        }
+    }
+
+    fn p(name: &str, args: &[HudArg]) -> HudNode {
+        node(name, args, vec![])
+    }
+
+    fn s(v: &str) -> HudArg {
+        HudArg::Str(v.into())
+    }
+
+    fn n(v: f32) -> HudArg {
+        HudArg::Num(v)
+    }
+
+    pub(crate) fn target_hud() -> Hud {
+        let vp = || s("Viewport");
+        let ev = |k: &str| s(&format!("player1.weapon1.target.{k}"));
+        let bar = |name: &str, own: Vec<HudNode>| {
+            let mut c = vec![
+                p("flashyscale", &[n(1.0)]),
+                p("Bitmap", &[s("hud_jetpack_and_energybar_fill")]),
+                p("texcoords", &[n(0.0), n(0.5), n(1.0), n(1.0)]),
+                p("Viewport", &[n(1.0)]),
+                p("colorchange", &[n(0.0), n(0.0), n(0.0)]),
+                p("fadeouttime", &[n(1.0)]),
+                p("eventenable", &[ev("healthFraction")]),
+                p("eventdisable", &[ev("disable")]),
+            ];
+            c.extend(own);
+            node("barbitmap", &[s(name)], c)
+        };
+        let layout = HudLayout {
+            name: "1playerhud".into(),
+            nodes: vec![
+                node(
+                    "Group",
+                    &[s("player1targethealthbar")],
+                    vec![
+                        p("propagatealpha", &[n(1.0)]),
+                        p("Viewport", &[n(1.0)]),
+                        p("Position", &[n(0.5), n(0.059272), n(0.0), vp()]),
+                        p("Scale", &[n(0.263237), n(0.23), n(0.23)]),
+                        p("alpha", &[n(0.8)]),
+                        p("color", &[n(192.0), n(224.0), n(224.0)]),
+                        p("eventenable", &[s("initialize")]),
+                        bar(
+                            "player1targethealth_blankfill",
+                            vec![
+                                p("value", &[n(1.0)]),
+                                p(
+                                    "bitmaprect",
+                                    &[n(1.18923), n(0.181946), s("Center"), s("Center"), vp()],
+                                ),
+                                p("Position", &[n(0.0), n(0.253896), n(0.0), vp()]),
+                                p("Scale", &[n(0.924622), n(0.498552), n(0.540316)]),
+                                p("zorder", &[n(103.0)]),
+                                p("color", &[n(39.0), n(40.0), n(46.0)]),
+                                p("colorchangerate", &[n(0.0)]),
+                                p("fadeintime", &[n(0.1)]),
+                            ],
+                        ),
+                        bar(
+                            "player1targethealth_fill",
+                            vec![
+                                p("#2b76908f", &[n(1.0)]),
+                                p("#2deba703", &[n(1.0)]),
+                                p("eventvalue", &[ev("healthFraction")]),
+                                p(
+                                    "bitmaprect",
+                                    &[n(1.18923), n(0.181946), s("Center"), s("Top"), vp()],
+                                ),
+                                p("Position", &[n(0.0), n(0.227078), n(0.0), vp()]),
+                                p("Scale", &[n(0.890714), n(0.222995), n(0.9)]),
+                                p("zorder", &[n(1.0)]),
+                                p("colorchangerate", &[n(0.01)]),
+                                p("eventcolor", &[ev("teamColor")]),
+                            ],
+                        ),
+                    ],
+                ),
+                node(
+                    "Group",
+                    &[s("player1targetnamegroup")],
+                    vec![
+                        p("Viewport", &[n(1.0)]),
+                        p("Position", &[n(0.5), n(0.012799), n(0.0), vp()]),
+                        p("eventenable", &[s("initialize")]),
+                        node(
+                            "Text",
+                            &[s("player1targetinfo_classNameNEW")],
+                            vec![
+                                p("textalignment", &[s("Center"), s("Top")]),
+                                p("textfont", &[s("gamefont_tiny")]),
+                                p("eventtext", &[ev("className")]),
+                                p("Position", &[n(0.0), n(0.065248), n(0.0), vp()]),
+                                p("alpha", &[n(0.6)]),
+                                p("fadeouttime", &[n(1.0)]),
+                                p("eventenable", &[ev("className")]),
+                                p("eventdisable", &[ev("disable")]),
+                            ],
+                        ),
+                        node(
+                            "Text",
+                            &[s("player1targetinfo_shieldName")],
+                            vec![
+                                p("eventtext", &[ev("shieldName")]),
+                                p("color", &[n(40.0), n(255.0), n(255.0)]),
+                                p("fadeouttime", &[n(1.0)]),
+                                p("eventenable", &[ev("shieldName")]),
+                                p("eventdisable", &[ev("disableShieldName")]),
+                            ],
+                        ),
+                    ],
+                ),
+            ],
+        };
+        let none = HudLayout {
+            name: "none".into(),
+            nodes: vec![],
+        };
+        let mut hud = Hud::new(&layout, &none);
+        hud.send("initialize", super::EventValue::None, &|_| false);
+        hud.advance(0.0);
+        hud
+    }
 }
 
 #[cfg(test)]
@@ -1489,5 +1743,83 @@ mod tests {
         assert_eq!(number_color(&keys, 0.73), Some([0, 150, 213]));
         let ramp = [(0.0, [0.0; 3]), (1.0, [200.0, 100.0, 50.0])];
         assert_eq!(number_color(&ramp, 0.5), Some([100, 50, 25]));
+    }
+
+    /// The BarBitmap flash (`re-target-hud.md` §5): a fall from 1.0 to 0.6
+    /// of a bar that was up leaves a copy over 0.6–1.0 for the fall time;
+    /// the first value of a bar that was hidden flashes nothing; a rise
+    /// flashes over its own span for the rise time.
+    #[test]
+    fn a_bar_flashes_the_span_it_lost_or_gained() {
+        let mut hud = fixture::target_hud();
+        let fill = hud.find("player1targethealth_fill").unwrap();
+        assert_eq!(hud.elems[fill].flashy_scale, 1.0);
+        assert_eq!(
+            (hud.elems[fill].flash_rise, hud.elems[fill].flash_fall),
+            (1.0, 1.0)
+        );
+        let ev = "player1.weapon1.target.healthFraction";
+        // The first show: the value lands while the bar is still hidden.
+        hud.send(ev, EventValue::Number(1.0), &|_| false);
+        hud.advance(1.0 / 30.0);
+        assert!(
+            hud.elems[fill].flash.is_none(),
+            "no flash on the first show"
+        );
+        hud.send(ev, EventValue::Number(0.4), &|_| false);
+        // Hidden before: a fresh bar from 0.6 would not flash; this one was up.
+        let f = hud.elems[fill].flash.expect("a fall flashes");
+        assert_eq!((f.from, f.to, f.time), (1.0, 0.4, 1.0));
+        assert!(f.fall());
+        hud.advance(0.5);
+        assert!((hud.elems[fill].flash.unwrap().progress() - 0.5).abs() < 1e-6);
+        hud.advance(0.51);
+        assert!(hud.elems[fill].flash.is_none(), "gone after the fall time");
+        hud.send(ev, EventValue::Number(0.8), &|_| false);
+        let f = hud.elems[fill].flash.expect("a rise flashes");
+        assert!(!f.fall() && f.from == 0.4 && f.to == 0.8);
+        // A bar with no flash times (the backing, defaults 0) never flashes.
+        let back = hud.find("player1targethealth_blankfill").unwrap();
+        assert!(hud.elems[back].flash.is_none());
+        assert_eq!(hud.elems[back].flashy_scale, 1.0);
+        // A bar that is hidden again flashes nothing.
+        hud.send("player1.weapon1.target.disable", EventValue::None, &|_| {
+            false
+        });
+        hud.advance(2.0);
+        hud.send(ev, EventValue::Number(0.2), &|_| false);
+        assert!(hud.elems[fill].flash.is_none());
+    }
+
+    /// A group's Color multiplies its children (`re-target-hud.md` §6): the
+    /// fill at teamColor × (192, 224, 224) / 255; the name group has no
+    /// colour and leaves its text alone.
+    #[test]
+    fn a_group_colour_tints_its_children() {
+        let mut hud = fixture::target_hud();
+        hud.send(
+            "player1.weapon1.target.healthFraction",
+            EventValue::Number(1.0),
+            &|_| false,
+        );
+        hud.send(
+            "player1.weapon1.target.teamColor",
+            EventValue::Color([200, 100, 100]),
+            &|_| false,
+        );
+        hud.advance(1.0);
+        let fill = hud.find("player1targethealth_fill").unwrap();
+        let d = hud.drawn(fill);
+        let want = [
+            200.0 * 192.0 / 255.0,
+            100.0 * 224.0 / 255.0,
+            100.0 * 224.0 / 255.0,
+        ];
+        for c in 0..3 {
+            assert!((d[c] - want[c]).abs() < 1e-3, "{d:?} vs {want:?}");
+        }
+        let name = hud.find("player1targetinfo_classNameNEW").unwrap();
+        assert_eq!(hud.drawn(name), [255.0; 3]);
+        assert_eq!(hud.tint(hud.elems[fill].parent.unwrap()), [1.0; 3]);
     }
 }

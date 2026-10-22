@@ -14,7 +14,8 @@
 //! weapon cycles (a soldier's channels, switches and held weapons first, card
 //! GREN) → bolt spawns (predictive raycast) and throws → 5 bolt flight →
 //! impacts → damage/death → 5b the thrown grenades (fuse, flight, sweep,
-//! blast) → 5c the pickups (flight, life, the touch; card PWUP) → 6 command posts → bleed → domination → outcome → 7 the
+//! blast) → 5c the pickups (flight, life, the touch; card PWUP) → 5c' the health / ammo
+//! droids' passes (card PWST) → 6 command posts → bleed → domination → outcome → 7 the
 //! vehicle pads (follow, decay, spawn); tick++.
 //! Events for the tick are left in `events`.
 //!
@@ -33,7 +34,7 @@
 //! (an explosion's area damage, `Sim::explode`); KFLR `bounds` (the playable
 //! level: the hub floors, the level test, the kill floor); GREN `ordnance` (the
 //! weapon channels, the throw and the grenades' tick); PWUP `pickups` (a death's
-//! drop, the item, the pickup). This file keeps only the test fixtures the parts' tests
+//! drop, the item, the pickup); PWST `stations` (the droids' passes). This file keeps only the test fixtures the parts' tests
 //! share.
 
 mod blast;
@@ -47,6 +48,7 @@ mod round;
 mod seats;
 mod spawn;
 mod state;
+mod stations;
 mod step;
 mod vehicles;
 
@@ -55,17 +57,21 @@ pub use bounds::{
     Level, ReturnPath, BOUND_DROP, KILL_FLOOR_DROP, LEVEL_HUBS, LEVEL_RISE, UNDER_MAP_SPEED,
 };
 pub use guns::SeatLook;
-pub use input::{buttons, InputLog, PadState};
+pub use input::{buttons, AimTarget, InputLog, PadState};
 pub use pickups::{
     Buffs, DropTable, ItemClass, Pickup, BODY_AHEAD, BODY_RADIUS, DROP_HEIGHT, DROP_SIDE_SPEED,
     ITEM_GRAVITY, ITEM_POOL_DEFAULT, LIFE_END, MAX_DROPS, TAKE_AGE,
 };
 pub use round::scale_reinforcements;
 pub use seats::{ENTER_REACH, EXIT_RING};
-pub use spawn::{SideChoice, SpawnStage, SpawnWaves};
+pub use spawn::{ClassRefusal, SideChoice, SpawnStage, SpawnWaves};
 pub use state::{
     omni_radius_for, Call, Cheats, DeathCause, Event, Hazard, NavStats, Sim, HAZARD_RADIUS,
     LETHAL_LANDING_SPEED, OUTCOME_DRAW,
+};
+pub use stations::{
+    Station, StationAnim, StationClass, DELAY_DEFAULT as STATION_DELAY_DEFAULT,
+    GATHER_MAX as STATION_GATHER_MAX,
 };
 
 #[cfg(test)]
