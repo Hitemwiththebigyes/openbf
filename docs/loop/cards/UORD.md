@@ -3,15 +3,15 @@ id: UORD
 title: Primaries that are not bolts fly straight in the port: missile (the torpedo launchers), shell (the IMP and CIS pilots' mortar), emitterordnance (the clone pilot's arc caster), bullet (the jet trooper's EMP launcher) - 13 of the 34 fielded BF1 classes
 milestone: M3
 value: 4
-phase: re
+phase: build
 status: todo
 deps: HVYW
-files:
-declares:
+files: engine/crates/core/src/weapon.rs, engine/crates/core/src/sim/ordnance.rs, engine/crates/core/src/sim/combat.rs, engine/crates/core/src/sim/guns.rs, engine/crates/game/src/roster.rs, engine/crates/core/src/ai/arsenal.rs, engine/CRATES.md
+declares: sim; sweep; arena
 needs:
 effort:
 branch:
-resume:
+resume: RE done 2026-10-22: analysis/re-ordnance-kinds.md (docs d8bf282); the build spec + acceptance are in this card's 'RE result' section. Build slice 1: missile + shell per-tick flight (full-mask sweep, no predictive ray) with ExplosionExpire, the missile law both games, homing on a locked target, the launcher dwell lock (human + bot); start with replay tests on lead_tmp/uord/ps2/*.json.
 created: 2026-09-29
 alpha: yes
 ---
@@ -63,3 +63,56 @@ with gravity is the low-arc solver (§7.3). The mortar launchers are `grenade` W
   the arcs of the shell and the grenade launcher. Measure with HVYW's census (`lead_tmp/hvyw/tools/hvcen.py`):
   soldiers hit per rocket fired at a group, against the PS2's ExplosionName numbers on the disc.
 - `deps: HVYW` for order (both edit `core/src/weapon.rs`). Undo: `loopctl.py set UORD value=3 deps=`.
+
+## RE result (2026-10-22, lane 2) -> phase build: missiles + shells + the lock
+`analysis/re-ordnance-kinds.md` (OPUS RE [O], workflow uord-re-verify: 52 verdicts, 44 SUPPORTED, 8 PARTLY fixed, 0
+refuted; live PCSX2 rows in `lead_tmp/uord/ps2/`). Split: the bolt family's per-tick unit sweep -> card UORDS (value
+4); the emitter -> card UORDE (value 3). This card builds, in `core` + the class loader:
+1. **The missile** (BF1 B1 FUN_0027d6b8, BF2 FUN_0031f2e8; doc §4.3): constant speed (BF2: MinSpeed -> Velocity at
+   Acceleration, unless Acceleration > 9000); each tick ramp = min(1, ramp + dt), turn = ramp x TurnRate; rotate the
+   direction toward `desired` by min(turn dt, |dir x desired|); waver about sin(ph1) p1 + sin(ph2) p3 by |v| x ramp x
+   WaverTurn x dt, phases += 2 dt WaverRate U; no gravity. desired = the launch direction, or normalize(target point -
+   pos) while the target lives (soldier: feet + (0, 1.4 / 0.6 / 0.2, 0) by stance - BF2 the class table; vehicle: the
+   collision-sphere centre or the Targetable body). BF2 bot missiles at non-flyers add the AI aim error (re-soldier-ai
+   17.2, no range factor).
+2. **Missile and shell flight**: no predictive ray; a prev -> current sweep every tick against terrain, world, hulls,
+   units, water (foliage passes); first contact = direct damage + the impact explosion at point + 0.2 n, then gone;
+   life-out = ExplosionExpire (both kinds). Shell: v.y += Gravity x -9.8 x dt above water (the sticky's water drag
+   under), LifeSpan default 3.0. Rebound / Friction on these classes are dead keys.
+3. **The lock** (doc §5): a `launcher` weapon with missile ordnance and LockTime > 0 dwells while it holds a target:
+   human = the magnet target (Target* kinds: vehicles for the torpedo / rocket launchers, BF2 bulldog soldiers; BF2's
+   HUD-lock cone 25.8 deg), bot = its combat target (team + Target* / BF2 AITarget* kinds, no cone); the clock
+   restarts on a new target; locked at LockTime (BF1 torpedo 1.5 s, BF2 rocket 1.0 s, BF2 EMP 0 = never); each shot
+   consumes it; the missile gets the target only when locked. A cannon-class missile weapon (the wrist rocket) passes
+   its held target at every shot. Bots do NOT wait for the lock (no AI fire path reads it).
+Slices left as notes: the BF1 mortar's charge stage on channel 0 (tap = `_ord1` shell, hold > 0.675 s = the `_ord`
+sticky; `FUN_00285108`); the lock HUD (BF1's shrinking square B1:262320-262339, BF2 `player%d.missileLock*`) -> a
+HUD card when this lands; the BF2 shotgun tracers (visual).
+
+### Acceptance (build)
+- Replay tests on the PS2's own rows (copy 20-40 rows of `lead_tmp/uord/ps2/b1_m_free.json`, `b2_m_free.json`,
+  `b1_homing.json`, `b2_homing.json` into a test as constants): the port's missile step predicts the next velocity to
+  <= 1e-3 m/s (the PS2 law fits 1,400 pairs to 1.2e-4), the BF2 speed to 1e-3, and the homing desired direction to
+  0.01 deg from the target's previous-tick point. Mutation-check: reversed rotation, no ramp, waver on the wrong axis.
+- Lock tests: a torpedo launcher held on a hover tank locks at 1.5 s (BF1) / a rocket launcher at 1.0 s (BF2); a press
+  at 1.4 s fires unguided; a target change restarts the clock; a shot consumes the lock; a torpedo never locks a
+  soldier; a bot fires without waiting.
+- Shell test: `imp_weap_inf_mortar_launcher_ord1` at 45 deg from flat ground bursts in the air at 3.0 s
+  (ExplosionExpire); at 20 deg it explodes on its first ground contact; no bounce.
+- Census (`lead_tmp/hvyw/tools/hvcen.py` or its twin): rockets fired at vehicles, share that hit a moving vehicle,
+  main beside the branch (expected up); 8 x 32 sweep 256 / 256; team kills not above GRAIA's bar.
+
+## Note (AUDIT 2026-10-22, lane 2: re-ordnance-kinds.md PARTLY, doc fixed in f0f0dfb)
+- Pick the replay rows by what they exercise: of the 1,400 pairs, 442 BF1 pairs (two 40 m/s, two 80 m/s missiles in
+  `b1_m_free.json`) never changed velocity - any TurnRate fits them - and the 582 BF2 free pairs never turn (desired =
+  dir; all four BF2 classes there have WaverTurn 0): they test the speed law only. The turn / waver / ramp tests take
+  the four REP torpedoes of `b1_m_free.json` (0xd32c10, 0xd33870, 0xd35290, 0xd327f0: 263 pairs, law 1.1e-4, null
+  0.014), `b1_homing.json` (27) and `b2_homing.json` shots 0-1 (87; shot 2 is a TurnRate-0 class that
+  `homing_check.py` scores with the rocket's values and misreads at 2.67 m/s). A mutation of the BF2 waver (axis,
+  sign, phase order) cannot fail on these rows: either capture the BF2 EMP launcher (ord WaverRate 0.2, WaverTurn
+  0.015) or label the BF2 waver PROVISIONAL. `replay_b1.py`'s default ALL line (max 0.755) groups by speed and is not
+  the doc's figure. Mutation runs: `lead_tmp/audit-uord/mut/M1..M6` (sign, sin-vs-angle clamp, ramp, phase order,
+  speed law, target height).
+- IMP's torpedo ordnance authors no Waver key (REP / ALL 0.5 only): read the class, never a side table.
+- The mortar shell at 45 deg bursts ~6.8 m up after 90 updates of v-then-position steps (not 7.7 m): use that number
+  in the shell test if it asserts a height.

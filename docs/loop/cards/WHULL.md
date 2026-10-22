@@ -1,0 +1,29 @@
+---
+id: WHULL
+title: A walker's hull follows its drawn pose: the PS2 hangs every collision prim on the walker's LIVE bone matrices (rewritten each update), the port bakes them at the bind - a parked spider's legs and feet sit 3.4-4.3 m from the drawn ones, rockets at its drawn legs pass through (10 of 16) while rockets into the empty air beside it explode; the AT-TE's main barrel 3.85 m off
+milestone: M2
+value: 4
+phase: build
+status: todo
+deps:
+files: engine/crates/core/src/sim/vehicles.rs, engine/crates/core/src/vehicle/walker.rs, engine/crates/bake/src/walker.rs, engine/crates/manifest/src/lib.rs, engine/crates/game/src/vehicle_pads.rs
+declares: rebake=side; sim; sweep
+needs:
+effort:
+branch:
+resume: filed by AUDIT RKHUL 2026-10-22: PS2 rule read (analysis/re-walker.md 17), port gap measured; build from the card's Build notes; acceptance harness in lead_tmp/audit-rkhul/tools
+created: 2026-10-22
+alpha: yes
+---
+## Why
+AUDIT RKHUL (2026-10-22, landing a88147b, measured on the landing tree against main's shared bake): RKHUL puts each walker collision prim through its PRNT bone's BIND matrix, but the game draws a walker posed by its clips (game/src/viewer/vehicles.rs:334, `rig.palette(&v.walker, root_scale)`), and the PS2 hangs every prim on the walker's LIVE bone matrices:
+- PS2 [O] static read, two separate workflow readers + own re_check: the body matrix is XFRM x table[PRNT hash] (B2/B1 FUN_00160160, row vectors, XFRM first - the port's order). The BF2 walker's physics vtable 0x61f7f0 slot +0x4c (word 0x61f83c = 0x267438: `jr ra; addiu v0,a0,0x1d6c`) hands its ray / target queries the table at E+0x1d7c; the ctor FUN_00259970 (B2:175724) fills it with POINTERS to the skeleton instance's per-bone matrices (E+0x550+0x10+0x40 i), and FUN_00261208 (B2:180841) rewrites them every update through FUN_00533f20 -> FUN_00533d38. BF1: vtable 0x533a80 slot +0x44 (0x21fd10: `addiu v0,a0,0x1dc0`), table E+0x1ec0, rewritten by FUN_00440b38 in FUN_0021b3a0 (B1:131561). Not sampled in RAM. See analysis/re-walker.md 17.
+- Port, a parked walker (pad spawn, 90 ticks: anim 0 idle, clip_time 0.97 spider / 2.97 AT-TE): BF2 spider leg cylinders 3.34-3.47 m, foot spheres 3.64-4.29 m, p_main 0.89-0.96 m from where the drawn idle legs / body are; AT-TE p_main_barrel 3.85 m; AT-ST 0.31-0.55 m; AT-AT body 0.32 m, legs up to 3.7 m while walking.
+- Drawn (skinned at idle) vertices inside the hull prims: BF2 spider 4980 at the bind model vs 1208 at the drawn idle model (every leg and foot prim 0; the same prims hung on the idle bones: 4708); AT-ST 3168 vs 2186; AT-AT 15630 vs 13875; AT-TE 8443 vs 8256; tauntaun / kaadu / one-man AT-ST ~equal.
+- Rockets (rep_weap_inf_rocket_launcher, 20 m, clear static line, no other vehicle in the line) at each hull prim's DRAWN point: BF2 GEO1 35/42, BF1 GEO1 39/46 (misses: 10 of 16 spider legs, 1 joint box, 3 of 3 AT-TE main barrels); at the hull's own bind points: 42/42 and 46/46 - a rocket into empty air beside a standing spider explodes on an invisible leg. BF1 END1 AT-ST 39/39 both.
+## Evidence
+engine/artifacts/lead_tmp/audit-rkhul/: logs/walker_pose_after.txt, logs/walker_drawn.txt, logs/drawn_shots.txt; tools/walker_pose_audit.rs (audit_walker_pose, audit_walker_drawn) and tools/rkex_audit.rs (audit_walker_drawn_shots): include them into game/tests/suite/main.rs by `#[path = "<abs path>"] mod x;` and run `--ignored --exact <test> --nocapture` (RKEX_MAPS="bf2_geo1 bf1_geo1"); wf/C3-refute-drawn-pose/glbpose.py (an independent Python GLB reader: bone_fl_lowerarm 2.75 m, bone_fl_foot 4.37 m from bind at the spider's idle t 0.97); wf/R1a-*, R1b-* in wf/results.json (the PS2 readings).
+## Build notes
+The sim has no skeleton. One way: bake, per walker anim-table entry, each prim bone's model-space matrix per clip frame (prims x entries x frames is small: the spider 17 x 9 x <=60), sample it by (anim, clip_time) as `walker_pose::WalkerRig::pose` samples the clip (bone 0's legs yaw and bone_root's pitch / roll too - R1a: the PS2's matrices carry FUN_0025f050's edits), and pose the hull parts in `Sim::sync_hull` each tick (TCOL build part 1 places posed-node prims as movers each tick: share that path). The AT-AT's _leftup / _rightup layers: PROVISIONAL base clip first, or the same per-bone lerp the drawn pose takes. The walker feet rule (`walker::prim_points`, card WALK's PROVISIONAL) is the same question for the leg rays - say whether this card moves it.
+## Acceptance
+`audit_walker_drawn_shots` on BF2 + BF1 GEO1: rockets at the drawn points 42/42 and 46/46, and none of the spider's leg / foot bind points that lie > 1 m from the drawn leg is hit; `audit_walker_drawn`: for every walker, drawn idle vertices inside the hull >= 95 % of the bind count (spider >= 4730), and the same over the walk entries 7 / 8; RKEX's repro unchanged (spider 6/6 both GEO1, AT-TE 3/3 and 5/6); sweep / sim moves declared.

@@ -443,7 +443,8 @@ defaults 0.9 walk / 3.5 run, sprint 11.5 from `lui 0x4138` at 0x282a18).
   0.3 m/s of that clip's root speed; state 0x12 keeps a named clip's first frame on the legs.
 - **Other modes** (`FUN_0027d9a8` B2 201394-201621): both players play the simple id's own pair - sprint, the
   jumps, fall, lands, `diveforward`, jet. A weapon action is drawn over them only for landsoft and jet, from the
-  STAND action row.
+  STAND action row. The sprint pair runs at |v| / its lower clip's root speed, a plain ratio (card SPRCL,
+  `re-sprint-clip.md` 2).
 - **Weights** (`FUN_0027fef8`, `FUN_0027ff88`, `FUN_0027ffe8`, 0x27fef8-0x280044): `cur = min(1, t / T)`; the kept
   pose is blended by `(cur - prev) / (1 - prev)`, overwritten at 1 - together a LINEAR crossfade over T from the
   pose at the clip change. No alert factor. `T` = the old clip's BlendTimeTo entry for the new animation, else
@@ -633,7 +634,8 @@ What stays **[H]** or unread: a second BF1 animator driver (`FUN_001be1e8`, `FUN
 animator at +0xa4) was not read; the two BF1 soldier flags that arm the alert timer (+0x2c0 was 0 on all 145 armed
 animators in RAM; +0x438 set on 13 of 13 with a fresh timer) and BF2's soldier+0x3e0 - named by effect only;
 which soldiers are drawn at the detail level that takes an animator, and the low-resolution path (`humanlz`;
-BF1's one-player animator `FUN_0022fd28` on `human_animation_lowrez`); the first-person banks; BF1 states 0xc /
+BF1's one-player animator `FUN_0022fd28` on `human_animation_lowrez`); the first-person banks (their clip tables and
+the throw's clip in both views: `re-grenade-throw-anim.md`, card GTHRW, 2026-10-22); BF1 states 0xc /
 0xd and BF2 states 0xe / 0x11 / 0x12 (clips named by CRC: seats); the thrown / tumble / death picks beyond the
 ids; BF2 combo (melee) sets; the rotation order and handedness of the aim pose against a frame; `re-foley.md`'s
 speed-mode reading for BF2's run choice was not re-read; BF2 `sanm`'s BlendTimeTo lists and SyncType groups were

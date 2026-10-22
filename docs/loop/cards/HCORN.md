@@ -4,17 +4,24 @@ title: A BF1 speeder bike that starts a leg within its 20 m node radius of the l
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: parked
 deps: HJAM
 files: engine/crates/core/src/ai/route.rs, engine/crates/core/src/ai/hover_drive.rs, engine/crates/core/src/ai/hover_drive/tests.rs
 declares: sim; sweep
-needs:
+needs: maintainer - the RTX is lost (nvidia-smi Unknown Error; gates gpu ADAPTER LOST). After a reboot: land.py HCORN
 effort:
-branch:
-resume: RE done (analysis/re-hover-corners.md). Build part 1 per the card's ## Build: a hover driver's corner walk re-searched from next.from in advance_route (prototype bit 2 in lead_tmp/hcorn/hcorn_x_prototype.patch), the M5/M6 test, bars on tat1 / bf1_end1 / 14 hover maps
+branch: hcorn
+resume: land: python3 scripts/land.py HCORN (branch hcorn 350860a; ci + every GPU-free gate PASS in lead_tmp/hcorn/gates2, sweep moved only the 13 hover maps as declared; the build is hash-identical to the prototype's HCX=2, so its bars stand: lead_tmp/hcorn/built/ vs ab/). Part 2 = card HCRAD
 created: 2026-10-16
 alpha: yes
 ---
+## Build part 1 result (2026-10-21 23:28, lane 1; report `reports/20261021_2328_card_HCORN.md`)
+Branch hcorn 350860a: `route::advance_route` re-plans a hover driver's corner walk from `next.from`. Two tests in
+`hover_drive/tests.rs`; M5 (radius 0), M6 (radius x 0.5) fail both, M7 (rule off) fails the second (`lead_tmp/hcorn/mut/mut.txt`).
+Built binary = prototype HCX=2 hash for hash on 24 of 24 rounds (tat1 / bf1_end1 s25-32, bf2_kas2 s1-8; HCX=0 differs 24 of 24).
+Bars (ab.py re-run): tat1 rock deaths 41 -> 4 / 54 -> 6; corner-in-R starts dead in 2 s 0/118, 0/129; bf1_end1 crash a ride
+0.255 / 0.255; near-corner 0.01 / 0.00 %. Parked: RTX lost, golden step not run.
+
 ## RE result (2026-10-21, lane 2) -> build part 1 (`analysis/re-hover-corners.md`)
 HJAM's corner drop IS the PS2's (BF1 Endor: 389 of 395 corner exits at 2-20 m; all 67 hand-overs of a corner already
 inside 20 m left after one tick) and it kills the PS2's own bikes (5 of its 15 Endor crash kills). What the port gets

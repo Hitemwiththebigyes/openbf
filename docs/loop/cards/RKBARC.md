@@ -21,4 +21,9 @@ STAP: cis_hover_stap V5 on GEO1 misses at 5 and 20 m (14.2 / 68.8 m terrain), V1
 ## Evidence
 lead_tmp/rkhul/coll_census.txt, repro_branch.txt, repro_main.txt; the scratch test lead_tmp/rkhul/rkex_repro.rs (drop into game/tests/suite, mod rkex_repro;, RKEX_MAPS="bf2_geo1 bf2_kas2 bf1_geo1", --ignored --nocapture).
 ## Acceptance
-The same repro: BARC 6/6 and STAP 12/12 at 5/20/60 m on KAS2 + GEO1; the RE answer for where the PS2 puts a vehicle coll mesh (a RAM read or the loader's lines) in analysis/; every other class's hit count unchanged.
+The same repro: BARC 6/6 and STAP 12/12 at 5/20/60 m on KAS2 + GEO1; the RE answer for where the PS2 puts a vehicle coll mesh (a RAM read or the loader's lines) in analysis/; every other class's hit count unchanged.- 2026-10-21 (card TCOL re, lane 1), a lead for "where the PS2 puts a vehicle coll mesh" [H, not read for vehicles]:
+  every collision body's matrix is its XFRM through the owner's pose table by its parent hash (B2/B1 `FUN_00160160`,
+  `analysis/re-turret-collision.md` 1.1); the BUILDING parser builds its `CollisionMesh` body with the identity XFRM and
+  parent hash 0 (B2 `FUN_001e4970` B2:94422), i.e. at the model root whatever the `coll` chunk's NODE says. B2
+  `FUN_001d1f58` builds a 'CollisionMesh' body the same way (B2:80739) - check whether that is the vehicle class's
+  parser before reading the BARC's mesh as root-placed.

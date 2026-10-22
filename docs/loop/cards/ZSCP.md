@@ -4,14 +4,14 @@ title: The scope display: with a ZoomFirstPerson weapon zoomed (sniper rifles; B
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: parked
 deps: ZOOM
 files: engine/crates/ui/src/hud.rs,engine/crates/game/src/walk.rs,engine/crates/game/src/main/windowed.rs
-declares:
-needs:
+declares: ci (+4 tests: hud_scope x2, walk x2); no golden, sim, sweep or bake move intended (the golden HUD/spawn tests only gain scope: None)
+needs: maintainer — reboot for the RTX (nvidia-smi: Unknown Error since 10-21 19:45); the branch is ci-green and gated without the GPU
 effort:
-branch:
-resume:
+branch: zscp
+resume: After the reboot: land.py ZSCP (gpu gate only left; GPU-free gates PASS in lead_tmp/zscp/gates2/SUMMARY.md). Then optional: a BF2 sniper scope frame (re-zoom 9: the BF2 class screen did not move) to check BF2 hides any HUD group under the scope (B2:411733)
 created: 2026-10-06
 alpha: yes
 ---
@@ -34,3 +34,4 @@ Card ZOOM's RE (analysis/re-zoom.md section 8, [O]): the PS2's scope is a HUD el
 Filed 2026-10-06 by the ZOOM RE session (lane 2). ScopeBlur is left out unless the pair shows it.
 - 2026-10-07 (card ZOOM landed the scope VIEW): `Unit::scoped()` / `WalkSim::player_body_hidden()` are the display's test (zoomed on a `ZoomFirstPerson` weapon), `WalkSim::zoom_s` is the camera's S (the display wants S > 1; rising / falling S starts the two sounds). PS2 frame grabber for the pair: `engine/artifacts/lead_tmp/zoom/ps2/zoom_shot.py bf1|bf2` (R3 = key `4`; add `--class-right` as zoom_probe.py has it for the marksman). BF2's sniper was never reached live (re-zoom.md section 9): its second step and 0.6 m eye are [V] only.
 - 2026-10-16 (card VTURZ built a building turret's zoom): a zoomed turret ALSO shows a scope frame on the PS2 (a hexagonal frame with range ticks: BF1 Naboo gun turret `lead_tmp/vturd/ps2/nab1_gty_7_zoom.png`, BF2 Mygeeto AA gun `myg1_zoom_2_zoom.png`; the same frame in both games, not the class's `FirstPerson` model - re-turret-draw 4.1, still unread which picture or code draws it). The port's test for a turret is `Sim::seat_zoom(player).is_some()` (the turret's zoom; `WalkSim::zoom_s` eases the same). Read what draws it when this card is taken and cover both cases; the turret's pair is `lead_tmp/vturz/mk_zoom_pairs.py`.
+- 2026-10-22 03:14 (lane 1, build, branch zscp 1eab580, parked for the RTX): built. The PS2 pair (BF1 NAB2 marksman, class-right 2, S 2.0 and 8.0 read from RAM; `lead_tmp/zscp/ps2/zscp_shot.py`, SW session) settles section 11's reticle question for BF1: the HUD's bars, counts, minimap, weapon panel AND the reticle are drawn OVER the scope [M]; the picture spans the 4:3 screen; a dark one-PS2-line cross runs through the whole screen where the quadrants meet (most likely the GS bilinear wrap at the sheet's (1,1) edge; drawn by the port as `ui::hud_scope::SEAM`). Sheet `lead_tmp/zscp/pair/sheet_bf1_ps2_left_port_right.png`. Sounds: BF1 starts zoom-in at the show AND the next rising update (its show clears the latches), BF2 once per movement (latch +0x3a0); zoom-out at the hide; `FUN_003559b0(h, 0)` only drops the latch, it does not stop the voice (B1 decomp read this session). Not settled: BF2's scope frame (no sniper reached), the scope's opacity against the PS2 (a fit on the frame's floor was inconclusive; the bake keeps the disc's full-range alpha as for every HUD sheet).

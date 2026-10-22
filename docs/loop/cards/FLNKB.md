@@ -4,14 +4,14 @@ title: Flank routes cross the arcs a mission blocks for the round: 6 of 10 on BF
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: parked
 deps:
-files: engine/crates/core/src/nav/flank.rs, engine/crates/core/src/nav/flank/tests.rs, engine/crates/core/src/route_patch.rs
+files: engine/crates/core/src/nav/flank.rs, engine/crates/core/src/nav/flank/tests.rs, engine/crates/core/src/route_patch.rs, engine/crates/core/src/sim/round.rs, engine/crates/game/tests/suite/route_patch.rs
 declares: sim; sweep; arena
-needs:
+needs: maintainer - the RTX is lost (nvidia-smi Unknown Error; land.py exit 7 ADAPTER LOST). After a reboot: land.py FLNKB
 effort:
-branch:
-resume:
+branch: flnkb
+resume: land: python3 scripts/land.py FLNKB (branch flnkb 9d92b61; ci + every GPU-free gate PASS in lead_tmp/flnkb/gates2; sweep moved only DEA1/KAS2/TAN1 as declared)
 created: 2026-10-20
 alpha: yes
 ---
@@ -36,3 +36,10 @@ Leave the arcs a blocked group closes out of the flank search: the arcs the auth
 
 ## Planner note
 Planner 2026-10-21 20:50: DESTR (the compactor vent / panels and TAN1's turbine as shootable objects) is the same object; read its census first.
+
+## Build 2026-10-21 23:12 (lane 1, branch flnkb 9d92b61)
+Exclusion picked over a ratio cap, by data: with the blocked arcs left out, the shortest flank / main ratio is 1.04 DEA1, 1.06 KAS2, 1.10 TAN1 (was 0.16 on DEA1), so no ratio cap is needed.
+- `NavGraph::blocked_arcs` (route_patch.rs): arcs the authored table (record 0) routes over that the table in force does not. On the bake: DEA1 65 81 97 101, KAS2 31 32 33, TAN1 139, the same as the audit's blocked.py.
+- `game` test `route_patch::flank_routes_cross_no_blocked_arc_on_the_bake`: 0 routes through a blocked arc. DEA1 has 6 routes of 30 pairs (was 18), KAS2 10 of 12, TAN1 8 of 12 (was 10). Mutation (drop the exclusion): DEA1 has 16 of 18 through a blocked arc, and the test fails.
+- `core` test `a_blocked_arc_is_left_out_of_the_flank_search`: fails under the same mutation.
+- A/B, 32 seeds, null = branch minus the exclusion (KAM1 control identical on 32/32; `lead_tmp/flnkb/ab`, `tools/bars.py`). B11 DEA1 27.5 -> 29.5 (t +3.1), KAS2 23.9 -> 25.5 (t +1.2), TAN1 7.0 -> 8.0 (t +3.9). B7 DEA1 32.2 -> 31.7 (PS2 27.3, floor 18.3), KAS2 14.1 -> 14.9, TAN1 34.9 -> 37.2. B5 / B6: no move past |t| 1.6. Some of FLNK's DEA1 B11 gain rested on the closed ways, as the audit said.

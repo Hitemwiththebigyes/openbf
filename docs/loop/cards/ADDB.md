@@ -26,3 +26,5 @@ Found by card CPHOL (2026-10-13). `render/src/bolt.wgsl` `fs_bolt_glow` turns th
 
 ## Acceptance (run and paste)
 - The three boxes above within 10 levels per channel of the PS2's added value; `scripts/parity.py`: no map up by more than 0.5; the goldens that move are declared.
+
+- 2026-10-22 (card LFLR build): one more case for this card. UTA1 cp2_con_cp1a b180, box (0,0,200,330) round the lamp head: PS2 91.9/78.3/76.4, main 70.0/64.7/66.8, LFLR branch (lamp flare + cone, additive) 81.5/71.2/69.6 - the flare and cone add about half what the PS2 adds (`lead_tmp/lflr/sheet.py`, `lflr_sheet.png`).

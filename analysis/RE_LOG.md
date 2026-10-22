@@ -5479,3 +5479,252 @@ check's numbers reproduced and its logic marked PARTLY (folded into the text).
   the ELF bytes; +0x294 written under ShotsPerSalvo's hash 0x3b38558). The landing's [H] holds as its code reads; SalvoCount is in
   neither test. `FUN_002bbed0` (B2) / `FUN_0023d3f0` (B1) reset the burst state on a weapon switch. Workflow `audit-brstu`, two
   verifiers on 10 claims: 7 SUPPORTED by both, the auditor's own absence claim NOT SUPPORTED by both (the writer above), 2 PARTLY.
+
+## 2026-10-21 (loop lane 1, card TCOL) — a building turret as a body: its moving prims, its gunner, its death → `analysis/re-turret-collision.md` [O]
+- Both games place every collision body through its owner's pose table by its PRNT hash (`FUN_00160160`), and an
+  armed building hands its turrets the SAME table its ray and target queries read (B2 E+0x2a8, B1 E+0x2d8); the
+  turret / aimer / barrel nodes are entered as pointers to their live matrices, so those prims turn with the gun. The
+  port takes PRNT as the identity: Geonosis's cannon's 3 gun prims sink into its base (PS2 top 3.18 m, port 1.58,
+  drawn 3.21) - the maintainer's "upper half". Census of 47 placed classes: every static-node prim binds at the identity.
+- Live BF2 Hoth (2 x 240 s, per update): a hit on the building never moves its gunner (38 / 38); drawn gunners keep a
+  body at their seat (type 0x20, 7 / 7; BF1 type 0x10, 84 / 84) that every flying ordnance's per-update ray tests; a
+  hidden gunner has none (3 / 3); a building's death kills its gunner with the building's last hit (8 / 8: corpses /
+  deleted) and 10 of 24 turrets fell, 2 were rebuilt. Workflow verifiers (5 + 2 agents): 28 claims, 37 verdicts,
+  32 SUPPORTED, 5 PARTLY (fixed), none refuted; the 8 twin claims and the ray chain each by two readers, none overturned.
+
+## 2026-10-21 (loop lane 2, card KA137) — BF2 Kamino's arc 137 over the sea → `analysis/re-kam1-arc137.md` [O]
+- KAM1.LVL ships three top-level `plan` chunks (0 / 124 / 143 hubs); `FUN_002ec900` frees the held graph on every one,
+  so the last is live - read out of RAM in two KAM1 states (143 hubs, 172 arcs). Its arc 137 (`Connection182`,
+  121 -> 123) is SOLDIER-only with flags 0 (a plain leg, `FUN_002c0220`), the sole route for 56 + 74 destinations,
+  and runs ~20 m over open sea: no instance between the hubs, a PS2 soldier dropped on its line falls to y -46 and dies.
+- The PS2's own bots walk it from 123 and drown (2 of 4 follower walks in 16 min; a third rail-guided to the foot of
+  hub 121's deck); the neighbour jump arc 136 dropped 1 of 3 into the sea. The port's BNDS `arc_unwalkable` keeps
+  soldiers off it - a named deviation, kept. Main 2198036, 24 seeds: 0 recycles, stands or falls near (54, 144).
+  Workflow verifiers 5 + 2 agents, 27 verdicts, none refuted; the second verifier caught a recycle count taken with
+  the observer off (re-measured).
+
+## 2026-10-21 (loop lane 1, card HVYA step 4) — BF2's explosive claim (grenade + missile ordnance) allows one soldier of a team at a soldier, and one per hull position (hull + turrets + passenger slots) at a hover / walker / flyer → `analysis/re-soldier-ai.md` 24.5 [O]
+
+## 2026-10-22 (loop lane 2, AUDIT of card RKHUL: PARTLY) — a walker's collision prims ride its live pose → `analysis/re-walker.md` 17 [O]
+- Body = XFRM × table[PRNT] in both games (`FUN_00160160`, row vectors, XFRM first): RKHUL's order. A walker's table
+  (B2 E+0x1d7c via physics vtable 0x61f7f0 slot +0x4c; B1 E+0x1ec0 via 0x533a80 slot +0x44) holds pointers to its
+  skeleton instance's bone matrices, rewritten every update (B2 `FUN_00533f20` in `FUN_00261208`, B1 `FUN_00440b38` in
+  `FUN_0021b3a0`): the prims follow the clip, where the port bakes them at the bind (a parked spider's legs 3.4 m off
+  the drawn ones; card WHULL). Static read; workflow `audit-rkhul`, two separate readers, 4 claims each, all SUPPORTED
+  by both, none overturned; the auditor's `re_check` fn / word runs on every cited line and word.
+
+## 2026-10-22 (loop lane 2, card LOOKR) — the look stick's turn ramp, both games → `analysis/re-look-ramp.md` [O]
+- A human's yaw rate blends MaxPitchSpeed -> MaxTurnSpeed by a 0..1 timer the player controller runs (+dt, cap 1)
+  only while the look stick is FULL, else 0 at once: BF1 `FUN_0025e098` K+0x120 on |turn| >= 1.0, BF2 `FUN_002b0548`
+  K2+0xf0 on turn^2 + pitch^2 >= 0.9; read by the yaw rules B1 `FUN_002098b8` (x the look sensitivity 0.19 n + 0.4,
+  n = 5 in every state: x 1.35) and B2 `FUN_00247fa8` (no factor). Rifleman 38.7 -> 309.4 deg/s (BF1), 57.3 -> 286.5
+  (BF2); pitch flat at the MaxPitchSpeed end; bots flat MaxTurnSpeed (BF1) / 4 x MaxTurnSpeed (BF2, `FUN_00238068`).
+- No soldier authors MaxPitchSpeed: BF1's default is 0.5 (the port uses BF2's 1.0 for both); the aim assist's R is
+  MaxPitchSpeed in both games (re-aim-assist 5's MaxTurnSpeed hypothesis corrected).
+- Live: 12 padscript runs (full stick and AxisScale 0.5 .. 0.98), the RAM timer per update: 880 / 880 turning updates
+  and 1380 / 1380 timer updates fit; a release resets, an instant reversal keeps it, BF2's pitch-only push builds it;
+  95 % of the throw never ramps in either game. Port: `LOOK_SCALE` is applied before the sim, so no full test passes
+  on a pure turn - the vehicles' timer never runs for a human (card VTRN's note). Workflow `lookr-re-verify` (5
+  agents): 34 verdicts, 26 SUPPORTED, 8 PARTLY (fixed), none refuted; cards LOOKR (build), BTURN.
+
+## 2026-10-22 (loop lane 2, card OVHT) — the weapon heat gauge on the HUD, both games → `analysis/re-heat-hud.md` [O]
+- BF2: the reticle's `player1weapon1heatbar` ring (30 `white` segments, -150..150 deg, yellow -> orange by its
+  NumberColor) is fed every frame by `FUN_003b3398` with clamp(1 - cur/max) of the weapon's heat component for an
+  unlimited weapon (RoundsPerClip under 1), 0 for a counted one (its charge while charging); while overheated (state
+  5) it also sends `player1.weaponsOverheat` ("OVERHEATED!") and `refire` = 1 - HeatThreshold/heat (two red bits).
+  Heat component: spend `FUN_001e2010` (HeatPerShot), refill `FUN_001e1fc0` (HeatRecoverRate x dt), thr = 1 -
+  HeatThreshold (`FUN_001e1cb8`).
+- BF1: a code-drawn bar in the weapon panel (`FUN_002c0400`, sheet `hud1`, 84 x 13 at (30, 2)), width 1 - heat, blue
+  (0,152,255) / red (200,100,100) while overheated, only for a weapon with no ammo per shot; latch at heat >= 1, clear
+  at <= HeatThreshold (`FUN_00284318`).
+- Live PCSX2, the pistol tapped to overheat in both games with the heat read every update: the rules hold to the
+  update; the ring's lit arc and BF1's bar fill match the heat on 10 frames. Census: 56 BF1 / 75 BF2 heat weapon
+  classes (55 / 69 unlimited). The port's sim has the same heat; its HUD sends none of the events. Workflow
+  `ovht-re-verify` (5 agents): 24 verdicts, 22 SUPPORTED, 1 claim refuted by both absence verifiers (an EnergyBar
+  search misread; fixed). Cards OVHT (build), VSHUD (the HUD in seats); a note on BHUD3 (the charge on the ring).
+
+## 2026-10-22 (loop lane 2, card UORD) — ordnance that is not a bolt: missile + the lock, shell, bullet, emitter → `analysis/re-ordnance-kinds.md` [O]
+- The bolt family (bolt, laser, bullet, shell, missile) shares one flight core, one per-frame sweep and one impact
+  handler. The predictive spawn ray tests buildings + terrain only (B1 0x48 / B2 0x90); units, hulls, riders, water,
+  foliage and shields are struck by the per-frame prev -> current sweep (0x996 / 0x132e) — corrects re-blaster-damage
+  §5.1 ("cannot dodge") and the port's projectile.rs. Missile and shell skip the predictive ray (class flag 0) and
+  sweep everything every frame. Life-out = ExplosionExpire for all.
+- Missile (B1 `FUN_0027d6b8`, B2 `FUN_0031f2e8`): constant speed (BF2: MinSpeed -> Velocity at Acceleration); turn the
+  direction toward `desired` by min(ramp x TurnRate x dt, |dir x desired|), ramp 0 -> 1 in 1 s; waver about
+  sin(ph1) p1 + sin(ph2) p3; no gravity; desired = the locked target's point, else the launch line. A launcher's
+  missile gets a target only after the dwell lock (LockTime: BF1 torpedo 1.5 s, BF2 rocket 1.0 s, consumed by each
+  shot); bots never wait for it. BF2 adds a bot aim error and a warning to the target's occupants.
+- Shell: gravity, explodes on first contact (Rebound / Friction dead). BF1 mortar: tap = shell, hold = sticky.
+  Emitter: one instant cone-and-chain query per shot (BF2: hit-all, team filters, burn). BF2 shotguns: 8 bullet
+  pellets in one update + 0-damage tracers.
+- Live PCSX2 (both games, AI battles, the player's launcher and every bot missile, one row per update): 1,400 update
+  pairs of 25 missiles replay the law to ≤ 1.2e-4 m/s; three missiles with a target knocked into RAM aim at the read
+  target point to ≤ 0.009°. Four reader agents + workflow `uord-re-verify` (6 agents): 52 verdicts, 44 SUPPORTED,
+  8 PARTLY (fixed), 0 refuted. Cards UORD (build: missile + shell + lock), UORDS (the bolt sweep, value 4), UORDE
+  (the emitter, value 3); banners on re-blaster-damage §5.1 / §7.3 and re-vehicles' lock-on line.
+
+## 2026-10-22 (loop lane 2, AUDIT of re-ordnance-kinds.md: PARTLY) — bolts are swept against units, measured live in both games → `analysis/re-ordnance-kinds.md` 2.4 [O]
+- Live, both games (`lead_tmp/audit-uord/ps2/bolt_b1.py` / `bolt_b2.py`): a bolt's line written through a stationary
+  soldier's chest after its predictive ray ran stops one update later at the chest, BF1 15 / 15 and BF2 15 / 15 (14 /
+  15 and 15 / 15 hurt); the line 2.5 m aside flies on, 14 / 15 and 13 / 15. In battle 15 BF1 and 18 BF2 bolts stopped
+  at a soldier with life left whose first-row life ran 10-171 m past him, and 0 of 661 BF1 / 409 BF2 predictive kept
+  hits belong to a soldier. The doc's [H] on the live split is now [M]: UORDS has its PS2 check.
+- Fixed in the doc: IMP's torpedo ordnance authors neither Waver key (REP / ALL only); of the 1,400 replay pairs, 442
+  BF1 pairs never moved and the 582 BF2 free pairs never turn, so the steering rests on 377 pairs and BF2's waver is
+  unmeasured live; 580 (not 581) of 582 BF2 pairs fit; the mortar bursts ~6.8 m up with the code's steps; two
+  wordings. Workflow `audit-uord-re` (22 agents): 6 reproductions, 6 replay mutations (sign, ramp, phase order,
+  speed law and target height caught where the data exercises them; the sin-vs-angle clamp is below the noise), 10
+  readers on 30 claims (50 verdicts, 46 SUPPORTED, 4 PARTLY on wording, none refuted; no second reader overturned
+  the first).
+
+## 2026-10-22 (loop lane 2, card GTHRW) — the grenade throw on the soldier, both games, third and first person → `analysis/re-grenade-throw-anim.md` [O]
+- BF1: the grenade's fire entry `FUN_0028eb30` raises the start flag weapon+0xc0 at the PRESS (via vtable +0x50,
+  `FUN_002859f8`), so the animator driver `FUN_002013a0` passes the fire state on in the press update; the soldier's
+  in-hand weapon is the grenade (channel 1 active while its state is 1-4), its set 3, and strength 1.0 (every thermal /
+  crack / haywire: `MaxPressedTime` 0) gives state 3 -> `human_grenade_stand_shoot3` (51 frames) on the upper player,
+  on the legs too while he stands. The grenade leaves at weapon timer 0.300 = clip time 0.267; the channel's return to
+  0 at the fire state's end changes the set and cuts the action; the hands are empty (HideOnFire).
+- BF2: `OffhandWeapon` (0x2ecd946f, bit 55 of class+0x1e0; every thermal, mine, detpack, buff: 82 classes; BF1 has no
+  such key) makes `FUN_00239bb0` keep the PRIMARY's set and map the fire state to the secondary actions
+  (`FUN_00281630`): a thermal (variant 1) plays `human_rifle_stand_shoot_secondary2_full` (41 frames; underhand
+  `shoot_secondary`, 31; bazooka / tool / pistol primaries their own upper clips); the fire entry 0x337678 raises bit 33
+  at the press; release at 0.533 s = clip time 0.50; the rifle stays in the right hand.
+- First person, both games: an 11-column clip table per weapon row (BF1 `_1st_<set>_<action>` in `human_animation_fp`,
+  `FUN_001a6880` / `FUN_001a38e0`; BF2 `humanfp_*`, 0x618440, `FUN_001beeb8` / `FUN_001bfcb0`): a thermal plays
+  `_1st_grenade_shoot2` / `humanfp_grenade_shoot2` (11 frames). The port has no first-person view (card FPV).
+- Live PCSX2, both games (`lead_tmp/gthrw/ps2/throw_strip.py`, a row per update of the soldier, his animator and his
+  thermal): BF1 3 of 3 and BF2 2 of 2 throws hold these clips at these updates, standing and running; picture strips
+  `ps2/bf1_throw_sheet.png`, `bf2_throw_sheet.png`. Workflow `gthrw-re-verify` (7 agents): 24 claims 21 SUPPORTED + 3
+  PARTLY (side conditions, folded in); 8 absence / twin claims to two verifiers each: 5 both SUPPORTED, 2 both PARTLY on
+  wording (fixed), 1 split (the broad "no human prone throw clip anywhere" -> [H]).
+
+## 2026-10-22 (loop lane 2, card SPRCL) — the clip a sprinting soldier plays: BF2's sprint pair and its clock, BF1's 8 m/s idle line → `analysis/re-sprint-clip.md` [O]
+- The port's freeze is BF1's: BF1 has no sprint (no sprint state, no sprint id in its animator's tables at 0x517af0 /
+  0x517be0, no sprint clip in any BF1 `zaa_` bank), the port's BF1 sprint is ours, and the port keeps BF1's chooser rule
+  `FUN_0022e990`: over 8 m/s (`64.0 < vx^2 + vz^2`, B1:144989, tested before the root scale's division) the legs idle.
+  A census of the port's own animator over every class at 1.5 x MaxSpeed: BF1 140 / 146 db rows and 100 / 104 fielded
+  rows on `*_stand_idle_emote`, BF2 0 / 324 and 0 / 104.
+- BF2: every set has a sprint pair (RAM: 0 of 2,777 set rows over 181 states empty; the pass-2 alias `sprint <-
+  stand_runforward` fills the pistol, melee and spear sets). The pose driver `FUN_0027caf0` case 0 plays it on BOTH
+  players at `|v| / v_clip` - the speed (unscaled) over the LOWER sprint clip's root speed, a plain ratio (B2:201048,
+  0.01 from the pool at 0x6206c0; `FUN_0027d9a8` B2:201453 / 201479), not the locomotion law `k + (1 - k) 0.05`
+  (B2:202349); a null lower slot would return before any pose (B2:201451). Live (BF2 Geonosis, `lead_tmp/sprcl/ps2`):
+  118 sprint updates fit the plain ratio to a mean 0.00005 of phase per update, the eased law misses by 0.0005, the
+  port's plain clock by 0.009; the run control fits the eased law to 0.00001.
+- Knock-in (both rules in a scratch binary): census BF1 140 -> 0, BF2 0; the port replays the PS2's sprint rows to a
+  mean 0.00004 (main 0.00902). Workflow `sprcl-re-verify` (7 agents): 25 verdicts on 20 claims, 17 SUPPORTED, 7 PARTLY
+  (folded in), 1 NOT SUPPORTED (the first-cited 0.01 was another branch's; fixed); the paired absence verifiers agreed
+  on every claim.
+
+## 2026-10-22 (loop lane 1, card AITHK) — how often a PS2 soldier bot thinks: BF2's interval by level of detail and its "think now", BF1's round → `analysis/re-ai-think-rate.md` [O]
+- BF2: at most 10 UnitControllers think per step from a time-ordered list (`FUN_002af948`); interval = agent factor
+  (trooper 2.0, combat 0.4, others 1.0) x {4, 3, 2, 1, 0.25} s by a level 0-4 taken from the HUMANS only (distance 7 /
+  20 m, the bot's view cone, the render mark, a camera-view raise; no human = 0). Re-checked from SAIR 1.1-1.3 as one
+  rule. New: `FUN_002af840` pulls the next think to now + 0.0001 from five sites (five `jal` words); a threat entry for
+  a HUMAN-controlled unit (`FUN_002b9d10` -> `FUN_002b0418` IsA PlayerController) does it at ANY level - seen, hit, or
+  heard by the human's own noise pass every 15 steps; an order message or a finished helper only at levels 3-4.
+- Live BF2 Kamino, every update (`lead_tmp/aithk/ps2/think_live.py`): of 52,049 bot update pairs with no think between,
+  all 28 with the human entering / changing in the threat list pulled the think (each to now + 0.0001), 0 of 209 with
+  only an AI entry; at levels 0-2 nothing else pulled one. A life's first think is at once with no order; the order
+  comes one interval later (4.0 s with nobody playing, CONT's lives).
+- BF1: a 15-step round (0.5 s), a far (45 m from the first camera), slow, unseen unit skipped on alternate rounds
+  (1.0 s); no level by the human, no agent factor, no think-now twin; the same camera test skips a far soldier's whole
+  update on alternate frames.
+- The port thinks every bot every 10 ticks in both games. Build spec in section 8 (deterministic: `Sim::players` and
+  `Unit::ideal_camera`; headless = level 0); it reverses bot-design D1. Workflow `aithk-re-verify` (6 agents): 23 claims,
+  18 SUPPORTED, 5 PARTLY (folded in), 0 refuted; the paired absence verifiers agreed on all four.
+
+## 2026-10-22 (loop lane 2, card VPOSE) — a vehicle's own posed nodes: the node table, its turret and aimer nodes, the FinAnimation nine-pose → `analysis/re-vehicle-pose.md` [O]
+- Every vehicle has one node table (BF1 hover E+0x1d20, BF2 E+0x17e0; walkers and flyers their own), a hash map of
+  node CRC -> matrix pointer that its MountedTurrets, its own weapons' aimers and its FinAnimation step write and its
+  draw reads; it is never cleared (constructors only). Task order: drive + fin fill (key 0) -> pilot seated (15) ->
+  turret tick (20 + HierarchyLevel) -> aimers -> the draw refreshes aimers and turrets again.
+- RAM replays over 337 stored states (254 with vehicles) + 18 bike rides: every hover turret node = re-turret-draw
+  2.2's formula (362 / 362 rows), every BF1 aimer node = 2.3's (BF2 within 0.01: aimers are written at draw time);
+  the FinAnimation pose - frame a and frame b each sampled by slerp between neighbouring frames, blended by slerp at
+  c, the LATER of two same-CRC tracks winning, composed in the bank's own zaf rig - fits 297 / 297 hovers to 0.001 deg
+  (nearest frame, floor frame, the first duplicate track and nlerp all fail).
+- The clips: tank skis 45 / winglets 95 deg; bike bars, foils, flaps, pedals and bone_root's 5 deg pitch; BARC body
+  lean (its rider leans with it, in RAM); skiff rudders; snowspeeder flaps (a flyer law). Frame 4 = bind in every
+  clip. Found on the way: the constructors zero p and y (only a, b, c start at -1) - the port's
+  `HoverNine::START` (-1, -1) is wrong; re-vehicle-riders 4.1 corrected.
+- Readers AGENT_A / AGENT_B + workflow `vpose-re-verify` (7 agents): 40 claims, first reading 23 SUPPORTED / 17 PARTLY /
+  0 refuted; the 15 twin and absence claims read again separately 7 / 8 / 0, none overturned. Cards: VPOSE -> build;
+  new VPOSW (walkers: the AT-ST's head and guns, value 4) and VPOSF (flyers, value 3).
+
+## 2026-10-22 (loop lane 2, card VPOSW) — a walker's posed nodes: its node table, the walk pose under its aimers and turrets, the aimers' own frame → `analysis/re-walker-nodes.md` [O]
+- A walker's table (BF1 E+0x1ec0, BF2 E+0x1d7c; command walkers built on the walker) points every walk bone at the walk
+  pose's own matrix block, which the walker task recomposes every update; aimers and MountedTurrets keep their own
+  entries (BF1 copies the pose into them once, BF2 re-points and the first tick / draw re-points back); the draw runs
+  aimers -> turrets -> the model. VPOSE's walker failures were a misread: its table reader used the hover's offset.
+- RAM, 357 states, 348 walkers: every aimer, turret and barrel node = the vehicle formulas with the parent read from
+  the walker's table - BF1 1,205 / 1,206 rows to 1e-3 (the one miss a barrel mid-recoil), BF2 all within 0.04 (draw-time
+  writes); the parent at its bind fits 0 of 1,332. Flyers read at their own tables fit 1,501 / 1,501 (VPOSE's MAF and
+  ball-turret misfits were the same misread; card VPOSF).
+- A world-based aimer steers in (class bind) x (parent's entry) x (world): B1 FUN_0026d748 B1:191823-191900, BF2's
+  export hole 0x3021f8 (MIPS 0x302380-0x3024bc); fits every BF1 row to 0.000 deg (the base alone: 0.22 / 2.0 / 180 deg).
+  BF1's AT-AT head is the BODY aimer's matrix written over TURRET1's (24 / 24; the turret's own formula 0 / 24). BF2's
+  one-man AT-ST turns only aimer_x. Bone 0's translation is 0 in every walk pose and every DummyRoot track is z-only,
+  so the port's rest DummyRoot is the PS2's; the bob is bone_root's own track ([H]: the port at the same clip time).
+- Workflow `vposw-re-verify` (6 agents): 21 claims, 18 SUPPORTED / 3 PARTLY (folded in) / 0 refuted; the 5 twin and
+  absence claims SUPPORTED by both separate readers. Card VPOSW -> build (rows: `lead_tmp/vposw/walker_nodes_ps2.txt`).
+
+## 2026-10-22 (loop lane 1, AUDIT of re-grenade-throw-anim.md: PARTLY) — a held L1 shows BF1's reload clip; BF2's legs take the throw only from a still, not-kneeling start → `analysis/re-grenade-throw-anim.md` §10 [O]
+- Live, both games, the auditor's own sampler (`lead_tmp/audit-gthrw/tools/tsamp.py` + `dec.py`, the animator read
+  through the soldier's own pointer, clip names by a CRC checked against the game's `DAT_0057f638`): 20 trials, 22
+  throws. The doc's clips, sets, players, release updates and fire-state lengths hold in every trial.
+- BF1: `FUN_00205cc8` (B1:117106-117161) keeps channel 1 while its fire byte is held or just released (state != 8),
+  and the grenade fires only on the press edge (vtable +0xa8 0x28ee20, an export hole); so L1 held past the fire
+  state's end, or pressed during the reload, plays set 3's reload slot (`rifle_<stance>_reload`) on both players to
+  the release + 1 update: 6 and 21 updates live, against the doc's "never seen". BF2 shows nothing of the kind.
+- BF2: `FUN_0027dfe0` (B2:201825-201880) gives the legs the action's lower slot only in the action's first update,
+  movement id 0 (still, and not crouched still for over 1 s, id 2); live: crouched 0.6 s -> the legs on the stand throw,
+  crouched 1.7 / 1.8 s -> the kneel stays; started still then walked -> the legs leave at once; started running ->
+  never. The keep-over-later-updates mechanism is [H] (both readers read one update; the rows show the clip).
+- The upper player's phase after the release update is 9/51 = 0.300 s (BF1) and 16/40 = 0.533 s (BF2) in 22 of 22
+  throws, one update later than the doc's 0.267 / 0.50 (the animator counter); which phase is drawn is [H].
+- Fixed: the first-person table has 59 writes, not 66; BF2 has eight thermals, not nine; "82 offhand classes" is 22
+  authoring / 66 resolving (with guided rockets and force powers); the fire update 0x3377d0 is vtable slot +0xac; an
+  unreferenced stub writer of BF1 weapon+0xc0 at 0x288240 [receipt:283c29c9]. Workflow `audit-gthrw` (17 agents,
+  medium): 9 reproductions (2 partly on counts, the rest yes), 6 readers (BF1 channel C1-C5, BF2 legs D1-D5, the doc's
+  absence / twin A1-A6: none refuted, PARTLY on details, no second reader overturned the first), 2 independent replays
+  with 8 mutations, all caught (BF1 replay 867 / 922 - every miss in the two held-L1 trials; BF2 360 / 360 with the
+  measured legs rule). Card GTHRW (build) carries the build changes.
+
+## 2026-10-22 (loop lane 2, card VSHUD) — the HUD in a seat: BF2 runs the soldier's HUD code on the seat's controllable → `analysis/re-seat-hud.md` [O]
+- `FUN_003b61e0` hands every HUD publisher K = record +0x150, else +0x14c, else +0x148; live, a hover, a walker and a
+  BUILDING turret all put the seat's controllable at +0x14c (+0x150 = 0). So the seat's weapons fill the weapon rows
+  (the AT-ST two), the heat ring / refire bits / "OVERHEATED!" work as on foot, and the reticle group stays up while
+  E's vt +0x88 holds (hover / building: alive; walker: a current weapon; a building turret's E is its owner).
+- `FUN_0038e598` puts the reticle at (0.5, y) of K+0x150 + 1024 x K+0xe0 through the drawn camera; the switch to the
+  soldier's aim (ControlsUnit, 0x44c77c95) is authored on neither disc. Replayed on 20 BF2 states: equal to the stored
+  element to 0.000 lines (tower 240.0 = centre, bike 178.5 and AT-ST 166.1: the cameras look `TiltValue` 5 / 6 deg below
+  the aim); BF1's twin `FUN_002d4b50` on 6 BF1 bike states, 6 of 6.
+- `FUN_003b4bb8`: entering hides the soldier's bar and shows the green vehicle bar (a building turret: the owner
+  building's health) and a 4 s seating chart (new card VSEAC); `FUN_003b5708`: the energy bar is the vehicle's (none for
+  a turret). Live PCSX2 frames per seat kind with the gun overheating: `lead_tmp/vshud/ps2/ps2_seat_sheet.png`.
+- Workflow `vshud-re-verify` (13 agents): 22 claims, 27 verdicts, 22 SUPPORTED / 5 PARTLY (folded in) / 0 refuted; the
+  5 absence / twin claims to two readers each, none overturned. Card VSHUD -> build.
+
+## 2026-10-22 (loop lane 1, AUDIT of re-sprint-clip.md: PARTLY) — BF2's sprint turns the root toward the travel; droid sprints divide by the engine's 11.5 m/s fallback → `analysis/re-sprint-clip.md` §7 [O]
+- Held, reproduced: BF1's 8 m/s idle line before the scale; BF1 has no sprint (two readers; BF1 holds none of BF2's
+  sprint class keys [receipt:141fe3cb]; an independent MINA parse of every BF1 bank, 413 clips, none a sprint); case
+  0's law; the RAM census (0 / 2,777); the port census on main 9193a4c byte-equal to the session's, the knock-in and
+  its null, the replay 0.00902 -> 0.00004.
+- Live, the auditor's own sampler (GTHRW's audit `tsamp.py`, decoder `audit-sprcl/tools/sdec.py`), BF2 Coruscant, 7
+  trials: phase step = |m_xz| / 9.16 x 30 / (F - 1) on both players, mean error 0.000000 over 412 pairs each,
+  including a pistol sprint whose upper clip differs (its own speed misses by 0.0215) and diagonal travel (the forward
+  component misses by 0.006). The divisor is the slot's whole cm/s (9.16, not the bake's 9.1627).
+- New: case 0 hands atan2f(x, z) of the local move to `FUN_0027d9a8`, which eases +0x20cc toward it by min(1, 7.5 dt)
+  and yaws `dummyroot` with it (`FUN_00280048`): the sprinter's root turns toward the travel (412 live pairs fit to
+  2e-7 deg; +-14.04 deg with the stick at 45 deg). The port holds the root straight in a sprint.
+- New: 11.50 m/s on the droid / Aayla sprint slots is `FUN_00282900`'s id-0 fallback for a forward root speed <= 0
+  (B2:204683-204695, `lui 0x4138` at 0x282a18); the port bakes those clips with zero root motion, so the doc's "1.0
+  when none is baked" is wrong for droids (the PS2: |v| / 11.5).
+- Fixed wording: 22 uncovered BF2 heroes, not 9; 31 slots / 30 names; "sprint in no decomp line" holds for whole
+  names only; the CRC-word absence has no positive control; the ramp is the class's authored 0.35 s. Workflows
+  `audit-sprcl-re` (13 agents: 6 reproductions, 43 rows 32 yes / 10 partly / 1 no - the hero count; 6 readers,
+  40 verdicts 32 SUPPORTED / 8 PARTLY / 0 refuted, the paired absence readers agreed; 1 replay with 9 mutations, 6
+  caught, 2 untestable on the session's flat rows, 1 equivalent there - the upper clip's speed, caught on the
+  auditor's pistol rows) and `audit-sprcl-verify2` (2 separate readers of 9 new claims: 18 verdicts, 10 SUPPORTED /
+  8 PARTLY on scope or line range, none refuted). Card SPRCL (build) carries the build changes.

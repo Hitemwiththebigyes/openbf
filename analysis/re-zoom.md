@@ -248,6 +248,7 @@ Weapon class reader B1 `FUN_002864f0`, B2 `FUN_00328fb0` (the key is fnv1a-32 of
   and rises linearly to the class's turn speed over the first second of a held stick (B1:119344-119345: class
   +0x1844 + (class +0x1840 - class +0x1844) x a ramp in the Controllable; B2 `FUN_00247fa8` 162907-162920), and BF1
   scales it by the sensitivity setting (0.19 x n + 0.4, `FUN_0034caf0`). The port turns at `max_turn_speed` flat.
+  Read through by card LOOKR (2026-10-22): `re-look-ramp.md` (the ramp climbs only at a FULL look stick).
 
 ## 7. Spread [V]
 

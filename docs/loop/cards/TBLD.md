@@ -119,3 +119,9 @@ unbuilt too (BZONE1), and NAB1 is a showcase map.
   0 of 4000), `lead_tmp/vturd/ps2/hot1_bots_lasermortar_turet4_a0.png` (a Hoth laser tower fallen in a battle).
 - `antiaircraft_chunk1` (the destroyed model of BF1's Bespin gun and of BF2's `tur_bldg_recoilless_*`) is one name
   for two different models on the two discs: look it up per game.
+- 2026-10-21 (card TCOL re, lane 1, `analysis/re-turret-collision.md` 4): live BF2 Hoth bots battle (240 s, per
+  update): 10 of 24 building turrets fell, 2 came back to state 0 at full health (repaired); 8 of 8 manned deaths killed
+  the gunner in the same update with the building's last hit (drawn gunners leave corpses, hidden ones are deleted,
+  B2 `FUN_001e8498` -> `FUN_002f4e00`; BF1 `FUN_001c4ad0` -> `FUN_0023ac68`). The death also swaps the COLLISION:
+  state 1 -> E+0x70 := K+0x388 (the destroyed model's `DestroyedCollisionMesh` + its prims), state 2 -> K+0x4d8 (the
+  unbuilt mesh) (B2:93601-93636). Build this state machine after TCOL part 1 (the turret's bodies are then its own).

@@ -4,14 +4,14 @@ title: The leak census misses walls a soldier meets, and its gate accepts any ri
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: parked
 deps:
 files: engine/crates/game/examples/leak_census.rs,engine/crates/game/examples/leak_census_accepted.txt,scripts/gates.py,scripts/land.py
-declares:
-needs:
+declares: leak
+needs: maintainer — the RTX is gone (nvidia-smi Unknown Error): gates.py --auto plans goldens + parity for a game-crate example and stops ADAPTER LOST; land when the GPU is back (or --adapter-any if the maintainer says an example cannot move a golden)
 effort:
-branch:
-resume:
+branch: leak3
+resume: land.py LEAK3 once the RTX is back: branch leak3 2e654cd, GPU-free gates PASS with only the declared leak MOVED (lead_tmp/leak3/gates2/SUMMARY.md). Part 1 only (pins); the gate half is LEAK3G (needs the guards approval, draft lead_tmp/leak3/README.md), the sampler is LEAK3S
 created: 2026-09-30
 alpha: yes
 ---
@@ -76,3 +76,10 @@ Report `engine/artifacts/loop/reports/20260930_0930_audit_LEAK.md`; scratch `eng
 - The sampler change moves every count: re-baseline once, with `leak` declared and the moved rows viewed.
 - LEAK2's map-edge work starts from the NAB2 edge exits this sampler finds (note on LEAK2).
 - 2026-10-06 planner: `engine/CRATES.md` taken out of `files:`. The picker refuses a card whose files overlap a card in progress, and 22 open cards listed the map, so any one of them held the other 21 (a chain card in progress held WADE and WTHR). The map's row for a new or moved source file is still owed in the same branch (`scripts/size_report.sh --check-map`); a rebase conflict in it is one line. Undo: add the path back.
+
+## 2026-10-22 lane 1 (build, part 1): split
+- Built: per-map `pin` lines in leak_census_accepted.txt cap what a class line accepts; each map's site line lists sites
+  (and new) by class; `LEAK_PIN_OUT` writes the pins. Branch leak3 2e654cd. Mutation: bf1_kas2 push pin 9 -> 7 = new 2.
+- The gate half went to **LEAK3G**: scripts/gates.py / land.py are oracle-guarded (hook refused the edit); draft + test in
+  lead_tmp/leak3/. The sampler half went to **LEAK3S**. This card's Acceptance "`new` > 0 on a new hole" is met here;
+  "Coverage" moves to LEAK3S, "Gate" moved rows / scoped declare to LEAK3G.

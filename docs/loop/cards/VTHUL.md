@@ -39,3 +39,8 @@ VHULL (report reports/*_card_VHULL.md) gave every Body an owner: Option<VehicleH
 
 ## Planner note
 Planner 2026-10-21 20:50: TCOL (first 4, the maintainer's playtest: Laik cannons' upper half lets shots through and never loses health) owns the turret's whole collision shape and its damage; batch with it if the files meet.
+- 2026-10-21 (card TCOL re, lane 1): TCOL's build part 1 now carries this card's acceptance (every body of a turret's
+  instance owned by the turret; bolts at the building damage the pool; the gunner's own fire passes it) together with
+  the posed-node prims that turn with the gun (`analysis/re-turret-collision.md` 1, 6). TCOL keeps `vehicle_pads.rs`
+  out of its files (NODMG, parked, holds it): the owner is resolved in core from `Body.instance` -> the turret whose
+  `Vehicle::instance` matches. Planner: close this card when TCOL part 1 lands, or merge it now.

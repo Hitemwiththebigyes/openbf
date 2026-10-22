@@ -4,14 +4,14 @@ title: The Xbox discs as texture donors: pack.py / rebake.sh find the Xbox BF1 a
 milestone: M1
 value: 5
 phase: build
-status: todo
+status: parked
 deps:
 files: engine/crates/bake/src/tier.rs, engine/crates/mungefs/src/texture_xbox.rs, engine/crates/mungefs/src/xdvdfs.rs, engine/crates/bake/src/main.rs, engine/crates/game/src/assets.rs, scripts/pack.py, scripts/rebake.sh
 declares: rebake=tat1,tat2,common,side,maps
-needs:
+needs: maintainer — the RTX is still off the bus (gates: ADAPTER LOST, only Intel + llvmpipe): reboot, then clear this needs line; the branch is built and every GPU-free gate passed
 effort:
 branch: xbtex
-resume:
+resume: BUILT: branch xbtex de77a64. GPU-free gates (lead_tmp/xbtex/gates2/SUMMARY.md): sim / simhash / sweep / arena / leak / ordnance identical, ci 1832 -> 1841 tests (+9 new), bake MOVED = the declared rebake (276 new .tier2.ktx2, the tier lists of 22 RONs, one tier 2 dropped: bf2_end1 end_canopy, alpha-only, exclusion 4). NEXT after the reboot: land.py XBTEX (gpu + parity must run on the RTX; goldens force the PS2 tier, so expect no golden or parity move). Census lead_tmp/xbtex/census/census.txt, sheets census/top20.png + top20_xbox_maps.png
 created: 2026-10-21
 alpha: yes
 ---
@@ -36,3 +36,16 @@ values, mission values, terrain heights, animation timing that moves a unit, hit
 - A per-format decode test on one known texture each (a picture checked by eye + a hash).
 - A census per map: textures taken from each source (counts) - BF2 GEO1 and BF1 NAB2 at least.
 - A contact sheet of the 20 biggest changes for the maintainer. The sim hash and every non-golden gate unchanged (look only).
+
+## Results (build, 2026-10-21, branch xbtex de77a64)
+- Decode: `mungefs/tests/suite/xbox_tex.rs` pins one texture per format (0x00 0x04 0x05 0x06 0x0C 0x0E 0x19 0x1A) by
+  hash after looking (`lead_tmp/xbtex/look/fmt_sheet.png`, `a4r4g4b4_water.png`); the non-square swizzle checked
+  against the PS2's own NAB2 sky: mean |xbox - ps2| 3.72 of 255, re-swizzled control 40.61. Every 2D surface of both
+  discs decodes (5,748; the 14 left are cube maps / one volume). A8 decodes black (D3D's rule): not a donor.
+- Census (`lead_tmp/xbtex/census/census.txt`): BF2 GEO1 pc 6 -> 9 + xbox 8; BF1 NAB2 xbox 0 -> 18; maps total pc
+  330 -> 335, xbox 131 (every BF1 map gains, 116 in all); sides BF1 0 -> 38, BF2 29 -> 63; common BF1 0 -> 8, BF2 12 -> 16.
+- Found on the way: 90 of the 91 detail-compressed bases (PS2 64x64 base + 256x256 `_dtl`) have a donor that IS the
+  whole painting (`look/dtl_vs_xbox.png`): taken at the companion's size or more, drawn without the companion
+  (`game::assets::load_texture`; test `the_detail_companion_goes_with_the_ps2_base`, mutation-checked).
+- Sheets: `census/top20.png` (all sources), `census/top20_xbox_maps.png` (Xbox map textures).
+- Gates without the GPU (`lead_tmp/xbtex/gates2/SUMMARY.md`): sim, simhash, sweep, arena, leak, ordnance identical.

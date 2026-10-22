@@ -46,3 +46,9 @@ feels in play is not.
   same kind of number on the PS2 (card ROLLM). Live RAM again: cs_turn 0.35 for sprint / jump / roll on BF2 Coruscant's
   rebel soldier (`lead_tmp/audit-airc/ps2/out/bf2_events.json`).
 - 2026-10-04 (the maintainer's playtest, via Claude): the SPRINT turn factor is the maintainer's 0.6 on every map since commit below (`core::soldier::CONTROL_SPEED`, FEEL_NOTES) - a named deviation; this card keeps it and reads the PS2's jump / roll factors and the per-class rows only.
+
+## Note (AUDIT re-sprint-clip, 2026-10-22, lane 1)
+- The sprint row's FIRST factor is the sprint speed multiplier: the PS2 sprints at ControlSpeed[sprint].fwd x MaxSpeed
+  per class (B2 FUN_00240bf8 case 3, B2:160477-160481; ctor 1.5). Infantry author 1.50, heroes more: com_jedi_default
+  2.5, cis_hero_grievous 3.0, rep_hero_yoda 3.5, imp_hero_darthvader 5.0 (agent N6, `lead_tmp/audit-sprcl/repro/N6/`);
+  the port's fixed CONTROL_SPEED[3][0] = 1.5 sprints every saber hero 1.7-3.3x too slowly once heroes are fielded.

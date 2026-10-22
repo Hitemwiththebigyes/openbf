@@ -63,6 +63,8 @@ Builds on `re-conquest-goal.md` (which post), `re-ai-difficulty.md` (skill, aim 
   code. Both read as "odds per second at two thinks a second".
 
 ### 1.2 How often a bot thinks [O][L]
+(Card AITHK, 2026-10-22: 1.1-1.3 and 1.6 re-checked as one rule, with the "think now" sites - a human-controlled
+threat wakes a bot at the next step at any level - and the first think of a life: `re-ai-think-rate.md`.)
 - [V] `FUN_002b6fe8` (B2:238925-238944): (the agent's vtable+0x50 factor; 1.0 with no agent) x {4.0, 3.0, 2.0, 1.0,
   0.25}[ai+0x560] (table ELF 0x621bc8). Factors: UnitTrooperAgent **2.0** (code at 0x2cba38), UnitCombatAgent **0.4**
   in its state 2 (`FUN_002ce8a0` = 0x3ecccccd), UnitFollowAgent 0.4 in its state 4, the CTF / Defend agents 0.8-2.0
@@ -1986,3 +1988,33 @@ neither found another writer).
 - The health type at +0x228 is rewritten by building and soldier state code (6 / 5 / 4: B2 `FUN_001e2d40` 93228,
   `FUN_001e3638`, `FUN_001e3c38`, `FUN_00257010` 174218, `FUN_00258050` 174361; one verifier): a wrecked building is asked
   the mask bits 0x20 / 0x40.
+
+### 24.5 The explosive claim on a vehicle: as many per team as the hull has positions (card HVYA) [O]
+`# OPUS RE (2026-10-21) - [O] UNAUDITED` - card HVYA step 4 (24.4's first bullet). BF2 only; BF1's twin was not opened [H].
+Hops: B2 `FUN_002ab590` (the chooser, 231038) -> `FUN_002ab430` (230849-230870) -> `FUN_002e0160` / `FUN_002e0338`
+(268148) / `FUN_002e03e0`; the target's primary vtable slot +0xa4 per class (the vtable each class ctor stores at offset 0,
+named by its IsA slot +8 -> type-id global -> `lead_tmp/sair/tools2/typeids.py`). Checks: `re_check.py fn b2 230860 230861
+230863 268156 136593 176395 124024 185244 130734 130751 130785 175510 114408` (each in the function named below), `word b2`
+0x61cd14 / 0x61f8f4 / 0x61c35c / 0x61ec2c / 0x619b1c / 0x61b5ac (the +0xa4 words), the hole `FUN_0026bb30` disassembled
+(`lead_tmp/re/timelimit/mipsdis.py bf2 26bb30`: `jr ra; addiu v0, zero, 1`), `absent b2 "[0x94] = " "+ 0x250) = "`
+[receipt:7a34149a]. One blind opus verifier, 6 claims: 4 SUPPORTED, 2 PARTLY (wording, folded in below).
+- [O] The throttle is for GRENADE and MISSILE ordnance (`DAT_00699d10` OrdnanceGrenadeClass, `DAT_00699d50`
+  OrdnanceMissileClass; any other ordnance passes) and asks nothing of the target's type: the shooter passes when it already
+  holds a kind-4 claim on the target (`FUN_002e0160`) or `FUN_002e0338(target, its team, 4)` >= 1, and the claim is recorded
+  (`FUN_002e03e0`); else the chooser skips the weapon (231039-231041). `FUN_002e0338` = max(0, capacity - the kind-4 claims
+  held on the target by that TEAM), capacity = the target's virtual +0xa4 (kind).
+- [O] Capacity of kind 4 by class: EntitySoldier `FUN_00249f30` 1 (any kind but 3); EntityBuilding, EntityDroid,
+  EntityDroideka `FUN_0026bb30` 1; EntityHover `FUN_002219f0` and EntityWalker `FUN_0025b278` (kind 3: 4) and EntityFlyer
+  `FUN_0020ea80` = the int at entity+0x250 (`FUN_002690c8` = entity+0x240, +0x10).
+- [O] entity+0x250 is zeroed by the base ctor `FUN_00267bf0` (185244) and counted up by the hover ctor `FUN_00219918` once
+  for the hull (130734), once per mounted turret of the class's 8-slot list at class+0xc68 (130751, `FUN_0026bf88`, a
+  MountedTurret) and once per passenger slot (130785, `FUN_00271808` PassengerSlot, built when class+0xc60 != 0, count
+  class+0xc64); the walker ctor `FUN_00259970` (175510 / 175527 / 175561) and the flyer ctor `FUN_001fff10` (114408 / 114428 /
+  114464) the same; the other writers are destructors' decrements and other classes whose +0xa4 does not read it
+  [receipt:7a34149a].
+- So on BF2 at most ONE soldier of a team fires a rocket or throws a grenade at a given SOLDIER (or droid, building) at a
+  time, and at most N at a hover / walker / flyer, N = 1 + its turrets + its passenger slots: the hull's positions.
+- [H] How long a claim lives: `FUN_002e03e0` stamps each record with `FUN_004240f8` (a clock read); its expiry was not traced
+  (4.3's 10 s is the grenade's).
+- The port (card HVYA): `ArmState::claim` covers thrown weapons on any target, one per team; a missile is not claimed. Named
+  in `ai/arsenal.rs`'s header as a deviation; the build is card HVYB.

@@ -63,3 +63,7 @@ on main 51.1 % of seated time has nothing really hittable; a bot remembers one c
 
 ## Planner note
 Planner 2026-10-21 20:50: TCOL gives building turrets their hull (first 4); exit 3 can be refereed once it lands.
+- 2026-10-21 (card TCOL re, lane 1): on the PS2 a hit on a manned building turret damages the building only (38 of
+  38 live updates, `analysis/re-turret-collision.md` 3.1); a drawn gunner is hit as a body of his own at his seat, a
+  hidden one cannot be hit. So exit 3's "the turret's hull hits" becomes refereeable when TCOL part 1 gives the
+  turret its bodies; its "the gunner's own hit" half needs TCOL part 2 (the gunner at his seat, not the origin).

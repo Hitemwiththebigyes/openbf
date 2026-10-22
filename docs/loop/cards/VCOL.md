@@ -4,13 +4,14 @@ title: No vertical collision response for soldiers (LEAK census classes ceiling 
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: parked
 deps: LEAK
-files:
+files: engine/crates/core/src/sim/step.rs, engine/CRATES.md
 declares: leak; sweep; arena; sim
-needs:
-branch:
-resume:
+needs: maintainer - the RTX is lost (gpu gate ADAPTER LOST); a reboot lets a land job take it (the diff cannot move a golden: core/src/sim + CRATES.md)
+effort:
+branch: vcol
+resume: LAND after the GPU is back: python3 scripts/land.py VCOL. Built + gated (lead_tmp/vcol/gates2/SUMMARY.md: ci/sweep/leak MOVED, all declared; sim, fidelity, arena PASS). Residue -> VCOL2.
 created: 2026-09-29
 alpha: yes
 ---
@@ -54,3 +55,17 @@ level's intended floor.
 - Add to the Acceptance: that test, committed, reads "-" at every height from 1.90 m up in both games (a jump from
   under a deck never ends on it).
 - Card JLEDG holds the wall side of the same code (the ledge a jump mounts; the PS2's rule is measured there).
+
+## Build 2026-10-22 (lane 1, branch vcol b3da13b) - built, gated, parked for the GPU
+- `Sim::ceiling_stop` (core/src/sim/step.rs), after the wall pass: a rising airborne soldier; two rays from 1 cm under the
+  old head - along the head's move (ceiling-like faces only, solved against the face's plane at the new XZ), then straight
+  up the new axis (any face); feet drop to 1 cm under, never under the tick's start; vel.y 0. PROVISIONAL (the PS2's is untraced).
+- Test `a_jump_from_under_a_deck_never_ends_on_it`: box slab + single face both windings, tops 1.90-3.20 m, both games,
+  stick 0 / full: ok; with the call removed it fails (`Bf2 stick 0 deck 0 top 1.90: ended at y 1.9`).
+- Leak census, 32 maps (null build = main's baseline byte for byte): ceiling 45,309 -> 8,750; tunnel 1,177 -> 954; push
+  545 -> 505; floor 5,321 -> 5,338; closed 28,735 -> 31,400 (2,326 of the first +2,606 at sites main already marks closed:
+  the runs end where the walk runs end, LEAK2's parity); died 59,912 -> 60,881 (bf1_bes2: 602 of 606 new deaths were
+  ceiling runs, now they stay under the deck and fall off the lower platform). Files lead_tmp/vcol/leak_{null,b3}.txt.
+- Floor: named from 4 traces - a steep upward face (n.y 0.51-0.73) crossed on a tick the wall pass pushes 0.17-0.60 m;
+  the ceiling residue is mostly GROUNDED (step-up / slope under a low face, a head walked into a sloped underside). Both -> VCOL2.
+- Not measured with LEAK3's band sampler (LEAK3 is a parked branch, not on main).

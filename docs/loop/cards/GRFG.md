@@ -47,3 +47,5 @@ better; add the case to `gates.py --selftest-fidelity`.
 
 ## Outcome (2026-10-16 03:09, lane 1, LANDED d21b411)
 g_ordnance in gates.py (runs with the leak group, FAIL unless the footer ends `new 0`), gates.toml [ordnance] footer from main d1def96. Acceptance: branch PASS (new 0); main with GRFL's fix reverted FAIL (new 112300); land.undeclared dry run PASS -> ignored, FAIL -> refuses. Planner: remove [approvals.GRFG]. Report reports/20261016_0309_card_GRFG.md.
+
+- 2026-10-22 06:50 (card TSLG, the planner's 10-09 ask): `ordnance_census` ORDN_AT on main 9193a4c at the maintainer's FIRST Kamino deck (-125.6, 70.2, 151.0): floors 1, gaps 0, runs 4, **through 0** (body 393 `kam_bldg_aaa_bridge5`, a mesh with the soldier and ordnance layers); his second deck (103.1, 52.4, 75.0): through 0 (body 352 `kam_bldg_aaa_bridge1`).

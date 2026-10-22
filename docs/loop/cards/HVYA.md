@@ -4,14 +4,14 @@ title: Audit HVYW follow-up: a flyer is attacked as the PS2's test says (a weapo
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: parked
 deps: HVYW
 files: engine/crates/core/src/ai/arsenal.rs,engine/crates/core/src/ai/arsenal/tests.rs
-declares: sim
-needs:
+declares:
+needs: maintainer - the RTX is lost (gates gpu ADAPTER LOST: only Intel + llvmpipe). After a reboot: land.py HVYA
 effort:
-branch:
-resume:
+branch: hvya
+resume: land: python3 scripts/land.py HVYA (branch hvya 28f28e2; ci + every GPU-free gate PASS in lead_tmp/hvya/gates3, sim / sweep / arena identical - nothing declared moves; mutation table lead_tmp/hvya/mut/*.log via lead_tmp/hvya/mut.py; step 4 RE in docs 68afc2c, the build is card HVYB)
 created: 2026-10-15
 alpha: yes
 ---

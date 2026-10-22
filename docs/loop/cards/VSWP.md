@@ -4,14 +4,14 @@ title: Seats the way the maintainer wants them (his words 2026-10-07): a player 
 milestone: M2
 value: 4
 phase: build
-status: todo
+status: parked
 deps:
 files: engine/crates/core/src/sim/seats.rs,engine/crates/core/src/sim/guns.rs
 declares:
-needs:
+needs: maintainer - RTX lost (vulkaninfo shows only the Intel iGPU + llvmpipe): reboot, then a land job takes this branch; every GPU-free gate identical to main, ci +4 tests
 effort:
-branch:
-resume:
+branch: vswp
+resume: python3 scripts/land.py VSWP once vulkaninfo --summary lists the NVIDIA GPU (branch vswp 68a961d; gates lead_tmp/vswp/gates2/SUMMARY.md)
 created: 2026-10-07
 alpha: yes
 ---

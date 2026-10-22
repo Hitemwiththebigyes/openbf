@@ -54,3 +54,8 @@ Also decide the endgame's rule on Polis Massa: new ground against the box of the
 - All 32 maps, seeds 9-40: recycles at most 230 (main d9db73c: 284) with rounds finished at least 1,021 of 1,024.
 
 - 2026-10-09 12:45 planner. `alpha: yes` -> `defer: post-alpha`: all four places are on maps outside the six showcase maps (BF1 Bespin, BF1 Geonosis, BF2 Geonosis, Polis Massa), value 4, and it blocks no alpha card (the maintainer's cap rule, 2026-09-30). Undo: `loopctl.py set LAPS alpha=yes defer=`.
+
+- WINS 2026-10-22 (main 3ae13d3, 8 seeds, `lead_tmp/wins/census_slide.txt`): two of these laps are ONE-SIDED. BF1 BES1
+  (0, -160): team 0 slides there 403 unit-s a round, team 1 ~0 (team 0 slide 13.4 % of rows, recover 14.4 %; team 1 0.3 /
+  0.1) - team 0 still wins 6-2, but it is the largest one-team trap of the 14 maps measured. BF2 GEO1 (-80, 270): the
+  Republic 121 unit-s a round, the CIS 40, and the CIS win 14 of 16 (1-14 + 1 no outcome). Value this card with that.

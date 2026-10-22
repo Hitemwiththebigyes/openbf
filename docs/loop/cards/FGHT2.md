@@ -11,7 +11,7 @@ declares: sweep; arena
 needs: maintainer — away from a human, do BF2-map bots think slowly as the PS2's do (a: no, as today, and bar B5 becomes reported-not-gated [default]; b: BF2's 4-8 s think for a bot with no contact that no human is near, BF2 maps only; c: a 4 s look everywhere)? Measured cost of each in the card's 'Measured 2026-10-09' and STATUS
 effort: high
 branch:
-resume: the maintainer's answer decides: (a) close the card, move B5 to 'reported, not gated' in bot-design 10 and BOTV; (b)/(c) phase=build from lead_tmp/fght2/tools/knob_patch.py (bits 2+8+16 = b, bit 1 = c), plus the rule 'only when no human is within N m / in view' which no sweep has measured yet - run audit-fght's scene.sh with a human for it
+resume: planner 10-22 06:58: AITHK (the maintainer's own 10-19 ask, RE done abd49ed, build-ready) builds the PS2's think rate in both games = this card's option (b) and more; the two questions are one now - STATUS Q72. If the maintainer says yes to AITHK, close this card as answered by it.
 created: 2026-10-07
 alpha: yes
 ---

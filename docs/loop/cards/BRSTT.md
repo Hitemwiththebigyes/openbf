@@ -4,14 +4,14 @@ title: BRSTU's heat bursts are refereed only on the gross cases (AUDIT BRSTU): 1
 milestone: M2
 value: 4
 phase: build
-status: todo
+status: parked
 deps: BRSTU
 files: engine/crates/core/src/ai/man/tests.rs
 declares:
-needs:
+needs: maintainer - RTX lost (vulkaninfo shows only the Intel iGPU + llvmpipe): reboot, then a land job takes this branch; tests only, every GPU-free gate byte-identical to main
 effort:
-branch:
-resume:
+branch: brstt
+resume: land: python3 scripts/land.py BRSTT once the NVIDIA adapter is back (gpu gate ADAPTER LOST today). Tests-only branch brstt 6184393; GPU-free gates lead_tmp/brstt/gates2/SUMMARY.md (sim/sweep/arena/leak identical, ci +9 tests); mutation table lead_tmp/brstt/mut/*.out (12/12 killed, R0 808 pass)
 created: 2026-10-21
 alpha: yes
 domain: vehicle

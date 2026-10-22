@@ -581,6 +581,9 @@ This is the team that CanEnter, the team relation and targeting use. It follows 
   either. It runs only for a seat no human drives whose CLASS says `Controllable = 0` (K+0x1150, default 1) — the
   Naboo fambaa's two classes; an AI gunner's target comes from its UnitStationaryController's agent
   (`re-turret-ai.md` 2-4), and a `PilotType = self` seat is BF2's automatic turret (section 3 there).
+- *(Corrected 2026-10-22, card UORD, `re-ordnance-kinds.md` §4-§5: the missile's steering is read and measured
+  there; BF1's lock square is B1:262320-262339 (B1:262211 below is the refire alpha); BF2's Controllable ticks copy
+  TargetLockMaxDistance / ...Lose and the Target* mask, not LockOnRange / LockOnAngle / LockOffAngle.)*
 - [V] **Lock-on.** BF1 has a dwell lock on launchers only: `LockTime` is parsed only by the launcher class (B1:217009);
   the lock timer counts while weapon+0x128 holds the same target and locks at LockTime (B1:216739-216794); the HUD draws
   the progress (B1:262211); a missile copies the shooter's target at spawn (B1:202829-202834; its steering [H]). BF2: the

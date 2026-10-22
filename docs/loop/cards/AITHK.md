@@ -2,17 +2,18 @@
 id: AITHK
 title: AI think rate by distance and view: far or unseen bots think less often (the PS2's own rule), so a big bot count costs less CPU - deterministic, in the sim
 milestone: M0
-value: 4
-phase: re
+value: 5
+phase: build
 status: todo
 deps:
-files:
-declares:
+files: engine/crates/core/src/ai.rs, engine/crates/core/src/ai/behave.rs, engine/crates/core/src/ai/state.rs, engine/crates/core/src/sim/step.rs, engine/crates/core/src/perception.rs, engine/crates/core/src/unit.rs, engine/crates/game/src/blackbox.rs, engine/crates/game/examples/round_to_outcome.rs, analysis/bot-design.md, engine/CRATES.md
+declares: sim; sweep; arena
 needs:
 effort:
 branch:
-resume: RE FIRST: read what the PS2 does with far or unseen AI soldiers (think interval by distance and by whether the player can see them) in the SWBFRONT / SWBFRNT2 decomps, PCSX2-confirmed; then build it as a SIM rule (the port's sim is deterministic: no render-side shortcut).
+resume: BUILD from analysis/re-ai-think-rate.md section 8 (deterministic: Sim::players + Unit::ideal_camera; headless = level 0). Order: (1) BF2 level + interval by behaviour (trooper 2.0 / fight 0.4 / other 1.0 x {120,90,60,30,7.5} ticks, ceil), cap 10 thinks a tick by (next, index); (2) think-now: a hit from a human, the human's noise pass every 15 ticks (15.1 radius), order / finished walk at level >= 3; (3) BF1: 15 ticks, 30 when slow + over 45 m from the human's camera + unseen (headless = 30); (4) the aim block cadence by level; (5) decide the spawn wait (the PS2's first order one interval after spawning, 4 s headless) with MYGC's bars. Measure ms/tick at 32/64/128 bots before/after (lead_tmp/obst2/tools perf.sh, JOBS=1, best-of-two) and referee every map (32 x 16 seeds, MYGC's bars.py on bf2_myg1); the fidelity / sweep moves need [approvals.AITHK] from the planner or the maintainer. Update bot-design.md D1 (reversed).
 created: 2026-10-19
+alpha: yes
 ---
 
 ## Why
@@ -28,3 +29,21 @@ created: 2026-10-19
 
 ## Notes
 
+- MYGC (2026-10-22): value 4 -> 5; it is a fidelity card too, not only speed. The rule is already read and live-checked:
+  `analysis/re-soldier-ai.md` 1.2 (interval = agent factor x {4, 3, 2, 1, 0.25} s by level; capture 2.0, combat 0.4 in
+  state 2) and 1.3 (the level from the humans' distance, view cone and frustum; 0 with no human - the headless sweep).
+  Acceptance 1 is therefore mostly a pointer to those sections plus the per-frame mover / tracker rate (1.1). A crude
+  scratch knock-in at level 0 (`lead_tmp/mygc/rto_knock`, MYGC_THINK=240,48) with OPNW takes showcase bf2_myg1 from 3-13 to
+  9-7 and its Alliance onto cp4 by 120 s in 8 of 8 rounds; it reshuffles other maps (all 32 x 16 seeds in
+  `lead_tmp/mygc/allmaps.txt`), so the build referees every map and re-reads the PS2 columns, which are level 0 as well.
+- RE (2026-10-22, lane 1, docs abd49ed): **acceptance 1 DONE** - `analysis/re-ai-think-rate.md` [O]. The PS2 has the
+  rule (BF2 graded by level from the humans, BF1 a 2:1 camera skip); section 8 is the build spec. New beyond SAIR: BF2
+  wakes a bot at the next step whenever a HUMAN-controlled unit enters / refreshes its threat list (seen, hit, or heard
+  by the human's noise pass every 15 steps), at any level - live, every update, BF2 Kamino: 28 / 28 such entries pulled
+  the think to now + 0.0001, 0 / 209 AI entries (`lead_tmp/aithk/ps2/`). A life's first order comes one interval after
+  the spawn (4.0 s headless). Verifier workflow: 23 claims, 18 SUPPORTED, 5 PARTLY (folded in), 0 refuted.
+- Build referee notes: the headless sweep is level 0 for every BF2 bot (trooper 240 ticks, fight 48, other 120) and
+  BF1 30 ticks for slow units (the port's choice: no camera = far). Which PS2 columns are level 0: the bots-only
+  captures with the player parked (WINS2, MYGC); BOTM's columns had the player spawned (`bot-quality.md`) - compare
+  each with its own set-up. The build reverses bot-design D1 ("one rate for every bot"): MYGC asked the maintainer (default:
+  the PS2's rule); the build updates D1's row.

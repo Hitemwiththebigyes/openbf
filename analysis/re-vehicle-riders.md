@@ -161,7 +161,9 @@ E+0x384 = the soldier + 0x2a0, BF2 E+0x32c = the soldier entity + 0x270, the rem
   `trn = trn (1 - |str|) + str, str = 0` (B1:97668-97680; half the strafe with the mouse flag).
 - [V] BF2 `FUN_0021d8b8` (B2:134693-134723), the same with `clamp(trn + 0.5 str)` and its own fields: gate E+0x32c
   and K+0xbd8 / K+0xbdc; p E+0x54c, y E+0x550, a / b / c E+0x1cb0 / 0x1cb4 / 0x1cb8; `FUN_0052a770` = |f12| at
-  0x21f200. Both numbers start at -1 in the constructors (B1:96488-96490, B2:130953-130955) and stay as last
+  0x21f200. a, b and c start at -1 in the constructors (B1:96488-96490, B2:130953-130955), p and y at 0
+  (B1:96395-96396, B2:130826-130827) - **corrected 2026-10-22 (card VPOSE)**: this line said "both numbers start
+  at -1"; 786 of 786 never-driven hovers in RAM read p = y = 0 (`re-vehicle-pose.md` 4.2). All stay as last
   written when the rider leaves.
 - [V] The hover tick hands them to the seat only for a nine-pose seat (B1 K+0x16d4, B2 byte K+0x5a1, B1:98422-98428,
   B2:133284-133291); BF1 and BF2 bikes and the BARC are the only nine-pose PILOT seats on either disc, and each has a
@@ -204,7 +206,9 @@ B2:138123-138134). Right after the rider's numbers, the drive samples it at fram
 the hover's own pose table (B1:99627-99635 -> `FUN_00498040(E+0x1d20)`; B2:134724-134737 -> `FUN_0057eaa0(E+0x17e0)`).
 Classes (`fincensus.py`): both games' speeder bikes (`imp_speederbike_9pose`), the fighter tanks
 (`rep_fightertank_9pose`), BF1's skiff, BF2's BARC, the snowspeeder (a flyer: its own path not read). The port draws
-hovers rigid: the vanes do not move (new card VPOSE, with the vehicle's turret nodes).
+hovers rigid: the vanes do not move (new card VPOSE, with the vehicle's turret nodes; RE done 2026-10-22,
+`re-vehicle-pose.md`: the clip sampled by slerp at frames a and b, blended by slerp, written into the node table;
+297 of 297 hovers in RAM replayed to 0.001 deg).
 
 ## 6. For the port (card VRIDE build)
 What exists: `soldier_vis::seat_now` draws a building turret's gunner at `L x node x O` (`turret_pose::GunnerHang`,

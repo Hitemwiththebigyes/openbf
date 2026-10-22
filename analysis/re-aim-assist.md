@@ -467,6 +467,8 @@ if (w <= 0) return                                // full-stick yaw: slowdown on
 
 R = entity->vtbl294[0x0c]()                       // max turn rate [hypothesized:
                                                   //  soldierClass+0x113c MaxTurnSpeed]
+                                                  // 2026-10-22 [V] (card LOOKR, re-look-ramp.md 5): the slot
+                                                  //  is MaxPitchSpeed (class +0x1844; BF2 +0x758), not MaxTurnSpeed
 if (entity+0x20 != 0) R /= weapon+0xdc            // zoomed: divide by zoom factor
 
 fwd  = normalize(entity+0x110)                    // aim direction

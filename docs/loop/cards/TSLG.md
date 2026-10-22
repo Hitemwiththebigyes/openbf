@@ -4,14 +4,14 @@ title: A turret stands at the base of a leg instead of on the platform it belong
 milestone: M2
 value: 4
 phase: capture
-status: todo
+status: done
 deps:
 files:
 declares:
 needs:
 effort:
 branch:
-resume:
+resume: capture done 2026-10-22: the port matches the PS2 (no turret on the AAA-bridge balconies on the PS2 either; 122/122 BF2 and 167/167 BF1 turrets at the PS2's places). Report reports/20261022_0648_card_TSLG.md
 created: 2026-10-07
 alpha: yes
 ---
@@ -36,3 +36,14 @@ Filed 2026-10-07 by Claude in chat from the maintainer's playtest (BF2 Kamino, F
 - So two readings, to be told apart from the PS2: (a) the PS2 has a pad or turret on these decks and the port's world lacks the instance (a bake that drops it, or an object the manifest does not list); (b) the PS2's turrets here are pads the PS2's bots BUILD within seconds (card TBLD) and the port neither builds nor draws them. The census (acceptance 1) decides: PCSX2 frame of this deck, from this spot, beside the port's. There is no PS2 reference frame within 80 m of it (`pcsx2/ref/bf2_kam1`: the nearest eye is 83 m).
 
 - 2026-10-09 12:45 planner. GRFL (296fa0c) landed the grenade fix and measured it at the maintainer's SECOND deck only (103.1, 52.4, 75.0: 0 of 4 through). His first deck (the F9 at tick 10701, `playtest/prev1.json`, y about 70 - this card's platform) was not measured, and 935 of Kamino's 937 remaining pass-throughs are throws that cross `kam_bldg_mushplatform1`'s soldier-only skirt. When this card stands at the first deck: run `ordnance_census`'s four grenades at his position from the snapshot and write the count here and on GRFG.
+
+## Findings (2026-10-22 06:50, capture, lane 2; main 9193a4c) - the port already matches the PS2: nothing to fix
+Full write-up: `engine/artifacts/lead_tmp/tslg/FINDINGS_TSLG.md` (F68, F69; the guard keeps `pcsx2/ref/FINDINGS.md` closed to this session).
+- **The maintainer's platforms are the far ends of `kam_bldg_aaa_bridge` walkways** (his first F9 = `kam_bldg_aaa_bridge5`, his second = `kam_bldg_aaa_bridge1`; 7 on KAM1). A plain prop; its disc model has two bones (root, collision) - no hardpoint for a turret. **The PS2 has no turret on them either**: PS2 frames at both spots (his own camera pose for the second) beside the port's at the PS2's exact poses, `lead_tmp/tslg/pairs_pete.png`, `pairs_pete2.png`.
+- **The turret "at the base of this leg thing" is where the PS2 has it**: `tur_weap_built_gunturret1013` (-102.0, 69.35, 142.34), on the landing platform the bridge grows from; the PS2 holds a built turret at exactly that point in both eras.
+- **Acceptance 1 (census)**: KAM1 conquest = 21 `tur_weap_built_gunturret`, all BUILT from the load on the PS2 (state 0, 800/800, kam1g_con and kam1c_con RAM), each at the port's position to 0.000 m; 42 PS2 | port pairs (two views each) show every one on its deck, same place, model and facing: `pairs_t1..3.png`, table `instance_table.md`. The other 12 of the 33 (`tur_bldg_chaingun_roof`) are the `kamino1_campaign` layer only - in no conquest battle on either side.
+- **Acceptance 2 (other maps)**: RAM census of every armed building, all 17 BF2 maps: PS2 122 / port 122 / matched 122, max 0.000 m, 0.00 deg; the 48 build zones = exactly the PS2's unbuilt pads. BF1's 15 maps too: 167 / 167 / 167, 0.000 m, 0.00 deg (`tools/census_bf2.py`, `census_bf1.py`; control: merging every layer flags 34 port-only rows). No defect, so nothing to fix.
+- **Acceptance 3 (test)**: void - there is no misplacement to pin; the census scripts are the re-runnable check (2 minutes for 32 maps, from the kept no-AI states).
+- **Grenades (planner note)**: `ordnance_census` ORDN_AT at his first deck (-125.6, 70.2, 151.0): 0 of 4 through (body `kam_bldg_aaa_bridge5`); second deck 0 of 4 (`kam_bldg_aaa_bridge1`). Written on GRFG too.
+- Found on the way (BZONE1's question): every BF1 `com_weap_gunturret` (118 on 11 maps) is UNBUILT at side select on the PS2; the port spawns them built. Note on BZONE1.
+- For the maintainer: if you want turrets on the AAA-bridge balconies anyway, that is a deliberate deviation from the PS2 - say so in INBOX and it becomes a card. Default taken: faithful (no turret there).

@@ -4,14 +4,14 @@ title: BF2's lamp glows that are not light: EntityLight lens flares (the red haz
 milestone: M1
 value: 4
 phase: build
-status: todo
+status: parked
 deps: BPNT,CPHOL
-files:
-declares:
-needs:
+files: engine/crates/bake/src/entity_light.rs, engine/crates/manifest/src/lib.rs, engine/crates/game/src/entity_glow.rs, engine/crates/render/src/lens_flare.rs, engine/crates/render/src/light_beam.rs, engine/crates/game/src/point_light.rs
+declares: ci; rebake=maps; goldens=maps/bf2_cor1.png,maps/bf2_dag1.png,maps/bf2_dea1.png,maps/bf2_end1.png,maps/bf2_fel1.png,maps/bf2_hot1.png,maps/bf2_kam1.png,maps/bf2_pol1.png,maps/bf2_tan1.png,maps/bf2_uta1.png,maps/bf2_yav1.png,hot1_spawn_class.png,hot1_spawn_map.png,hot1_spawn_side.png; parity=bf2_uta1,bf2_dea1
+needs: maintainer — the RTX is lost (nvidia-smi: Unable to determine the device handle for gpu 0000:01:00.0; gates: ADAPTER LOST); reboot, then a land job runs the gpu group
 effort:
-branch:
-resume:
+branch: lflr
+resume: land: branch lflr 6ea5b03; GPU-free gates as declared (lead_tmp/lflr/gates2/SUMMARY.md: ci +8 tests, bake DIFF=11 = the 11 BF2 maps' manifest.ron, rebake=maps); only the gpu group is left: expect the declared BF2 map goldens (and maybe hot1_spawn_*) to move once land phase 1 rebakes - VIEW them for the lamp haze / cones
 created: 2026-09-30
 alpha: yes
 ---
@@ -103,3 +103,16 @@ The lead re-read the GS words.
   lamp's light cone can reuse `render::Beam` (the same renderer, re-point-lights 15). Left for this card from the
   hologram: its flare (for g < 0 the beam's +0x124 alpha = A g^8 x HoloFlareIntensity, size +0x120, 15.6) and the
   icon sheet's UV animation (scan lines). The post light now takes the hologram's intensity (`point_light::dimmed`).
+
+## Build (2026-10-22, lane 1): built, parked on the lost RTX
+- Branch lflr 6ea5b03: bake glow keys + axes (`bake/src/entity_light.rs`, `ManifestLightGlow`), `render/src/lens_flare.rs`
+  (ParticleShape::Flare), the cone = the lightbeam fan with `top` = ConeFadeFactor, `game/src/entity_glow.rs` (lamps,
+  flicker, the flickering omnis at I). re-point-lights §16 holds what was read.
+- Acceptance run: 8 new unit tests (2 mutations caught: the coned flare's sign, the Synchronize share); the UTA1 bake replay
+  gives uta1_post_spot's cone 8 m down the hardpoint's +Y (axis y < -0.9), half-width 1 -> 4, factor 1 (RAM: len 6.4 + 1.6,
+  half-w 1 -> 4, CFF 1). Parity over the 11 BF2 maps whose manifests change (scratch maps bake, `lead_tmp/lflr/parity_branch`
+  vs main 9193a4c): UTA1 7.012 -> 6.875, DEA1 8.155 -> 7.952, the rest within +-0.04. UTA1 cp2_con_cp1a b180 box
+  (0,0,200,330) round the lamp: PS2 91.9/78.3/76.4, main 70.0/64.7/66.8, branch 81.5/71.2/69.6; the haze and the
+  downward cone are visible (`lead_tmp/lflr/lflr_sheet.png`, `diff_cp2.png`), at about half the PS2's added level (the
+  additive blend in linear light: card ADDB). The flare is cut by the lamp dish's depth like the PS2's GEQUAL test.
+- Left: the hologram's own flare + icon UV animation -> card HOLOF (value 2).

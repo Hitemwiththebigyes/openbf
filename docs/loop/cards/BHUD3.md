@@ -56,3 +56,10 @@ hidden only because nothing publishes their events, or their art is not baked.
 
 ## Planner note
 Planner 2026-10-21 20:50: the heat ring + overheat line moved to card OVHT (the maintainer's 10-21 ask, both games); leave them out here.
+
+Note from OVHT's RE 2026-10-22 (`analysis/re-heat-hud.md` 2, 5): two more uses of the reticle's rings for this card.
+(1) A COUNTED charge weapon (MaxPressedTime > 0: bowcaster, mortar launcher, arc caster, detpack, remote-droid destruct)
+fills the HEAT ring with its charge while the trigger is held: `FUN_003b3398` sends `.weapon1.heat` = +0xbc / +0xc0
+(time held / MaxPressedTime) in weapon state 3 (B2:409966-409980; state 3 entered by vtable +0xd8 `FUN_0032ee30`).
+(2) `.weapon1.refire` (the red bits) also carries a counted weapon's state-4 progress, 1 - +0xbc/+0xc0
+(B2:409971-409992); OVHT feeds only the overheat case.

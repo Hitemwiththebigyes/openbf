@@ -321,6 +321,12 @@ AI distance table. The port should not wire them into anything.
 
 ### 5.1 Kinematics + collision (BF1 FUN_002764c0; BF2 FUN_00313600) [V]
 
+> **Corrected 2026-10-22 (card UORD, `re-ordnance-kinds.md` §2):** the predictive ray below tests buildings + terrain
+> only (mask 0x48 / BF2 0x90); soldiers, vehicles, riders, water, foliage and shields are struck by the per-frame
+> prev -> current sweep (B1 `FUN_00273128`, 0x996 after the predictive ray; BF2 `FUN_0030fad0` 0x132e). A unit that
+> steps out of the line IS missed and one that steps in IS hit — the "cannot dodge" caveat below is wrong. Life-out
+> spawns `ExplosionExpire` for every class of the family.
+
 - Spawn (BF1 FUN_002762a0): `vel = dir × lerp(Velocity, NextCharge.Velocity,
   chargeFraction)`; remaining-time +0x3c = LifeSpan; collision-pending flag
   +0x38 = 1. If the spawn packet carried a magnet target (aim-assist
@@ -534,6 +540,9 @@ Runtime instance offsets: §3.1. LockTime-like key 0x448fbce3 (BF1 wpnc dump
 value 0.4) is in the BASE class region — untraced.
 
 ### 7.3 OrdnanceClass family (BF1 FUN_002738a8+FUN_002774b0(+FUN_0027e668) / BF2 FUN_00310620+FUN_00314b98(+FUN_003204c0))
+
+> **Corrected 2026-10-22 (card UORD, `re-ordnance-kinds.md` §6):** the shell setter (`FUN_0027e668` / `FUN_003204c0`)
+> reads only `Gravity`; `Rebound` / `Friction` are read by the `grenade` ordnance class and items, never by a shell.
 
 | key | hash | BF1 off | BF2 off | notes |
 |---|---|---|---|---|

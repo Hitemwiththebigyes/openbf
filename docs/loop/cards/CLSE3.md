@@ -4,14 +4,14 @@ title: Polis Massa after CLSE: inside 10 m the port's bots still deal 0.36 of th
 milestone: M3
 value: 4
 phase: measure
-status: todo
+status: done
 deps: CLSE
 files: engine/crates/core/src/perception.rs
 declares: sweep; arena
 needs:
 effort:
 branch:
-resume:
+resume: measured 2026-10-22 (report reports/20261022_0720_card_CLSE3.md): the gap is crowding (3.38 aimers per victim vs 1.40) x the victim's hurt rate (0.62 x); two PS2 gunnery rules knocked in moved nothing; follow-up CLSE6
 created: 2026-10-09
 alpha: yes
 ---
@@ -46,3 +46,9 @@ maps. After its landing (77f4c70) Kamino is at 0.75 x (53 hp against 71) and **P
   met, in the report; the cause named with its share.
 - Then a landed build with Polis Massa's inside-10 m figure at 0.67 x the PS2's 81 hp or more, 256 of 256
   rounds, team kills not above main's share - or the numbers that say why it cannot be reached faithfully.
+## Result (2026-10-22, measure; main 9193a4c; `lead_tmp/clse3/`, report `loop/reports/20261022_0720_card_CLSE3.md`)
+Polis Massa inside 10 m is now 22.0 hp per aimer-second against the PS2's 80.8 (0.27 x; Kamino 32.6 / 70.6 = 0.46 x). The cause
+tables are in the report. The largest term is not gunnery: the metric splits every fall over the victim's aimers and the port's
+victim has 3.38 of them against the PS2's 1.40 (0.41 x); the victim's own hurt rate is 63.6 against 103.3 hp/s (0.62 x).
+Knock-ins of two PS2 rules (sight line from the eye to the target point; 22.5 deg trigger cone) left the figure at 19-23 hp.
+The 0.67 x per aimer-second bar is not reachable by the gunner alone; card CLSE6 carries the crowd and the hurt rate.

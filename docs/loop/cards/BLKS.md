@@ -4,14 +4,14 @@ title: The black box's human row carries the sprint's inputs (energy, the deplet
 milestone: M0
 value: 4
 phase: build
-status: todo
+status: parked
 deps:
 files: engine/crates/game/src/blackbox.rs
-declares:
-needs:
+declares: ci (+1 test)
+needs: maintainer - RTX lost (reboot); built, ci + GPU-free gates pass, lands with the other parked branches (STATUS item 0)
 effort:
-branch:
-resume:
+branch: blks
+resume: land: python3 scripts/land.py BLKS once the RTX is back (only ci +1 test declared; GPU-free gates lead_tmp/blks/gates2/SUMMARY.md)
 created: 2026-10-04
 alpha: yes
 ---
@@ -36,3 +36,4 @@ Filed 2026-10-04 by Claude in chat from the maintainer's playtest (build 1bde70c
 - 2026-10-05 (the maintainer, via Claude): the snapshot's header also names the ACTIVE CHEATS. The maintainer has played every test so far with invincibility and infinite ammo on, so no kill / death number in a snapshot to date describes a human (card HSTD must not use them).
 - 2026-10-05 planner: value 3 -> 4: card HSTD (4, the first step of the maintainer's difficulty cards) waits on this one, and the maintainer asked for the stormtrooper's sprint to be investigated. Undo: `loopctl.py set BLKS value=3`.
 - 2026-10-06 planner: **read SPUP's find before the headless check** (c1ae263, `reports/20261006_1310_card_SPUP.md`). The maintainer's left stick peaks at 32255 of 32767 (0.984) in every snapshot; a sprint start asked 0.9 x MaxSpeed and his run on a slope fell under it. That may be the whole of "the stormtrooper's sprint did nothing on KAS2" (a beach and slopes) while "fine as BF2 clones" was Kamino's flat decks. First step: in `playtest/prev1.json` read the stick's peak, the floor's slope under the two sprint-bit samples and the speed against 0.9 x MaxSpeed (BF1's uphill rule is the normal's y). If SPUP's two changes (`input::STICK_FULL` 0.95; the start test along the floor) already cover them, say so on the card and keep only the black box's fields + the headless check. The snapshots predate SPUP (build 1bde70c).
+- 2026-10-22 07:14 build (lane 1): branch `blks` e90d331. Schema 7: HumanRow energy / depleted / stance_t / max_speed / floor_ny; blackbox_read prints them per human line + a SPRINT section (each spell of SPRINT + stick forward: stance reached, top vs MaxSpeed, and for one under 1.2 x what the rows say stood in the way: latch, empty pool, FIRE held (the sim masks SPRINT while FIRE is held, step.rs), stick < 0.9, standing rows under the start test, short sprint, airborne). The 10-04 snapshots named above have rotated out (oldest playtest file now 10-16), so SPUP's first-step read cannot be done; on the maintainer's current files (BF2, schema 5) every spell reached sprint stance at 10.5-12.7 m/s. Headless check (`lead_tmp/blks/tools/blks_sprint.rs`, output `lead_tmp/blks/kas2_bf1_sprint.txt`): BF1 imp_inf_storm_trooper on KAS2 (MaxSpeed 6.5, BF1 rules) reaches 1.50 x (9.75 m/s) on 4 flat, 8 beach-slope (floor y 0.94-0.97, up and down), 8 steep (0.84-0.89, up and down) and 4 shallows spots, in sprint from tick 2-4 each time. Nothing to fix on today's main; if the maintainer sees it again, the snapshot now says why. Side note: one steep-up spot (170, 22.4, -160) peaked 14.1 m/s (2.17 x) - a drop off a ledge, not checked.

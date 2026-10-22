@@ -1062,3 +1062,38 @@ ground. Descending, it falls onto the slope and loses nothing.
 prim that no leg pair claims (v.y = 0, push-out by normal × depth; BF2's also sets supported), and the pass moves
 between the controllable and the body task (today it runs last, which would zero v.y before the fall and hide the
 creep). Referees: the three parked NAB1 kaadus' velocity vectors above, and the slope table.
+
+## 17. The collision bodies ride the live pose [O] (AUDIT of card RKHUL, 2026-10-22)
+
+A walker's collision prims are placed on its ANIMATED bones every update, not at the bind. Static read only (no RAM
+sample); two separate workflow readers, each SUPPORTED on all four claims, plus the auditor's own `re_check` runs.
+
+- **The body matrix [V].** B2 `FUN_00160160` (B2:121-218; `re_check fn`): with a table and a PRNT hash (body+0x48,
+  MIPS 0x160180 `lw a2,72(s0)`), each output row is the XFRM row times the table matrix (B2:154-188, VMULA.x / VMADDA.y
+  / VMADDA.z / VMADD.w broadcasting the XFRM row over the table's rows; ELF words 0x1601b0-0x1601bc): body = XFRM ×
+  table[PRNT], row vectors, XFRM first - the order the port's `bake::bind_pose::prims_at_bind` uses. No table, hash 0
+  or a failed lookup: the XFRM alone. B1 `FUN_00160160` (B1:121-220) is the same (hash at body+0x44, lookup
+  `FUN_00444998`). (`analysis/re-turret-collision.md` 1.1 for the armed building.)
+- **The walker's table [V].** The BF2 walker ctor `FUN_00259970` writes the physics vtable 0x61f7f0 at E+0xcc
+  (B2:175465); slot +0x4c is word 0x61f83c = 0x00267438 = `jr ra` with delay slot 0x26743c = 0x24821d6c (`addiu v0,
+  a0, 0x1d6c`): the table is (E+0x10)+0x1d6c = E+0x1d7c (`re_check word`). Slot +0x24 is `FUN_001691a0`, the same ray
+  getter as the armed building's, and the target-point queries `FUN_002133c8` / `FUN_00213488` call slot +0x4c on
+  E+0x10 (re-turret-collision 1.2). The ctor's `FUN_0057e988(E+0x1d7c, E+0x550)` (B2:175724, in `FUN_00259970`)
+  enters, per bone, a POINTER to the skeleton instance's matrix E+0x550+0x10+0x40·i. A commandwalker's vtable
+  0x62bde0 keeps the same three slots.
+- **Rewritten every update [V].** `FUN_00261208` (the walker task) calls `FUN_00533f20(E+0x550, 0x73d8c0)`
+  (B2:180843; B2:180841, cited here first, is the line before - card VPOSW), which ends in `FUN_00533d38`, writing each bone's 64-byte matrix at +0x10+0x40·i. So the prims follow
+  the clip, with `FUN_0025f050`'s root yaw / pitch edits (§10) in the matrices.
+- **BF1 [V].** Ctor `FUN_00215c88` writes vtable 0x533a80 at E+0x1c0; slot +0x44 is word 0x533ac4 = 0x0021fd10 =
+  `jr ra; addiu v0,a0,0x1dc0` (0x21fd14 = 0x24821dc0): table E+0x1ec0, filled by `FUN_00497f28` with pointers to the
+  instance's bone matrices; the walker task `FUN_0021b3a0` calls `FUN_00440b38(E+0x690, 0x66ef20)` every update
+  (B1:131561).
+
+**The port (main a88147b onward).** RKHUL bakes each prim through its bone's BIND matrix and `Sim::sync_hull` places
+it rigidly (PROVISIONAL there). The drawn walker is posed by its clips (`game::viewer::vehicles` `pose_meshes`). A
+pad-spawned walker after 90 ticks (idle, clip_time 0.97 spider): the BF2 spider's leg cylinders sit 3.34-3.47 m, its
+foot spheres 3.64-4.29 m and its body sphere 0.89-0.96 m from the drawn idle legs and body; drawn idle vertices inside
+the hull 1208 against 4980 at the bind model; rockets at the prims' drawn points hit 35 / 42 (BF2 GEO1) and 39 / 46
+(BF1 GEO1) - 10 of 16 spider legs, 1 joint box and 3 of 3 AT-TE main barrels pass through - while rockets at the bind
+points hit 46 / 46. Card WHULL. [H]: the PS2's own spider idle pose was not captured; the gap above is the port's
+drawn pose against the port's hull.

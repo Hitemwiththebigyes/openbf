@@ -4,13 +4,14 @@ title: Mission data still unconsumed: `spawn_delay`/`spawn_interval` into `Spawn
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: parked
 deps:
-files:
+files: engine/crates/game/src/mission.rs, engine/crates/core/src/announcer.rs, engine/crates/core/src/battle.rs, engine/crates/game/src/announce.rs, engine/crates/game/src/main/battle.rs, engine/crates/game/examples/round_to_outcome.rs
 declares:
-needs:
-branch:
-resume:
+needs: maintainer - the RTX is lost (gates gpu ADAPTER LOST: only Intel + llvmpipe); part 1 (8b30501) passes ci + every GPU-free gate but touches core::announcer / game, so the golden step must run on the NVIDIA adapter: reboot, then a land job takes it
+effort:
+branch: msnd
+resume: LAND part 1 (branch msnd 8b30501; GPU-free gates lead_tmp/msnd/gates2/SUMMARY.md all PASS, ci MOVED = +2 tests) once the RTX is back. Part 2 (split it: planner): field the locals team - a THIRD sim team (Sim is 2-team: Battle.teams, waves, commander are [_; 2]) with infinite tickets (re-tickets-spawn.md 2.1), the disc's 2-3 classes per map (UAUD1/UAUD2 notes), the BF2 locals cap (re-tickets-spawn.md line 157: sum of CP spawn values), and bakes of ewk/wok/gun/tat/geo native models; era stays informational
 created: 2026-09-25
 alpha: yes
 ---
@@ -48,3 +49,12 @@ Each field consumed with a test; the sweep / arena moves declared (a re-baseline
 - 2026-10-16 (card UTALK): the natives' voice is built and waits on the locals team: a fielded Gungan says its
   `gungan_chatter_heartbeat` (LowHealthThreshold 1.1) whenever its own line is over - on the PS2 16 of NAB1's 32 voice lines a
   minute. With the locals fielded, re-run UTALK's census (`lead_tmp/utalk/census/`, tab.py's `lowhealth` row) on NAB1.
+
+## Part 1 (2026-10-22, lane 1, branch msnd 8b30501) - built, parked on the lost RTX
+- `MissionDef::apply_round_rules` (game + sweep): spawn waves from `spawn_delay`/`spawn_interval` (all 57 RONs say
+  10 / 0.25 = the old fixed default, so sim/sweep/arena/leak/fidelity are identical); `SetAttackingTeam` on
+  `Battle.attacking_team` (port team), read by `core::announcer::listener_team` (re-announcer.md 2.0: player 0's team,
+  1 with none, the attacking team once a second local player is on the other team).
+- Per-team cap on the asymmetric BF1 maps was already right (`initial_ai`: kas1 31 + 25, nab2 21 + 25); pinned by a test.
+- Acceptance run: `round_rules_reach_the_sim` + `listener_is_player_zero_or_the_attacking_team` pass; 3 mutations
+  (no checked_sub, delay fixed at 10, split ignored) each fail them.
