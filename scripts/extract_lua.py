@@ -171,7 +171,7 @@ def main():
     # candidate names for hash back-matching
     candidates = {}
     for wl in args.names:
-        with open(wl) as f:
+        with open(wl, encoding="utf-8") as f:
             for line in f:
                 w = line.strip()
                 if w:

@@ -1418,7 +1418,9 @@ def main():
                 else "_con_cw.ron"
             out = os.path.join(OUT_DIR, key + suffix)
             if not args.check:
-                with open(out, "w") as fh:
+                # UTF-8 on every OS: the header comments carry an em dash, and Windows' default (cp1252) wrote
+                # bytes the game's UTF-8 read refused, so every mission failed to load there.
+                with open(out, "w", encoding="utf-8", newline="\n") as fh:
                     fh.write(ron(m))
                 written += 1
             rows.append((os.path.basename(out), m))

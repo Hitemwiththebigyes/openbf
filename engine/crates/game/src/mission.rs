@@ -240,7 +240,18 @@ pub fn pick(dir: &Path, map: &str, mode: &str, armies: [&str; 2]) -> Option<Pick
         .iter()
         .filter_map(|s| {
             let path = dir.join(format!("{map}_{mode}{s}.ron"));
-            MissionDef::load(&path).ok().map(|m| (path, m))
+            // Most era suffixes have no file; one that exists and fails to
+            // load is a broken mission, and is said (a Windows bake once wrote
+            // them in cp1252 and every battle ran without its mission).
+            match MissionDef::load(&path) {
+                Ok(m) => Some((path, m)),
+                Err(e) => {
+                    if pak::is_file(&path) {
+                        eprintln!("mission: {e:#}");
+                    }
+                    None
+                }
+            }
         })
         .collect();
     let pairs: Vec<[String; 2]> = found.iter().map(|(_, m)| m.factions()).collect();

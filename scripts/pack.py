@@ -125,7 +125,7 @@ def missing_music():
     out = []
     for idx in glob.glob(os.path.join(BAKED, "*/sounds/streams/streams.ron")) + \
             glob.glob(os.path.join(BAKED, "audio/global_*/global.ron")):
-        text = open(idx).read()
+        text = open(idx, encoding="utf-8").read()
         d = os.path.dirname(idx)
         # source: "x.lvl", channels: N, block_size: N, data_offset: N, bytes: N, baked: false
         for m in re.finditer(r'source:\s*"([^"]+)",[^)]*?data_offset:\s*(\d+),\s*bytes:\s*\d+,\s*baked:\s*false', text):

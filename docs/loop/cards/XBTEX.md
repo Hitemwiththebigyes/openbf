@@ -4,10 +4,10 @@ title: The Xbox discs as texture donors: pack.py / rebake.sh find the Xbox BF1 a
 milestone: M1
 value: 5
 phase: build
-status: in-progress
+status: todo
 deps:
-files: engine/crates/bake/src/tier.rs, scripts/pack.py, scripts/rebake.sh
-declares:
+files: engine/crates/bake/src/tier.rs, engine/crates/mungefs/src/texture_xbox.rs, engine/crates/mungefs/src/xdvdfs.rs, engine/crates/bake/src/main.rs, engine/crates/game/src/assets.rs, scripts/pack.py, scripts/rebake.sh
+declares: rebake=tat1,tat2,common,side,maps
 needs:
 effort:
 branch: xbtex
