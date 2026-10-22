@@ -92,7 +92,7 @@
 //!                                 the disc's mirrored one (default on)
 //!   OPENBF_TERRAIN_LIGHTS=0       no BF2 terrain light pass (default on)
 //!   OPENBF_PROFILE=<file>         the profile file (default
-//!                                 $XDG_CONFIG_HOME/openbf/profile.ron)
+//!                                 openbf_data/profile.ron beside the game)
 //!   OPENBF_ADAPTER=igpu|dgpu|<name>  the GPU (default: high performance)
 //!   OPENBF_GPU_TIMING=1           GPU ms per section of the frame (timestamp
 //!                                 queries; `--bench` prints them, the

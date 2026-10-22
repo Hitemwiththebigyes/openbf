@@ -3,9 +3,9 @@
 //! v0 = one RON file; awards/unlock progression and per-mode stats grow in
 //! here (P8). Cheats are deliberately NOT persisted (session-scoped by design).
 //!
-//! Location: `$OPENBF_PROFILE` (tests/dev override) else
-//! `$XDG_CONFIG_HOME/openbf/profile.ron` else `~/.config/openbf/profile.ron`;
-//! on Windows `%APPDATA%\openbf\profile.ron` (card WIN).
+//! Location: `$OPENBF_PROFILE` (tests/dev override) else `profile.ron` in
+//! [`data_dir`], `openbf_data/` beside the game file (the maintainer, 2026-10-21: on every
+//! OS, nothing in %APPDATA% or ~/.config).
 //! Saves are atomic (write `.tmp`, rename).
 
 use anyhow::{Context, Result};
@@ -85,6 +85,15 @@ pub struct Career {
     pub captures: u32,
 }
 
+/// Where the game keeps what it writes (the profile, the playtest snapshots of
+/// a packed build): `openbf_data/` beside the running game file, on every OS.
+pub fn data_dir() -> PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(|p| p.join("openbf_data")))
+        .unwrap_or_else(|| PathBuf::from("openbf_data"))
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct Profile {
     pub name: String,
@@ -97,12 +106,7 @@ impl Profile {
         if let Some(p) = std::env::var_os("OPENBF_PROFILE") {
             return PathBuf::from(p);
         }
-        let base = std::env::var_os("XDG_CONFIG_HOME")
-            .or_else(|| std::env::var_os("APPDATA").filter(|_| cfg!(windows)))
-            .map(PathBuf::from)
-            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
-            .unwrap_or_else(|| PathBuf::from("."));
-        base.join("openbf").join("profile.ron")
+        data_dir().join("profile.ron")
     }
 
     /// Load the profile, or a fresh default one (also when the file is

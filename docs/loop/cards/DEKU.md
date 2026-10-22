@@ -4,14 +4,14 @@ title: The droideka unit in the sim: its 14-state form machine (fold 0.50 s, unf
 milestone: M1
 value: 4
 phase: build
-status: in-progress
+status: parked
 deps:
 files: engine/crates/core/src/droideka.rs,engine/crates/core/src/droideka/tests.rs,engine/crates/core/src/sim.rs,engine/crates/core/src/lib.rs
 declares:
-needs:
+needs: maintainer — the RTX is lost (nvidia-smi: Unknown Error, the same Xid 79 NODMG hit at 19:45); a new core file runs the golden step, which needs the NVIDIA adapter. Reboot, then a land job takes it
 effort:
 branch: deku
-resume:
+resume: land: python3 scripts/land.py DEKU (branch deku b04f2b0; ci EXIT=0, every GPU-free gate PASS in lead_tmp/deku/gates_nogpu/SUMMARY.md; nothing declared - the module is not fielded, so the goldens must come back byte-identical)
 created: 2026-10-03
 alpha: yes
 first: 6
@@ -36,3 +36,8 @@ Tests in `core` (each printed in the report): (1) the transition table equals th
 
 ## Planner note
 Planner 2026-10-21 20:50 (the maintainer via INBOX 17:50 item 3): `first: 6` - the droideka playable and fielded first; order DEKU, DEKD, DEKF, then DEKS.
+
+## Build notes (2026-10-21 22:15, lane 2)
+- Built: `core::droideka` (branch deku b04f2b0), report `reports/20261021_2215_card_DEKU.md`. `sim.rs` not touched: nothing spawns the unit yet.
+- Bar (5) as written (1.27 +- 0.05) is the continuous v0^2 / 2g. The PS2's own order (position, then gravity, twice a tick; B2:109626-109653) gives a discrete apex of 1.354 m at 30 Hz, and the test holds that value. Bar (3)'s drop takes 16 ticks = 0.533 s, inside 0.505 +- one tick.
+- For DEKF / DEKD: `StepReport::weapons_off / weapons_on` must set each weapon's `active` (the PS2 stops a salvo already in progress: B1 FUN_001d0a68 slot +0x58). BF2's walk-form ordnance bodies (13 `p_-o-` bone prims) are not in `prims()`. The BF2 ball boost (sprint) is not built.

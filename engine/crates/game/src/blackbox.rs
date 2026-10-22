@@ -110,15 +110,19 @@ pub fn on() -> bool {
 
 /// Where the snapshots go: `OPENBF_BLACKBOX_DIR`, else
 /// `engine/artifacts/playtest` — found from the repository root or from
-/// `engine/`, where the game is run.
+/// `engine/`, where the game is run. A packed build run from anywhere else
+/// writes beside the profile ([`crate::profile::data_dir`]: `openbf_data/playtest`
+/// beside the game file).
 pub fn default_dir() -> PathBuf {
     if let Some(d) = std::env::var_os("OPENBF_BLACKBOX_DIR") {
         return PathBuf::from(d);
     }
     if Path::new("engine/artifacts").is_dir() {
         PathBuf::from("engine/artifacts/playtest")
-    } else {
+    } else if Path::new("artifacts").is_dir() || !pak::packed() {
         PathBuf::from("artifacts/playtest")
+    } else {
+        crate::profile::data_dir().join("playtest")
     }
 }
 
