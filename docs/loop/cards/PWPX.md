@@ -4,14 +4,14 @@ title: Pickups against the PS2: a PCSX2 frame of an item beside the port's (size
 milestone: M3
 value: 3
 phase: capture
-status: todo
+status: blocked
 deps:
 files: engine/crates/core/src/sim/pickups.rs,engine/crates/game/src/viewer/pickups.rs
 declares:
-needs:
+needs: Restore pickup captures/item reader, rate-census patch, NAB1/HOT1/MYG1/UTA1 baked maps and missions; compare every item class and split moving/still pickup rates.
 effort:
 branch:
-resume:
+resume: 2026-10-24 11:57 UTC: planner prerequisite hold; 9/9 exact named paths absent. Restore pickup captures/item reader, rate-census patch, NAB1/HOT1/MYG1/UTA1 baked maps and missions; compare every item class and split moving/still pickup rates. All original acceptance retained. reports/20261024_1151_planner.md; inventory/continuation lead_tmp/planner_20261024_1151/.
 created: 2026-10-03
 alpha: yes
 ---

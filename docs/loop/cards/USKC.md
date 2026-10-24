@@ -4,14 +4,14 @@ title: CollisionRootScale: a soldier class's collision size (Wookiee 1.15, BF2 s
 milestone: M3
 value: 3
 phase: re
-status: todo
+status: blocked
 deps:
 files: engine/crates/core/src/unit.rs, engine/crates/game/src/roster.rs
 declares:
-needs:
+needs: Restore both corpora/ELFs and fielded-class census; identify hit primitives and scaled AI point before implementing capsule changes.
 effort:
 branch:
-resume:
+resume: 2026-10-24 13:06 UTC: planner restoration hold, 7 exact named inputs absent. Restore both corpora/ELFs and fielded-class census; identify hit primitives and scaled AI point before implementing capsule changes. Original measurable acceptance unchanged. reports/20261024_1306_planner.md; lead_tmp/planner_20261024_1303/preflight.json.
 created: 2026-10-16
 ---
 ## Why

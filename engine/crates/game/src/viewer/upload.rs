@@ -13,8 +13,7 @@ use render::{
 };
 use std::path::Path;
 
-/// Unit cube (±0.5, face normals) — the walk-mode soldier marker until
-/// skinned soldier models bake.
+/// Unit cube (±0.5, face normals) for fallback markers and debug draws.
 pub fn upload_unit_cube(r: &mut Renderer) -> Result<MeshHandle> {
     let mut positions = Vec::with_capacity(24);
     let mut normals = Vec::with_capacity(24);
@@ -49,8 +48,8 @@ pub fn upload_unit_cube(r: &mut Renderer) -> Result<MeshHandle> {
 
 /// Unit quad in the XY plane (+-0.5), for camera-facing billboards
 /// (`game::fx`). Its normals point INTO the sun, so the lambert term is
-/// constant and an effect does not dim as the camera turns — the renderer has
-/// no unlit path and effects should not flicker with view angle.
+/// constant on a lit draw as the camera turns. Draws may also select the
+/// renderer's unlit path.
 pub fn upload_billboard_quad(r: &mut Renderer) -> Result<MeshHandle> {
     let n = (-render::Lighting::default().sun_dir).to_array();
     r.add_mesh(&MeshData {
@@ -69,9 +68,8 @@ pub fn upload_billboard_quad(r: &mut Renderer) -> Result<MeshHandle> {
 }
 
 /// Procedural sprite for placeholder effects (`game::fx`): a radial blob,
-/// bright in the middle, with a HARD alpha edge — the renderer alpha-tests at
-/// 0.5 and does not blend, so a soft alpha ramp would just pop. The RGB
-/// falloff is what makes it read as round rather than as a square.
+/// bright in the middle, with a soft radial alpha and RGB falloff for
+/// composited effect draws.
 pub fn upload_fx_sprite(r: &mut Renderer) -> Result<TextureHandle> {
     const N: u32 = 32;
     let mut rgba = Vec::with_capacity((N * N * 4) as usize);
@@ -138,7 +136,7 @@ pub fn upload_cpu_texture_scrolling(
 }
 
 /// `wrap_v` is [`render::WrapV::Repeat`] for every caller but a clamped sky
-/// shell (see [`sky_wrap_v`]).
+/// shell (see [`super::scene::sky_wrap_v`]).
 pub(super) fn upload_cpu_texture_inner(
     r: &mut Renderer,
     t: &CpuTexture,
@@ -219,13 +217,7 @@ pub fn upload_submeshes<'a>(r: &mut Renderer, cpu: &'a CpuMesh) -> Result<Vec<Su
         let mesh = if single {
             // One submesh already owns every vertex; compacting would copy
             // the arrays for nothing.
-            r.add_mesh(&MeshData {
-                positions: &cpu.positions,
-                normals: &cpu.normals,
-                uvs: &cpu.uvs,
-                colors: Some(&cpu.colors),
-                indices: idx,
-            })
+            r.add_mesh(&cpu.mesh_data(idx))
         } else {
             // Each submesh gets ONLY the vertices its own indices touch.
             //
@@ -238,13 +230,7 @@ pub fn upload_submeshes<'a>(r: &mut Renderer, cpu: &'a CpuMesh) -> Result<Vec<Su
             // could only ever cull all of a model or none of it. Compacting
             // is what lets a split mesh — the terrain — be culled piecewise.
             let sub = compact_submesh(cpu, idx);
-            r.add_mesh(&MeshData {
-                positions: &sub.positions,
-                normals: &sub.normals,
-                uvs: &sub.uvs,
-                colors: Some(&sub.colors),
-                indices: &sub.indices,
-            })
+            r.add_mesh(&sub.mesh_data())
         }
         .map_err(|e| anyhow!("mesh upload: {e}"))?;
         out.push((
@@ -266,6 +252,18 @@ pub(super) struct CompactSubmesh {
     pub(super) uvs: Vec<[f32; 2]>,
     pub(super) colors: Vec<[u8; 4]>,
     pub(super) indices: Vec<u32>,
+}
+
+impl CompactSubmesh {
+    pub(super) fn mesh_data(&self) -> MeshData<'_> {
+        MeshData {
+            positions: &self.positions,
+            normals: &self.normals,
+            uvs: &self.uvs,
+            colors: Some(&self.colors),
+            indices: &self.indices,
+        }
+    }
 }
 
 pub(super) fn compact_submesh(cpu: &CpuMesh, idx: &[u32]) -> CompactSubmesh {

@@ -95,14 +95,6 @@ pub fn event_index(name: &str) -> u8 {
         .map_or(0, |(i, _)| *i)
 }
 
-/// An event's name, for a log.
-pub fn event_name(index: u8) -> &'static str {
-    EVENTS
-        .iter()
-        .find(|(i, _)| *i == index)
-        .map_or("?", |(_, n)| n)
-}
-
 /// `VORadius`: the class constructor's 50.0 (`lui 0x4248` at B2 0x269ec8);
 /// no class on the disc authors the key (re-unit-chatter.md 3.1).
 pub const VO_RADIUS: f32 = 50.0;
@@ -190,7 +182,10 @@ pub fn parse_entry(value: &str) -> Option<Entry> {
     let event = event_index(t.next()?);
     let mut cond = 0u32;
     for c in t {
-        if c.len() > 9 && c[..9].eq_ignore_ascii_case("VOUnitNum") {
+        if c.len() > 9
+            && c.get(..9)
+                .is_some_and(|p| p.eq_ignore_ascii_case("VOUnitNum"))
+        {
             let n = c[9..].parse::<u32>().unwrap_or(0) & 0xff;
             cond = (cond & !0x00ff_0000) | (n << 16);
         } else if let Some((mask, v)) = token(c) {
@@ -564,6 +559,14 @@ mod tests {
             },
             lines,
         }
+    }
+
+    #[test]
+    fn multibyte_unknown_condition_is_ignored() {
+        assert_eq!(
+            parse_entry("s FriendlyFire VOUnitNué1"),
+            parse_entry("s FriendlyFire")
+        );
     }
 
     #[test]

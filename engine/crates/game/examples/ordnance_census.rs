@@ -55,6 +55,9 @@ use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
+#[path = "support/ordnance_grid.rs"]
+mod ordnance_grid;
+
 const LEVELS: usize = 8;
 const HEADROOM: f32 = 1.8;
 const HUB_BAND: f32 = 6.0;
@@ -72,17 +75,7 @@ fn mission_for(key: &str) -> Option<game::mission::MissionDef> {
 
 /// `leak_census`'s sim: mode layer, common props, death regions, nav graph.
 fn build_sim(key: &str, path: &Path) -> Option<(game::walk::WalkSim, Vec<String>, bool)> {
-    let mut scene = game::assets::load_scene(path).ok()?;
-    scene.apply_mode_layer("con");
-    if let Some(cd) = path
-        .parent()
-        .map(|p| p.join(format!("common_{}", scene.manifest.source_game)))
-        .filter(|d| d.join("common.ron").exists())
-    {
-        if let Ok(c) = game::assets::load_common(&cd) {
-            scene.merge_common(c);
-        }
-    }
+    let (scene, _) = game::assets::load_battle_scene(path, "con").ok()?;
     let mission = mission_for(key);
     let mut layout = game::layout::MapLayout::from_manifest(&scene.manifest);
     let applied = mission.as_ref().map(|m| layout.apply_mission(m));
@@ -404,8 +397,10 @@ fn run_map(
     at: Option<Vec3>,
     dynamic: bool,
     accepted: &[Accepted],
-) -> Option<Report> {
-    let (mut w, labels, bf2) = build_sim(key, path)?;
+) -> Result<Option<Report>, String> {
+    let Some((mut w, labels, bf2)) = build_sim(key, path) else {
+        return Ok(None);
+    };
     let sim = &mut w.sim;
     let wc = sim.add_weapon_class(thermal(bf2));
     let mut text = String::new();
@@ -428,7 +423,9 @@ fn run_map(
         floors.push(Vec3::new(p.x, g, p.z));
     } else {
         // The hubs' box (seven BF2 maps have no heightfield).
-        let nav = sim.nav.as_ref()?;
+        let Some(nav) = sim.nav.as_ref() else {
+            return Ok(None);
+        };
         let (mut x0, mut z0, mut x1, mut z1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
         for h in &nav.hubs {
             x0 = x0.min(h.pos.x - h.radius);
@@ -436,11 +433,11 @@ fn run_map(
             x1 = x1.max(h.pos.x + h.radius);
             z1 = z1.max(h.pos.z + h.radius);
         }
-        if x0 > x1 {
-            return None;
+        if nav.hubs.is_empty() {
+            return Ok(None);
         }
-        let (x0, z0) = ((x0 / cell).floor() * cell, (z0 / cell).floor() * cell);
-        let n = ((x1 - x0).max(z1 - z0) / cell) as usize + 1;
+        let (x0, z0, n) =
+            ordnance_grid::bounds(x0, z0, x1, z1, cell).map_err(|e| format!("{key}: {e}"))?;
         let mut off_band: Vec<Vec3> = Vec::new();
         for iz in 0..=n {
             for ix in 0..=n {
@@ -568,7 +565,7 @@ fn run_map(
             p.x, p.y, p.z
         );
     }
-    Some(Report {
+    Ok(Some(Report {
         text,
         sites,
         floors: floors.len(),
@@ -577,20 +574,22 @@ fn run_map(
         through,
         accepted: acc,
         new,
-    })
+    }))
 }
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let want: Vec<String> = std::env::args().skip(1).collect();
     let dir = game::assets::baked_root();
     let maps: Vec<(String, String, std::path::PathBuf)> = game::assets::discover_maps(&dir)
         .into_iter()
         .filter(|(k, _, _)| want.is_empty() || want.iter().any(|w| w == k))
         .collect();
-    let cell = std::env::var("ORDN_CELL")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(2.0f32);
+    let cell_env = std::env::var("ORDN_CELL");
+    let cell = ordnance_grid::parse_cell(match &cell_env {
+        Ok(value) => Some(value.as_str()),
+        Err(std::env::VarError::NotPresent) => None,
+        Err(e) => return Err(format!("ORDN_CELL: {e}").into()),
+    })?;
     let at = std::env::var("ORDN_AT").ok().and_then(|v| {
         let p: Vec<f32> = v.split(',').filter_map(|s| s.trim().parse().ok()).collect();
         (p.len() == 3).then(|| Vec3::new(p[0], p[1], p[2]))
@@ -598,7 +597,8 @@ fn main() {
     let dynamic = std::env::var_os("ORDN_STATIC").is_none();
     let accepted = accepted_list();
     let next = AtomicUsize::new(0);
-    let out: Mutex<Vec<Option<Report>>> = Mutex::new((0..maps.len()).map(|_| None).collect());
+    let out: Mutex<Vec<Result<Option<Report>, String>>> =
+        Mutex::new((0..maps.len()).map(|_| Ok(None)).collect());
     let threads = std::thread::available_parallelism().map_or(1, |n| n.get().min(16));
     std::thread::scope(|sc| {
         for _ in 0..threads.min(maps.len().max(1)) {
@@ -617,6 +617,7 @@ fn main() {
     let (mut f, mut g, mut r, mut t, mut acc, mut new) = (0, 0, 0, 0, 0, 0);
     let mut sites = String::new();
     for (i, rep) in out.iter().enumerate() {
+        let rep = rep.as_ref().map_err(|e| e.as_str())?;
         let Some(rep) = rep else {
             println!("{:10} LOAD FAILED", maps[i].0);
             continue;
@@ -637,4 +638,5 @@ fn main() {
         "ordnance: maps {}  floors {f}  gaps {g}  runs {r}  through {t}  accepted {acc}  new {new}",
         maps.len()
     );
+    Ok(())
 }

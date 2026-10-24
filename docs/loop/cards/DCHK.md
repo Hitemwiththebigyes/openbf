@@ -4,14 +4,14 @@ title: Droid soldiers blow apart as the PS2's do (BF1 CW, BF2): a class with chu
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: blocked
 deps: KNOCK
 files: engine/crates/core/src/sim/blast.rs,engine/crates/core/src/sim/combat.rs,engine/crates/core/src/unit.rs,engine/crates/game/src/classdb.rs,engine/crates/game/src/roster.rs,engine/crates/game/src/soldier_vis.rs,engine/crates/bake/src/soldier.rs
 declares: rebake=side; sim; sweep; arena
-needs:
+needs: environment — Restore soldier class/chunk bakes, both disc sources, missions and original KNOCK droid raw capture/PS2-state kit.
 effort:
 branch:
-resume:
+resume: 2026-10-24 10:33 UTC: planner prerequisite hold; no new implementation/acceptance. Retake current-main push/death and both-disc class census; preserve 1000-droid distribution, mark/death/overkill/corpse controls, PS2 chunk pair and paired 8x32 sweep. Exact missing paths: lead_tmp/planner_20261024_1026/preflight.json. Restore or regenerate verified equivalent inputs before clearing hold. reports/20261024_1026_planner.md
 created: 2026-10-07
 ---
 ## Why

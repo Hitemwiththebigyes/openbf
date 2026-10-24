@@ -64,30 +64,7 @@ pub struct LegPairNames {
 /// tangent props as tangents, TurnThreshold as sin(x/2)).
 #[derive(Clone, Debug, PartialEq)]
 pub struct WalkerClass {
-    pub max_speed: f32,
-    pub boost_speed: f32,
-    pub stopped_turn_speed: f32,
-    pub forward_turn_speed: f32,
-    pub boost_turn_speed: f32,
-    /// K+0x75c (hash 0x5433f589): the AI's steering rate (card WAI).
-    pub max_turn_speed: f32,
-    pub turn_threshold: f32,
-    pub yaw_limits: [f32; 2],
-    pub pitch_limits: [f32; 2],
-    pub max_yaw_speed: f32,
-    pub max_pitch_speed: f32,
-    pub e08: f32,
-    pub e0c: f32,
-    pub e10: f32,
-    pub e14: f32,
-    pub flags: u32,
-    pub energy_max: f32,
-    pub energy_auto_restore: f32,
-    pub energy_boost_drain: f32,
-    pub root_scale: f32,
-    pub leg_ray: f32,
-    pub roll: bool,
-    pub width: f32,
+    motion: WalkerParams,
     /// `Some(rate)`: MaxSpeed is the class's BF1 gait, the walk clip's
     /// z·rate·30/N (re-walker §13.6; `rate` = TEMP_AnimationSpeed), taken
     /// from the bake in [`WalkerClass::params`] — the kaadu always, every
@@ -110,31 +87,8 @@ pub struct WalkerClass {
 impl Default for WalkerClass {
     /// FUN_00263160 (re-walker §11), in the setter's units.
     fn default() -> Self {
-        let d = WalkerParams::default();
         Self {
-            max_speed: d.max_speed,
-            boost_speed: d.boost_speed,
-            stopped_turn_speed: d.stopped_turn_speed,
-            forward_turn_speed: d.forward_turn_speed,
-            boost_turn_speed: d.boost_turn_speed,
-            max_turn_speed: d.max_turn_speed,
-            turn_threshold: d.turn_threshold,
-            yaw_limits: d.yaw_limits,
-            pitch_limits: d.pitch_limits,
-            max_yaw_speed: d.max_yaw_speed,
-            max_pitch_speed: d.max_pitch_speed,
-            e08: d.e08,
-            e0c: d.e0c,
-            e10: d.e10,
-            e14: d.e14,
-            flags: d.flags,
-            energy_max: d.energy_max,
-            energy_auto_restore: d.energy_auto_restore,
-            energy_boost_drain: d.energy_boost_drain,
-            root_scale: d.root_scale,
-            leg_ray: d.leg_ray,
-            roll: d.roll,
-            width: d.width,
+            motion: WalkerParams::default(),
             gait: None,
             animation: None,
             leg_pairs: Vec::new(),
@@ -297,7 +251,7 @@ impl WalkerClass {
             self.set(key(k), v);
         }
         if pace {
-            self.boost_speed = 0.0;
+            self.motion.boost_speed = 0.0;
         }
         if pace || class.eq_ignore_ascii_case("gun_walk_kaadu") {
             self.gait = Some(rate);
@@ -332,20 +286,20 @@ impl WalkerClass {
 
     fn set(&mut self, k: u32, v: &str) {
         let scalars: [(&str, &mut f32); 14] = [
-            ("MaxSpeed", &mut self.max_speed),
-            ("MaxTurnSpeed", &mut self.max_turn_speed),
-            ("BoostSpeed", &mut self.boost_speed),
-            ("StoppedTurnSpeed", &mut self.stopped_turn_speed),
-            ("ForwardTurnSpeed", &mut self.forward_turn_speed),
-            ("BoostTurnSpeed", &mut self.boost_turn_speed),
-            ("MaxYawSpeed", &mut self.max_yaw_speed),
-            ("MaxPitchSpeed", &mut self.max_pitch_speed),
-            ("EnergyBar", &mut self.energy_max),
-            ("EnergyAutoRestore", &mut self.energy_auto_restore),
-            ("EnergyBoostDrain", &mut self.energy_boost_drain),
-            ("SkeletonRootScale", &mut self.root_scale),
-            ("LegRayHitLength", &mut self.leg_ray),
-            ("WalkerWidth", &mut self.width),
+            ("MaxSpeed", &mut self.motion.max_speed),
+            ("MaxTurnSpeed", &mut self.motion.max_turn_speed),
+            ("BoostSpeed", &mut self.motion.boost_speed),
+            ("StoppedTurnSpeed", &mut self.motion.stopped_turn_speed),
+            ("ForwardTurnSpeed", &mut self.motion.forward_turn_speed),
+            ("BoostTurnSpeed", &mut self.motion.boost_turn_speed),
+            ("MaxYawSpeed", &mut self.motion.max_yaw_speed),
+            ("MaxPitchSpeed", &mut self.motion.max_pitch_speed),
+            ("EnergyBar", &mut self.motion.energy_max),
+            ("EnergyAutoRestore", &mut self.motion.energy_auto_restore),
+            ("EnergyBoostDrain", &mut self.motion.energy_boost_drain),
+            ("SkeletonRootScale", &mut self.motion.root_scale),
+            ("LegRayHitLength", &mut self.motion.leg_ray),
+            ("WalkerWidth", &mut self.motion.width),
         ];
         for (name, slot) in scalars {
             if k == h(name) {
@@ -356,10 +310,10 @@ impl WalkerClass {
             }
         }
         let tangents: [(u32, &mut f32); 4] = [
-            (0xea47_dd5c, &mut self.e08),
-            (0xafb0_caf4, &mut self.e0c),
-            (0xbed8_917f, &mut self.e10),
-            (0xd128_c668, &mut self.e14),
+            (0xea47_dd5c, &mut self.motion.e08),
+            (0xafb0_caf4, &mut self.motion.e0c),
+            (0xbed8_917f, &mut self.motion.e10),
+            (0xd128_c668, &mut self.motion.e14),
         ];
         for (key, slot) in tangents {
             if k == key {
@@ -381,27 +335,27 @@ impl WalkerClass {
         for (key, bit) in bits {
             if k == key {
                 if strtol_nonzero(v) {
-                    self.flags |= bit;
+                    self.motion.flags |= bit;
                 } else {
-                    self.flags &= !bit;
+                    self.motion.flags &= !bit;
                 }
                 return;
             }
         }
         if k == h("TurnThreshold") {
             if let Some(x) = float(v) {
-                self.turn_threshold = core::fmath::sin_cos(x * 0.5).0;
+                self.motion.turn_threshold = core::fmath::sin_cos(x * 0.5).0;
             }
         } else if k == h("YawLimits") {
             if let Some([lo, hi]) = floats::<2>(v) {
-                self.yaw_limits = [lo.to_radians(), hi.to_radians()];
+                self.motion.yaw_limits = [lo.to_radians(), hi.to_radians()];
             }
         } else if k == h("PitchLimits") {
             if let Some([lo, hi]) = floats::<2>(v) {
-                self.pitch_limits = [lo.to_radians(), hi.to_radians()];
+                self.motion.pitch_limits = [lo.to_radians(), hi.to_radians()];
             }
         } else if k == 0x6558_7105 {
-            self.roll = strtol_nonzero(v);
+            self.motion.roll = strtol_nonzero(v);
         } else if k == h("AnimationName") {
             self.animation = Some(v.trim().to_owned());
         } else if k == h("WalkerLegPair") {
@@ -475,33 +429,12 @@ impl WalkerClass {
             max_speed: self
                 .gait
                 .zip(bake.and_then(bf1_gait))
-                .map_or(self.max_speed, |(rate, g)| g * rate),
-            boost_speed: self.boost_speed,
-            stopped_turn_speed: self.stopped_turn_speed,
-            forward_turn_speed: self.forward_turn_speed,
-            boost_turn_speed: self.boost_turn_speed,
-            max_turn_speed: self.max_turn_speed,
-            turn_threshold: self.turn_threshold,
-            yaw_limits: self.yaw_limits,
-            pitch_limits: self.pitch_limits,
-            max_yaw_speed: self.max_yaw_speed,
-            max_pitch_speed: self.max_pitch_speed,
-            e08: self.e08,
-            e0c: self.e0c,
-            e10: self.e10,
-            e14: self.e14,
-            flags: self.flags,
-            energy_max: self.energy_max,
-            energy_auto_restore: self.energy_auto_restore,
-            energy_boost_drain: self.energy_boost_drain,
-            root_scale: self.root_scale,
-            leg_ray: self.leg_ray,
-            roll: self.roll,
-            width: self.width,
+                .map_or(self.motion.max_speed, |(rate, g)| g * rate),
             leg_pairs,
             clips,
             building,
             spawn_points: self.spawn_points.clone(),
+            ..self.motion.clone()
         }
     }
 }
@@ -564,27 +497,47 @@ mod tests {
         let close = |a: f32, b: f32| (a - b).abs() < 1e-3;
         let deg = |d: f32| d.to_radians();
         let at = WalkerClass::from_db(&db, "imp_walk_atst").expect("AT-ST");
-        assert_eq!((at.max_speed, at.boost_speed), (5.0, 10.0));
+        assert_eq!((at.motion.max_speed, at.motion.boost_speed), (5.0, 10.0));
         assert_eq!(
             (
-                at.stopped_turn_speed,
-                at.forward_turn_speed,
-                at.boost_turn_speed
+                at.motion.stopped_turn_speed,
+                at.motion.forward_turn_speed,
+                at.motion.boost_turn_speed
             ),
             (0.5, 0.5, 0.3)
         );
-        assert!(close(at.turn_threshold, 0.29552), "{}", at.turn_threshold);
-        assert!(close(at.e08, 19.0812) && close(at.e0c, 28.6364) && (at.e10 - 57.29).abs() < 0.01);
+        assert!(
+            close(at.motion.turn_threshold, 0.29552),
+            "{}",
+            at.motion.turn_threshold
+        );
+        assert!(
+            close(at.motion.e08, 19.0812)
+                && close(at.motion.e0c, 28.6364)
+                && (at.motion.e10 - 57.29).abs() < 0.01
+        );
         let want = flags::AI | flags::AIM_WINDOW | flags::CAMERA_TURN | flags::REVERSE_STEER;
-        assert_eq!(at.flags, want, "bits 0 1 3 4, bit 2 cleared");
-        assert!(close(at.yaw_limits[0], deg(-90.0)) && close(at.yaw_limits[1], deg(90.0)));
-        assert!(close(at.pitch_limits[0], deg(-35.0)) && close(at.pitch_limits[1], deg(40.0)));
-        assert_eq!((at.max_yaw_speed, at.max_pitch_speed), (0.7, 0.4));
+        assert_eq!(at.motion.flags, want, "bits 0 1 3 4, bit 2 cleared");
+        assert!(
+            close(at.motion.yaw_limits[0], deg(-90.0)) && close(at.motion.yaw_limits[1], deg(90.0))
+        );
+        assert!(
+            close(at.motion.pitch_limits[0], deg(-35.0))
+                && close(at.motion.pitch_limits[1], deg(40.0))
+        );
         assert_eq!(
-            (at.energy_max, at.energy_auto_restore, at.energy_boost_drain),
+            (at.motion.max_yaw_speed, at.motion.max_pitch_speed),
+            (0.7, 0.4)
+        );
+        assert_eq!(
+            (
+                at.motion.energy_max,
+                at.motion.energy_auto_restore,
+                at.motion.energy_boost_drain
+            ),
             (80.0, 9.0, 20.0)
         );
-        assert_eq!(at.leg_ray, 5.0);
+        assert_eq!(at.motion.leg_ray, 5.0);
         assert_eq!(at.animation.as_deref(), Some("imp_walk_atst"));
         assert_eq!(at.leg_pairs.len(), 1);
         assert_eq!(
@@ -594,38 +547,49 @@ mod tests {
         assert_eq!(at.building, ["p_sphere_lfoot", "p_sphere_rfoot"]);
         // TURRET1's `YawLimits = 0 0` is the turret's (the section routing).
         let one = WalkerClass::from_db(&db, "rep_walk_oneman_atst").expect("one-man");
-        assert_eq!((one.max_speed, one.boost_speed), (5.0, 10.0));
+        assert_eq!((one.motion.max_speed, one.motion.boost_speed), (5.0, 10.0));
         assert_eq!(
             (
-                one.stopped_turn_speed,
-                one.forward_turn_speed,
-                one.boost_turn_speed
+                one.motion.stopped_turn_speed,
+                one.motion.forward_turn_speed,
+                one.motion.boost_turn_speed
             ),
             (0.8, 0.6, 0.4)
         );
-        assert_eq!(one.max_yaw_speed, 2.0);
-        assert!(close(one.yaw_limits[1], deg(90.0)));
+        assert_eq!(one.motion.max_yaw_speed, 2.0);
+        assert!(close(one.motion.yaw_limits[1], deg(90.0)));
         let tt = WalkerClass::from_db(&db, "all_walk_tauntaun").expect("tauntaun");
-        assert_eq!((tt.max_speed, tt.boost_speed), (20.0, 30.0));
+        assert_eq!((tt.motion.max_speed, tt.motion.boost_speed), (20.0, 30.0));
         assert_eq!(
             (
-                tt.stopped_turn_speed,
-                tt.forward_turn_speed,
-                tt.boost_turn_speed
+                tt.motion.stopped_turn_speed,
+                tt.motion.forward_turn_speed,
+                tt.motion.boost_turn_speed
             ),
             (0.5, 0.8, 0.3)
         );
-        assert!(close(tt.turn_threshold, 0.47943), "{}", tt.turn_threshold);
+        assert!(
+            close(tt.motion.turn_threshold, 0.47943),
+            "{}",
+            tt.motion.turn_threshold
+        );
         assert_eq!(
-            (tt.energy_max, tt.energy_auto_restore, tt.energy_boost_drain),
+            (
+                tt.motion.energy_max,
+                tt.motion.energy_auto_restore,
+                tt.motion.energy_boost_drain
+            ),
             (100.0, 20.0, 10.0)
         );
-        assert_eq!(tt.leg_ray, 2.5, "the ctor's");
+        assert_eq!(tt.motion.leg_ray, 2.5, "the ctor's");
         assert_eq!(tt.leg_pairs.len(), 1);
         assert!(WalkerClass::from_db(&db, "imp_hover_speederbike").is_none());
         // Card WAI: MaxTurnSpeed, the AI's steering rate (PS2 RAM K+0x75c,
         // re-walker-ai §12: 1.5 / 2.0 / 0.6).
-        assert_eq!((at.max_turn_speed, tt.max_turn_speed), (1.5, 2.0));
+        assert_eq!(
+            (at.motion.max_turn_speed, tt.motion.max_turn_speed),
+            (1.5, 2.0)
+        );
         let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets_baked/classes/");
         let mut cis = ClassDb::default();
         if cis
@@ -633,10 +597,17 @@ mod tests {
             .is_ok()
         {
             let sp = WalkerClass::from_db(&cis, "cis_walk_spider").expect("spider");
-            assert_eq!((sp.max_speed, sp.max_turn_speed), (3.0, 0.6));
-            assert_eq!((sp.stopped_turn_speed, sp.forward_turn_speed), (0.3, 0.2));
-            assert!(close(sp.e08, 19.0812) && close(sp.e0c, 28.6364));
-            assert_eq!(sp.flags & flags::AI, 0, "the spider takes the plain branch");
+            assert_eq!((sp.motion.max_speed, sp.motion.max_turn_speed), (3.0, 0.6));
+            assert_eq!(
+                (sp.motion.stopped_turn_speed, sp.motion.forward_turn_speed),
+                (0.3, 0.2)
+            );
+            assert!(close(sp.motion.e08, 19.0812) && close(sp.motion.e0c, 28.6364));
+            assert_eq!(
+                sp.motion.flags & flags::AI,
+                0,
+                "the spider takes the plain branch"
+            );
             assert!(!sp.command && sp.spawn_points.is_empty());
         }
         assert!(!at.command && at.spawn_points.is_empty(), "a plain walker");
@@ -646,30 +617,30 @@ mod tests {
     /// the AI's steering read.
     fn body(c: &WalkerClass) -> Vec<(&'static str, f32)> {
         vec![
-            ("MaxSpeed", c.max_speed),
-            ("BoostSpeed", c.boost_speed),
-            ("StoppedTurnSpeed", c.stopped_turn_speed),
-            ("ForwardTurnSpeed", c.forward_turn_speed),
-            ("BoostTurnSpeed", c.boost_turn_speed),
-            ("MaxTurnSpeed", c.max_turn_speed),
-            ("TurnThreshold", c.turn_threshold),
-            ("YawLimits lo", c.yaw_limits[0]),
-            ("YawLimits hi", c.yaw_limits[1]),
-            ("PitchLimits lo", c.pitch_limits[0]),
-            ("PitchLimits hi", c.pitch_limits[1]),
-            ("MaxYawSpeed", c.max_yaw_speed),
-            ("MaxPitchSpeed", c.max_pitch_speed),
-            ("e08", c.e08),
-            ("e0c", c.e0c),
-            ("e10", c.e10),
-            ("e14", c.e14),
-            ("flags", c.flags as f32),
-            ("EnergyBar", c.energy_max),
-            ("EnergyAutoRestore", c.energy_auto_restore),
-            ("EnergyBoostDrain", c.energy_boost_drain),
-            ("LegRayHitLength", c.leg_ray),
-            ("roll", f32::from(u8::from(c.roll))),
-            ("WalkerWidth", c.width),
+            ("MaxSpeed", c.motion.max_speed),
+            ("BoostSpeed", c.motion.boost_speed),
+            ("StoppedTurnSpeed", c.motion.stopped_turn_speed),
+            ("ForwardTurnSpeed", c.motion.forward_turn_speed),
+            ("BoostTurnSpeed", c.motion.boost_turn_speed),
+            ("MaxTurnSpeed", c.motion.max_turn_speed),
+            ("TurnThreshold", c.motion.turn_threshold),
+            ("YawLimits lo", c.motion.yaw_limits[0]),
+            ("YawLimits hi", c.motion.yaw_limits[1]),
+            ("PitchLimits lo", c.motion.pitch_limits[0]),
+            ("PitchLimits hi", c.motion.pitch_limits[1]),
+            ("MaxYawSpeed", c.motion.max_yaw_speed),
+            ("MaxPitchSpeed", c.motion.max_pitch_speed),
+            ("e08", c.motion.e08),
+            ("e0c", c.motion.e0c),
+            ("e10", c.motion.e10),
+            ("e14", c.motion.e14),
+            ("flags", c.motion.flags as f32),
+            ("EnergyBar", c.motion.energy_max),
+            ("EnergyAutoRestore", c.motion.energy_auto_restore),
+            ("EnergyBoostDrain", c.motion.energy_boost_drain),
+            ("LegRayHitLength", c.motion.leg_ray),
+            ("roll", f32::from(u8::from(c.motion.roll))),
+            ("WalkerWidth", c.motion.width),
         ]
     }
 
@@ -726,7 +697,11 @@ mod tests {
                 }
             }
             assert_eq!(ours.gait, None, "{class}");
-            assert_eq!(ours.flags & flags::NO_CAMERA_TURN, 0, "{class}: bit 2");
+            assert_eq!(
+                ours.motion.flags & flags::NO_CAMERA_TURN,
+                0,
+                "{class}: bit 2"
+            );
             // The other way: BF1's pace, no boost, the handling unchanged.
             let mut pace = WalkerClass::authored(&b1, class).expect(class);
             pace.take_bf2_body(class, true);
@@ -735,26 +710,39 @@ mod tests {
             } else {
                 1.0
             };
-            assert_eq!((pace.gait, pace.boost_speed), (Some(rate), 0.0), "{class}");
-            assert_eq!(pace.forward_turn_speed, theirs.forward_turn_speed);
+            assert_eq!(
+                (pace.gait, pace.motion.boost_speed),
+                (Some(rate), 0.0),
+                "{class}"
+            );
+            assert_eq!(
+                pace.motion.forward_turn_speed,
+                theirs.motion.forward_turn_speed
+            );
         }
         let tt = WalkerClass::from_db(&b2, "all_walk_tauntaun").expect("tauntaun");
         let kaadu = WalkerClass::from_db(&b1, "gun_walk_kaadu").expect("kaadu");
         assert_eq!(
-            kaadu.flags, tt.flags,
+            kaadu.motion.flags, tt.motion.flags,
             "the kaadu's flags are the tauntaun's"
         );
-        assert_eq!(kaadu.flags & flags::NO_CAMERA_TURN, 0);
+        assert_eq!(kaadu.motion.flags & flags::NO_CAMERA_TURN, 0);
         assert_eq!(
-            (kaadu.stopped_turn_speed, kaadu.forward_turn_speed),
-            (tt.stopped_turn_speed, tt.forward_turn_speed)
+            (
+                kaadu.motion.stopped_turn_speed,
+                kaadu.motion.forward_turn_speed
+            ),
+            (tt.motion.stopped_turn_speed, tt.motion.forward_turn_speed)
         );
-        assert_eq!((kaadu.e08, kaadu.e0c, kaadu.e10), (tt.e08, tt.e0c, tt.e10));
         assert_eq!(
-            (kaadu.yaw_limits, kaadu.pitch_limits),
-            (tt.yaw_limits, tt.pitch_limits)
+            (kaadu.motion.e08, kaadu.motion.e0c, kaadu.motion.e10),
+            (tt.motion.e08, tt.motion.e0c, tt.motion.e10)
         );
-        assert_eq!((kaadu.boost_speed, kaadu.gait), (0.0, Some(1.0)));
+        assert_eq!(
+            (kaadu.motion.yaw_limits, kaadu.motion.pitch_limits),
+            (tt.motion.yaw_limits, tt.motion.pitch_limits)
+        );
+        assert_eq!((kaadu.motion.boost_speed, kaadu.gait), (0.0, Some(1.0)));
         // BF2's own unfielded kaadu takes the same rows.
         if let Some(k2) = WalkerClass::from_db(&b2, "gun_walk_kaadu") {
             assert_eq!(body(&k2), body(&kaadu));
@@ -789,7 +777,7 @@ mod tests {
         );
         assert!((p.max_speed - 19.544).abs() < 5e-3, "{}", p.max_speed);
         assert!(
-            (kaadu.max_speed - want).abs() < 5e-3,
+            (kaadu.motion.max_speed - want).abs() < 5e-3,
             "the table's fallback"
         );
     }

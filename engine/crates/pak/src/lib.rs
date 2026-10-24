@@ -52,10 +52,11 @@ impl Archive {
         let start = u64::from_le_bytes(f[8..16].try_into().unwrap());
         let at = u64::from_le_bytes(f[16..24].try_into().unwrap());
         let len = u64::from_le_bytes(f[24..32].try_into().unwrap());
-        if start > at || at + len + FOOTER != size {
+        if start > at || at.checked_add(len).and_then(|end| end.checked_add(FOOTER)) != Some(size) {
             return Err(bad("footer does not match the file size"));
         }
-        let mut index = vec![0u8; len as usize];
+        let len = usize::try_from(len).map_err(|_| bad("index too large for this platform"))?;
+        let mut index = vec![0u8; len];
         file.seek(SeekFrom::Start(at))?;
         file.read_exact(&mut index)?;
         let mut r = &index[..];
@@ -71,7 +72,7 @@ impl Archive {
             r = &r[l..];
             let off = take_u64(&mut r)?;
             let n = take_u64(&mut r)?;
-            if off < start || off + n > at {
+            if off < start || off.checked_add(n).is_none_or(|end| end > at) {
                 return Err(bad("entry outside the pack"));
             }
             entries.insert(name, (off, n));
@@ -134,7 +135,8 @@ impl Archive {
     }
 
     fn read(&self, off: u64, len: u64) -> io::Result<Vec<u8>> {
-        let mut buf = vec![0u8; len as usize];
+        let len = usize::try_from(len).map_err(|_| bad("entry too large for this platform"))?;
+        let mut buf = vec![0u8; len];
         read_exact_at(&self.file, &mut buf, off)?;
         Ok(buf)
     }
@@ -459,7 +461,9 @@ impl Seek for Reader {
                         "seek before the start",
                     ));
                 }
-                *pos = p as u64;
+                *pos = u64::try_from(p).map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidInput, "seek beyond u64 range")
+                })?;
                 Ok(*pos)
             }
         }

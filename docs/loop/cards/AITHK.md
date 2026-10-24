@@ -4,14 +4,14 @@ title: AI think rate by distance and view: far or unseen bots think less often (
 milestone: M0
 value: 5
 phase: build
-status: todo
+status: blocked
 deps:
 files: engine/crates/core/src/ai.rs, engine/crates/core/src/ai/behave.rs, engine/crates/core/src/ai/state.rs, engine/crates/core/src/sim/step.rs, engine/crates/core/src/perception.rs, engine/crates/core/src/unit.rs, engine/crates/game/src/blackbox.rs, engine/crates/game/examples/round_to_outcome.rs, analysis/bot-design.md, engine/CRATES.md
 declares: sim; sweep; arena
-needs:
+needs: cloud assets and cited PS2/performance/MYGC evidence unavailable
 effort:
 branch:
-resume: BUILD from analysis/re-ai-think-rate.md section 8 (deterministic: Sim::players + Unit::ideal_camera; headless = level 0). Order: (1) BF2 level + interval by behaviour (trooper 2.0 / fight 0.4 / other 1.0 x {120,90,60,30,7.5} ticks, ceil), cap 10 thinks a tick by (next, index); (2) think-now: a hit from a human, the human's noise pass every 15 ticks (15.1 radius), order / finished walk at level >= 3; (3) BF1: 15 ticks, 30 when slow + over 45 m from the human's camera + unseen (headless = 30); (4) the aim block cadence by level; (5) decide the spawn wait (the PS2's first order one interval after spawning, 4 s headless) with MYGC's bars. Measure ms/tick at 32/64/128 bots before/after (lead_tmp/obst2/tools perf.sh, JOBS=1, best-of-two) and referee every map (32 x 16 seeds, MYGC's bars.py on bf2_myg1); the fidelity / sweep moves need [approvals.AITHK] from the planner or the maintainer. Update bot-design.md D1 (reversed).
+resume: Cloud preflight blocked; see reports/20261024_0707_card_AITHK.md. Restore engine/assets_baked, extracted PS2 corpus and lead_tmp/aithk, mygc, obst2/tools/perf.sh; clear needs and set todo. Check shared STOP/PAUSE, loopctl.py start AITHK; BEFORE edits measure current-main ms/tick at 32/64/128 bots (JOBS=1 best-of-two) and 32 maps x 16 seeds plus MYGC bars. Implement analysis/re-ai-think-rate.md section 8, mutation-check deterministic scheduling/wakes/aim cadence, decide spawn wait with MYGC, update bot-design D1, repeat measurements and gates. Obtain planner/the maintainer approvals.AITHK from measured moves before landing. No implementation or validation receipt this run.
 created: 2026-10-19
 alpha: yes
 ---

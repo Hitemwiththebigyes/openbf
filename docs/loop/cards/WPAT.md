@@ -4,14 +4,14 @@ title: Multi-bolt shot patterns and charge weapons: the bowcaster's fan and its 
 milestone: M3
 value: 4
 phase: re
-status: todo
+status: blocked
 deps:
 files:
 declares:
-needs:
+needs: environment — Restore both primary corpora/extracted weapon classes and PS2 toolkit or verified raw charge/pattern captures.
 effort:
 branch:
-resume:
+resume: 2026-10-24 10:33 UTC: planner prerequisite hold; no new implementation/acceptance. Read RKSLA/UORD/VTAT first, then both-game weapon-pattern census with full re_check/verifier; write measured build acceptance before rephasing. No constants inferred from historical prose. Exact missing paths: lead_tmp/planner_20261024_1026/preflight.json. Restore or regenerate verified equivalent inputs before clearing hold. reports/20261024_1026_planner.md
 created: 2026-10-21
 ---
 ## Why

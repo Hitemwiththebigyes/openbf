@@ -4,14 +4,14 @@ title: BF1 Endor: bots end up INSIDE the hollow tree end_prop_tree01 at (170, 0)
 milestone: M3
 value: 4
 phase: measure
-status: todo
+status: blocked
 deps:
 files:
 declares:
-needs:
+needs: (private workflow note omitted)
 effort:
 branch:
-resume:
+resume: Restore baked bf1_end1/common_bf1/classes/vehicles, mission RONs and OBSV/HVYW/VMESH raw evidence; verify build stamps and class resolution, then clear needs and set todo phase measure. Reproduce on current main, dump the tree mesh at (170,0), trace one life across its boundary with tick/position/pick/mount and wall-push fields, and test dismount versus gap versus wall pass before any fix. Recount seeds 9-80 with STUCK_CENSUS=1 or SWEEP_DEATHS=1 (require census banner): 0 recycles within 6 m of (170,0), total no higher than 37; remeasure baseline because 17ae28e predates VMESH. See reports/20261024_0741_card_ETREE.md.
 created: 2026-10-12
 alpha: yes
 ---
@@ -62,3 +62,6 @@ in 32 rounds, the map's 37 -> 82 in 72 seeds).
 ## Notes
 
 - 2026-10-15 14:10 lane 2 (card VMESH LANDED b8a634d): the trunk at (170, 0) is `end_prop_tree01`, an OPEN shell (10 edges used once); `CollisionWorld::enclosing` reads a point at its centre as inside it, so since VMESH no rider is put down inside it (exits inside a body 0 on every map, 8 seeds) and a bike bailed out of there as stuck is not re-boarded until it moves. Its way IN is not closed (VMESH's keep-out is for watertight bodies only, `Sim::shut_in_solid`): that part stays this card's.
+
+## Cloud preflight 2026-10-24 07:41 UTC
+Blocked before measurement on main 3d487d9: baked maps/common/classes/vehicles, mission RONs, OBSV/HVYW/VMESH raw evidence and local iso/extracted source are absent. No mesh dump, life-entry trace, current-main baseline or seeds 9-80 acceptance ran. VMESH source guards remain, but how this tree is entered remains unmeasured. Restore inputs and follow resume before any collision fix. Report: `reports/20261024_0741_card_ETREE.md`.

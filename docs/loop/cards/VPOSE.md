@@ -4,14 +4,14 @@ title: A hover's own posed nodes are drawn: its TURRET sections' turret / aimer 
 milestone: M2
 value: 4
 phase: build
-status: todo
+status: blocked
 deps:
 files: engine/crates/bake/src/vehicle.rs, engine/crates/bake/src/turret_rig.rs, engine/crates/manifest/src/lib.rs, engine/crates/game/src/viewer/vehicles.rs, engine/crates/game/src/viewer/turret_pose.rs, engine/crates/game/src/soldier_vis.rs
 declares: rebake=side
-needs:
+needs: environment restoration — original PS2 node tables and fin clips/rigs, disc data, baked assets/missions, PCSX2 and approved GPU checks
 effort:
 branch:
-resume: RE done (analysis/re-vehicle-pose.md, docs 2a94ed5): build per its section 7; PS2 fixtures in lead_tmp/vpose/ps2/*_table.json and lead_tmp/vpose/clips/
+resume: 2026-10-24 10:25 UTC cloud checkpoint BLOCKED: 22/22 required inputs absent; no alternate candidates. Restore vpose/vride fixtures/readers, disc data, bakes/missions and PS2/GPU environment; see engine/artifacts/loop/reports/20261024_1025_card_VPOSE.md and lead_tmp/vpose_cloud/next_prompt.txt. No implementation or acceptance run; original section 7 build remains.
 created: 2026-10-15
 alpha: yes
 ---

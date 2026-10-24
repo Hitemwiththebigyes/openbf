@@ -60,6 +60,7 @@
 //! plus `RenderError` and `TIME_WRAP`.
 
 pub mod affine;
+mod bindings;
 mod bolt;
 mod camera;
 mod capture;
@@ -79,6 +80,7 @@ mod mesh;
 mod particles;
 mod pipelines;
 mod point_light;
+mod resources;
 mod sky;
 mod specular;
 mod terrain_light;
@@ -373,6 +375,10 @@ pub struct Renderer {
     /// Default 0.0 — headless captures and the goldens leave it there, so a
     /// still frame is reproducible.
     pub time: f32,
+    /// Unwrapped render-side water seconds. FFT frequencies have no common
+    /// `TIME_WRAP` period; f64 keeps their phase continuous in long sessions.
+    /// Default zero preserves still captures. The simulation never reads it.
+    pub water_time: f64,
     /// Which GPU this renderer actually got. Reported by `--bench`, because a
     /// timing number without the adapter beside it means nothing.
     adapter_info: wgpu::AdapterInfo,

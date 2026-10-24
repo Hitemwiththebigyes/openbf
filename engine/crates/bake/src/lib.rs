@@ -57,6 +57,14 @@ pub fn write_ron<T: serde::Serialize>(path: &std::path::Path, value: &T) -> anyh
     Ok(())
 }
 
+/// Remove one owned optional output; absence is already the desired state.
+pub(crate) fn remove_optional_file(path: &std::path::Path) -> std::io::Result<()> {
+    match std::fs::remove_file(path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        result => result,
+    }
+}
+
 /// The bake this working tree ships (`engine/assets_baked`), for the tests in
 /// this crate that read it. TEST-ONLY and crate-private on purpose:
 /// `game::assets::baked_root` is the same path by the same rule, and `bake` is

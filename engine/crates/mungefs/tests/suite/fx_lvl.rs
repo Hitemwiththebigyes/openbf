@@ -13,13 +13,7 @@ use mungefs::fx::{LightningBoltConfig, LightningConfig, WaterConfig};
 use mungefs::particle::{BlendMode, ColorMode, Effect, GeometryType, Range};
 use mungefs::{chunks, content_chunks, open, water::Water, Chunk};
 
-fn lvl(rel: &str) -> Option<Vec<u8>> {
-    std::fs::read(format!(
-        "{}/../../../extracted/{rel}",
-        env!("CARGO_MANIFEST_DIR")
-    ))
-    .ok()
-}
+use super::support::{lvl, tern_of, walk_lvls};
 
 macro_rules! require_data {
     ($e:expr, $what:expr) => {
@@ -41,14 +35,6 @@ fn water_config(buf: &[u8]) -> Option<WaterConfig> {
         .flatten()
         .filter(|c| &c.tag == b"fx__")
         .find_map(|c| WaterConfig::parse(&c).unwrap())
-}
-
-fn tern_of(buf: &[u8]) -> Chunk<'_> {
-    let inner = open(buf).unwrap();
-    chunks(inner)
-        .flatten()
-        .find(|c| &c.tag == b"tern")
-        .expect("a tern")
 }
 
 const BF1: &str = "bf1/lvl/DATA/_LVL_PS2";
@@ -208,23 +194,12 @@ fn bit_three_cells_match_the_patch_count() {
 /// Every `.LVL` under `extracted/<game>/lvl`, sorted by path (the census
 /// order of `lead_tmp/fxp/census2.py`).
 fn all_lvls(game: &str) -> Vec<std::path::PathBuf> {
-    fn walk(d: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
-        let Ok(rd) = std::fs::read_dir(d) else { return };
-        for e in rd.flatten() {
-            let p = e.path();
-            if p.is_dir() {
-                walk(&p, out);
-            } else if p.extension().is_some_and(|x| x.eq_ignore_ascii_case("lvl")) {
-                out.push(p);
-            }
-        }
-    }
     let mut out = Vec::new();
     let root = format!(
         "{}/../../../extracted/{game}/lvl",
         env!("CARGO_MANIFEST_DIR")
     );
-    walk(std::path::Path::new(&root), &mut out);
+    walk_lvls(std::path::Path::new(&root), &mut out);
     out.sort();
     out
 }

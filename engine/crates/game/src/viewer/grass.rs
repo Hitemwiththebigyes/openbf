@@ -50,22 +50,7 @@ use manifest::{FoliageKind, ManifestGrassClass};
 use render::{GrassClass, GrassPatch, GrassSprite, TextureHandle};
 use std::collections::HashMap;
 
-/// The PS2's LCG, one `rand()` = two steps.
-pub(super) struct Lcg(pub(super) u32);
-
-impl Lcg {
-    pub(super) fn step(&mut self) -> u32 {
-        self.0 = self.0.wrapping_mul(0x19660d).wrapping_add(0x3c6ef35f);
-        self.0
-    }
-
-    /// Uniform in [0, 1): the two steps' high halves as a mantissa.
-    pub(super) fn next(&mut self) -> f32 {
-        let a = self.step();
-        let b = self.step();
-        f32::from_bits((((a >> 16) | (b & 0xffff_0000)) >> 9) | 0x3f80_0000) - 1.0
-    }
-}
+use core::lcg::GameLcg;
 
 pub(super) fn fnv1a_lower(s: &str) -> u32 {
     s.bytes().fold(0x811c_9dc5u32, |h, c| {
@@ -80,19 +65,19 @@ const DISC_TRIES: u32 = 1000;
 
 /// A class's template sprites and bound (see the module doc).
 pub fn template(g: &ManifestGrassClass) -> (Vec<GrassSprite>, f32) {
-    let mut rng = Lcg(fnv1a_lower(&g.name));
+    let mut rng = GameLcg::new(fnv1a_lower(&g.name));
     let n = g.particles as usize;
     let mut sprites = Vec::with_capacity(n);
     for i in 0..n {
         let (mut pos, f) = if g.rect[0] > 0.0 || g.rect[1] > 0.0 {
-            let x = (rng.next() - 0.5) * g.rect[0];
-            let z = (rng.next() - 0.5) * g.rect[1];
+            let x = (rng.unit() - 0.5) * g.rect[0];
+            let z = (rng.unit() - 0.5) * g.rect[1];
             (Vec3::new(x, 0.0, z), 1.0)
         } else {
             let mut out = (Vec3::ZERO, 1.0);
             for _ in 0..DISC_TRIES {
-                let x = (rng.next() * 2.0 - 1.0) * g.radius_fade_max;
-                let z = (rng.next() * 2.0 - 1.0) * g.radius_fade_max;
+                let x = (rng.unit() * 2.0 - 1.0) * g.radius_fade_max;
+                let z = (rng.unit() * 2.0 - 1.0) * g.radius_fade_max;
                 let d = (x * x + z * z).sqrt();
                 let f = if d < g.radius_fade_min {
                     1.0
@@ -108,17 +93,17 @@ pub fn template(g: &ManifestGrassClass) -> (Vec<GrassSprite>, f32) {
             }
             out
         };
-        let size = g.min_size + rng.next() * (g.max_size - g.min_size);
-        let grey = g.darkness_min + rng.next() * (g.darkness_max - g.darkness_min);
+        let size = g.min_size + rng.unit() * (g.max_size - g.min_size);
+        let grey = g.darkness_min + rng.unit() * (g.darkness_max - g.darkness_min);
         // A draw pair the template does not keep (redrawn while both are 0).
         loop {
-            let (a, b) = (rng.next() - 0.5, rng.next() - 0.5);
+            let (a, b) = (rng.unit() - 0.5, rng.unit() - 0.5);
             if a != 0.0 || b != 0.0 {
                 break;
             }
         }
-        let phase = rng.next() * 10.0;
-        let lean = (rng.next() - 0.5) * (g.lean + g.lean);
+        let phase = rng.unit() * 10.0;
+        let lean = (rng.unit() - 0.5) * (g.lean + g.lean);
         let (part, tall) = match g.num_parts {
             3 => {
                 let p = i as i32 % (g.cycle + 2);
@@ -143,23 +128,23 @@ pub fn template(g: &ManifestGrassClass) -> (Vec<GrassSprite>, f32) {
             if tall {
                 width = size * g.tall_size;
                 height = width;
-                up_scale = rng.next() * 0.1 + 0.05;
+                up_scale = rng.unit() * 0.1 + 0.05;
                 pos.y +=
-                    g.min_size * (g.raise[0] + rng.next() * (g.raise[1] - g.raise[0]) * (1.0 - f));
+                    g.min_size * (g.raise[0] + rng.unit() * (g.raise[1] - g.raise[0]) * (1.0 - f));
                 let mut d;
                 loop {
-                    d = Vec3::new(rng.next() - 0.5, 0.0, rng.next() - 0.5);
+                    d = Vec3::new(rng.unit() - 0.5, 0.0, rng.unit() - 0.5);
                     if d.x.abs() >= 0.01 || d.z.abs() >= 0.01 {
                         break;
                     }
                 }
                 let mut d = d.normalize();
-                d.y = (rng.next() - 0.5) * 0.3;
+                d.y = (rng.unit() - 0.5) * 0.3;
                 facing = Some(d.normalize());
             } else {
                 height = size;
                 width = size * g.thin;
-                up_scale = rng.next() * 0.2 + 0.8;
+                up_scale = rng.unit() * 0.2 + 0.8;
                 facing = None;
             }
         } else {
@@ -425,7 +410,7 @@ mod tests {
     fn the_template_is_the_same_every_run() {
         let g = class("dag1_prop_grass", 60, [1.2, 1.6], [3.0, 4.0], 4);
         assert_eq!(template(&g), template(&g));
-        let mut r = Lcg(0);
+        let mut r = GameLcg::new(0);
         let (a, b) = (
             0x3c6e_f35fu32,
             0x3c6e_f35fu32
@@ -433,7 +418,7 @@ mod tests {
                 .wrapping_add(0x3c6e_f35f),
         );
         let want = f32::from_bits((((a >> 16) | (b & 0xffff_0000)) >> 9) | 0x3f80_0000) - 1.0;
-        assert_eq!(r.next(), want);
+        assert_eq!(r.unit(), want);
     }
 
     /// On flat ground a patch is upright and unrotated at the height; on a

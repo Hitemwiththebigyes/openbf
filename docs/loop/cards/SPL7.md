@@ -6,11 +6,12 @@ value: 2
 phase: cleanup
 status: todo
 deps:
-files:
+files: engine/crates/core/src/weapon.rs, engine/crates/bake/src/map.rs, engine/crates/core/src/commander.rs
 declares:
 needs:
+effort:
 branch:
-resume: ` line naming the next file]
+resume: 2026-10-24 14:22 UTC: Current source: nav.rs 1472 already under cap, weapon.rs 1739, map.rs 2199, commander.rs 2500. Active files are the latter three; vehicles.rs belongs only to SPL13. One source file per slice, real seam or reasoned waiver; map slice still owes byte-identical scratch bake and all neutral gates. reports/20261024_1422_planner.md; lead_tmp/planner_20261024_1417/next_prompt.md.
 created: 2026-09-25 (from QUEUE.md)
 ---
 

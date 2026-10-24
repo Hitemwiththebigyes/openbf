@@ -4,22 +4,23 @@ title: The bolt's flight hum and the weapon's looping sounds (charge, fire loop,
 milestone: M1
 value: 4
 phase: build
-status: todo
+status: blocked
 deps: WSND
 files: engine/crates/audio/src/lib.rs,engine/crates/game/src/sounds.rs,engine/crates/game/src/event_sounds.rs,engine/crates/game/src/bolt_vis.rs,engine/crates/core/src/weapon.rs,engine/crates/core/src/sim/state.rs
 declares:
-needs:
+needs: environment restoration: restore bolt/weapon/sound bakes, NAB1 mission, sndc sound_log.patch/pad120 referee and bf1_nab1_run2.csv
 effort:
 branch:
-resume:
+resume: 2026-10-24 09:20 UTC: planner prerequisite census; no implementation. Restore this card's inputs in lead_tmp/planner_20261024_0913/queue_preflight.json, recheck original acceptance/current-main baseline, then loopctl start for isolated build. Full CI and required gates remain; reports/20261024_0913_planner.md.
 created: 2026-10-02
 alpha: yes
 ---
 ## Why
 The RE of card WSND (`analysis/re-weapon-sounds.md` sections 3, 5, 7; Docs 528fa6c): a bolt's `OrdnanceSound` and a
 weapon's `ChargeSound` / `FireLoopSound` / `OverheatSound` are sounds on a HANDLE - a voice that follows its source and
-is stopped by it. The port has one-shots only (`audio::Audio::play_loop` cannot be moved or re-pitched), so it plays
-none of them. PS2, 105 s: hum starts 147 (NAB1; median 23 m from the eye) and 98 (UTA1); the bolt's whizz past the
+is stopped by it. At filing, the port had one-shots only; VSND subsequently landed `audio::Voice` and
+`play_voice` (see the build note below). Reuse that API for the remaining bolt/weapon loop runtime. The historical
+PS2 105 s sample has hum starts 147 (NAB1; median 23 m from the eye) and 98 (UTA1); the bolt's whizz past the
 player is the loudest thing missing from a firefight after the explosions.
 
 ## Evidence (all [O], re-weapon-sounds.md)
@@ -36,9 +37,12 @@ player is the loudest thing missing from a firefight after the explosions.
   with `OverheatSoundPitch` on overheating (B1 `FUN_00284c70`, `FUN_00284f48`, `FUN_00285108`, `FUN_00284a58`).
 
 ## Do
-1. `audio`: a looping voice whose volume, pan and rate can be set each frame and that can be stopped.
+1. Reuse `audio::Voice` / `Audio::play_voice`: per-frame gain, pan and rate, stop on drop already exist. No new
+   backend handle is required. Keep source-following bolt/weapon state separate from the engine layer keys.
 2. `game::sounds`: a handle = (property, voice): start when the level at the source is above 0, retry each frame while
    it has no voice, set level / pan / pitch x doppler each frame, stop on request. Pitch + PitchDev at the start.
+   An existing engine-loop entry with a missing voice is retained without retry (`sounds.rs::loop_voices`);
+   WHUM must keep its explicit retry rule and test a source initially refused before it becomes audible.
 3. The hum: one handle per live bolt / rocket inside the property's mute distance of the listener (the bolt's
    position and velocity each tick; dropped on its expiry). The weapon loops on the unit's weapon.
 
@@ -84,3 +88,4 @@ player is the loudest thing missing from a firefight after the explosions.
   frame, `audio::Audio`). Whichever of WHUM / VSND lands first builds it; the other reuses it.
 
 - Note from VSND's build (2026-10-03, landed 79eac42): the loop handle is built - `audio::Voice` (`Audio::play_voice(&SoundData, db, rate, pan)`, `Voice::set(db, rate, pan, secs)`, stops when dropped). `SoundLib::loop_voices` (game/src/sounds.rs) is the engine layers' user: reuse its shape, or give it a second key space.
+

@@ -4,14 +4,14 @@ title: The map boundary: leaving the battlefield warns the player (HUD text + hi
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: blocked
 deps:
 files: engine/crates/bake/src/map.rs, engine/crates/manifest/src/lib.rs, engine/crates/game/src/layout.rs, engine/crates/core/src/sim/boundary.rs, engine/crates/core/src/sim/state.rs, engine/crates/core/src/sim/step.rs, engine/crates/core/src/announcer.rs, engine/crates/ui/src/hud.rs
 declares: rebake=maps; sim; sweep; arena
-needs:
+needs: maintainer - restore local BNDY PS2 fixture/captures, disc corpus, baked maps/missions and approved GPU validation environment
 effort:
 branch:
-resume: RE DONE 2026-10-19 (analysis/re-boundary.md d63b63f, [O]; PS2 296/296 points). Build in two commits: (A) bake the bnd_ path names into the manifest (first path of a name), resolve to shapes in layout.rs, core/src/sim/boundary.rs = the half-plane test + the per-unit timer (6.5 s, set and decremented in the first outside tick, kill below 0 with the driven vehicle, cheat spares, every unit) + acceptance 1-2 and 4; (B) the HUD text (Locl 0x3a1fed50, centred, T4 alpha spring) and the team's leaving line once per excursion with the allleaving / repleaving locks + acceptance 3. Start from re-boundary.md section 8.
+resume: Cloud preflight BLOCKED 2026-10-24 07:22 UTC; no implementation. Restore baked maps/common and missions, extracted BF1/BF2 corpus, lead_tmp/bndy points (404 PS2 rows), sheets/tools/states and fxc/tools/bnd.py, plus approved GPU/reference environment. Then follow analysis/re-boundary.md section 8 in two slices: A bake/first-name path resolution/half-plane test/timers and acceptance 1,2,4; B HUD spring/once-per-excursion VO locks and HOT1 timing pair. Keep flyer cases on VFLY. Start via loopctl after restoration; full CI, rebake and required gates before landing. Report 20261024_0722_card_BNDY.md.
 created: 2026-09-30
 alpha: yes
 ---

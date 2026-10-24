@@ -11,7 +11,11 @@
 7. GC credits economy tuning (informed by R1).
 8. MP Galactic Conquest autosave ownership (host-only vs replicated-to-all vs hybrid).
 
-## DESIGN SPECS — decided, not yet built (moved here 2026-09-08, cleanse C2)
+## Historical design specifications (moved here 2026-09-08, cleanse C2)
+
+These designs and their inline corrections are preserved as decision history. For current ownership, start at `engine/CRATES.md`: perception and tiers in `core/src/ai/perception.rs` and `core/src/skill.rs`, squad commands in `core/src/squad.rs`, vehicles in `core/src/vehicle.rs`; consult the owning cards for implementation and acceptance status. The alpha MASK classifier refinement is an individual design item below, not evidence that all four designs remain unbuilt.
+
+**Historical preface (2026-09-08):** the following paragraph describes the original storage/build situation. Its “not history,” untracked-artifact and “only committed copy” claims are superseded in this migrated checkout; the detailed design bodies below remain verbatim.
 
 These four designs were DECIDED and written down in the Log, which makes them
 history the eye slides past. They are not history: they are the specification

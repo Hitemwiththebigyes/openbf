@@ -4,14 +4,14 @@ title: Two terrain draw rules on the same files: the DTLX detail pass (both PS2s
 milestone: M1
 value: 4
 phase: build
-status: todo
+status: blocked
 deps: TERL,TALPH,REFL
 files: engine/crates/bake/src/terrain_glb.rs,engine/crates/bake/src/map.rs,engine/crates/game/src/viewer/scene.rs,engine/crates/render/src/shader.wgsl
 declares: rebake=maps; goldens=maps/bf1_bes2.png,maps/bf1_end1.png,maps/bf1_kas1.png,maps/bf1_kas2.png,maps/bf1_nab2.png,maps/bf1_rhn2.png,maps/bf2_end1.png,maps/bf2_kas2.png
-needs:
+needs: environment restoration: restore DTLX disc/texture/UV inputs, 32-map bakes, paired terrain/water references and GPU device
 effort:
 branch:
-resume:
+resume: 2026-10-24 09:20 UTC: planner prerequisite census; no implementation. Restore this card's inputs in lead_tmp/planner_20261024_0913/queue_preflight.json, recheck original acceptance/current-main baseline, then loopctl start for isolated build. Full CI and required gates remain; reports/20261024_0913_planner.md.
 created: 2026-09-25
 defer: 
 value_pre_alpha: 4
@@ -126,3 +126,4 @@ Value 3 -> 4, `alpha: yes`, defer dropped (NAB1 is a showcase map; report `repor
 - **Not confirmed on the x1.09 maps:** KAS2, TAT1 and RHN2's bottom rows read 0.98-1.05, not 0.92, and the same what-if
   WORSENS TAT1 (10.64 -> 11.91) and KAS2 (9.97 -> 10.29). Read the reach and the UV scale before trusting a mean (a mip of
   the detail texture far from the eye, or the 3x3 reach); acceptance per map by `parity.py`, TAT1 must not rise > 0.5.
+

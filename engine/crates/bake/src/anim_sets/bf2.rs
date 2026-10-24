@@ -259,27 +259,11 @@ impl Registry {
 /// The `entc` and `wpnc` records of a side LVL, first definition of a
 /// name first (`crate::classes::bake_classes`' rule).
 pub fn side_classes(lvl: &[u8]) -> anyhow::Result<Vec<ClassDef>> {
-    let inner = mungefs::open(lvl).map_err(|e| anyhow::anyhow!("{e}"))?;
-    let mut out: Vec<ClassDef> = Vec::new();
-    for c in mungefs::content_chunks(inner).map_err(|e| anyhow::anyhow!("{e}"))? {
-        if &c.tag != b"entc" && &c.tag != b"wpnc" {
-            continue;
-        }
-        let kind = String::from_utf8_lossy(&c.tag).into_owned();
-        let Ok(e) = mungefs::entity::EntityClass::parse(&c) else {
-            continue;
-        };
-        if out.iter().any(|b| b.kind == kind && b.name == e.name) {
-            continue;
-        }
-        out.push(ClassDef {
-            name: e.name,
-            kind,
-            base: e.base,
-            props: e.props.into_iter().map(|p| (p.key_hash, p.value)).collect(),
-        });
-    }
-    Ok(out)
+    crate::classes::read_classes(
+        lvl,
+        &[b"entc", b"wpnc"],
+        crate::classes::MalformedClass::Skip,
+    )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

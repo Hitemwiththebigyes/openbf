@@ -85,7 +85,7 @@ impl Bin {
 
 /// The accessor `min`/`max` pair for a position attribute. glTF requires them
 /// on POSITION, and `game::assets` reads them for the mesh AABB.
-pub fn min_max3(p: &[[f32; 3]]) -> ([f32; 3], [f32; 3]) {
+pub fn min_max3<'a>(p: impl IntoIterator<Item = &'a [f32; 3]>) -> ([f32; 3], [f32; 3]) {
     let mut min = [f32::MAX; 3];
     let mut max = [f32::MIN; 3];
     for v in p {
@@ -100,4 +100,30 @@ pub fn min_max3(p: &[[f32; 3]]) -> ([f32; 3], [f32; 3]) {
 /// `[[f32; 3]]` as the flat slice `f32s` takes.
 pub fn flat3(v: &[[f32; 3]]) -> Vec<f32> {
     v.iter().flatten().copied().collect()
+}
+
+/// Pack one rigid mesh with its caller-owned primitives and materials.
+pub fn rigid_glb(
+    bin: Bin,
+    mesh: Value,
+    name: &str,
+    materials: Option<Value>,
+) -> anyhow::Result<Vec<u8>> {
+    let mut doc = json!({
+        "asset": {"version": "2.0", "generator": "openbf bake"},
+        "buffers": [{"byteLength": bin.bytes.len()}],
+        "bufferViews": bin.views,
+        "accessors": bin.accessors,
+        "materials": materials,
+        "meshes": [mesh],
+        "nodes": [{"mesh": 0, "name": name}],
+        "scenes": [{"nodes": [0]}],
+        "scene": 0
+    });
+    if materials.is_none() {
+        doc.as_object_mut()
+            .unwrap()
+            .retain(|key, _| key != "materials");
+    }
+    Ok(crate::glb::pack_glb(&serde_json::to_vec(&doc)?, &bin.bytes))
 }

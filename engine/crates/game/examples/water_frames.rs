@@ -46,7 +46,13 @@ fn save(out: &Path, name: &str, rgba: &[u8], (w, h): (u32, u32)) -> Result<()> {
 fn compare(label: &str, a: &[u8], b: &[u8], water: &[bool], w: u32) {
     let (mut sum, mut n_water) = (0u64, 0u64);
     let (mut outside, mut bbox) = (0u64, (u32::MAX, u32::MAX, 0u32, 0u32));
-    for (i, (pa, pb)) in a.chunks_exact(4).zip(b.chunks_exact(4)).enumerate() {
+    for (i, (pa, pb)) in a
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(b.as_chunks::<4>().0)
+        .enumerate()
+    {
         let d: u64 = (0..3).map(|c| u64::from(pa[c].abs_diff(pb[c]))).sum();
         if water[i] {
             sum += d;
@@ -105,8 +111,10 @@ fn main() -> Result<()> {
     let nowater = shoot(&mut r, &cam, &dry, gpu.clear)?;
     save(&out, "nowater.png", &nowater, size)?;
     let water: Vec<bool> = still
-        .chunks_exact(4)
-        .zip(nowater.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(nowater.as_chunks::<4>().0)
         .map(|(a, b)| a[..3] != b[..3])
         .collect();
     println!(
@@ -118,7 +126,7 @@ fn main() -> Result<()> {
     );
 
     let mut shots = Vec::new();
-    for t in [0.0f32, 0.5, 1.0] {
+    for t in [0.0f64, 0.5, 1.0] {
         gpu.animate_water(&mut r, t, cam.position)?;
         let img = shoot(&mut r, &cam, &gpu.draws, gpu.clear)?;
         save(&out, &format!("t{t:.2}.png"), &img, size)?;
@@ -139,13 +147,13 @@ fn main() -> Result<()> {
     if motion.is_ocean() {
         let o = Ocean::new(16, 160.0, &Spectrum::KAM1, OCEAN_SEED);
         for t in [0.0f32, 0.5, 1.0, 10.0, 100.0] {
-            let h = o.heights(t);
+            let h = o.heights(f64::from(t));
             let (lo, hi) = h
                 .iter()
                 .fold((f32::MAX, f32::MIN), |(a, b), &v| (a.min(v), b.max(v)));
             println!(
                 "ocean t {t:>5.1}: rms {:.4} m, min {lo:.4} m, max {hi:.4} m",
-                o.rms(t)
+                o.rms(f64::from(t))
             );
         }
         println!(
@@ -179,7 +187,7 @@ fn main() -> Result<()> {
                 fs.submitted, fs.culled, fm.submitted, fm.culled
             );
             let (mut still_ms, mut moving_ms, mut step_ms) = (Vec::new(), Vec::new(), Vec::new());
-            let mut clock = 0.0f32;
+            let mut clock = 0.0f64;
             for _round in 0..5 {
                 for _ in 0..frames {
                     still_ms.push(frame(&mut r, &still_draws, gpu.clear)?);

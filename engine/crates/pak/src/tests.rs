@@ -159,3 +159,83 @@ fn identical_files_are_stored_once() {
     );
     let _ = std::fs::remove_dir_all(d);
 }
+
+#[test]
+fn hostile_ranges_are_invalid_data() {
+    let d = scratch("hostile_ranges");
+    let path = d.join("pack");
+    let footer = |start: u64, at: u64, len: u64| {
+        let mut bytes = MAGIC.to_vec();
+        bytes.extend(start.to_le_bytes());
+        bytes.extend(at.to_le_bytes());
+        bytes.extend(len.to_le_bytes());
+        bytes
+    };
+    for (at, len) in [(u64::MAX, 1), (0, u64::MAX)] {
+        std::fs::write(&path, footer(0, at, len)).unwrap();
+        assert_eq!(
+            Archive::open(&path).err().unwrap().kind(),
+            io::ErrorKind::InvalidData
+        );
+    }
+    for (off, len) in [(u64::MAX, 1u64), (0, 1)] {
+        let mut bytes = 1u32.to_le_bytes().to_vec();
+        bytes.extend(1u16.to_le_bytes());
+        bytes.push(b'a');
+        bytes.extend(off.to_le_bytes());
+        bytes.extend(len.to_le_bytes());
+        bytes.extend(footer(0, 0, 23));
+        std::fs::write(&path, bytes).unwrap();
+        assert_eq!(
+            Archive::open(&path).err().unwrap().kind(),
+            io::ErrorKind::InvalidData
+        );
+    }
+    // Empty entries may sit exactly at the index boundary.
+    let mut bytes = 1u32.to_le_bytes().to_vec();
+    bytes.extend(1u16.to_le_bytes());
+    bytes.push(b'a');
+    bytes.extend(0u64.to_le_bytes());
+    bytes.extend(0u64.to_le_bytes());
+    bytes.extend(footer(0, 0, 23));
+    std::fs::write(&path, &bytes).unwrap();
+    assert_eq!(
+        Archive::open(&path).unwrap().unwrap().get("a"),
+        Some((0, 0))
+    );
+    bytes.remove(22);
+    bytes.truncate(22);
+    bytes.extend(footer(0, 0, 22));
+    std::fs::write(&path, bytes).unwrap();
+    assert_eq!(
+        Archive::open(&path).err().unwrap().kind(),
+        io::ErrorKind::InvalidData
+    );
+    let _ = std::fs::remove_dir_all(d);
+}
+
+#[test]
+fn reader_seek_overflow_retains_position() {
+    let (d, p) = packed("seek_overflow");
+    let mut r = Reader::Pak {
+        file: File::open(p).unwrap(),
+        start: 0,
+        len: 1,
+        pos: 0,
+    };
+    assert_eq!(r.seek(SeekFrom::Start(u64::MAX)).unwrap(), u64::MAX);
+    assert_eq!(
+        r.seek(SeekFrom::Current(1)).unwrap_err().kind(),
+        io::ErrorKind::InvalidInput
+    );
+    assert_eq!(r.stream_position().unwrap(), u64::MAX);
+    assert_eq!(r.seek(SeekFrom::Current(-1)).unwrap(), u64::MAX - 1);
+    assert_eq!(r.read(&mut [0; 1]).unwrap(), 0);
+    r.seek(SeekFrom::Start(0)).unwrap();
+    assert_eq!(
+        r.seek(SeekFrom::Current(-1)).unwrap_err().kind(),
+        io::ErrorKind::InvalidInput
+    );
+    assert_eq!(r.stream_position().unwrap(), 0);
+    let _ = std::fs::remove_dir_all(d);
+}

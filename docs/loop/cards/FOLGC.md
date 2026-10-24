@@ -4,13 +4,14 @@ title: Foliage collision: the prp_ path props (tree-billboard lines, DAG1/YAV2/F
 milestone: M3
 value: 3
 phase: build
-status: todo
+status: blocked
 deps: FOLG
 files: engine/crates/game/src/assets.rs,engine/crates/core/src/collision/world.rs
 declares: sweep; arena; sim
 needs:
+effort:
 branch:
-resume:
+resume: 2026-10-24 11:57 UTC: Keep static body ownership/labels valid when adding foliage collision. The build text names BF2 GEO1 while the later VREST evidence names BF1 GEO1; restore and check both maps, then name which owns the historical laat3 delta before claiming the regression control passed. This is a reference-scope question, not a new measurement. reports/20261024_1151_planner.md
 created: 2026-09-26
 alpha: yes
 ---
@@ -27,3 +28,4 @@ LandedHeight, because a `PropCollisionObject` (one of the `geo_prop_flatrocks` t
 -63.005, 273.348)..(66.151, -62.390, 280.100)) lies under the pad and the pad's ray (terrain + the building layer) hits
 it. When the rocks join the collision world, the pad spawn's ground probe must see them; the referee is
 `lead_tmp/vrest/join.py` (the Flyer row: `laat3` goes from +0.249 to 0).
+

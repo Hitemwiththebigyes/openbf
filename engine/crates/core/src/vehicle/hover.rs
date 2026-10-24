@@ -470,7 +470,8 @@ pub fn yaw_target(p: &HoverParams, inp: &HoverInput, timer: f32, v_fwd: f32, spe
 }
 
 /// §6.10: ω.yaw steps TurnFilter·dt toward its target and stops there (BF2's
-/// slew; BF1 filters exponentially, §8).
+/// slew; BF1 filters exponentially, §8). Building turrets also use this
+/// linear rate step.
 pub fn slew(w: f32, target: f32, turn_filter: f32, dt: f32) -> f32 {
     let step = turn_filter * dt;
     if w < target {

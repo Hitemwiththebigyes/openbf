@@ -4,14 +4,14 @@ title: What differs between the PS2, Xbox and PC versions of both games: class /
 milestone: M0
 value: 4
 phase: measure
-status: todo
+status: blocked
 deps:
 files:
 declares:
 needs:
 effort:
 branch:
-resume:
+resume: Restore named raw inputs in lead_tmp/vdiff/preflight.json and identify owned Xbox/PC BF1 retail sources; rerun preflight.py, then implement all six per-map/side comparisons and top-ten rankings. No parity measurement or acceptance earned; see reports/20261024_1130_card_VDIFF.md.
 created: 2026-10-21
 alpha: no
 ---

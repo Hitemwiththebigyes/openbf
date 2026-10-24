@@ -4,14 +4,14 @@ title: What the PS2 draws past the far cull on the 18 maps with no drawn `LOWR` 
 milestone: M1
 value: 4
 phase: re
-status: todo
+status: blocked
 deps:
 files:
 declares:
-needs:
+needs: environment — Restore PCSX2 reference states/toolkit, map bake and REDB/REFL raw far-scene evidence.
 effort:
 branch:
-resume:
+resume: 2026-10-24 10:33 UTC: planner prerequisite hold; no new implementation/acceptance. Read later Kamino/REFL answers, measure remaining sheetless cases map by map, keep flags unchanged until evidence. Preserve dated verified per-case answer/build-or-keep-off acceptance. Exact missing paths: lead_tmp/planner_20261024_1026/preflight.json. Restore or regenerate verified equivalent inputs before clearing hold. reports/20261024_1026_planner.md
 created: 2026-09-25
 defer: 
 value_pre_alpha: 4

@@ -6,8 +6,9 @@
 //! end. PROVISIONAL: BF2's 1 s fade and the `player_shadow` blob under the
 //! item are not drawn.
 //!
-//! A model is uploaded the first time an item of its class lies on the
-//! field; one that is not found is reported once and draws nothing.
+//! Battle classes can be preloaded before the first frame; a class not
+//! preloaded uploads lazily when its item first lies on the field. A model
+//! that is not found is reported once and draws nothing.
 
 use super::scene::draw_in;
 use super::upload::{upload_submeshes, upload_texture_file};

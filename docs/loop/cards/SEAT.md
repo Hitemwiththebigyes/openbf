@@ -4,14 +4,14 @@ title: How the PS2 seats a spawn: the floor a soldier appears on at a path node 
 milestone: M3
 value: 3
 phase: re
-status: todo
+status: blocked
 deps:
 files: engine/crates/core/src/sim/spawn.rs
 declares:
-needs:
+needs: restore SEAT primary corpora/ELFs, PCSX2 live tools/states, LLEG raw evidence and map/mission inputs (seat_cloud/preflight.json)
 effort:
 branch:
-resume:
+resume: BLOCKED 2026-10-24 13:00 UTC: 26 exact prerequisites/0 available; restore corpora/ELFs, PCSX2 kit, LLEG rows and maps/missions, then trace both spawn writers and measure MUS1 crate/roof. No RE acceptance. Report reports/20261024_1300_card_SEAT.md; continuation lead_tmp/seat_cloud/next_prompt.md.
 created: 2026-10-07
 ---
 ## Why

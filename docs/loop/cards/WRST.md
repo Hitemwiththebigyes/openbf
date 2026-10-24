@@ -4,14 +4,14 @@ title: The super battle droid's wrist rocket: no soldier of the port holds it - 
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: blocked
 deps: HVYW
 files: engine/crates/game/src/roster.rs,engine/crates/core/src/sim/ordnance.rs,engine/crates/core/src/ai/arsenal.rs,engine/crates/core/src/ai/gunner_foot.rs
 declares: sim; sweep; arena
-needs:
+needs: restore real BF1/BF2 class/map/vehicle bakes and missions, HVYW census helper and primary channel-1 cannon evidence; approved gate device unavailable
 effort:
 branch:
-resume:
+resume: Cloud checkpoint reports/20261024_0902_card_WRST.md; restore lead_tmp/wrst_20261024_0902/inventory.json inputs, recheck baked held slots and channel-1 cannon trigger/aim/HUD, baseline current main then isolated build with mutation scenes and paired 8x32 wrist census; no implementation or landing.
 created: 2026-10-13
 alpha: yes
 ---
@@ -26,8 +26,11 @@ choice (a heavy weapon: at a vehicle, or at a crowd of 3 within 9 m, never at a 
 - The census over 8 seeds x 32 maps (`lead_tmp/hvyw/sw/clean9/hv`): no row names a wrist rocket - never in hand, never fired; the
   droid's rows are `cis_weap_inf_wrist_blaster` and `wrist_shrapnel` / `wrist_trishot`.
 - `ai::arsenal::armed` answers `Armed::Hand` for a channel-1 pick that is not thrown: the gunner would press FIRE with the blaster.
-- The class: one round, a 2 s reload, AI range 0 / 16 / 48 m, a missile of 100 (BF2), `AITargetVehicle 0` (`game/tests/roster.rs`
+- The class: one round, a 2 s reload, AI range 0 / 16 / 48 m, a missile of 100 (BF2), `AITargetVehicle 0` (`engine/crates/game/tests/suite/roster.rs`
   `the_baked_launchers_are_missiles_for_vehicles`).
+  Current path confirmed by the 2026-10-24 checkpoint. That test checks class-db
+  slots and skips without real classes; held-slot admission still needs this
+  card's baked-droid scene and census. A skipped test is not acceptance.
 
 ## What to build
 1. Read `analysis/re-grenades.md` 2.3 / 2.4 first (channel 1 has the soldier while its fire state runs; the switch per channel): what

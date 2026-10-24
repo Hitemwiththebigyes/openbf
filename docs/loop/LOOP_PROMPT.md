@@ -126,6 +126,7 @@ the disc; PCSX2 frames. `grep -n` / `sed -n` ranges only. Tag every claim [V] (r
 3. The twin open: "BF2 does the same" needs the BF2 function and its callers (`re_check.py callers`) — not an ocean/debug twin.
 4. `re_check.py word` — the ELF bytes for every constant.
 5. `re_check.py writers` — a flag's DEFAULT and every writer before calling a branch dead or live (the answer key itself failed this).
+6. `re_calc.py int|off|hilo|va2off|struct` — any address, offset or lui/addiu result written into an RE doc comes from it (output pasted), not from the model.
 Then ONE `model: "opus"` verifier agent, **in the foreground**, given the claims and citations only (never your reasoning):
 "for each claim open the cited lines, answer SUPPORTED / NOT SUPPORTED with the decisive line and its function; try to falsify
 every absence claim with your own search; for every flag-gated claim find the flag's default and writers yourself." Fix or
@@ -177,3 +178,5 @@ The maintainer runs this for up to 12 hours unattended; a decision that waits on
 Stop starting new work at ~300 turns or 3.5 h; check `ls <ROOT>/STOP` between commits. Always, even on failure: commit what is
 green (a half-done build is a WIP commit + `resume:`), write the report, update the card, the journal paragraph,
 `loopctl.py release <your claim>` (and MAIN if you hold it), exit.
+
+Two sessions on the same card without a result is the signal to write what you found into `resume:` and stop, not to try the same path a third time. RE sessions record what each tried approach found in `resume:` before ending. Clean unfinished sessions run `loopctl.py finish-attempt --since <session-start-epoch>` before releasing the claim (use the launcher's start epoch for older jobs without `attempt_id`); postmortem also counts unfinished sessions, including those with reports. Landing jobs and parked live branches are exempt. Capped cards go to the planner briefing: re-cut smaller, cut a prerequisite RE card, file a Question for the maintainer in STATUS.md, or close as value 1 / defer post-alpha; reset `tries` only after one of those actions and record it on the card.

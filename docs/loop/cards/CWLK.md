@@ -4,14 +4,14 @@ title: Three state leaks in the bots' route and team plan, read in cleanse 15: a
 milestone: M3
 value: 3
 phase: build
-status: todo
+status: blocked
 deps:
 files: engine/crates/core/src/ai/route.rs,engine/crates/core/src/commander.rs
 declares:
-needs:
+needs: environment — CWLK current-main census requires missing baked runtime corpus and obst2 legcen; exact probes in lead_tmp/cwlk_cloud/preflight.json
 effort:
 branch:
-resume:
+resume: Restore engine/assets_baked (32 map manifests/worlds/nav, missions, classes and common assets) and lead_tmp/obst2 legcen; run current-main census bf2_mus1 first, then all 32 maps for each item before any fix. See reports/20261024_1224_card_CWLK.md and lead_tmp/cwlk_cloud/next_prompt.md.
 created: 2026-10-13
 ---
 

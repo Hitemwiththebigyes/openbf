@@ -1,17 +1,17 @@
 ---
 id: BTURN
-title: BF2 bots turn at 4 x MaxTurnSpeed on the PS2 (20 rad/s for a 5.0 class; the port's bots turn at 5.0): measure how often the port's cap binds, then build it for BF2 only
+title: BF2 bot body turn that looks natural: measure saturation and time-to-face, choose a rate between 5 and 20 rad/s, ease drawn yaw and respect torso aim limits; BF1 stays at 1x (the maintainer 2026-10-22)
 milestone: M3
 value: 3
 phase: measure
-status: todo
+status: blocked
 deps:
 files: engine/crates/core/src/ai/gunner_foot.rs
 declares:
-needs:
+needs: cloud prerequisites: baked soldiers/maps, missions and PS2 turn/pose references absent
 effort:
 branch:
-resume:
+resume: Restore data; measure current-main saturation/time-to-face and AIMV barrel/spin rows. Trial 10 rad/s as a provisional midpoint for a 5 rad/s BF2 class; publish measured choice and visual comparisons, keep BF1 1x. See card's amended Acceptance and reports/20261024_0713_planner.md.
 created: 2026-10-22
 alpha: yes
 ---
@@ -24,14 +24,26 @@ writer `FUN_00249f80` hands the same value to its converter `FUN_002a54d8` (B2:1
 x dt), clamped). BF1's bots are flat MaxTurnSpeed (`FUN_002098b8` B1:119340-119341, the port's rule already). A bot that
 turns 4x faster reacts to a flanker in a quarter of the time: the maintainer's top concern is the bots.
 
+## The maintainer's decision (2026-10-22)
+Match the 4x PS2 rate only as far as it LOOKS right. The sim aim may turn quickly; the
+drawn soldier must not snap. Keep BF1 at 1x; choose a BF2 body rate between the current
+5 and the measured PS2 20 rad/s for a 5 rad/s class, and say which. Ease the drawn body
+yaw and apply ANIMA torso/aim limits. This supersedes the old mandatory 4x build/bar.
+
 ## Do
-1. Measure first: in a BF2 sweep on main, how often a bot's yaw stick saturates (|rx| = 1 after the clamp) and the time a
-   bot takes to face a new target (from the target's pick to an error under the fire gate), per map - if the cap almost
-   never binds, close the card with the numbers (the port's own aim tracker may be the limit).
-2. If it binds: BF2 bots turn at 4 x MaxTurnSpeed (the soldier's rate for a bot, and the same value in `gunner_foot`'s
-   stick), behind one constant; BF1 unchanged. Sweep 8 x 32 + the maintainer's Kamino scene; sort any refusal by the rule.
+1. Measure saturation (|rx|=1) and target-pick-to-fire-cone time per BF2 map on current main.
+2. Trial 10 rad/s (2x class rate) as a PROVISIONAL midpoint, then compare bounded alternatives
+   inside 5..20 with the same replay; choose by measured barrel alignment and visible turn.
+   Share AIMV's observer rather than inventing another facing frame. A separate fast sim-aim
+   rate is permitted; record both rates and the presentation easing law/parameters.
+3. Use shortest-arc yaw interpolation, preserve ANIMA torso limits, and compare stand,
+   walk, strafe and crouch on BF1 and BF2. No switch from turn tuning may conceal AIMV's cause.
 
 ## Acceptance
-- The measure table (saturated share and time-to-face per BF2 map, main) in the card.
-- If built: a scene test - a BF2 bot facing 180 deg away from a visible enemy faces it in the PS2's time (pi / 20 s plus
-  its aim tracker's lag) and a BF1 bot in pi / 4; the mutation (x 1) fails it; the sweep gate's rows.
+- Per-map saturation and time-to-face table, plus selected BF2 body rate and exact easing
+  parameters justified by a fixed replay's before/after frames. BF1's rate remains 1x.
+- Mutation-checked scene: chosen turn time (pi / chosen rate plus measured tracker lag),
+  BF1 unchanged, wrap at +/-pi takes the shortest arc, and the drawn yaw has no discontinuity.
+- AIMV barrel-to-shot limit passes in each firing stance, no spurious firing spin over
+  270 degrees/s on a fixed target; distinguish necessary target tracking from wrap faults.
+- 8 seeds x 32 maps, the maintainer's Kamino scene, full applicable gates; classify every refusal.

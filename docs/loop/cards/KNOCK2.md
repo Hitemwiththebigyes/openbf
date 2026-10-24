@@ -4,14 +4,14 @@ title: Thrown bodies move as on the PS2 (AUDIT KNOCK PARTLY): BF2's tumble / get
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: blocked
 deps:
 files: engine/crates/core/src/soldier.rs, engine/crates/core/src/soldier/tests.rs, engine/crates/core/src/sim/step.rs, engine/crates/core/src/sim/combat.rs, engine/crates/core/src/sim/spawn.rs, engine/crates/core/src/sim/blast.rs, engine/crates/game/src/soldier_vis.rs, engine/crates/game/src/animator.rs, engine/crates/game/src/animator/tests.rs
 declares: sim; sweep; arena
 needs:
 effort:
 branch:
-resume:
+resume: CLOUD BLOCKED 2026-10-24 08:09 UTC: missing knock BF2 rows, audit-knock mutation/observer tools and raw evidence, PS2 corpora/discs, baked assets/missions and GPU. Restore paths in engine/artifacts/loop/reports/20261024_0809_card_KNOCK2.json; reproduce current-main body census; settle PS2 respawn/off-map [H] before isolated build. See engine/artifacts/loop/reports/20261024_0809_card_KNOCK2.md.
 created: 2026-10-21
 alpha: yes
 ---

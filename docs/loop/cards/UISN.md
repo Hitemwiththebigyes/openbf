@@ -4,14 +4,14 @@ title: Interface sounds: the spawn screen's five SetSoundEffect slots (class cha
 milestone: M1
 value: 4
 phase: build
-status: todo
+status: blocked
 deps:
 files: scripts/gen_missions.py,engine/crates/game/src/mission.rs,engine/crates/game/src/sounds.rs,engine/crates/game/src/event_sounds.rs,engine/crates/game/src/main/windowed.rs
 declares:
-needs:
+needs: environment restoration: restore both discs mission bytecode/SetSoundEffect data, CORE/map sound bakes and replay inputs
 effort:
 branch:
-resume:
+resume: 2026-10-24 09:20 UTC: planner prerequisite census; no implementation. Restore this card's inputs in lead_tmp/planner_20261024_0913/queue_preflight.json, recheck original acceptance/current-main baseline, then loopctl start for isolated build. Full CI and required gates remain; reports/20261024_0913_planner.md.
 created: 2026-10-03
 alpha: yes
 ---
@@ -48,3 +48,4 @@ menu emit UI sound events; 2-D playback through the CORE / map sound library.
   the shell-screen template's defaults are accept `shell_menu_accept`, back `shell_menu_cancel`, exit `shell_menu_exit`,
   error `shell_menu_error`, enter none; every focus move in a button stack plays `shell_select_change` (also when the
   walk wraps back to the same button). One sound table for the shell and the pause menu.
+

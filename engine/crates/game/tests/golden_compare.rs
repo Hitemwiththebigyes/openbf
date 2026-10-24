@@ -32,3 +32,15 @@ fn compare_golden_reads_rgb_and_ignores_the_alpha_plane() {
         "a blue move must still fail"
     );
 }
+
+#[test]
+fn compare_golden_rejects_incomplete_and_extra_rgba_buffers() {
+    let g = golden("rgba_length.png", [40, 80, 120, 255]);
+    let capture = [40u8, 80, 120, 255].repeat(17);
+    for len in [0, 4, 60, 61, 62, 63, 65, 66, 67, 68] {
+        let diagnostic = common::compare_golden(&g, &capture[..len], 4, 4)
+            .expect("malformed RGBA must fail, even when its prefix matches");
+        assert!(diagnostic.contains("RGBA buffer"), "{diagnostic}");
+    }
+    assert_eq!(common::compare_golden(&g, &capture[..64], 4, 4), None);
+}

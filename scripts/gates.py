@@ -36,7 +36,7 @@ Groups:
          `gates.py --rebaseline-fidelity <out>/fidelity/fidelity_new.json [--only m1,m2]`). `--fidelity-dir <dir>` reuses a
          finished sweep_seeds run instead of running one; `--fidelity-allow` overrides the card's declaration.
          A PER-MAP failure is re-run on [fidelity] confirm_seeds (fresh seeds, 2026-10-09) and kept only if that map is also
-         worse there; so is an all-maps failure of a SUM (recycled, noprog: card FIDA, 2026-10-16 - an 8-seed sum's
+         worse there; so is an all-maps failure of a SUM (recycled, noprog, loop20: card FIDA, 2026-10-16 - an 8-seed sum's
          block-to-block spread is about its tolerance), against main's own confirm-block sum. An all-maps MEAN is never
          re-run (it is the sharp test). `--fidelity-confirm-dir <dir>` gives a finished confirm-seeds run to a
          `--fidelity-dir` replay.
@@ -81,7 +81,7 @@ one row `gpu ADAPTER LOST`, no group runs, SUMMARY.md's first line says so, exit
 no golden is not checked; vulkaninfo missing or failing = cannot tell = not checked. --adapter-any / OPENBF_ADAPTER_ANY=1
 skips the check.
 """
-import argparse, datetime, glob, hashlib, json, os, re, subprocess, sys, tomllib
+import argparse, datetime, glob, hashlib, json, math, os, re, subprocess, sys, tomllib
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 GATES_TOML = os.path.join(REPO, "engine/artifacts/loop/gates.toml")
@@ -421,9 +421,13 @@ class Gates:
         s._protect_done = True
         sys.path.insert(0, os.path.join(REPO, "scripts"))
         import oracle_guard
-        ch = oracle_guard.changed_by_class(s.tree, s.base)
-        cid, ok = oracle_guard.card_declares_for(os.environ, s.tree)
         cmd = f"git diff {s.base}...HEAD (oracle paths)"
+        try:
+            ch = oracle_guard.changed_by_class(s.tree, s.base)
+        except oracle_guard.ComparisonError as e:
+            s.row("protect", cmd, 1, str(e), "successful protected-path comparison", "FAIL")
+            return
+        cid, ok = oracle_guard.card_declares_for(os.environ, s.tree)
         if not ch:
             s.row("protect", cmd, 0, "no protected path changed", "none changed", "PASS")
             return
@@ -442,6 +446,7 @@ class Gates:
         s._fid_done = True
         cfg = s.exp.get("fidelity")
         if not cfg or not cfg.get("enabled", True):
+            s.row("fidelity", "gates.toml [fidelity]", 0, "not checked: fidelity disabled or unconfigured", "", "PASS")
             return
         d = s.fidelity_dir
         if not d:
@@ -462,14 +467,37 @@ class Gates:
             return
         os.makedirs(s.p("fidelity"), exist_ok=True)
         json.dump(new, open(s.p("fidelity", "fidelity_new.json"), "w"), indent=1, sort_keys=True)
+        missing = fidelity_missing(cfg, new)
+        if missing:
+            s.row("fidelity", "fidelity_measure", 1, "missing or nonfinite required values: " + ", ".join(missing),
+                  "all configured non-track baseline values measured", "FAIL")
+            return
         if s.fidelity_both and cfg.get("confirm_seeds") and not s.fidelity_dir:   # a baseline run: main on the confirm seeds too
             d2 = s.p("fidelity_confirm")
             cmd2 = " ".join([sys.executable, os.path.join(s.tree, "scripts/sweep_seeds.py"), "--out", d2, "--seeds",
                              str(cfg["confirm_seeds"]), "--ticks", str(cfg.get("ticks", 60000)), "--target", s.target,
                              "--botq", "--jobs", str(cfg.get("jobs", 8))])
-            if run_split(cmd2, s.tree, s.env, s.p("fidelity_confirm_run.txt"), s.p("fidelity_confirm_run.err")) == 0:
-                json.dump(dict(seeds=str(cfg["confirm_seeds"]), values=fidelity_measure(d2)),
-                          open(s.p("fidelity", "fidelity_confirm_new.json"), "w"), indent=1, sort_keys=True)
+            receipt = s.p("fidelity", "fidelity_confirm_new.json")
+            if os.path.exists(receipt):
+                os.remove(receipt)   # a failed requested block must not retain a prior baseline receipt
+            try:
+                rc = run_split(cmd2, s.tree, s.env, s.p("fidelity_confirm_run.txt"), s.p("fidelity_confirm_run.err"))
+                if rc:
+                    s.row("fidelity", "sweep_seeds.py --botq (required confirm block)", rc,
+                          "the requested confirm sweep FAILED - see fidelity_confirm_run.txt / .err", "", "FAIL")
+                    return
+                new2 = fidelity_measure(d2)
+                missing = fidelity_missing(cfg, new2)
+                if missing:
+                    s.row("fidelity", "fidelity_measure (required confirm block)", 1,
+                          "missing or nonfinite required confirm values: " + ", ".join(missing),
+                          "all configured non-track baseline values measured", "FAIL")
+                    return
+            except Exception as e:
+                s.row("fidelity", "required confirm block", 1, f"could not execute/read {d2}: {e}", "", "FAIL")
+                return
+            json.dump(dict(seeds=str(cfg["confirm_seeds"]), values=new2),
+                      open(receipt, "w"), indent=1, sort_keys=True)
         allow = s.fidelity_allow
         if allow is None:
             allow, void = exposed_filter(cfg, card_fidelity_allow(s.tree), card_exposes(s.tree))
@@ -485,7 +513,9 @@ class Gates:
                              "--botq", "--jobs", str(cfg.get("jobs", 8))])
             if s.fidelity_confirm_dir or run_split(cmd2, s.tree, s.env, s.p("fidelity_confirm_run.txt"), s.p("fidelity_confirm_run.err")) == 0:
                 try:
-                    res["regress"], dropped = fidelity_confirm(cfg, res, fidelity_measure(d2), confirm_base(cfg))
+                    new2 = fidelity_measure(d2)
+                    if not fidelity_missing(cfg, new2):
+                        res["regress"], dropped = fidelity_confirm(cfg, res, new2, confirm_base(cfg))
                 except Exception:
                     pass   # no usable second block: the first verdict stands
         open(s.p("fidelity", "fidelity.md"), "w").write(fidelity_report(res, cfg) + fidelity_dropped_note(dropped, cfg))
@@ -495,7 +525,8 @@ class Gates:
         def fmt(items, n=6):
             t = [f"{m}{'@' + k if k else ''} {b:.2f}->{v:.2f}" for m, k, b, v in items[:n]]
             return ", ".join(t) + (f" +{len(items) - n} more" if len(items) > n else "")
-        val = f"{res['checked']} values vs baseline ({cfg.get('source', '?')})"
+        val = (f"{res['checked']} values vs baseline ({cfg.get('source', '?')})" if res["checked"] else
+               "not checked: no configured non-track baseline values")
         if bad:
             val += f"; WORSE undeclared: {fmt(bad)}"
         if ok_moved:
@@ -788,19 +819,22 @@ BAKE_CODE = r"engine/crates/(mungefs|bake|manifest)/|scripts/(rebake|scratch_bak
 # `mate_3_pct` and `still_pct` toward the PS2's) it says so in `declares: fidelity=...`.
 FID_SWEEP = ["finished_pct", "stuck_max_med", "recycled", "noprog", "world_death_pct", "wip_pct", "offgraph_pct"]
 FID_BOTQ = ["still_pct", "mate_3_pct", "mate_1p5_pct", "contact20_pct", "rev_mean", "rev6_pct", "pinball_pct", "idle20_pct",
-            "stand20_pct", "teamkill_pct", "deaths_per_min"]
-FID_SUM = {"recycled", "noprog"}   # per map these are sums over the seeds and so is the "agg"; the rest are means
+            "stand20_pct", "teamkill_pct", "deaths_per_min", "loop20"]
+FID_SUM = {"recycled", "noprog", "loop20"}   # per map these are sums over the seeds and so is the "agg"; the rest are means
 
 
 def _botq_one(f):
     sys.path.insert(0, os.path.join(REPO, "scripts"))
-    import bot_quality
-    return bot_quality.measure(bot_quality.load_port(f), bot_quality.load_events(f[:-4] + ".ev.csv"), 40.0, 540.0)
+    import bot_quality, loop_spells
+    metrics = bot_quality.measure(bot_quality.load_port(f), bot_quality.load_events(f[:-4] + ".ev.csv"), 40.0, 540.0)
+    # RLOOP counts whole-life spells, including the opening; do not use bot_quality's 40 s warm-up cut.
+    metrics["loop20"] = len(loop_spells.measure_file(f))
+    return metrics
 
 
 def fidelity_measure(d):
     """{metric: {"maps": {map: value}, "agg": value}} from a finished `sweep_seeds.py --botq` out dir. Thin parsing: the
-    sweep's stdout/stderr rows through sweep_seeds' own parsers, the 4 Hz samples through bot_quality.measure."""
+    sweep's stdout/stderr rows through sweep_seeds' parsers, the 4 Hz samples through bot_quality and loop_spells."""
     sys.path.insert(0, os.path.join(REPO, "scripts"))
     import sweep_seeds, bot_quality
     run = sweep_seeds.load_run(d)
@@ -844,7 +878,7 @@ def fidelity_measure(d):
         for key in FID_BOTQ:
             v = [m[key] for m in ms if key in m and m[key] == m[key]]
             if v:
-                out[key]["maps"][k] = sum(v) / len(v)
+                out[key]["maps"][k] = sum(v) if key in FID_SUM else sum(v) / len(v)
     for m, rec in out.items():
         vals = list(rec["maps"].values())
         rec["agg"] = (sum(vals) if m in FID_SUM else sum(vals) / len(vals)) if vals else None
@@ -854,6 +888,23 @@ def fidelity_measure(d):
 def fidelity_tol(spec, base, scope):
     """Allowed worsening for one value: max(abs, rel * |baseline|) from the spec's tol_{map,agg}_{abs,rel}."""
     return max(spec.get(f"tol_{scope}_abs", 0.0), spec.get(f"tol_{scope}_rel", 0.0) * abs(base))
+
+
+def fidelity_missing(cfg, new):
+    """Required finite baseline observations; partial comparison remains useful elsewhere."""
+    def finite(v):
+        return isinstance(v, (int, float)) and math.isfinite(v)
+
+    missing = []
+    for m, spec in cfg.get("metrics", {}).items():
+        if spec.get("dir", "track") == "track":
+            continue
+        cur = new.get(m) or {}
+        if spec.get("agg") is not None and not finite(cur.get("agg")):
+            missing.append(f"{m}@agg")
+        maps = cur.get("maps") or {}
+        missing += [f"{m}@{k}" for k, b in spec.get("maps", {}).items() if b is not None and not finite(maps.get(k))]
+    return missing
 
 
 def fidelity_compare(cfg, new, allow=None):
@@ -1078,6 +1129,32 @@ def selftest_fidelity(a=None):
     r = fidelity_compare(sc, new(stuck=(12.0, {"m1": 10.0, "m2": 10.0})))
     kept, dr = fidelity_confirm(sc, r, new(stuck=(10.0, {"m1": 10.0, "m2": 10.0})), new(stuck=(10.0, {"m1": 10.0, "m2": 10.0})))
     chk("FIDA: an all-map MEAN is never dropped", kept == [("stuck", "", 10.0, 12.0)] and not dr)
+    # FIDSP: real sample parsing, including zero-count maps, across two seeds and the worker-pool path.
+    import csv
+    with tempfile.TemporaryDirectory() as t:
+        bq = os.path.join(t, "botq")
+        os.makedirs(bq)
+        for seed in (1, 2):
+            with open(os.path.join(t, f"sweep_s{seed}.txt"), "w") as f:
+                f.write("".join(f"{m} team 1 wins at tick 100 stuck_max 0\n" for m in ("a", "b", "c")))
+            for m, count, beh in (("a", 1, "recover"), ("b", 2, "recover"), ("c", 1, "travel")):
+                with open(os.path.join(bq, f"{m}_s{seed}.csv"), "w", newline="") as f:
+                    writer = csv.writer(f)
+                    writer.writerow("t unit gen x y z beh veh human team target cp steer slide".split())
+                    for unit in range(count):
+                        for tick in range(81):  # Exactly 20 seconds, before bot_quality's warm-up cut.
+                            writer.writerow((tick / 4, unit, 0, 0, 0, unit * 10, beh, -1, 0, 0, -1, 0, "clear", 0))
+        measured = fidelity_measure(t)
+        chk("FIDSP: loop20 sums seeds and maps, retaining a measured zero",
+            measured.get("loop20") == dict(maps={"a": 2, "b": 4, "c": 0}, agg=6))
+        cli = subprocess.check_output([sys.executable, os.path.join(REPO, "scripts/loop_spells.py"), bq], text=True)
+        chk("FIDSP: hand CLI agrees with gate per-map and aggregate counts",
+            "| a | 2 |" in cli and "| b | 4 |" in cli and "total spells 6," in cli)
+        loop_cfg = dict(metrics={"loop20": dict(dir="down", agg=0, maps={"a": 0, "b": 0, "c": 0})})
+        chk("FIDSP: a synthetic rise fails loop20@agg",
+            ("loop20", "", 0, 6) in fidelity_compare(loop_cfg, measured)["regress"])
+        equal_cfg = dict(metrics={"loop20": dict(dir="down", **measured["loop20"])})
+        chk("FIDSP: unchanged loop counts pass", not fidelity_compare(equal_cfg, measured)["regress"])
     xc = dict(metrics={"stuck": dict(dir="down", maps={"m1": 0.0, "m2": 0.4}), "contact": dict(dir="up", maps={"m1": 5.0})})
     chk("exposed: main above zero keeps the token, main at zero voids it", exposed_filter(xc, {"stuck@m2", "stuck@m1"}, "BUG") == ({"stuck@m2"}, ["stuck@m1"]))
     chk("exposed: a whole-metric, whole-map, all, agg or `up` token is never an exposure",
@@ -1222,15 +1299,30 @@ def alive(pid, needle=""):
         return False
 
 
+# Effective run options shared by state keys and bare-resume restoration. None for fidelity_allow
+# means use card declarations; an explicit empty string means allow no movements.
+RUN_OPTIONS = dict(tree=None, target=None, bake_groups=[], keep_goldens=False, parity_allow="", golden_groups="auto",
+                   base="main", leak_plan="always", fidelity_allow=None, fidelity_dir="", fidelity_confirm_dir="",
+                   fidelity_both=False)
+
+
+def effective_options(a):
+    return {k: (getattr(a, k, default) if k == "fidelity_allow" else getattr(a, k, default) or default)
+            for k, default in RUN_OPTIONS.items()}
+
+
+def restore_run_args(a, saved):
+    """Restore known options; incomplete older provenance cannot match a new complete run key."""
+    for k, v in effective_options(argparse.Namespace(**saved)).items():
+        setattr(a, k, v)
+    return saved["groups"]
+
+
 def run_args(a, groups):
     """What a finished group's result depends on: a resume keeps it only when all of these are unchanged."""
     head = subprocess.run(["git", "-C", a.tree, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
     toml = open(GATES_TOML, "rb").read() if os.path.exists(GATES_TOML) else b""
-    return dict(tree=a.tree, target=a.target, groups=groups, bake_groups=a.bake_groups or [], keep_goldens=bool(a.keep_goldens),
-                parity_allow=getattr(a, "parity_allow", None) or "", golden_groups=getattr(a, "golden_groups", None) or "auto",
-                leak_plan=getattr(a, "leak_plan", None) or "always", fidelity_allow=getattr(a, "fidelity_allow", None) or "",
-                fidelity_dir=getattr(a, "fidelity_dir", None) or "",
-                fidelity_confirm_dir=getattr(a, "fidelity_confirm_dir", None) or "", head=head, gates_toml=hashlib.sha1(toml).hexdigest())
+    return dict(effective_options(a), groups=groups, head=head, gates_toml=hashlib.sha1(toml).hexdigest())
 
 
 def run(a, groups, resume=False, cls=None):
@@ -1393,14 +1485,7 @@ def main():
     if a.resume and not (a.groups or a.auto):
         if not st:
             sys.exit(f"--resume: no state in {a.out}")
-        s_ = st["args"]
-        a.tree, a.target, a.bake_groups, a.keep_goldens = s_["tree"], s_["target"], s_["bake_groups"], s_["keep_goldens"]
-        a.parity_allow = s_.get("parity_allow", "")
-        a.fidelity_allow = s_.get("fidelity_allow") or None
-        a.fidelity_dir = s_.get("fidelity_dir") or None
-        a.fidelity_confirm_dir = s_.get("fidelity_confirm_dir") or None
-        a.golden_groups = s_.get("golden_groups", "auto")
-        groups = s_["groups"]
+        groups = restore_run_args(a, st["args"])
     else:
         a.tree = os.path.abspath(a.tree)
         a.target = os.path.abspath(a.target or os.path.join(a.tree, "engine/target"))

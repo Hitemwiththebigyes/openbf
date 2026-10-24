@@ -211,13 +211,7 @@ impl Turn {
     ) -> ((f32, f32), (f32, f32)) {
         let slew = |r: f32, t: f32, f: f32| match self.slew {
             Slew::Exp => r + (t - r) * (f * dt).min(1.0),
-            Slew::Linear => {
-                if r < t {
-                    (r + f * dt).min(t)
-                } else {
-                    (r - f * dt).max(t)
-                }
-            }
+            Slew::Linear => super::hover::slew(r, t, f, dt),
         };
         let ry = slew(rate.0, -stick.0 * self.yaw_speed, self.yaw_filter);
         let rp = slew(rate.1, stick.1 * self.pitch_speed, self.pitch_filter);

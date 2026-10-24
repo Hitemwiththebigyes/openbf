@@ -72,7 +72,7 @@ impl Texture {
         let mut palette: Vec<[u8; 4]> = Vec::new();
         if info.bpp != 32 {
             let pal = tex.child(b"pal_").ok_or_else(bad)?;
-            let pal_info = pal.child(b"INFO").ok_or_else(bad)?.payload.to_vec();
+            let pal_info = pal.child(b"INFO").ok_or_else(bad)?.payload;
             if pal_info.len() < 2 {
                 return Err(bad());
             }
@@ -83,7 +83,9 @@ impl Texture {
             }
             // Stored [A, B, G, R] -> emit [R, G, B, A]; alpha is full-range.
             palette = raw
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .map(|c| [c[3], c[2], c[1], c[0]])
                 .collect();
         }
@@ -98,7 +100,9 @@ impl Texture {
                 }
                 // Direct [A, B, G, R] texels -> RGBA8.
                 let rgba: Vec<u8> = data
-                    .chunks_exact(4)
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
                     .flat_map(|c| [c[3], c[2], c[1], c[0]])
                     .collect();
                 mips.push(rgba);
@@ -200,7 +204,7 @@ mod tests {
                 );
                 assert_eq!(t.mips.len(), t.info.mip_count as usize, "{}", t.name);
                 // An effect sprite: transparent somewhere, opaque somewhere.
-                let alphas: Vec<u8> = rgba.chunks_exact(4).map(|c| c[3]).collect();
+                let alphas: Vec<u8> = rgba.as_chunks::<4>().0.iter().map(|c| c[3]).collect();
                 assert!(
                     alphas.iter().any(|&a| a < 8) && alphas.iter().any(|&a| a > 200),
                     "{}",

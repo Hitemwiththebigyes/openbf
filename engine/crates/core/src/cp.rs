@@ -269,10 +269,7 @@ impl CommandPost {
     }
 
     pub fn hash_into(&self, eat: &mut impl FnMut(&[u8])) {
-        eat(&[
-            self.owner.map_or(255, |t| t),
-            self.capture_team.map_or(255, |t| t),
-        ]);
+        eat(&[self.owner.unwrap_or(255), self.capture_team.unwrap_or(255)]);
         eat(&self.capture.to_bits().to_le_bytes());
         eat(&self.neutral.to_bits().to_le_bytes());
     }

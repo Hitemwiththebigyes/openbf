@@ -43,8 +43,9 @@
 //! pitch stick is `gunner::aim`'s; a teammate walking up to a gunner seat
 //! zeroes throttle and strafe; the dismount at the post, when the progress
 //! window has failed [`super::DRIVE_STUCK_BAIL`] (paused while the
-//! manoeuvre runs) or routeless is `ride`'s. Not built: the boost (speed
-//! mode 3's senders are [H], §6), the 20 % bail-out (H2, card VBAIL).
+//! manoeuvre runs) or routeless is `ride`'s. VBAIL checks the 20% health
+//! bail-out (H2) in `ride::drive` before steering. Not built: the boost
+//! (speed mode 3's senders are [H], §6).
 
 use super::gunner::Look;
 use super::mover::stuck_window;
@@ -138,7 +139,6 @@ impl Class {
 pub struct Body {
     pub pos: Vec3,
     pub left: Vec3,
-    pub up: Vec3,
     pub fwd: Vec3,
     pub vel: Vec3,
     pub aim_origin: Vec3,
@@ -359,7 +359,8 @@ pub fn look_ahead(a: Vec3, b: Vec3, pos: Vec3, speed: f32) -> Vec3 {
 /// its stuck word is set (not 2 m in 3 s, or no new closest distance to
 /// the node for 5 s).
 pub fn stuck(f: &mut HoverAi, dt: f32, pos: Vec3, node: Vec3) -> bool {
-    let d2 = (pos.x - node.x).powi(2) + (pos.z - node.z).powi(2);
+    let (dx, dz) = (pos.x - node.x, pos.z - node.z);
+    let d2 = dx * dx + dz * dz;
     if d2 < STUCK_AT_NODE {
         return false;
     }
@@ -422,12 +423,7 @@ pub(super) fn drive(
     let bail = st.route.is_some_and(|r| r.stuck_run >= DRIVE_STUCK_BAIL)
         || (sim.nav.is_some() && st.route.is_none());
     let Some(node) = node.filter(|_| !at_post && !bail) else {
-        let r = st.ride.unwrap_or_default();
-        st.ride = Some(RideState {
-            use_req: true,
-            board: None,
-            ..r
-        });
+        super::ride::request_exit(st);
         nt.stuck_run = st.route.map_or(0, |r| r.stuck_run);
         return (pad, nt);
     };
@@ -477,12 +473,10 @@ pub(super) fn drive(
         since_state2: secs(Some(ai.state2_at)),
         held: [v.input.throttle, v.input.strafe],
     };
-    let up = v.rot * Vec3::Y;
     let fwd = v.rot * Vec3::Z;
     let body = Body {
         pos,
         left: v.rot * Vec3::X,
-        up,
         fwd,
         vel: v.vel,
         aim_origin: pos,

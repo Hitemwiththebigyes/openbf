@@ -115,27 +115,11 @@ pub fn build_with(inv: &Inventory, fallback: &[usize; 9]) -> Tables {
             continue;
         }
         for s in 0..3 {
-            for a in 0..13 {
-                if w[s][wi][a].is_none() {
-                    w[s][wi][a] = w[s][f][a].clone();
-                }
-            }
-            for k in 0..6 {
-                if u[s][wi][k].is_none() {
-                    u[s][wi][k] = u[s][f][k].clone();
-                }
-            }
+            fill_missing(&mut w[s], wi, f);
+            fill_missing(&mut u[s], wi, f);
         }
-        for a in 0..13 {
-            if alert[wi][a].is_none() {
-                alert[wi][a] = alert[f][a].clone();
-            }
-        }
-        for i in 0..31 {
-            if sp[wi][i].is_none() {
-                sp[wi][i] = sp[f][i].clone();
-            }
-        }
+        fill_missing(&mut alert, wi, f);
+        fill_missing(&mut sp, wi, f);
     }
     // 144603-144620: crouch grenade shoot / shoot2 / shoot3 <- stand's.
     for k in 1..=3 {
@@ -154,11 +138,7 @@ pub fn build_with(inv: &Inventory, fallback: &[usize; 9]) -> Tables {
                     u[s][wi][k] = first.clone();
                 }
             }
-            for a in 0..13 {
-                if w[s][wi][a].is_none() {
-                    w[s][wi][a] = w[s][0][a].clone();
-                }
-            }
+            fill_missing(&mut w[s], wi, 0);
             for k in 0..6 {
                 if u[s][wi][k].is_none() {
                     u[s][wi][k] = u[s][0][k].clone();
@@ -168,16 +148,8 @@ pub fn build_with(inv: &Inventory, fallback: &[usize; 9]) -> Tables {
                 }
             }
         }
-        for a in 0..13 {
-            if alert[wi][a].is_none() {
-                alert[wi][a] = alert[0][a].clone();
-            }
-        }
-        for i in 0..31 {
-            if sp[wi][i].is_none() {
-                sp[wi][i] = sp[0][i].clone();
-            }
-        }
+        fill_missing(&mut alert, wi, 0);
+        fill_missing(&mut sp, wi, 0);
     }
     Tables {
         base,
@@ -186,6 +158,14 @@ pub fn build_with(inv: &Inventory, fallback: &[usize; 9]) -> Tables {
         alert,
         u,
         s: sp,
+    }
+}
+
+fn fill_missing(rows: &mut [Vec<Slot>], destination: usize, source: usize) {
+    for k in 0..rows[destination].len() {
+        if rows[destination][k].is_none() {
+            rows[destination][k] = rows[source][k].clone();
+        }
     }
 }
 

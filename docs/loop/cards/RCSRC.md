@@ -4,14 +4,14 @@ title: re_check.py absent --src searches a 0x term only as ASCII text in raw fil
 milestone: M0
 value: 3
 phase: cleanup
-status: todo
+status: done
 deps:
 files: scripts/re_check.py
 declares:
 needs:
 effort:
 branch:
-resume:
+resume: Scope transferred to RECHK by planner 2026-10-24 08:25 UTC; no implementation, passing receipt or landing. Original evidence/acceptance preserved here and verbatim in RECHK; completion of those bars belongs to RECHK. See engine/artifacts/loop/reports/20261024_0825_planner.md.
 created: 2026-10-22
 ---
 ## Why

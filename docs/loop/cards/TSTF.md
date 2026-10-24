@@ -4,14 +4,14 @@ title: Four test defects found by TSTX's inventory - a temp-file race between ba
 milestone: M0
 value: 3
 phase: build
-status: todo
+status: blocked
 deps: TSTX
-files: engine/crates/bake/src/classes.rs,engine/crates/bake/src/loadscreen.rs,engine/crates/mungefs/src/terrain.rs,engine/crates/game/tests/suite/roster.rs,engine/crates/game/src/viewer/leaf.rs
-declares:
-needs:
+files: engine/crates/bake/src/classes.rs, engine/crates/bake/src/loadscreen.rs, engine/crates/mungefs/src/terrain.rs, engine/crates/game/tests/suite/roster.rs, engine/crates/game/src/viewer/leaf.rs, engine/CRATES.md
+declares: ci=+1
+needs: green ci on main (RKHULT bind_pose tat1_skiff_fins and VTZT turret_views FOV tests fail; neither is TSTF)
 effort:
-branch:
-resume:
+branch: tstf
+resume: (private workflow note omitted)
 created: 2026-10-02
 alpha: no
 ---
@@ -30,3 +30,13 @@ alpha: no
 ## Do / Acceptance
 Check each claim first (the inventory is a model's read). Fix the real ones; for 3, say how many more maps are now
 tested. ci counts may move; nothing fails.
+
+## Checked source findings (2026-10-24, unlanded candidate)
+- Shared `bake_or_skip` tags do collide across threaded tests (BF1 ALL is used by three callers; other repeated tags also collide). The helper now adds a process-wide atomic serial to each pid-scoped output. Real concurrent disc bakes remain untested without extracted data.
+- BF2 COMMON was unconditionally opened after TAT2. Separate independently gated tests now exercise each available file; intended CI inventory delta +1.
+- Both named terrain loops had early returns; the 27-map ALPH census has the same defect. All three now continue with tested/skipped summaries. Full-corpus aggregate assertions still require all 27 inputs. With every input absent, attempted map cases rise 3 -> 33 (30 more); actual additional real maps tested = 0. A synthetic later DEA stub after missing COR is checked (1 tested/2 skipped), and corrupting that later file fails with BadMagic.
+- Inventory item 4 was partly stale: leaf and flash census already printed per-file skips. Added counted coverage summaries including missing side prerequisites; invalid leaf vector JSON/read errors no longer masquerade as missing data. Original RAM/census files remain in ignored evidence locations; no replacement reference data invented or tracked.
+- Production prefixes of all four source modules are byte-identical to 3d487d9; roster is integration-test code. Source-map counts refreshed in the isolated checkout. Full acceptance and landing are still pending; see resume/report.
+
+## GitHub checkpoint recovery (2026-10-24)
+

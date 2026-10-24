@@ -4,14 +4,14 @@ title: Mission data still unconsumed: `spawn_delay`/`spawn_interval` into `Spawn
 milestone: M3
 value: 4
 phase: build
-status: parked
+status: blocked
 deps:
 files: engine/crates/game/src/mission.rs, engine/crates/core/src/announcer.rs, engine/crates/core/src/battle.rs, engine/crates/game/src/announce.rs, engine/crates/game/src/main/battle.rs, engine/crates/game/examples/round_to_outcome.rs
 declares:
-needs: maintainer - the RTX is lost (gates gpu ADAPTER LOST: only Intel + llvmpipe); part 1 (8b30501) passes ci + every GPU-free gate but touches core::announcer / game, so the golden step must run on the NVIDIA adapter: reboot, then a land job takes it
+needs: cloud prerequisites: branch msnd, baked assets, missions and reference evidence absent
 effort:
 branch: msnd
-resume: LAND part 1 (branch msnd 8b30501; GPU-free gates lead_tmp/msnd/gates2/SUMMARY.md all PASS, ci MOVED = +2 tests) once the RTX is back. Part 2 (split it: planner): field the locals team - a THIRD sim team (Sim is 2-team: Battle.teams, waves, commander are [_; 2]) with infinite tickets (re-tickets-spawn.md 2.1), the disc's 2-3 classes per map (UAUD1/UAUD2 notes), the BF2 locals cap (re-tickets-spawn.md line 157: sum of CP spawn values), and bakes of ewk/wok/gun/tat/geo native models; era stays informational
+resume: (private workflow note omitted)
 created: 2026-09-25
 alpha: yes
 ---
@@ -58,3 +58,4 @@ Each field consumed with a test; the sweep / arena moves declared (a re-baseline
 - Per-team cap on the asymmetric BF1 maps was already right (`initial_ai`: kas1 31 + 25, nab2 21 + 25); pinned by a test.
 - Acceptance run: `round_rules_reach_the_sim` + `listener_is_player_zero_or_the_attacking_team` pass; 3 mutations
   (no checked_sub, delay fixed at 10, split ignored) each fail them.
+

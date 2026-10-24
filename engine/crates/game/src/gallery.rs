@@ -486,8 +486,7 @@ pub fn map_sheet(map_dir: &Path, assets_dir: &Path) -> Result<(Vec<u8>, u32, u32
     step_water(&mut r, &mut gpu, cam.position)?;
     crate::weather::Weather::submit_still(&mut r, &scene.manifest, assets_dir, map_dir, &cam);
     r.add_particles(crate::holo::still_draws(&gpu.holo, &scene, &cam));
-    let draws: Vec<DrawCmd> = gpu.draws.clone();
-    r.render_frame(&cam, &draws, &skinned, gpu.clear, None)
+    r.render_frame(&cam, &gpu.draws, &skinned, gpu.clear, None)
         .map_err(|e| anyhow!("ground: {e}"))?;
     let (ground, _, _) = r.capture_rgba().map_err(|e| anyhow!("capture: {e}"))?;
 
@@ -947,7 +946,7 @@ pub fn loadscreen_sheet(assets_dir: &Path, game: &str) -> Result<(Vec<u8>, u32, 
     let rows = shots.len().div_ceil(COLS as usize) as u32;
     let (w, h) = (CELL * COLS, CELL * rows);
     let mut out = vec![24u8; (w * h * 4) as usize];
-    for px in out.chunks_exact_mut(4) {
+    for px in out.as_chunks_mut::<4>().0 {
         px[3] = 255;
     }
     for (i, (_, tex)) in shots.iter().enumerate() {

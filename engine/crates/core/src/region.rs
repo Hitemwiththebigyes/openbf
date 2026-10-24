@@ -57,19 +57,15 @@ impl Region {
     ) -> Option<Region> {
         let shape = Shape::parse(shape)?;
         let raw = Vec3::from(size);
-        let rows: Vec<(Vec3, f32)> = rotation
-            .iter()
-            .enumerate()
-            .map(|(i, r)| {
-                let v = Vec3::from(*r);
-                let len = v.length();
-                if len > 1e-6 {
-                    (v / len, len)
-                } else {
-                    (Vec3::AXES[i], 1.0)
-                }
-            })
-            .collect();
+        let rows: [(Vec3, f32); 3] = std::array::from_fn(|i| {
+            let v = Vec3::from(rotation[i]);
+            let len = v.length();
+            if len > 1e-6 {
+                (v / len, len)
+            } else {
+                (Vec3::AXES[i], 1.0)
+            }
+        });
         let scaled = Vec3::new(raw.x * rows[0].1, raw.y * rows[1].1, raw.z * rows[2].1);
         let size = match shape {
             Shape::Sphere => raw,

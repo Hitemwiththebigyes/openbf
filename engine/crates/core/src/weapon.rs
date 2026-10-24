@@ -540,8 +540,8 @@ pub struct WeaponClass {
     pub reload_time: f32,
     pub trigger_single: bool,
     /// `ZoomMax`, the scope's maximum magnification (BF2 class+0xb4 / BF1
-    /// +0x7c). The AI accuracy path is the ONLY thing that reads it in the
-    /// port: it is the third gate of [`WeaponClass::ai_distance_table`]
+    /// +0x7c). Used by human zoom and as the third gate of
+    /// [`WeaponClass::ai_distance_table`]
     /// (`analysis/re-ai-sniper.md` §2). Class-ctor default 1.0 in both games
     /// (B2:319499 / B1:209461), and the loaders coerce a written 0 to 1.0.
     pub zoom_max: f32,
@@ -1093,52 +1093,43 @@ impl WeaponClass {
             w.barrage_delay = v;
         }
         let flag = |key: &str| pf(src, key).map(|v| v != 0.0);
-        for (bit, key) in ["TargetEnemy", "TargetNeutral", "TargetFriendly"]
-            .iter()
-            .enumerate()
-        {
-            match flag(key) {
-                Some(true) => w.target_team |= 1 << bit,
-                Some(false) => w.target_team &= !(1 << bit),
-                None => {}
+        let update_mask = |word: &mut u32, keys: &[&str]| {
+            for (bit, key) in keys.iter().enumerate() {
+                match flag(key) {
+                    Some(true) => *word |= 1 << bit,
+                    Some(false) => *word &= !(1 << bit),
+                    None => {}
+                }
             }
-        }
+        };
+        update_mask(
+            &mut w.target_team,
+            &["TargetEnemy", "TargetNeutral", "TargetFriendly"],
+        );
         if let Some(all) = flag("TargetAll") {
             w.target_kind = if all { 0x1f } else { 0 };
         }
-        for (bit, key) in [
-            "TargetPerson",
-            "TargetAnimal",
-            "TargetDroid",
-            "TargetVehicle",
-            "TargetBuilding",
-        ]
-        .iter()
-        .enumerate()
-        {
-            match flag(key) {
-                Some(true) => w.target_kind |= 1 << bit,
-                Some(false) => w.target_kind &= !(1 << bit),
-                None => {}
-            }
-        }
+        update_mask(
+            &mut w.target_kind,
+            &[
+                "TargetPerson",
+                "TargetAnimal",
+                "TargetDroid",
+                "TargetVehicle",
+                "TargetBuilding",
+            ],
+        );
         w.ai_target_kind = w.target_kind;
-        for (bit, key) in [
-            "AITargetPerson",
-            "AITargetAnimal",
-            "AITargetDroid",
-            "AITargetVehicle",
-            "AITargetBuilding",
-        ]
-        .iter()
-        .enumerate()
-        {
-            match flag(key) {
-                Some(true) => w.ai_target_kind |= 1 << bit,
-                Some(false) => w.ai_target_kind &= !(1 << bit),
-                None => {}
-            }
-        }
+        update_mask(
+            &mut w.ai_target_kind,
+            &[
+                "AITargetPerson",
+                "AITargetAnimal",
+                "AITargetDroid",
+                "AITargetVehicle",
+                "AITargetBuilding",
+            ],
+        );
         if let Some(v) = pf(src, "HeatPerShot") {
             w.heat_per_shot = v;
         }
@@ -1362,7 +1353,7 @@ pub struct WeaponState {
     /// before every use.
     pub ai_dispersion: Option<f32>,
     /// Weapon drawn (weapon+0xc4). Holstering cancels pending salvos and
-    /// blocks triggering; v0 has one weapon per soldier, always drawn.
+    /// blocks triggering; held channel slots draw and holster their weapons.
     pub active: bool,
     pub shots_fired: u64,
     /// The rounds this weapon was issued (the clip and the reserve at its

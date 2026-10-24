@@ -4,14 +4,14 @@ title: Two small weapon rules to the PS2's, one session and one gates run (FPNT 
 milestone: M3
 value: 3
 phase: build
-status: todo
+status: blocked
 deps: AIMA
-files: engine/crates/core/src/unit.rs,engine/crates/core/src/sim/step.rs,engine/crates/core/src/soldier.rs,engine/crates/core/src/weapon.rs,engine/crates/game/src/roster.rs
+files: engine/crates/core/src/unit.rs, engine/crates/core/src/sim/step.rs, engine/crates/core/src/soldier.rs, engine/crates/core/src/weapon.rs, engine/crates/game/src/roster.rs, engine/crates/core/src/sim/pickups.rs
 declares: sim; sweep; arena
 needs:
 effort:
 branch:
-resume:
+resume: 2026-10-24 13:06 UTC: retain cloud restoration hold and fpnt_cloud/next_prompt.md; Part 2 must update primary reserve_cap as well as spawn construction, with refill/held/infinite controls. No source change or current measurement. reports/20261024_1306_planner.md
 created: 2026-10-02
 ---
 ## Why
@@ -61,3 +61,15 @@ Acceptance (run and paste):
 - The sweep: finished 32 / 32 kept; `sweep_seeds.py` on main, after commit 1 and after commit 2, so each part's move
   is its own row (bots that run dry sooner; a bolt 0.16 m higher).
 Undo the merge: `loopctl.py set AMMO status=todo resume=` and cut this section.
+
+## Planner refill boundary (2026-10-24 13:06 UTC)
+Part 2 owns `core/src/sim/pickups.rs::reserve_cap`: its primary branch currently
+uses `spec.spare_clips`, while held slots subtract one. Changing only the spawn
+constructor would let a pickup or station refill the primary above the promised
+spawn reserve. Include this file in the build and exercise the real give_ammo path.
+Additional acceptance: after spending ammo and repeatedly receiving ammo, the two
+finite primary examples remain capped at 250 and 200 reserve respectively; a
+WeaponAmmo 0 primary remains endless; the held-slot cap stays unchanged. Mutating
+the primary cap back to N clips must fail a refill check. Existing baked-class,
+HUD, per-part sweep and arena acceptance stays required. This is current source
+inspection, not new PS2 remeasurement; restore the worker's inputs first.

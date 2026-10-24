@@ -22,6 +22,7 @@
 //! window whose surface cannot be copied draws no filter
 //! (said once on stderr).
 
+use crate::bindings;
 use crate::Renderer;
 
 /// A map's filter as authored (`manifest::ManifestFilter`).
@@ -57,20 +58,6 @@ fn params(f: &FrameFilter, height: u32) -> [f32; 4] {
 /// bytes of a half-float target, which the iGPU's bandwidth shows.
 const ROWS_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgb10a2Unorm;
 
-/// A texture binding the shader reads with `textureLoad`.
-fn tex_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
-    wgpu::BindGroupLayoutEntry {
-        binding,
-        visibility: wgpu::ShaderStages::FRAGMENT,
-        ty: wgpu::BindingType::Texture {
-            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-            view_dimension: wgpu::TextureViewDimension::D2,
-            multisampled: false,
-        },
-        count: None,
-    }
-}
-
 /// The frame's copy and the row pass's target for one target size.
 struct FilterDest {
     copy: wgpu::Texture,
@@ -99,33 +86,23 @@ pub(crate) struct FilterState {
 
 impl FilterState {
     pub(crate) fn new(device: &wgpu::Device, format: wgpu::TextureFormat, copyable: bool) -> Self {
-        let params_entry = wgpu::BindGroupLayoutEntry {
-            binding: 1,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Uniform,
-                has_dynamic_offset: false,
-                min_binding_size: None,
-            },
-            count: None,
-        };
-        let sampler_entry = wgpu::BindGroupLayoutEntry {
-            binding: 4,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-            count: None,
-        };
+        let params_entry = bindings::uniform_layout(1, wgpu::ShaderStages::FRAGMENT, false, None);
+        let sampler_entry = bindings::sampler_layout(4);
         let rows_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("frame filter rows bgl"),
-            entries: &[params_entry, tex_entry(2), sampler_entry],
+            entries: &[
+                params_entry,
+                bindings::texture_layout(2, true),
+                sampler_entry,
+            ],
         });
         let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("frame filter bgl"),
             entries: &[
-                tex_entry(0),
+                bindings::texture_layout(0, true),
                 params_entry,
-                tex_entry(2),
-                tex_entry(3),
+                bindings::texture_layout(2, true),
+                bindings::texture_layout(3, true),
                 sampler_entry,
             ],
         });
@@ -145,67 +122,37 @@ impl FilterState {
                 source: wgpu::ShaderSource::Wgsl(include_str!("filter.wgsl").into()),
             },
         );
-        let build = |label: &str,
-                     bgl: &wgpu::BindGroupLayout,
-                     fs: &str,
-                     format: wgpu::TextureFormat,
-                     write_mask: wgpu::ColorWrites| {
-            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some(label),
-                bind_group_layouts: &[bgl],
-                push_constant_ranges: &[],
-            });
-            crate::made::render_pipeline(
-                device,
-                &wgpu::RenderPipelineDescriptor {
+        let build =
+            |label: &str, bgl: &wgpu::BindGroupLayout, fs: &str, format: wgpu::TextureFormat| {
+                let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some(label),
-                    layout: Some(&layout),
-                    vertex: wgpu::VertexState {
-                        module: &shader,
-                        entry_point: Some("vs_filter"),
-                        buffers: &[],
-                        compilation_options: Default::default(),
-                    },
-                    fragment: Some(wgpu::FragmentState {
-                        module: &shader,
-                        entry_point: Some(fs),
-                        targets: &[Some(wgpu::ColorTargetState {
-                            format,
-                            blend: None,
-                            write_mask,
-                        })],
-                        compilation_options: Default::default(),
-                    }),
-                    primitive: wgpu::PrimitiveState::default(),
-                    depth_stencil: None,
-                    multisample: wgpu::MultisampleState::default(),
-                    multiview: None,
-                    cache: None,
-                },
-            )
-        };
+                    bind_group_layouts: &[bgl],
+                    push_constant_ranges: &[],
+                });
+                crate::pipelines::PipelineDesc {
+                    label,
+                    layout: &layout,
+                    vs: "vs_filter",
+                    buffers: &[],
+                    fs,
+                    blend: None,
+                    depth_write: false,
+                    depth_compare: None,
+                }
+                .build(device, &shader, format)
+            };
         let rows_pipeline = build(
             "frame filter rows pipeline",
             &rows_bgl,
             "fs_filter_rows",
             ROWS_FORMAT,
-            wgpu::ColorWrites::COLOR,
         );
-        let pipeline = build(
-            "frame filter pipeline",
-            &bgl,
-            "fs_filter",
-            format,
-            crate::pipelines::FRAME_WRITES,
-        );
-        let params_buf = crate::made::buffer(
+        let pipeline = build("frame filter pipeline", &bgl, "fs_filter", format);
+        let params_buf = crate::resources::buffer(
             device,
-            &wgpu::BufferDescriptor {
-                label: Some("frame filter params"),
-                size: 16,
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            },
+            "frame filter params",
+            16,
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         );
         Self {
             filter: None,
@@ -252,40 +199,24 @@ impl Renderer {
         if matches!(&f.dest, Some(d) if (d.w, d.h) == (w, h)) {
             return;
         }
-        let size = wgpu::Extent3d {
-            width: w,
-            height: h,
-            depth_or_array_layers: 1,
-        };
         // The copy carries a view without the sRGB suffix: `textureLoad`
         // through it returns the display bytes as stored.
         let display = self.format.remove_srgb_suffix();
-        let copy = crate::made::texture(
+        let copy = crate::resources::texture_2d(
             &self.device,
-            &wgpu::TextureDescriptor {
-                label: Some("frame filter source"),
-                size,
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: self.format,
-                usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
-                view_formats: &[display],
-            },
+            "frame filter source",
+            [w, h],
+            self.format,
+            wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
+            &[display],
         );
-        let rows = crate::made::texture(
+        let rows = crate::resources::texture_2d(
             &self.device,
-            &wgpu::TextureDescriptor {
-                label: Some("frame filter rows"),
-                size,
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: ROWS_FORMAT,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | wgpu::TextureUsages::TEXTURE_BINDING,
-                view_formats: &[],
-            },
+            "frame filter rows",
+            [w, h],
+            ROWS_FORMAT,
+            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            &[],
         );
         let frame_view = copy.create_view(&wgpu::TextureViewDescriptor::default());
         let disp_view = copy.create_view(&wgpu::TextureViewDescriptor {
@@ -293,26 +224,15 @@ impl Renderer {
             ..Default::default()
         });
         let rows_view = rows.create_view(&wgpu::TextureViewDescriptor::default());
-        let params = || wgpu::BindGroupEntry {
-            binding: 1,
-            resource: f.params_buf.as_entire_binding(),
-        };
-        let sampler = || wgpu::BindGroupEntry {
-            binding: 4,
-            resource: wgpu::BindingResource::Sampler(&f.sampler),
-        };
         let rows_bg = crate::made::bind_group(
             &self.device,
             &wgpu::BindGroupDescriptor {
                 label: Some("frame filter rows bg"),
                 layout: &f.rows_bgl,
                 entries: &[
-                    params(),
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::TextureView(&disp_view),
-                    },
-                    sampler(),
+                    bindings::entire_buffer(1, &f.params_buf),
+                    bindings::texture_view(2, &disp_view),
+                    bindings::sampler(4, &f.sampler),
                 ],
             },
         );
@@ -322,20 +242,11 @@ impl Renderer {
                 label: Some("frame filter bg"),
                 layout: &f.bgl,
                 entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&frame_view),
-                    },
-                    params(),
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::TextureView(&disp_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: wgpu::BindingResource::TextureView(&rows_view),
-                    },
-                    sampler(),
+                    bindings::texture_view(0, &frame_view),
+                    bindings::entire_buffer(1, &f.params_buf),
+                    bindings::texture_view(2, &disp_view),
+                    bindings::texture_view(3, &rows_view),
+                    bindings::sampler(4, &f.sampler),
                 ],
             },
         );

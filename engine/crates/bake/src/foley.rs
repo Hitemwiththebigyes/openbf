@@ -46,11 +46,13 @@ pub fn table(inner: &[u8]) -> FoleyRon {
 }
 
 /// Write `<sounds dir>/foley.ron` when the LVL has foley; returns the number
-/// of sub-levels.
+/// of sub-levels. Removes the prior table when the current LVL has none.
 pub fn write(inner: &[u8], sounds_dir: &Path) -> Result<usize> {
     let t = table(inner);
     if !t.levels.is_empty() {
         crate::write_ron(&sounds_dir.join("foley.ron"), &t)?;
+    } else {
+        crate::remove_optional_file(&sounds_dir.join("foley.ron"))?;
     }
     Ok(t.levels.len())
 }

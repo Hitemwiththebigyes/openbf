@@ -4,14 +4,14 @@ title: Broken health / ammo droids: a station shot to 0 (MaxHealth 80, BF2 healt
 milestone: M3
 value: 3
 phase: re
-status: todo
+status: blocked
 deps: PWST
 files:
 declares:
-needs:
+needs: cloud prerequisites: restore both PS2 corpora/ELFs, PCSX2 kit/states and station data; BF1/BF2 shots-to-kill trials and fresh verifier required
 effort:
 branch:
-resume:
+resume: 2026-10-24 12:53 UTC: RE BLOCKED/incomplete; 0/30 exact prerequisites available. Restore both corpora/ELFs, PCSX2 kit/states and station data; then BF1/BF2 health-droid shots-to-kill + damage/rebuild/team/bot RE and fresh verifier. See reports/20261024_1253_card_PWSTD.md and lead_tmp/pwstd_cloud/next_prompt.md. No acceptance or landing earned.
 created: 2026-10-20
 ---
 ## Why

@@ -31,7 +31,7 @@
 //! CP1_SpawnPath's first node lands 13 m from cp1 only with z negated. The
 //! yaw is mirrored accordingly (quaternion y negated).
 
-use crate::config::{parse_tree, ConfigNode};
+use crate::config::parse_tree;
 use crate::{fnv1a_lowercase, le, Chunk, UcfbError};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -128,8 +128,7 @@ pub fn parse_config_paths(c: &Chunk<'_>) -> Result<Vec<Path>, UcfbError> {
             continue;
         };
         let mut nodes = Vec::new();
-        let node_lists: Vec<&ConfigNode> = p.find_all(h_nodes).collect();
-        for list in node_lists {
+        for list in p.find_all(h_nodes) {
             for n in list.find_all(h_node) {
                 let pos = n.find(h_pos);
                 let rot = n.find(h_rot);
@@ -138,12 +137,7 @@ pub fn parse_config_paths(c: &Chunk<'_>) -> Result<Vec<Path>, UcfbError> {
                 };
                 // `f32` is `None` past the values AND on a slot that points
                 // into the string blob.
-                let (Some(px), Some(py), Some(pz)) = (pos.f32(0), pos.f32(1), pos.f32(2)) else {
-                    continue;
-                };
-                let (Some(r0), Some(r1), Some(r2), Some(r3)) =
-                    (rot.f32(0), rot.f32(1), rot.f32(2), rot.f32(3))
-                else {
+                let (Some([px, py, pz]), Some([r0, r1, r2, r3])) = (pos.f3(), rot.f4()) else {
                     continue;
                 };
                 nodes.push(PathNode {

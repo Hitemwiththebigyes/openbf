@@ -173,7 +173,7 @@ impl VehiclePad {
 
     pub fn hash_into(&self, eat: &mut impl FnMut(&[u8])) {
         eat(&[
-            self.team.map_or(u8::MAX, |t| t),
+            self.team.unwrap_or(u8::MAX),
             self.armed as u8,
             self.vehicles.len() as u8,
         ]);
@@ -181,7 +181,7 @@ impl VehiclePad {
         for v in &self.vehicles {
             eat(&v.handle.index.to_le_bytes());
             eat(&v.handle.gen.to_le_bytes());
-            eat(&[v.spawned_team.map_or(u8::MAX, |t| t)]);
+            eat(&[v.spawned_team.unwrap_or(u8::MAX)]);
             eat(&v.idle.to_bits().to_le_bytes());
             eat(&v.tick.to_bits().to_le_bytes());
         }

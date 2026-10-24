@@ -4,14 +4,14 @@ title: The BF2 PS2 loading screen for BF2 maps (card BSHL's RE): header (map / m
 milestone: M5
 value: 4
 phase: build
-status: todo
+status: blocked
 deps: BSHL
 files: engine/crates/bake/src/loadscreen.rs, engine/crates/ui/src/loading.rs, engine/crates/game/src/assets.rs, engine/crates/game/src/main/windowed.rs
 declares: goldens=loadscreens_bf2.png; rebake=load
-needs:
+needs: environment — restore Hoth reference frames, BF2 LOAD/CORE inputs, baked text/fonts/stills and approved GPU
 effort:
 branch:
-resume:
+resume: 20261024_1135 cloud BLOCKED before drawing: 0/9 inputs, no Hoth frames/LOAD assets/baked text/fonts/GPU; restore and measure first; report reports/20261024_1135_card_LDBF2.md; next lead_tmp/ldbf2_cloud/next_prompt.md
 created: 2026-10-20
 ---
 ## Why

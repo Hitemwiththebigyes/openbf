@@ -369,26 +369,17 @@ pub fn terrain_to_glb(t: &Terrain, bf2: bool) -> Result<Vec<u8>> {
         attributes["COLOR_0"] = json!(col);
     }
 
-    let doc = json!({
-        "asset": {"version": "2.0", "generator": "openbf bake"},
-        "buffers": [{"byteLength": bin.bytes.len()}],
-        "bufferViews": bin.views,
-        "accessors": bin.accessors,
-        "materials": [{"name": t.layer_textures.first().cloned().unwrap_or_default()}],
-        "meshes": [{"name": t.name, "primitives": [{
+    crate::gltf_bin::rigid_glb(
+        bin,
+        json!({"name": t.name, "primitives": [{
             "attributes": attributes,
             "indices": idx_acc,
             "material": 0,
             "mode": 4
-        }]}],
-        "nodes": [{"mesh": 0, "name": t.name}],
-        "scenes": [{"nodes": [0]}],
-        "scene": 0
-    });
-    Ok(crate::glb::pack_glb_public(
-        &serde_json::to_vec(&doc)?,
-        &bin.bytes,
-    ))
+        }]}),
+        &t.name,
+        Some(json!([{"name": t.layer_textures.first().cloned().unwrap_or_default()}])),
+    )
 }
 
 /// One layer's draw: vertices (compacted from the ground) and triangles.
@@ -556,21 +547,13 @@ pub fn terrain_layers_to_glb(t: &Terrain, bf2: bool) -> Result<Option<Vec<u8>>> 
         }));
         materials.push(json!({"name": t.layer_textures[k], "alphaMode": "BLEND"}));
     }
-    let doc = json!({
-        "asset": {"version": "2.0", "generator": "openbf bake"},
-        "buffers": [{"byteLength": bin.bytes.len()}],
-        "bufferViews": bin.views,
-        "accessors": bin.accessors,
-        "materials": materials,
-        "meshes": [{"name": format!("{}_layers", t.name), "primitives": primitives}],
-        "nodes": [{"mesh": 0, "name": format!("{}_layers", t.name)}],
-        "scenes": [{"nodes": [0]}],
-        "scene": 0
-    });
-    Ok(Some(crate::glb::pack_glb_public(
-        &serde_json::to_vec(&doc)?,
-        &bin.bytes,
-    )))
+    crate::gltf_bin::rigid_glb(
+        bin,
+        json!({"name": format!("{}_layers", t.name), "primitives": primitives}),
+        &format!("{}_layers", t.name),
+        Some(json!(materials)),
+    )
+    .map(Some)
 }
 
 #[cfg(test)]
@@ -661,7 +644,7 @@ mod tests {
         // Every height the terrain covers a world XZ with.
         let cover = |x: f32, z: f32| -> Vec<f32> {
             let mut out = Vec::new();
-            for tri in idx.chunks_exact(3) {
+            for tri in idx.as_chunks::<3>().0 {
                 let (a, b, c) = (
                     pos[tri[0] as usize],
                     pos[tri[1] as usize],

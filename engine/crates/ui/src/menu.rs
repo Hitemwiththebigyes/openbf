@@ -93,12 +93,11 @@ pub fn navigate(m: &MenuModel, input: MenuInput) -> (usize, Vec<MenuAction>) {
     if input.down {
         cursor = (cursor + 1) % n;
     }
-    let step = |dir: f32| dir;
     match rows[cursor] {
         Row::Resume if input.confirm => actions.push(MenuAction::Resume),
         Row::Cheat(i) if input.confirm => actions.push(MenuAction::ToggleCheat(i)),
         Row::Assist if input.left || input.right => {
-            let d = if input.right { step(0.1) } else { step(-0.1) };
+            let d = if input.right { 0.1 } else { -0.1 };
             actions.push(MenuAction::SetAssist(
                 ((m.assist_intensity + d) * 10.0).round() / 10.0,
             ));

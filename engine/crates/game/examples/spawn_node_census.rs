@@ -59,17 +59,8 @@ fn mission_for(key: &str) -> Option<game::mission::MissionDef> {
 /// The map's sim with its posts in, as the sweep builds it before the
 /// opening wave; `None` with the reason when it will not load.
 fn build_sim(path: &Path) -> Result<game::walk::WalkSim, String> {
-    let mut scene = game::assets::load_scene(path).map_err(|e| format!("LOAD FAILED {e:#}"))?;
-    scene.apply_mode_layer("con");
-    if let Some(cd) = path
-        .parent()
-        .map(|p| p.join(format!("common_{}", scene.manifest.source_game)))
-        .filter(|d| d.join("common.ron").exists())
-    {
-        if let Ok(c) = game::assets::load_common(&cd) {
-            scene.merge_common(c);
-        }
-    }
+    let (scene, _) =
+        game::assets::load_battle_scene(path, "con").map_err(|e| format!("LOAD FAILED {e:#}"))?;
     let key = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
     let mission = mission_for(key);
     let mut layout = game::layout::MapLayout::from_manifest(&scene.manifest);

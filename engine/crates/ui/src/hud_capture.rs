@@ -106,18 +106,12 @@ impl Ctx<'_> {
     fn capture_part(&mut self, part: Part, rgb: [u8; 3], draw: impl FnOnce(&mut Self)) {
         let first = self.out.verts.len();
         draw(self);
-        let b = self.out.verts[first..]
-            .iter()
-            // The mark's shadow copy is black.
-            .filter(|v| v.color[..3] != [0.0; 3])
-            .fold([f32::MAX, f32::MAX, f32::MIN, f32::MIN], |b, v| {
-                [
-                    b[0].min(v.pos[0]),
-                    b[1].min(v.pos[1]),
-                    b[2].max(v.pos[0]),
-                    b[3].max(v.pos[1]),
-                ]
-            });
+        // The mark's shadow copy is black.
+        let b = crate::hud_draw::vertex_bounds(
+            self.out.verts[first..]
+                .iter()
+                .filter(|v| v.color[..3] != [0.0; 3]),
+        );
         if b[0] <= b[2] {
             self.out.capture.push((part, b, rgb));
         }

@@ -55,7 +55,9 @@ pub fn parse(chunk: &Chunk<'_>) -> Result<Locl, UcfbError> {
             return Err(UcfbError::Truncated(body.offset + p));
         }
         let units: Vec<u16> = b[p + HEADER_BYTES..p + size]
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|c| u16::from_le_bytes([c[0], c[1]]))
             .take_while(|u| *u != 0)
             .collect();
@@ -80,16 +82,7 @@ pub fn find(content: &[Chunk<'_>], language: &str) -> Result<Option<Locl>, UcfbE
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn chunk(tag: &[u8; 4], payload: &[u8]) -> Vec<u8> {
-        let mut out = tag.to_vec();
-        out.extend((payload.len() as u32).to_le_bytes());
-        out.extend(payload);
-        while !out.len().is_multiple_of(4) {
-            out.push(0);
-        }
-        out
-    }
+    use crate::build_chunk as chunk;
 
     fn entry(hash: u32, text: &str, pad: usize) -> Vec<u8> {
         let units: Vec<u16> = text

@@ -50,7 +50,7 @@ pub enum Controller {
     /// Dummy pacer: constant planar velocity, reversed every `period`
     /// ticks (the P3 aim-assist rig).
     Pacer { vel: Vec3, period: u32 },
-    /// Minimal AI (P4 item 4) — state lives in `crate::ai`.
+    /// AI synthesizes pad input; state lives in `crate::ai`.
     Ai,
 }
 
@@ -771,10 +771,9 @@ pub struct UnitSpec {
     /// The class's other weapon slots (empty on every built-in spec).
     pub slots: std::sync::Arc<[SlotSpec]>,
     pub capture_posts: bool,
-    /// Does this class wear a jet/jump pack? PROVISIONAL and always FALSE
-    /// today: nothing builds a jet trooper yet, and the only thing that reads
-    /// it is the planning graph, which keeps `jet_jump` arcs (`Arc::JET_JUMP`)
-    /// off a jetless soldier's routes (PLAN "PHASE A.2 DESIGN" decision 4).
+    /// Authored jet/jump-pack eligibility, loaded from `JetJump`. The planning
+    /// graph keeps `jet_jump` arcs (`Arc::JET_JUMP`) off jetless routes (PLAN
+    /// "PHASE A.2 DESIGN" decision 4); this flag does not implement jet flight.
     pub jet: bool,
     /// The class's drop table (card PWUP; empty on every built-in spec: a
     /// death spends no roll and drops nothing).

@@ -170,7 +170,7 @@ fn tat1_256_color_clut_is_linear_not_csm1() {
         sum / ((w - 1) * h) as f64
     };
     let mut csm1 = t.palette.clone();
-    for g in csm1.chunks_exact_mut(32) {
+    for g in csm1.as_chunks_mut::<32>().0 {
         for i in 0..8 {
             g.swap(8 + i, 16 + i);
         }

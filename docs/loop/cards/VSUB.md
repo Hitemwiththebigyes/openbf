@@ -4,14 +4,14 @@ title: Vehicles meet each building's VEHICLE subset, not its soldier subset: the
 milestone: M2
 value: 4
 phase: build
-status: todo
+status: blocked
 deps:
 files: engine/crates/game/src/assets.rs,engine/crates/game/src/collision_layers.rs,engine/crates/core/src/collision/shape.rs,engine/crates/core/src/collision/world.rs,engine/crates/core/src/sim/vehicles.rs,engine/crates/game/examples/layer_census.rs,engine/crates/game/examples/hover_drive.rs
 declares: sweep
-needs:
+needs: environment — Restore full 32-map bake/missions and HHUL subset/RAM census kit; verify walker layer from primary evidence.
 effort:
 branch:
-resume:
+resume: 2026-10-24 10:33 UTC: planner prerequisite hold; no new implementation/acceptance. Reproduce 22258/7967/1477 subset census and main FEL1/NAB1 contacts before changing masks. Keep parked-hover RAM, soldier-leak/golden and per-map sweep checks. Exact missing paths: lead_tmp/planner_20261024_1026/preflight.json. Restore or regenerate verified equivalent inputs before clearing hold. reports/20261024_1026_planner.md
 created: 2026-09-30
 alpha: yes
 ---

@@ -4,14 +4,14 @@ title: The port's near plane is 0.1 m in every view, the PS2's 0.5 m (zoom-scale
 milestone: M1
 value: 4
 phase: build
-status: todo
+status: blocked
 deps:
 files: engine/crates/render/src/camera.rs,engine/crates/game/src/walk.rs
 declares:
-needs:
+needs: environment restoration: restore zoomed/unzoomed BF1/BF2 states, audit-vturz grey/replay/census inputs, turret map bakes and GPU device
 effort:
 branch:
-resume:
+resume: 2026-10-24 09:20 UTC: planner prerequisite census; no implementation. Restore this card's inputs in lead_tmp/planner_20261024_0913/queue_preflight.json, recheck original acceptance/current-main baseline, then loopctl start for isolated build. Full CI and required gates remain; reports/20261024_0913_planner.md.
 created: 2026-10-16
 alpha: yes
 ---
@@ -29,3 +29,8 @@ Audit VTURZ (2026-10-16, report `reports/20261016_0115_audit_VTURZ.md`): the lan
 2. `grey_probe.py`-style render of myg1_zoom 3_zoomright: std > 20 and the PS2's tracks in place (pair image in the report); the real-loop replay's tick 228 not black.
 3. A census: every zoomable turret (213 on 32 maps, `lead_tmp/audit-vturz/audit_census.rs` lists them) x a look grid (yaw step 15, pitch at the limits and 0), zoomed frames whose picture depends on the near plane - count before / after (after = 0 at the PS2 value).
 4. Gates: goldens unchanged or declared (third-person eyes are rarely within 0.5 m of a surface; the soldier scope eye is 0.3 / 0.6 m from the fire point - check it).
+No implementation or acceptance run. Restore zoomed/unzoomed BF1/BF2 states, audit-vturz grey/replay/census inputs, turret map bakes and GPU device.
+Exact checked paths (some diagnostic candidates), file counts and controls: `lead_tmp/planner_20261024_0913/queue_preflight.json`;
+coordinator repeat: `lead_tmp/planner_20261024_0913/coordinator_preflight.json`.
+Original acceptance remains required; skipped/empty-data tests and historical receipts do not pass it.
+After restoration recheck inputs, reproduce current-main baselines and use an isolated build with full applicable gates.

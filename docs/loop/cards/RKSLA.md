@@ -4,14 +4,14 @@ title: Rocket hold rules, the RKSLF audit's fixes: test the press-tick shot (BF1
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: blocked
 deps:
 files: engine/crates/core/src/sim/step.rs, engine/crates/core/src/ai/gunner_foot.rs, engine/crates/core/src/sim/combat.rs, engine/crates/core/src/projectile.rs, engine/crates/core/src/weapon.rs, engine/crates/game/src/fx.rs
 declares: sim; sweep; arena
 needs:
 effort:
 branch:
-resume:
+resume: Cloud preflight 20261024_0816: blocked before implementation; restore audit-rkslf tools/raw runs, PS2 corpora/discs, baked assets/missions and GPU; reproduce current-main AUDIT_RKH baseline, then implement and run all card acceptance plus CI/gates. Report engine/artifacts/loop/reports/20261024_0816_card_RKSLA.md.
 created: 2026-10-20
 alpha: yes
 ---

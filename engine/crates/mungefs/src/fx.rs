@@ -253,16 +253,7 @@ impl WaterConfig {
     /// of them on the twelve wet ones, so a caller scans the chunks and
     /// keeps the first `Some`.
     pub fn parse(fx: &Chunk<'_>) -> Result<Option<WaterConfig>, UcfbError> {
-        for node in parse_tree(fx)? {
-            if node.hash != key::EFFECT {
-                continue;
-            }
-            if !node.string.as_deref().is_some_and(is_water) {
-                continue;
-            }
-            return Ok(Some(from_scope(&node)));
-        }
-        Ok(None)
+        Ok(effect_named(fx, "water")?.map(|node| from_scope(&node)))
     }
 
     /// Metres of world per texture repeat, given the `WATR -> INFO` cell size
@@ -336,30 +327,22 @@ impl HdrConfig {
     /// defaults; a key authored twice takes the later value, as the parser
     /// does (DEA1 and TAN1 author `MaxTotalWeight` twice).
     pub fn parse(fx: &Chunk<'_>) -> Result<Option<HdrConfig>, UcfbError> {
-        for node in parse_tree(fx)? {
-            if node.hash != key::EFFECT
-                || !node
-                    .string
-                    .as_deref()
-                    .is_some_and(|s| s.eq_ignore_ascii_case("hdr"))
-            {
-                continue;
-            }
-            let mut h = HdrConfig::default();
-            for c in &node.children {
-                match (c.hash, c.f32(0)) {
-                    (key::ENABLE, Some(v)) => h.enable = v != 0.0,
-                    (key::NUM_BLOOM_PASSES, Some(v)) if v.is_finite() && v >= 0.0 => {
-                        h.num_bloom_passes = (v as u32).min(16)
-                    }
-                    (key::MAX_TOTAL_WEIGHT, Some(v)) if v.is_finite() => h.max_total_weight = v,
-                    (key::GLOW_THRESHOLD, Some(v)) if v.is_finite() => h.glow_threshold = v,
-                    _ => {}
+        let Some(node) = effect_named(fx, "hdr")? else {
+            return Ok(None);
+        };
+        let mut h = HdrConfig::default();
+        for c in &node.children {
+            match (c.hash, c.f32(0)) {
+                (key::ENABLE, Some(v)) => h.enable = v != 0.0,
+                (key::NUM_BLOOM_PASSES, Some(v)) if v.is_finite() && v >= 0.0 => {
+                    h.num_bloom_passes = (v as u32).min(16)
                 }
+                (key::MAX_TOTAL_WEIGHT, Some(v)) if v.is_finite() => h.max_total_weight = v,
+                (key::GLOW_THRESHOLD, Some(v)) if v.is_finite() => h.glow_threshold = v,
+                _ => {}
             }
-            return Ok(Some(h));
         }
-        Ok(None)
+        Ok(Some(h))
     }
 }
 
@@ -426,49 +409,39 @@ impl LightningConfig {
     /// Parse one `fx__` chunk: `Ok(None)` when it carries no
     /// `Effect("Lightning")` (matched case-insensitively, like the others).
     pub fn parse(fx: &Chunk<'_>) -> Result<Option<LightningConfig>, UcfbError> {
-        for node in parse_tree(fx)? {
-            if node.hash != key::EFFECT
-                || !node
-                    .string
-                    .as_deref()
-                    .is_some_and(|s| s.eq_ignore_ascii_case("lightning"))
-            {
-                continue;
-            }
-            let mut l = LightningConfig::default();
-            for c in &node.children {
-                let finite = c.f32(0).filter(|v| v.is_finite());
-                match c.hash {
-                    key::ENABLE => l.enable = c.f32(0).is_some_and(|v| v != 0.0),
-                    // Clamped to a byte and truncated, as the parser stores it
-                    // (519878–519900).
-                    key::COLOR => {
-                        l.color = c
-                            .f3()
-                            .map_or(l.color, |v| v.map(|x| x.clamp(0.0, 255.0).trunc()))
-                    }
-                    key::SUNLIGHT_FADE_FACTOR => {
-                        l.sunlight_fade_factor = finite.unwrap_or(l.sunlight_fade_factor)
-                    }
-                    key::SKY_DOME_DARKEN_FACTOR => {
-                        l.sky_dome_darken_factor = finite.unwrap_or(l.sky_dome_darken_factor)
-                    }
-                    key::BRIGHTNESS_MIN => l.brightness_min = finite.unwrap_or(l.brightness_min),
-                    key::FADE_TIME => l.fade_time = finite.unwrap_or(l.fade_time),
-                    key::TIME_BETWEEN_FLASHES => l.time_between_flashes = c.floats_or_zero(),
-                    key::TIME_BETWEEN_SUB_FLASHES => {
-                        l.time_between_sub_flashes = c.floats_or_zero()
-                    }
-                    key::NUM_SUB_FLASHES => l.num_sub_flashes = c.floats_or_zero(),
-                    key::HORIZON_ANGLE => l.horizon_angle = c.floats_or_zero(),
-                    key::SOUND_CRACK => l.sound_crack = non_empty(c.string.clone()),
-                    key::SOUND_SUB_CRACK => l.sound_sub_crack = non_empty(c.string.clone()),
-                    _ => {}
+        let Some(node) = effect_named(fx, "lightning")? else {
+            return Ok(None);
+        };
+        let mut l = LightningConfig::default();
+        for c in &node.children {
+            let finite = c.f32(0).filter(|v| v.is_finite());
+            match c.hash {
+                key::ENABLE => l.enable = c.f32(0).is_some_and(|v| v != 0.0),
+                // Clamped to a byte and truncated, as the parser stores it
+                // (519878–519900).
+                key::COLOR => {
+                    l.color = c
+                        .f3()
+                        .map_or(l.color, |v| v.map(|x| x.clamp(0.0, 255.0).trunc()))
                 }
+                key::SUNLIGHT_FADE_FACTOR => {
+                    l.sunlight_fade_factor = finite.unwrap_or(l.sunlight_fade_factor)
+                }
+                key::SKY_DOME_DARKEN_FACTOR => {
+                    l.sky_dome_darken_factor = finite.unwrap_or(l.sky_dome_darken_factor)
+                }
+                key::BRIGHTNESS_MIN => l.brightness_min = finite.unwrap_or(l.brightness_min),
+                key::FADE_TIME => l.fade_time = finite.unwrap_or(l.fade_time),
+                key::TIME_BETWEEN_FLASHES => l.time_between_flashes = c.floats_or_zero(),
+                key::TIME_BETWEEN_SUB_FLASHES => l.time_between_sub_flashes = c.floats_or_zero(),
+                key::NUM_SUB_FLASHES => l.num_sub_flashes = c.floats_or_zero(),
+                key::HORIZON_ANGLE => l.horizon_angle = c.floats_or_zero(),
+                key::SOUND_CRACK => l.sound_crack = non_empty(c.string.clone()),
+                key::SOUND_SUB_CRACK => l.sound_sub_crack = non_empty(c.string.clone()),
+                _ => {}
             }
-            return Ok(Some(l));
         }
-        Ok(None)
+        Ok(Some(l))
     }
 
     /// The colour byte the PS2 holds for dome shell 0 between flashes:
@@ -727,12 +700,6 @@ impl WindConfig {
     }
 }
 
-/// Case-insensitive, because a hash-keyed config's string arguments are not
-/// hashed and nothing forces the authored capitalisation.
-fn is_water(s: &str) -> bool {
-    s.eq_ignore_ascii_case("water")
-}
-
 fn from_scope(effect: &ConfigNode) -> WaterConfig {
     let mut w = WaterConfig::default();
     let mut sp = Speckle::default();
@@ -946,6 +913,29 @@ mod tests {
         let buf = fx(records);
         let c = crate::chunks(&buf).next().unwrap().unwrap();
         WaterConfig::parse(&c).unwrap().expect("a Water effect")
+    }
+
+    #[test]
+    fn repeated_named_effects_keep_the_first_scope() {
+        for (name, field) in [
+            ("Water", key::TILE),
+            ("HDR", key::GLOW_THRESHOLD),
+            ("Lightning", key::BRIGHTNESS_MIN),
+        ] {
+            let mut body = Vec::new();
+            for value in [2.0, 3.0] {
+                body.extend(data(key::EFFECT, &[], &[name]));
+                body.extend(build_chunk(b"SCOP", &data(field, &[value], &[])));
+            }
+            let buf = build_chunk(b"fx__", &body);
+            let c = crate::chunks(&buf).next().unwrap().unwrap();
+            let value = match name {
+                "Water" => WaterConfig::parse(&c).unwrap().unwrap().tile.unwrap()[0],
+                "HDR" => HdrConfig::parse(&c).unwrap().unwrap().glow_threshold,
+                _ => LightningConfig::parse(&c).unwrap().unwrap().brightness_min,
+            };
+            assert_eq!(value, 2.0);
+        }
     }
 
     #[test]

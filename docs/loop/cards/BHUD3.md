@@ -4,14 +4,14 @@ title: The BF2 HUD, part 3 — the rest of the player's own elements: the grenad
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: blocked
 deps: BHUD2
 files: engine/crates/ui/src/hud.rs, engine/crates/ui/src/hud_tree.rs, engine/crates/ui/src/hud_draw.rs, engine/crates/game/src/hud_feed.rs, scripts/rebake.sh
 declares: goldens=tat1_hud.png; rebake=side
-needs:
+needs: cloud HUD assets, side LVLs, PS2 captures and approved GPU validation unavailable
 effort:
 branch:
-resume:
+resume: Cloud preflight blocked; see reports/20261024_0719_card_BHUD3.md. Restore baked common_bf1/common_bf2 HUD and Locl, side art, missions, extracted BF2 INGAME/SIDE CIS/SNW/ALL/IMP LVLs, HUDW/PS2 captures and approved GPU/golden environment; clear needs and set todo. Check shared STOP/PAUSE then loopctl.py start BHUD3. Reconcile current weapon2/name/target feeds before editing; exclude OVHT heat/overheat scope, retain counted-charge note. Implement remaining elements with per-element 640x480 PS2-frame assertions, side rebake and BF1 fallback picture; run CI and required gates, view declared tat1_hud move, then coordinator lands under MAIN. No implementation or acceptance receipt this run.
 created: 2026-10-02
 alpha: yes
 ---

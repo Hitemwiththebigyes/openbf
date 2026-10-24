@@ -4,14 +4,14 @@ title: HTGT's wiring has no tests: 10 of 14 audit mutations of the vehicle pick 
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: done
 deps: HTGT
-files: engine/crates/core/src/sim/input.rs, engine/crates/core/src/sim/state.rs, engine/crates/game/src/vehicle_pads.rs, engine/crates/game/src/event_feed.rs, engine/crates/game/src/main/battle.rs
+files: engine/crates/core/src/sim/input.rs, engine/crates/core/src/sim/state/tests.rs, engine/crates/game/src/main/battle.rs, engine/CRATES.md
 declares:
 needs:
 effort:
-branch:
-resume:
+branch: htgtw
+resume: (private workflow note omitted)
 created: 2026-10-21
 ---
 
@@ -62,3 +62,9 @@ the real rifle the same 210 ticks take the bar 1.0 -> 0.967. The readout reads h
 - The pick itself held in the audit's census (`lead_tmp/audit-htgt/census3/`, `census_summary.txt`, hook
   `tools/census_hook_main.diff` on main 982999c): 5268 aimed tries at 15 / 40 m, 3345 picked the vehicle, all 1824
   misses had the acquisition's own LOS blocked and in none was the vehicle the first surface on the line to its centre.
+
+## Fixture-first continuation (2026-10-24 10:33 UTC)
+The original acceptance explicitly permits a synthetic armed-building fixture and remade mutation patterns. Those may be developed in an isolated loopctl worktree without waiting for the missing audit-htgt kit. Keep the real install/for_walk/setup paths in the test, derive expected values independently and preserve all six required FAIL rows. The HTGT card already records the rifle scale correction; do not re-open the same documentation gap without checking its Notes. Full CI/applicable landing gates and any required real-bake checks remain owed.
+
+## GitHub checkpoint recovery (2026-10-24)
+

@@ -4,14 +4,14 @@ title: Audit HVYW follow-up: a flyer is attacked as the PS2's test says (a weapo
 milestone: M3
 value: 4
 phase: build
-status: parked
+status: blocked
 deps: HVYW
 files: engine/crates/core/src/ai/arsenal.rs,engine/crates/core/src/ai/arsenal/tests.rs
 declares:
-needs: maintainer - the RTX is lost (gates gpu ADAPTER LOST: only Intel + llvmpipe). After a reboot: land.py HVYA
+needs: cloud prerequisites: branch hvya, baked assets, missions and reference evidence absent
 effort:
 branch: hvya
-resume: land: python3 scripts/land.py HVYA (branch hvya 28f28e2; ci + every GPU-free gate PASS in lead_tmp/hvya/gates3, sim / sweep / arena identical - nothing declared moves; mutation table lead_tmp/hvya/mut/*.log via lead_tmp/hvya/mut.py; step 4 RE in docs 68afc2c, the build is card HVYB)
+resume: (private workflow note omitted)
 created: 2026-10-15
 alpha: yes
 ---
@@ -76,3 +76,4 @@ whose launcher is not too weak for that flyer shoots at it at any speed; in the 
 - BF1's `rep_weap_inf_rocket_launcher` (base cannon, bullet ordnance, TargetPerson 1) is not "heavy" by HVYW's rule and fires
   759 of 842 shots at lone soldiers on main 70b9c47 (bf1_geo1, bf1_kam1): PS2-faithful by its own keys, against the letter
   of the maintainer's 2026-10-12 ask. A question for the planner / the maintainer, not this card's build.
+

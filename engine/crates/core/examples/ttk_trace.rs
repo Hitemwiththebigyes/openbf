@@ -66,7 +66,7 @@ fn hp(s: &Sim, t: core::unit::UnitHandle) -> f32 {
     s.units[t.index as usize].health.cur.max(0.0)
 }
 
-/// Two placeholder AIs facing each other at `dist` m.
+/// Two AIs facing each other at `dist` m.
 fn ai_duel(dist: f32, seed: u32) {
     let name = format!("ai_duel_{dist:.0}m_seed{seed}");
     let mut s = Sim::empty(seed);

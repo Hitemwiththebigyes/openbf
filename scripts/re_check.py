@@ -2,11 +2,13 @@
 """re_check.py — the RE self-checks as one-line tools (prompt §RE). Corpora: b1 = analysis/SWBFRONT.ELF-decomp.c,
 b2 = analysis/SWBFRNT2.ELF-decomp.c; ELFs: extracted/bf1/SWBFRONT.ELF, extracted/bf2/SWBFRNT2.ELF (off = va - 0x160000 + 0x1000).
 
+  re_check.py hash MaxSpeed                 candidate name references in both annotated corpora, with fn output
   re_check.py fn b2 708831 708404            check 1: the function each line lives in (+ the line itself)
   re_check.py absent b2 DAT_006615f9 0x5c8 [--card ID] [--src PATH]… [--elf]
                                              check 2: every hit of each term in BOTH decomp corpora, counts + enclosing functions.
                                              --src PATH (repeatable; file or dir, e.g. engine/assets_baked, extracted/) also greps
-                                             the raw bytes; --elf also greps both ELFs (ASCII, and a 0x… term as a LE u32).
+                                             the raw bytes (ASCII and 0x… terms as LE u32); --elf also scans both ELFs, including
+                                             executable MIPS lui + ori/addiu builds within 12 instructions.
                                              Always writes a RECEIPT (engine/artifacts/loop/receipts/<card>_<id>.json) and prints
                                              `[receipt:<id>]` — paste that tag next to every "no class authors X / absent" claim;
                                              `loopctl.py check-absence analysis/re-x.md` refuses an absence claim without one.
@@ -18,8 +20,10 @@ Paste the commands and their output into the RE doc — that is the evidence the
 """
 import datetime, hashlib, json, os, re, struct, sys
 
-VERSION = 1  # receipt format / tool version
+VERSION = 2  # receipt format / tool version
 MAX_SRC_FILES = 200000
+ELF_VA_BASE = 0x160000
+ELF_FILE_BASE = 0x1000
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if not os.path.exists(os.path.join(ROOT, "analysis/SWBFRONT.ELF-decomp.c")):
@@ -65,24 +69,148 @@ def loop_dir():
     return os.environ.get("OPENBF_LOOP_DIR") or os.path.join(ROOT, "engine/artifacts/loop")
 
 
-def _scan_bytes(path, needles, hit_files, counts):
-    try:
-        data = open(path, "rb").read()
-    except OSError:
-        return 0
-    for t, nb in needles:
-        n = sum(data.count(b) for b in nb)
-        if n:
-            counts[t] = counts.get(t, 0) + n
-            hit_files.setdefault(t, []).append(os.path.relpath(path, ROOT))
-    return len(data)
+def _hash_value(t):
+    return int(t, 16) if re.fullmatch(r"0x[0-9a-fA-F]{1,8}", t) else None
 
 
-def _needles(t, elf):
+def _text_forms(t):
+    u = _hash_value(t)
+    if u is None:
+        return [t]
+    forms = [t, f"0x{u:x}", str(u)]
+    if u >= 0x80000000:
+        forms += [f"0xffffffff{u:08x}", f"-0x{0x100000000-u:x}", str(u-0x100000000)]
+    return list(dict.fromkeys(forms))
+
+
+def _needles(t, elf=False):
+    # Raw-source words must never feed the corpus text search.
     nb = [t.encode("latin-1", "replace")]
-    if elf and re.fullmatch(r"0x[0-9a-fA-F]{1,8}", t):
-        nb.append(struct.pack("<I", int(t, 16)))
+    u = _hash_value(t)
+    if u is not None:
+        nb.append(struct.pack("<I", u))
     return nb
+
+
+BUILD_WINDOW = 12  # instructions after a lui searched for its ori/addiu (delay slots, interleaved code)
+
+
+def _writes(word):
+    """Destination GPR of a MIPS/R5900 word, or None (conservative decode for the build scan)."""
+    op = word >> 26
+    if op in (0, 0x1c):  # SPECIAL / MMI: rd
+        return (word >> 11) & 31
+    if op == 3:  # jal
+        return 31
+    if op in (0x11, 0x12) and (word >> 21) & 31 in (0, 1, 2):  # mfc/dmfc/cfc
+        return (word >> 16) & 31
+    if 8 <= op <= 15 or op in (0x18, 0x19, 0x1a, 0x1b, 0x1e, 0x37) or 0x20 <= op <= 0x27:
+        return (word >> 16) & 31
+    return None
+
+
+def _branch_target(word, va):
+    """Target VA of a branch/jump word at `va`, or None (jr/jalr targets are unknown)."""
+    op = word >> 26
+    if op in (2, 3):
+        return ((va + 4) & 0xf0000000) | ((word & 0x3ffffff) << 2)
+    if op in (4, 5, 6, 7, 20, 21, 22, 23) or (op == 1 and (word >> 16) & 31 in (0, 1, 2, 3, 16, 17, 18, 19)):
+        imm = word & 0xffff
+        return va + 4 + ((imm - 0x10000 if imm >= 0x8000 else imm) << 2)
+    return None
+
+
+def _ends_path(word):
+    op = word >> 26
+    return op == 2 or (op == 0 and word & 0x3f == 8) or (op == 4 and not (word >> 16) & 0x3ff)
+
+
+def _code_builds(data, wanted):
+    """MIPS lui + ori/addiu candidates in executable ELF32 LE load segments: every ori/addiu reading the
+    lui register within BUILD_WINDOW instructions on the fall-through path and, for a lui in a branch delay
+    slot, at the branch target; a path stops when the register is rewritten or after an unconditional
+    jump's delay slot. A bounded syntax scan, not control-flow/dataflow proof of absence.
+    """
+    if len(data) < 52 or data[:7] != b"\x7fELF\x01\x01\x01":
+        raise OSError("code scan requires ELF32 little-endian version 1")
+    if struct.unpack_from("<H", data, 18)[0] != 8:
+        raise OSError("code scan requires MIPS ELF")
+    phoff = struct.unpack_from("<I", data, 28)[0]
+    size, count = struct.unpack_from("<HH", data, 42)
+    if size < 32 or not count or phoff + size * count > len(data):
+        raise OSError("incomplete ELF program headers")
+    out = []
+    for index in range(count):
+        typ, off, va, _, length, _, flags, _ = struct.unpack_from("<8I", data, phoff + index * size)
+        if typ != 1 or not flags & 1:
+            continue
+        if off + length > len(data) or va % 4 or off % 4:
+            raise OSError("incomplete or unaligned executable ELF segment")
+        end = off + length - length % 4
+        for pos in range(off, end - 4, 4):
+            hi = struct.unpack_from("<I", data, pos)[0]
+            reg = (hi >> 16) & 31
+            if hi >> 26 != 15 or (hi >> 21) & 31 or not reg:
+                continue
+            starts = [pos + 4]
+            if pos > off:  # a lui in a branch delay slot also continues at the branch target
+                prev = struct.unpack_from("<I", data, pos - 4)[0]
+                target = None if prev >> 26 == 3 else _branch_target(prev, va + pos - off - 4)  # not into a callee
+                if target is not None and va <= target < va + (end - off) and target != va + pos + 4 - off:
+                    starts.append(off + target - va)
+            seen = set()
+            for start in starts:
+                stop = min(end, start + 4 * BUILD_WINDOW)
+                q = start
+                while q < stop:
+                    lo = struct.unpack_from("<I", data, q)[0]
+                    op = lo >> 26
+                    if op in (13, 9) and (lo >> 21) & 31 == reg and (lo >> 16) & 31 and q not in seen:
+                        seen.add(q)
+                        low = lo & 0xffff
+                        value = (((hi & 0xffff) << 16) | low) if op == 13 else (
+                            ((hi & 0xffff) << 16) + (low if low < 0x8000 else low - 0x10000)) & 0xffffffff
+                        if value in wanted:
+                            out.append(dict(value=f"0x{value:08x}", offset=pos, va=va+pos-off,
+                                            form="lui/ori" if op == 13 else "lui/addiu",
+                                            consumer_va=va+q-off, via="branch target" if start != pos + 4 else "fall-through"))
+                    if _writes(lo) == reg:
+                        break
+                    if _ends_path(lo):
+                        stop = min(stop, q + 8)
+                    q += 4
+    return out
+
+
+def _scan_bytes(path, needles, hit_files, counts, details, is_elf=False):
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+    except OSError as exc:
+        raise OSError(f"incomplete source scan: {path}: {exc}") from exc
+    relative = os.path.relpath(path, ROOT)
+    matched = set()
+    for t, nb in needles:
+        for index, needle in enumerate(nb):
+            start = 0
+            while (offset := data.find(needle, start)) >= 0:
+                counts[t] = counts.get(t, 0) + 1
+                matched.add(t)
+                details.append(dict(term=t, file=relative, offset=offset,
+                                    form="ascii" if index == 0 else "le_u32", aligned=offset % 4 == 0))
+                start = offset + 1
+    if is_elf and any(_hash_value(t) is not None for t, _ in needles):
+        builds = _code_builds(data, {_hash_value(t) for t, _ in needles})
+        for t, _ in needles:
+            for build in builds:
+                if _hash_value(t) == int(build["value"], 16):
+                    counts[t] = counts.get(t, 0) + 1
+                    matched.add(t)
+                    details.append(dict(term=t, file=relative, **build))
+    for t, _ in needles:
+        if t in matched:
+            hit_files.setdefault(t, []).append(relative)
+    return len(data)
 
 
 def search(terms, srcs=(), elf=False, quiet=False):
@@ -90,34 +218,60 @@ def search(terms, srcs=(), elf=False, quiet=False):
     (elf) the two ELFs are grepped as bytes. Prints the usual per-term report unless quiet."""
     rec = dict(version=VERSION, tool="re_check.py absent", terms=list(terms), corpora=[], sources=[], total_hits=0)
     for t in terms:
-        pat = re.compile(re.escape(t) + (r"\b" if re.match(r"\w", t[-1]) else ""))
+        forms = _text_forms(t)
+        pat = re.compile("|".join((r"(?<!\w)" if re.match(r"\w", f) else "") + re.escape(f) +
+                                  (r"\b" if f and re.match(r"\w", f[-1]) else "") for f in forms),
+                         re.IGNORECASE if _hash_value(t) is not None else 0)
         for c in ("b1", "b2"):
             hits = [i + 1 for i, l in enumerate(lines(c)) if pat.search(l)]
             fns = {}
             for n in hits:
                 fns.setdefault(enclosing(c, n)[1], []).append(n)
-            rec["corpora"].append(dict(term=t, corpus=c, path=CORP[c], lines=len(lines(c)), hits=len(hits), functions=len(fns)))
+            rec["corpora"].append(dict(term=t, corpus=c, path=CORP[c], lines=len(lines(c)), hits=len(hits), functions=len(fns), forms=forms))
             rec["total_hits"] += len(hits)
             if not quiet:
+                print(f"text forms: {forms}")
                 print(f"{t!r} in {c.upper()}: {len(hits)} hit(s) in {len(fns)} function(s)")
                 for f, ns in list(fns.items())[:40]:
                     print(f"   {f}: lines {', '.join(map(str, ns[:12]))}{' …' if len(ns) > 12 else ''}")
     paths = [(p, False) for p in srcs] + ([(ELF[c], True) for c in ("b1", "b2")] if elf else [])
     for p, is_elf in paths:
         full = p if os.path.isabs(p) else os.path.join(ROOT, p)
-        files = [full] if os.path.isfile(full) else [os.path.join(d, f) for d, _, fs in os.walk(full) for f in fs]
-        if len(files) > MAX_SRC_FILES:
-            files = files[:MAX_SRC_FILES]
+        if not p or not os.path.exists(full):
+            raise OSError(f"requested source unavailable: {p!r}")
+        def walk_error(exc):
+            raise OSError(f"incomplete source traversal: {full}: {exc}") from exc
+        if os.path.isfile(full):
+            files = [full]
+        elif os.path.isdir(full):
+            files = []
+            for d, _, fs in os.walk(full, onerror=walk_error):
+                files.extend(os.path.join(d, f) for f in fs)
+                if len(files) > MAX_SRC_FILES:
+                    raise OSError(f"incomplete source scan: {p}: exceeds file budget {MAX_SRC_FILES}")
+        else:
+            raise OSError(f"requested source is not a file or directory: {p}")
         needles = [(t, _needles(t, is_elf)) for t in terms]
-        counts, hit_files, nbytes = {}, {}, 0
+        counts, hit_files, nbytes, details = {}, {}, 0, []
         for f in files:
-            nbytes += _scan_bytes(f, needles, hit_files, counts)
+            nbytes += _scan_bytes(f, needles, hit_files, counts, details, is_elf)
         hits = sum(counts.values())
         rec["sources"].append(dict(path=p, kind="elf" if is_elf else "raw", files=len(files), bytes=nbytes, hits=hits,
-                                   per_term=counts, hit_files={t: v[:20] for t, v in hit_files.items()}))
+                                   per_term={t: counts.get(t, 0) for t in terms},
+                                   needles={t: [{"form": "ascii" if i == 0 else "le_u32", "hex": n.hex()}
+                                                for i, n in enumerate(nb)] for t, nb in needles},
+                                   code_scan=f"lui then ori/addiu on its register within {BUILD_WINDOW} instructions (fall-through, and branch target for a delay-slot lui) in executable PT_LOAD; builds outside the window, through other registers or other instructions not covered" if is_elf else None,
+                                   hit_files=hit_files, matches=details))
         rec["total_hits"] += hits
         if not quiet:
             print(f"raw {p}: {len(files)} file(s), {nbytes} bytes scanned, {hits} hit(s) {counts or ''}")
+            for d in details:
+                address = f", VA 0x{d['va']:x}" if 'va' in d else ""
+                note = "" if d.get("aligned", True) or d["form"] != "le_u32" else " (unaligned: likely a collision)"
+                print(f"   {d['term']} {d['form']}: {d['file']} offset 0x{d['offset']:x}{address}{note}")
+            print("   Raw word hits may be float/pointer collisions; use propscan.py for disc property keys.")
+            if is_elf:
+                print(f"   Code candidates: lui + ori/addiu within {BUILD_WINDOW} instructions only; other builds are not covered.")
     return rec
 
 
@@ -167,7 +321,7 @@ def writers(c, terms):
 
 def word(c, va, n=1, kind="u32"):
     va = int(va, 16) if isinstance(va, str) else va
-    off = va - 0x160000 + 0x1000
+    off = va - ELF_VA_BASE + ELF_FILE_BASE
     data = open(os.path.join(ROOT, ELF[c]), "rb").read()
     print(f"{ELF[c]} va 0x{va:x} -> file offset 0x{off:x} (off = va - 0x160000 + 0x1000)")
     if kind == "str":
@@ -192,8 +346,33 @@ def callers(c, names):
         print("   (calls through function pointers / vtables are not visible here — search the address as a data word too)")
 
 
+def hash_name(name):
+    from annotate_hashes import MARKER, read_annotated
+    # Validate BOTH inputs before printing anything that could look complete.
+    from pathlib import Path
+    annotated = {c: read_annotated(Path(ROOT) / CORP[c]) for c in CORP}
+    for c, rows in annotated.items():
+        hits = []
+        for n, row in enumerate(rows, 1):
+            for marker in MARKER.finditer(row):
+                if name.casefold() in {s.casefold() for s in json.loads(marker.group(1))}:
+                    hits.append(n)
+                    break
+        print(f"{name!r} in {c.upper()}: {len(hits)} annotated line(s) "
+              f"in {len({enclosing(c, n)[1] for n in hits})} function(s)")
+        fn(c, hits)
+    print("(candidate numeric matches; inspect the function to establish a property read)")
+
+
 def main():
     a = sys.argv[1:]
+    if len(a) == 2 and a[0] == "hash":
+        try:
+            hash_name(a[1])
+        except (OSError, ValueError, KeyError) as exc:
+            print(f"hash query incomplete: {exc}", file=sys.stderr)
+            sys.exit(2)
+        return
     if len(a) < 3 or a[0] not in ("fn", "absent", "writers", "word", "callers") or a[1] not in CORP:
         print(__doc__); sys.exit(1)
     cmd, c, rest = a[0], a[1], a[2:]

@@ -21,6 +21,7 @@
 //! IOP streams 16 KiB blocks from the open handle. The bake instead decodes
 //! the segments it wants (`bake::global_sound`).
 
+use crate::soundbank::{info_pairs, sample_records};
 use crate::{fnv1a_lowercase, Chunk, UcfbError};
 
 pub struct Segment {
@@ -64,24 +65,7 @@ pub fn find_streams(inner: &[u8]) -> Vec<Stream<'_>> {
     let stream_tag = fnv1a_lowercase("Stream");
     let mut out = Vec::new();
     crate::soundbank::walk_sound_wrappers(inner, 3, &mut |c: &Chunk<'_>| {
-        let t = c.tag_u32();
-        if t == stream_tag {
-            if let Ok(s) = parse_stream(c) {
-                out.push(s);
-            }
-            return true;
-        }
-        if t == list_tag {
-            for cc in c.children().flatten() {
-                if cc.tag_u32() == stream_tag {
-                    if let Ok(s) = parse_stream(&cc) {
-                        out.push(s);
-                    }
-                }
-            }
-            return true;
-        }
-        false
+        crate::soundbank::collect_list(c, list_tag, stream_tag, parse_stream, &mut out)
     });
     out
 }
@@ -105,26 +89,12 @@ fn parse_stream<'a>(stream: &Chunk<'a>) -> Result<Stream<'a>, UcfbError> {
     }
     let (info, data) = (info.ok_or_else(bad)?, data.ok_or_else(bad)?);
 
-    let pairs: Vec<(u32, u32)> = info
-        .chunks_exact(8)
-        .map(|p| {
-            (
-                u32::from_le_bytes(p[0..4].try_into().unwrap()),
-                u32::from_le_bytes(p[4..8].try_into().unwrap()),
-            )
-        })
-        .collect();
-
+    let pairs = info_pairs(info);
     let h_name = fnv1a_lowercase("name");
-    let h_id = fnv1a_lowercase("id");
-    let h_freq = fnv1a_lowercase("frequency");
     let h_size = fnv1a_lowercase("size");
-    let h_pad = fnv1a_lowercase("padding");
-    let h_alias = fnv1a_lowercase("alias");
     let h_sample = fnv1a_lowercase("sample");
     let h_channels = fnv1a_lowercase("numchannels");
     let h_block = 0x182F_D58D; // field name unknown; value == the block size
-    let h_frames = 0x1D48_FEEF; // field name unknown; == (size + padding)/16*28
 
     // Header = the pairs before the first record marker.
     let first_marker = pairs.iter().position(|(_, v)| *v == h_sample);
@@ -134,37 +104,29 @@ fn parse_stream<'a>(stream: &Chunk<'a>) -> Result<Stream<'a>, UcfbError> {
 
     let mut segments = Vec::new();
     let mut offset = 0usize;
-    let marker_idxs: Vec<usize> = pairs
-        .iter()
-        .enumerate()
-        .filter(|(_, (_, v))| *v == h_sample)
-        .map(|(i, _)| i)
-        .collect();
-    for (mi, &start) in marker_idxs.iter().enumerate() {
-        let end = marker_idxs
-            .get(mi + 1)
-            .copied()
-            .unwrap_or(pairs.len())
-            .min(start + 8);
-        let rec = &pairs[start + 1..end];
-        let get = |h: u32| rec.iter().find(|(k, _)| *k == h).map(|(_, v)| *v);
-        let (Some(id), Some(freq), Some(size)) = (get(h_id), get(h_freq), get(h_size)) else {
-            continue;
-        };
-        let padding = get(h_pad).unwrap_or(0) as usize;
-        let frames = get(h_frames).unwrap_or((size as usize + padding) as u32 / 16 * 28);
-        let alias_of = get(h_alias);
+    for rec in sample_records(&pairs) {
+        let size = rec.size;
+        let padding = rec.padding as usize;
+        // Include padding before converting to frames. Hostile u32 sizes
+        // can exceed both the frame-count and (on 32-bit) offset ranges.
+        let padded_size = u64::from(size) + padding as u64;
+        let frames = rec
+            .frames
+            .unwrap_or_else(|| u32::try_from(padded_size / 16 * 28).unwrap_or(u32::MAX));
         segments.push(Segment {
-            id_hash: id,
-            frequency: freq,
+            id_hash: rec.id,
+            frequency: rec.frequency,
             offset,
             size: size as usize,
             padding,
             frames,
-            alias_of,
+            alias_of: rec.alias_of,
         });
-        if alias_of.is_none() {
-            offset += size as usize + padding;
+        if rec.alias_of.is_none() {
+            offset = usize::try_from(padded_size)
+                .ok()
+                .and_then(|size| offset.checked_add(size))
+                .ok_or_else(|| UcfbError::Malformed("stream segment offset overflow".into()))?;
         }
     }
     Ok(Stream {
@@ -184,7 +146,7 @@ impl<'a> Stream<'a> {
     /// Borrowed from the FILE buffer, not from `self`, so a caller can keep
     /// slices from several streams at once.
     pub fn segment_adpcm(&self, seg: &Segment) -> Option<&'a [u8]> {
-        self.data.get(seg.offset..seg.offset + seg.size)
+        self.data.get(seg.offset..seg.offset.checked_add(seg.size)?)
     }
 }
 
@@ -192,6 +154,48 @@ impl<'a> Stream<'a> {
 mod tests {
     use super::*;
     use crate::chunks;
+
+    #[test]
+    fn hostile_size_fallback_saturates_and_explicit_frames_win() {
+        for (size, padding, authored, expected) in [
+            (0xffff_fff0u32, 0u32, None, u32::MAX),
+            (u32::MAX, u32::MAX, Some(7u32), 7u32),
+            (u32::MAX, u32::MAX, None, u32::MAX),
+            (0xffff_fff0, 0, Some(7), 7),
+            (16, 16, None, 56),
+        ] {
+            let mut pairs = vec![
+                (fnv1a_lowercase("name"), 1),
+                (0xB969_BE96, fnv1a_lowercase("sample")),
+                (fnv1a_lowercase("id"), 2),
+                (fnv1a_lowercase("frequency"), 22050),
+                (fnv1a_lowercase("size"), size),
+                (fnv1a_lowercase("padding"), padding),
+            ];
+            if let Some(frames) = authored {
+                pairs.push((0x1D48_FEEF, frames));
+            }
+            let info: Vec<u8> = pairs
+                .into_iter()
+                .flat_map(|(k, v)| k.to_le_bytes().into_iter().chain(v.to_le_bytes()))
+                .collect();
+            let mut body = crate::build_chunk(&fnv1a_lowercase("info").to_le_bytes(), &info);
+            body.extend(crate::build_chunk(
+                &fnv1a_lowercase("data").to_le_bytes(),
+                &[],
+            ));
+            let outer = crate::build_chunk(b"test", &body);
+            let c = chunks(&outer).next().unwrap().unwrap();
+            let parsed = parse_stream(&c);
+            if usize::BITS == 32 && u64::from(size) + u64::from(padding) > u64::from(u32::MAX) {
+                assert!(matches!(parsed, Err(UcfbError::Malformed(_))));
+            } else {
+                let stream = parsed.unwrap();
+                assert_eq!(stream.segments[0].frames, expected);
+                assert!(stream.segment_adpcm(&stream.segments[0]).is_none());
+            }
+        }
+    }
 
     /// Data-gated Tier-1: BF1 SOUND/CW.LVL — the clone-wars VO streams, the
     /// smallest real file in this format. Numbers from re-sound-global.md

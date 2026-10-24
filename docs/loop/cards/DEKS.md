@@ -14,7 +14,7 @@ branch:
 resume:
 created: 2026-10-03
 alpha: yes
-first: 9
+first: 14
 ---
 ## Why
 `analysis/re-droideka-unit.md` sections 1-2 [O]: the shield is what makes a droideka a droideka - a second health pool with its own collision sphere. Not fielded yet (DEKF), so nothing is declared.

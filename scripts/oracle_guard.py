@@ -144,7 +144,6 @@ def allowed_classes(env=None, root=ROOT):
 
 
 # ---------- the hook ----------
-WRITE_VERBS = r"(?:tee|cp|mv|rm|rmdir|sed|perl|truncate|dd|install|rsync|ln|touch|chmod|chown|unlink|shred|patch|git|python3?|ruby|node)"
 DEST_ARG = {"cp", "mv", "install", "rsync", "ln"}         # a protected SOURCE of cp/rsync is only a read
 ANY_ARG = {"tee", "rm", "rmdir", "truncate", "touch", "chmod", "chown", "unlink", "shred", "patch"}
 GIT_WRITES = {"checkout", "restore", "rm", "apply", "mv", "stash", "reset", "clean", "am", "cherry-pick", "revert", "merge", "rebase"}
@@ -259,9 +258,19 @@ def hook():
 
 
 # ---------- gates.py's half ----------
+class ComparisonError(RuntimeError):
+    """The protected-path comparison was unavailable, rather than empty."""
+
+
 def changed_by_class(tree, base):
     """{class: [paths]} the tree's HEAD changed since <base> (three-dot: its own commits)."""
-    r = subprocess.run(["git", "-C", tree, "diff", "--name-only", f"{base}...HEAD"], capture_output=True, text=True)
+    cmd = ["git", "-C", tree, "diff", "--name-only", f"{base}...HEAD"]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True)
+    except OSError as e:
+        raise ComparisonError(f"{' '.join(cmd)} unavailable: {e}") from e
+    if r.returncode:
+        raise ComparisonError(f"git -C {tree} diff --name-only {base}...HEAD failed ({r.returncode}): {r.stderr.strip()}")
     out = {}
     for f in r.stdout.split():
         k = classify(f)
@@ -391,7 +400,11 @@ def main():
             rc |= bool(k)
         return rc
     if a[0] == "changed":
-        r = changed_by_class(a[2] if len(a) > 2 else ROOT, a[1])
+        try:
+            r = changed_by_class(a[2] if len(a) > 2 else ROOT, a[1])
+        except ComparisonError as e:
+            print(str(e), file=sys.stderr)
+            return 1
         print(json.dumps(r, indent=1))
         return 1 if r else 0
     if a[0] == "selftest":

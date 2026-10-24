@@ -219,6 +219,16 @@ impl SpecPass {
 }
 
 impl CpuMesh {
+    pub(crate) fn mesh_data<'a>(&'a self, indices: &'a [u32]) -> render::MeshData<'a> {
+        render::MeshData {
+            positions: &self.positions,
+            normals: &self.normals,
+            uvs: &self.uvs,
+            colors: Some(&self.colors),
+            indices,
+        }
+    }
+
     /// Submesh `i`'s specular second pass, or `None` when it draws none.
     pub fn spec_pass(&self, i: usize) -> Option<SpecPass> {
         self.spec.get(i).copied().flatten()
@@ -419,12 +429,6 @@ impl Scene {
         })
     }
 
-    /// Resolve an instance class to the modl name to draw:
-    /// class -> entc GeometryName -> gmod best LOD. Classes without geometry
-    /// (sounds, item pickups, effect emitters) resolve to None.
-    /// Names are case-insensitive in the munged data (the engine hashes them
-    /// lowercased): TAT2's `tat2_bldg_wall_40M` class geometry names a
-    /// lowercase `tat2_bldg_wall_40m` gmod/modl.
     /// Resolve an instance class to its `entc` GeometryName — the part of
     /// [`Scene::resolve_model`] before the gmod lookup, and the key the baked
     /// `coll`/`prim` data is filed under. Case-insensitive, like the munged
@@ -689,6 +693,12 @@ impl Scene {
         (world, doors, of)
     }
 
+    /// Resolve an instance class to the modl name to draw:
+    /// class -> entc GeometryName -> gmod best LOD. Classes without geometry
+    /// (sounds, item pickups, effect emitters) resolve to None.
+    /// Names are case-insensitive in the munged data (the engine hashes them
+    /// lowercased): TAT2's `tat2_bldg_wall_40M` class geometry names a
+    /// lowercase `tat2_bldg_wall_40m` gmod/modl.
     pub fn resolve_model(&self, class: &str) -> Option<&str> {
         let cls = self.resolve_class(class)?;
         let geom = cls.geometry.as_deref()?;
@@ -881,10 +891,10 @@ pub fn body_layers(
 /// collision `cg` in model space, each in the subsets the class's lists put
 /// it in (the vehicle classes read the same six properties as a building,
 /// analysis/re-collision-layers.md §8) — the `coll` mesh, then the prims
-/// the port builds, each at its `XFRM`. A side vehicle's bake has already
-/// put each `XFRM` through its `PRNT` bone's bind matrix (card RKHUL,
-/// `bake::bind_pose::prims_at_bind`); a map's own vehicle class keeps the
-/// map bake's rule (PROVISIONAL: `PRNT` taken as identity outside doors).
+/// the port builds, each at its `XFRM`. The bake has already put each
+/// `XFRM` through its `PRNT` bone's bind matrix, for a side vehicle (card
+/// RKHUL) and a map's own vehicle class alike (card RKHULT,
+/// `bake::bind_pose::prims_at_bind`).
 /// Bodies in neither subset are left out.
 pub fn hull_parts(
     cg: &CollisionGeom,
@@ -1241,20 +1251,20 @@ pub fn load_skinned_glb(path: &Path) -> Result<SkinnedAsset> {
         .map_or(skin.name(), |n| n.name())
         .unwrap_or_default()
         .to_string();
-    let prims: Vec<gltf::Primitive<'_>> = mesh_node
+    let prims = mesh_node
         .iter()
         .filter_map(|n| n.mesh())
-        .flat_map(|m| m.primitives())
-        .collect();
+        .flat_map(|m| m.primitives());
     for prim in prims {
         let reader = prim.reader(|b| buffers.get(b.index()).map(|d| &d.0[..]));
         let base = mesh.positions.len() as u32;
-        let pos: Vec<[f32; 3]> = reader
-            .read_positions()
-            .ok_or_else(|| anyhow!("no positions"))?
-            .collect();
-        let n = pos.len();
-        mesh.positions.extend(pos);
+        let vertex_start = mesh.positions.len();
+        mesh.positions.extend(
+            reader
+                .read_positions()
+                .ok_or_else(|| anyhow!("no positions"))?,
+        );
+        let n = mesh.positions.len() - vertex_start;
         match reader.read_normals() {
             Some(it) => mesh.normals.extend(it),
             None => mesh.normals.extend(std::iter::repeat_n([0.0, 1.0, 0.0], n)),
@@ -1290,14 +1300,15 @@ pub fn load_skinned_glb(path: &Path) -> Result<SkinnedAsset> {
                 .into_f32(),
         );
         let start = mesh.indices.len() as u32;
-        let idx: Vec<u32> = reader
-            .read_indices()
-            .ok_or_else(|| anyhow!("no indices"))?
-            .into_u32()
-            .map(|i| i + base)
-            .collect();
-        let count = idx.len() as u32;
-        mesh.indices.extend(idx);
+        let index_start = mesh.indices.len();
+        mesh.indices.extend(
+            reader
+                .read_indices()
+                .ok_or_else(|| anyhow!("no indices"))?
+                .into_u32()
+                .map(|i| i + base),
+        );
+        let count = (mesh.indices.len() - index_start) as u32;
         let mat = prim.material().name().unwrap_or_default().to_string();
         // A skinned draw is Opaque or Blend (`render::SkinnedDrawCmd::layer`:
         // the disc alpha-tests no soldier, and the bake refuses the cutout
@@ -1309,7 +1320,7 @@ pub fn load_skinned_glb(path: &Path) -> Result<SkinnedAsset> {
             bail!("material {mat:?}: alphaMode MASK — a skinned draw is Opaque or Blend");
         }
         mesh.submeshes.push((start, count, mat, layer));
-        mesh.spec.push(spec_of(&prim));
+        mesh.spec.push(mat_extras(&prim).and_then(|e| e.spec_pass));
     }
 
     let mut clips = Vec::new();
@@ -1413,12 +1424,13 @@ pub fn load_glb_joints(path: &Path) -> Result<(CpuMesh, Vec<[u8; 4]>)> {
         for prim in m.primitives() {
             let reader = prim.reader(|b| buffers.get(b.index()).map(|d| &d.0[..]));
             let base = mesh.positions.len() as u32;
-            let pos: Vec<[f32; 3]> = reader
-                .read_positions()
-                .ok_or_else(|| anyhow!("no positions"))?
-                .collect();
-            let n = pos.len();
-            mesh.positions.extend(pos);
+            let vertex_start = mesh.positions.len();
+            mesh.positions.extend(
+                reader
+                    .read_positions()
+                    .ok_or_else(|| anyhow!("no positions"))?,
+            );
+            let n = mesh.positions.len() - vertex_start;
             match reader.read_normals() {
                 Some(it) => mesh.normals.extend(it),
                 None => mesh.normals.extend(std::iter::repeat_n([0.0, 1.0, 0.0], n)),
@@ -1436,19 +1448,26 @@ pub fn load_glb_joints(path: &Path) -> Result<(CpuMesh, Vec<[u8; 4]>)> {
                 joints.extend(j.into_u16().map(|v| v.map(|b| b.min(255) as u8)));
             }
             let start = mesh.indices.len() as u32;
-            let idx: Vec<u32> = reader
-                .read_indices()
-                .ok_or_else(|| anyhow!("no indices"))?
-                .into_u32()
-                .map(|i| i + base)
-                .collect();
-            let count = idx.len() as u32;
-            mesh.indices.extend(idx);
+            let index_start = mesh.indices.len();
+            mesh.indices.extend(
+                reader
+                    .read_indices()
+                    .ok_or_else(|| anyhow!("no indices"))?
+                    .into_u32()
+                    .map(|i| i + base),
+            );
+            let count = (mesh.indices.len() - index_start) as u32;
             let mat = prim.material().name().unwrap_or_default().to_string();
-            mesh.submeshes
-                .push((start, count, mat, layer_of(&prim), flags_of(&prim)));
-            mesh.spec.push(spec_of(&prim));
-            mesh.light.push(light_of(&prim));
+            let extras = mat_extras(&prim).unwrap_or_default();
+            mesh.submeshes.push((
+                start,
+                count,
+                mat,
+                layer_of(&prim),
+                extras.flags.unwrap_or(0),
+            ));
+            mesh.spec.push(extras.spec_pass);
+            mesh.light.push(light_of(extras.light.as_deref()));
         }
     }
     if !joints.is_empty() {
@@ -1468,28 +1487,13 @@ fn layer_of(prim: &gltf::Primitive<'_>) -> render::DrawLayer {
     }
 }
 
-/// The RAW PS2 MTRL word for a primitive, from the `extras.flags` the bake
-/// writes beside `alphaMode` (`bake::glb`). 0 when the GLB predates ALPHA
-/// RULE v2 or states no extras — which reads as OPAQUE through
-/// `render::SkyMode::from_flags`, the same verdict such a bake meant.
-fn flags_of(prim: &gltf::Primitive<'_>) -> u32 {
-    mat_extras(prim).and_then(|e| e.flags).unwrap_or(0)
-}
-
-/// A primitive's `extras.spec_pass` (`bake::spec`), `None` when the bake
-/// wrote none — every segment but the disc's specular ones, and every GLB
-/// baked before queue SPEC.
-fn spec_of(prim: &gltf::Primitive<'_>) -> Option<SpecPass> {
-    mat_extras(prim).and_then(|e| e.spec_pass)
-}
-
 /// A primitive's `extras.light` (`bake::glb::LightPath::as_str`) as the
 /// renderer's path. Absent — every non-map GLB, every GLB baked before queue
 /// LITEB — is `Lit`, the lighting such a bake was drawn with; an unknown
 /// spelling is refused the same way rather than guessed at.
-fn light_of(prim: &gltf::Primitive<'_>) -> render::LightPath {
+fn light_of(light: Option<&str>) -> render::LightPath {
     use render::LightPath as P;
-    match mat_extras(prim).and_then(|e| e.light).as_deref() {
+    match light {
         Some("prelit") => P::Prelit,
         Some("prelit_add") => P::PrelitAdd,
         Some("unlit") => P::Unlit,
@@ -1501,7 +1505,7 @@ fn light_of(prim: &gltf::Primitive<'_>) -> render::LightPath {
 }
 
 /// The fields of a GLB material's `extras` the runtime reads (`bake::glb`).
-#[derive(serde::Deserialize)]
+#[derive(Default, serde::Deserialize)]
 struct MatExtras {
     flags: Option<u32>,
     spec_pass: Option<SpecPass>,
@@ -1518,6 +1522,99 @@ fn mat_extras(prim: &gltf::Primitive<'_>) -> Option<MatExtras> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Two primitives share one buffer; each keeps its indices, defaults and material policy.
+    #[test]
+    fn glb_streaming_preserves_primitive_offsets_and_whole_extras_failure() {
+        let make = |extras: &str| {
+            let json = format!(
+                r#"{{
+                "asset":{{"version":"2.0"}},
+                "buffers":[{{"byteLength":44}}],
+                "bufferViews":[{{"buffer":0,"byteOffset":0,"byteLength":36}},{{"buffer":0,"byteOffset":36,"byteLength":6}}],
+                "accessors":[{{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[1,1,0]}},{{"bufferView":1,"componentType":5123,"count":3,"type":"SCALAR"}}],
+                "materials":[{{"name":"material","alphaMode":"BLEND"{extras}}}],
+                "meshes":[{{"primitives":[{{"attributes":{{"POSITION":0}},"indices":1,"material":0}},{{"attributes":{{"POSITION":0}},"indices":1,"material":0}}]}}]
+            }}"#
+            );
+            let mut json = json.into_bytes();
+            while json.len() % 4 != 0 {
+                json.push(b' ');
+            }
+            let mut bin = Vec::new();
+            for v in [0.0f32, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0] {
+                bin.extend(v.to_le_bytes());
+            }
+            for v in [0u16, 1, 2] {
+                bin.extend(v.to_le_bytes());
+            }
+            bin.resize(44, 0);
+            let mut glb = Vec::new();
+            for v in [
+                0x46546c67u32,
+                2,
+                (12 + 8 + json.len() + 8 + bin.len()) as u32,
+                json.len() as u32,
+                0x4e4f534a,
+            ] {
+                glb.extend(v.to_le_bytes());
+            }
+            glb.extend(json);
+            glb.extend((bin.len() as u32).to_le_bytes());
+            glb.extend(0x004e4942u32.to_le_bytes());
+            glb.extend(bin);
+            glb
+        };
+        for (n, extras, flags, light) in [
+            (0, "", 0, render::LightPath::Lit),
+            (
+                1,
+                r#", "extras":{"flags":17,"light":"unlit","spec_pass":{"power":42,"rgb":[0.25,0.5,0.75]}}"#,
+                17,
+                render::LightPath::Unlit,
+            ),
+            (
+                2,
+                r#", "extras":{"flags":17,"light":"unknown"}"#,
+                17,
+                render::LightPath::Lit,
+            ),
+            (
+                3,
+                r#", "extras":{"flags":17,"light":3}"#,
+                0,
+                render::LightPath::Lit,
+            ),
+        ] {
+            let path =
+                std::env::temp_dir().join(format!("openbf-stream-{}-{n}.glb", std::process::id()));
+            std::fs::write(&path, make(extras)).unwrap();
+            let loaded = load_glb(&path);
+            std::fs::remove_file(&path).unwrap();
+            let mesh = loaded.unwrap();
+            assert_eq!(
+                mesh.positions,
+                [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]].repeat(2)
+            );
+            assert_eq!(mesh.indices, [0, 1, 2, 3, 4, 5]);
+            assert_eq!(mesh.normals, [[0.0, 1.0, 0.0]; 6]);
+            assert_eq!(mesh.uvs, [[0.0, 0.0]; 6]);
+            assert_eq!(mesh.colors, [[255; 4]; 6]);
+            assert_eq!(
+                mesh.submeshes,
+                vec![
+                    (0, 3, "material".into(), render::DrawLayer::Blend, flags),
+                    (3, 3, "material".into(), render::DrawLayer::Blend, flags)
+                ]
+            );
+            assert_eq!(mesh.light, vec![light; 2]);
+            let spec = (n == 1).then_some(SpecPass {
+                power: 42,
+                rgb: Some([0.25, 0.5, 0.75]),
+            });
+            assert_eq!(mesh.spec, vec![spec; 2]);
+        }
+    }
 
     /// The runtime default is the PC tier — PLAN §LOCKED FEATURE SET puts the
     /// modern look on by default. A golden that renders it is a bug, which is

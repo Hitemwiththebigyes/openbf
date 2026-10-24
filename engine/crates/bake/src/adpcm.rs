@@ -7,7 +7,7 @@ const FILTERS: [(i32, i32); 5] = [(0, 0), (60, 0), (115, -52), (98, -55), (122, 
 pub fn decode(adpcm: &[u8]) -> Vec<i16> {
     let mut out = Vec::with_capacity(adpcm.len() / 16 * 28);
     let (mut h1, mut h2) = (0i32, 0i32);
-    for block in adpcm.chunks_exact(16) {
+    for block in adpcm.as_chunks::<16>().0 {
         let shift = (block[0] & 0x0F) as i32;
         let filter = ((block[0] >> 4) as usize).min(4);
         let (f0, f1) = FILTERS[filter];

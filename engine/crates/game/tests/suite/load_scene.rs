@@ -83,7 +83,7 @@ fn baked_tat1_loads() {
         .count();
     // 137/249: the rest are dust effect emitters (no geometry) and com_*
     // classes defined in COMMON.LVL, not the map LVL (turrets, recharge
-    // droids, CP markers) — baked later when those subsystems land (P4).
+    // droids, CP markers). This map scene has not merged the common bake.
     assert_eq!(drawable, 137, "drawable instance count");
 
     // P4 layout: 13 Zero Editor paths; 6 command posts, each with a capture

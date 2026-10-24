@@ -4,14 +4,14 @@ title: A bot gunner triggers its seat gun as the PS2 does: by the weapon, not by
 milestone: M2
 value: 4
 phase: build
-status: todo
+status: blocked
 deps: VTAI
 files: engine/crates/core/src/ai/gunner.rs,engine/crates/core/src/ai/gunner_foot.rs,engine/crates/core/src/sim/guns.rs
 declares: sim; sweep; arena
-needs:
+needs: environment — Restore HOT1 map/class/seat weapon bakes, missions and VTAT/BRSTU census/PS2 inputs.
 effort:
 branch:
-resume: RE done (analysis/re-turret-ai.md, ab64c9c). Build: write the three scene tests of ## Acceptance first (a bot seated by hand), then the dispatch in ai/gunner.rs
+resume: 2026-10-24 10:33 UTC: planner prerequisite hold; no new implementation/acceptance. Tap is already wired by BRSTU; retake charge failure/default/dispatch census on current main before implementing remaining paths. Keep all three 10 s scene mutations and 8x32 completion/shot census. Exact missing paths: lead_tmp/planner_20261024_1026/preflight.json. Restore or regenerate verified equivalent inputs before clearing hold. reports/20261024_1026_planner.md
 created: 2026-09-29
 alpha: yes
 ---
@@ -77,3 +77,6 @@ analysis/re-<topic>.md: the PS2 automatic turret's acquisition (range, cone, LOS
   the boarding tick from a FIRE carried in from foot, against 6,183 seated-with-target samples; (b) the `TriggerSingle` default by class root
   (the base weapon ctor sets bit 50 of +0x1e0, the cannon and repair ctors clear it: re-turret-ai 7 C26, re-checked by two verifiers) - the port
   defaults it off except grenades; (c) a weapon that is neither cannon-kind, TriggerSingle nor charge skips the burst on the PS2 (repair).
+
+## Current-source reconciliation (2026-10-24 10:33 UTC)
+BRSTU already routes TriggerSingle seat fire through tap (ai/gunner.rs:125-135); the shot predicate still rejects MaxPressedTime > 0 at line 123. Remaining charge/class-default/held-path work follows the 10-21 audit note. The three original scene tests remain required, including tap as a regression control; no fresh PS2 claim or runtime result is inferred here.

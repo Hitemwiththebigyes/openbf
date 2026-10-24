@@ -2,22 +2,9 @@
 //! `analysis/re-cloth.md` 1). Needs the extracted BF2 disc (gitignored);
 //! SKIPS cleanly when absent.
 
+use super::support::walk_lvls;
 use mungefs::cloth::{find_cloths, Cloth};
-use std::path::{Path, PathBuf};
-
-fn lvls(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(rd) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for e in rd.flatten() {
-        let p = e.path();
-        if p.is_dir() {
-            lvls(&p, out);
-        } else if p.extension().is_some_and(|x| x.eq_ignore_ascii_case("lvl")) {
-            out.push(p);
-        }
-    }
-}
+use std::path::Path;
 
 #[test]
 fn all_58_disc_chunks_parse() {
@@ -26,7 +13,7 @@ fn all_58_disc_chunks_parse() {
         "/../../../extracted/bf2/lvl"
     ));
     let mut files = Vec::new();
-    lvls(root, &mut files);
+    walk_lvls(root, &mut files);
     if files.is_empty() {
         eprintln!("SKIP: extracted BF2 LVLs not present");
         return;

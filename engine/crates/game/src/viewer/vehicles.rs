@@ -102,7 +102,7 @@ pub enum ModelSource {
 }
 
 /// Where a vehicle texture was found: the map's own textures, or side `i`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TexSource {
     Map,
     Side(usize),
@@ -239,7 +239,8 @@ impl VehicleVisuals {
             spec_cull: spec_cull(scene, cull),
             items: super::pickups::PickupVisuals::new(assets_dir, &game, cull),
         };
-        let mut textures: HashMap<String, Option<TextureHandle>> = HashMap::new();
+        let mut textures: HashMap<(Option<TexSource>, String), Option<TextureHandle>> =
+            HashMap::new();
         for g in geometry {
             let parts =
                 g.as_deref()
@@ -378,8 +379,6 @@ fn pose_meshes(
     Ok(handles)
 }
 
-impl VehicleVisuals {}
-
 /// Each vehicle class's walker rig (card WSKN), by `Vehicle::class`, loaded
 /// without a renderer as [`VehicleVisuals::load`] finds it - `None` for a
 /// class drawn rigid. A rider on an animated node hangs from it (card
@@ -410,7 +409,7 @@ fn upload_class(
     r: &mut Renderer,
     scene: &Scene,
     sides: &VehicleSides,
-    textures: &mut HashMap<String, Option<TextureHandle>>,
+    textures: &mut HashMap<(Option<TexSource>, String), Option<TextureHandle>>,
     geometry: &str,
 ) -> Result<Option<ClassVis>> {
     let owned: CpuMesh;
@@ -493,14 +492,16 @@ fn texture(
     scene: &Scene,
     sides: &VehicleSides,
     home: Option<usize>,
-    cache: &mut HashMap<String, Option<TextureHandle>>,
+    cache: &mut HashMap<(Option<TexSource>, String), Option<TextureHandle>>,
     name: &str,
 ) -> Result<Option<TextureHandle>> {
     let name = name.to_ascii_lowercase();
-    if let Some(&t) = cache.get(&name) {
+    let source = find_texture(&scene.manifest, sides, home, &name);
+    let key = (source, name.clone());
+    if let Some(&t) = cache.get(&key) {
         return Ok(t);
     }
-    let found = match find_texture(&scene.manifest, sides, home, &name) {
+    let found = match source {
         None => None,
         Some(TexSource::Map) => match scene.textures.get(&name) {
             Some(t) => Some(upload_cpu_texture(r, t, &name)?),
@@ -508,6 +509,42 @@ fn texture(
         },
         Some(TexSource::Side(i)) => upload_texture_file(r, &sides.dir(i).join("textures"), &name)?,
     };
-    cache.insert(name, found);
+    cache.insert(key, found);
     Ok(found)
+}
+
+#[cfg(test)]
+mod texture_cache_tests {
+    use super::*;
+
+    #[test]
+    fn resolved_source_keeps_same_named_home_textures_and_misses_distinct() {
+        let m: manifest::Manifest = ron::from_str(r#"(
+            map: "t", source_game: "bf2", terrain_name: None, sky_name: None, terrain_glb: None,
+            models: [], textures: ["shared"], classes: [], geometries: [], regions: [], instances: []
+        )"#).unwrap();
+        let side = |name: &str| Side {
+            dir: name.into(),
+            models: HashMap::new(),
+            walkers: HashMap::new(),
+            textures: ["shared".to_owned()].into_iter().collect(),
+        };
+        let sides = VehicleSides(vec![side("a"), side("b")]);
+        for order in [[0, 1], [1, 0]] {
+            let mut cache = HashMap::new();
+            for home in order {
+                let source = find_texture(&m, &sides, Some(home), "SHARED");
+                assert_eq!(source, Some(TexSource::Side(home)));
+                let key = (source, "shared".to_owned());
+                cache.entry(key.clone()).or_insert(home);
+                assert_eq!(cache[&key], home);
+            }
+            assert_eq!(cache.len(), 2);
+            assert_eq!(
+                find_texture(&m, &sides, None, "shared"),
+                Some(TexSource::Map)
+            );
+        }
+        assert_eq!(find_texture(&m, &sides, Some(0), "missing"), None);
+    }
 }

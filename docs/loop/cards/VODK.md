@@ -4,14 +4,14 @@ title: Voice-over ducks the battle: while a commander / VO line plays the PS2's 
 milestone: M3
 value: 3
 phase: build
-status: todo
+status: blocked
 deps: MIXH
 files: engine/crates/game/src/main/windowed.rs,engine/crates/game/src/announce.rs
 declares:
-needs:
+needs: Restore both games sound data and mixh bus reader/captures; preserve the all-main-bus mutation test and per-game simultaneous PS2/port gain check.
 effort:
 branch:
-resume:
+resume: 2026-10-24 11:57 UTC: planner prerequisite hold; 8/8 exact named paths absent. Restore both games sound data and mixh bus reader/captures; preserve the all-main-bus mutation test and per-game simultaneous PS2/port gain check. All original acceptance retained. reports/20261024_1151_planner.md; inventory/continuation lead_tmp/planner_20261024_1151/.
 created: 2026-10-16
 alpha: yes
 ---

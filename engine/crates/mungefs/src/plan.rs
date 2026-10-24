@@ -344,8 +344,10 @@ impl Plnp {
             return Err(bad());
         }
         let mut hashes = p[pos..hashes_end]
-            .chunks_exact(4)
-            .map(|c| u32::from_le_bytes(c.try_into().unwrap()));
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| u32::from_le_bytes(*c));
         pos = hashes_end;
         let groups: Vec<Vec<u32>> = per_group
             .iter()

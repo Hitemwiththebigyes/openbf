@@ -451,10 +451,14 @@ impl FrameProfile {
             }
         });
         let record = record_on().then(|| Arc::new(Mutex::new(Record::default())));
+        Self::from_outputs(csv, record)
+    }
+
+    fn from_outputs(csv: Option<Csv>, record: Option<Arc<Mutex<Record>>>) -> Option<Self> {
         if csv.is_none() && record.is_none() {
             return None;
         }
-        render::made::enable(record.is_some());
+        render::made::enable(csv.is_some() || record.is_some());
         let now = Instant::now();
         Some(Self {
             csv,
@@ -551,10 +555,7 @@ impl FrameProfile {
     pub fn end(&mut self, dt_ms: f64, tick: u64, r: &render::Renderer) {
         let gpu = r.gpu_sections();
         let gpu_ms: f64 = gpu.iter().map(|g| g.1).sum();
-        let made = match self.record.is_some() {
-            true => render::made::take(),
-            false => Vec::new(),
-        };
+        let made = render::made::take();
         if let Some(c) = self.csv.as_mut() {
             if c.columns.is_empty() {
                 c.columns = self.laps.iter().map(|l| l.0).collect();
@@ -632,6 +633,56 @@ impl FrameProfile {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn either_output_collects_object_notes_and_reset_drops_loading_notes() {
+        // Other game tests decode sounds and can note into the process-wide
+        // collector. Run this case alone in a child, including in parallel suites.
+        const CHILD: &str = "OPENBF_PROFILE_NOTE_TEST_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "frame_profile::tests::either_output_collects_object_notes_and_reset_drops_loading_notes"])
+                .env(CHILD, "1")
+                .status()
+                .unwrap();
+            assert!(status.success());
+            return;
+        }
+        // Exercise all output combinations at the constructor seam used by
+        // from_env. Preserve the global recorder.
+        let was_on = render::made::on();
+        let saved = render::made::take();
+        for (csv_on, record_on) in [(false, false), (true, false), (false, true), (true, true)] {
+            render::made::enable(false);
+            let file =
+                std::env::temp_dir().join(format!("openbf-profile-{}.csv", std::process::id()));
+            let csv = csv_on.then(|| Csv {
+                out: std::io::BufWriter::new(std::fs::File::create(&file).unwrap()),
+                columns: Vec::new(),
+                frame: 0,
+            });
+            let record = record_on.then(|| Arc::new(Mutex::new(Record::default())));
+            let mut profile = FrameProfile::from_outputs(csv, record);
+            assert_eq!(profile.is_some(), csv_on || record_on);
+            assert_eq!(render::made::on(), csv_on || record_on);
+            render::made::note("buffer", Some("synthetic"), 4, 0.0);
+            let made = render::made::take();
+            assert_eq!(made.len(), usize::from(csv_on || record_on));
+            if let Some(p) = profile.as_mut() {
+                assert_eq!(p.record().is_some(), record_on);
+                render::made::note("texture", Some("loading"), 4, 0.0);
+                p.reset();
+                assert!(render::made::take().is_empty());
+            }
+            drop(profile);
+            let _ = std::fs::remove_file(file);
+        }
+        render::made::enable(true);
+        for m in saved {
+            render::made::note(m.kind, Some(&m.label), m.bytes, m.ms);
+        }
+        render::made::enable(was_on);
+    }
 
     fn row(t: f32, ms: f32) -> FrameRow {
         FrameRow {

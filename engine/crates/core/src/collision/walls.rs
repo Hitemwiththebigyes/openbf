@@ -18,7 +18,7 @@ pub const WALL_ITERATIONS: u32 = 2;
 pub const SUBSTEP_OF_RADIUS: f32 = 0.5;
 /// PROVISIONAL (ours), card WPSH: at most this many sub-steps a tick (a
 /// 2 m move at the 0.25 m sub-step). Anything longer is not a step but a
-/// teleport, and its last sub-step is simply longer.
+/// teleport; all sub-steps remain equal and can exceed the nominal limit.
 pub const MAX_SUBSTEPS: u32 = 8;
 /// PROVISIONAL (ours): the one tolerance [`CollisionWorld::wall_sweep`] has,
 /// in metres. It does three jobs, all of them the same 1 mm:
@@ -415,9 +415,10 @@ impl CollisionWorld {
     ///
     /// A SOLDIER query: bodies outside [`Layers::SOLDIER`] are skipped (RE §4).
     ///
-    /// Order matters here beyond the tie-breaks: the push is ACCUMULATED, and
-    /// the capsule moves under it, so the sum is defined on ascending
-    /// `bodies` order — which is the order the broad phase offers.
+    /// Order matters here beyond the tie-breaks: pushes are ACCUMULATED in
+    /// ascending `bodies` order, which is the order the broad phase offers.
+    /// Contacts use one pose snapshot per iteration; the next iteration
+    /// asks the poses moved by the accumulated pushes.
     ///
     /// This is the bare pass, with no LEDGE rule: the sim's soldiers go
     /// through [`Self::push_out_soldier`].
@@ -513,8 +514,9 @@ impl CollisionWorld {
     }
 
     /// [`Self::push_out`] of `cap`, with the LEDGE rule when `full` (the
-    /// unstepped capsule `cap` was lifted from) is given. Both capsules move
-    /// under every push, so the second pass asks the pushed poses. `start` is
+    /// unstepped capsule `cap` was lifted from) is given. Contacts in each
+    /// iteration use fixed capsule snapshots; pushes move both capsules for
+    /// the next iteration. `start` is
     /// the full capsule at the start of the step, for [`pushes_past`].
     fn push_out_with(
         &self,
@@ -641,30 +643,7 @@ impl CollisionWorld {
             min: centre - Vec3::splat(radius),
             max: centre + Vec3::splat(radius),
         };
-        self.visit_xz(
-            aabb.min.x,
-            aabb.max.x,
-            aabb.min.z,
-            aabb.max.z,
-            HullFilter::Static,
-            |body| {
-                if !body.layers.contains(layers) || !body.aabb.overlaps(&aabb) {
-                    return;
-                }
-                let c = match &body.shape {
-                    Shape::Mesh(mesh) => mesh_contact(mesh, body, &ball, &iso, None, false),
-                    _ => body.shape.with_parry(&mut |s| {
-                        parry3d::query::contact(&iso, &ball, &body.iso, s, 0.0)
-                            .ok()
-                            .flatten()
-                    }),
-                };
-                let Some(c) = c.filter(|c| c.dist < 0.0) else {
-                    return;
-                };
-                out.push((-c.dist, Vec3::new(c.normal2.x, c.normal2.y, c.normal2.z)));
-            },
-        );
+        self.collect_contacts(&ball, &iso, &aabb, layers, out);
     }
 
     /// [`Self::sphere_contacts`] for a box or a cylinder placed by `to_world`
@@ -712,6 +691,18 @@ impl CollisionWorld {
             min: Vec3::new(a.mins.x, a.mins.y, a.mins.z),
             max: Vec3::new(a.maxs.x, a.maxs.y, a.maxs.z),
         };
+        self.collect_contacts(mover, iso, &aabb, layers, out);
+    }
+
+    /// Shared narrowphase; callers retain their own exact query bounds.
+    fn collect_contacts<S: parry3d::shape::Shape>(
+        &self,
+        mover: &S,
+        iso: &Isometry,
+        aabb: &Aabb,
+        layers: Layers,
+        out: &mut Vec<(f32, Vec3)>,
+    ) {
         self.visit_xz(
             aabb.min.x,
             aabb.max.x,
@@ -719,7 +710,7 @@ impl CollisionWorld {
             aabb.max.z,
             HullFilter::Static,
             |body| {
-                if !body.layers.contains(layers) || !body.aabb.overlaps(&aabb) {
+                if !body.layers.contains(layers) || !body.aabb.overlaps(aabb) {
                     return;
                 }
                 let c = match &body.shape {
@@ -1227,6 +1218,81 @@ mod tests {
     };
     use glam::{Mat4, Quat};
 
+    /// Contact collection appends in body order, with the exact per-body
+    /// answers preserved across the broadphase and both mover entry points.
+    #[test]
+    fn contact_collection_preserves_per_body_bits_and_existing_output() {
+        let pose =
+            Mat4::from_rotation_translation(Quat::from_rotation_y(0.37), Vec3::new(4.0, 0.0, -3.0));
+        let mut tris = wall_quad(0.0);
+        tris.extend(wall_quad(-6.0));
+        let centre = pose.transform_point3(Vec3::new(0.2, 0.0, 0.0));
+        let bodies = vec![
+            Body::new(
+                Mat4::from_translation(centre + Vec3::new(0.3, 0.0, 0.0)),
+                Shape::Sphere { radius: 0.5 },
+            ),
+            mesh_body_at(&tris, pose),
+            Body::new(
+                Mat4::from_translation(centre + Vec3::new(0.0, 0.0, 0.3)),
+                Shape::Box {
+                    half: Vec3::splat(0.4),
+                },
+            ),
+        ];
+        let separate: Vec<_> = bodies
+            .iter()
+            .map(|body| {
+                CollisionWorld::new(
+                    vec![Body::new(body.to_world, body.shape.clone())],
+                    Vec::new(),
+                )
+            })
+            .collect();
+        let world = CollisionWorld::new(bodies, Vec::new());
+        let bits = |hits: Vec<(f32, Vec3)>| -> Vec<[u32; 4]> {
+            hits.into_iter()
+                .map(|(d, n)| [d.to_bits(), n.x.to_bits(), n.y.to_bits(), n.z.to_bits()])
+                .collect()
+        };
+        for shape in [
+            Shape::Sphere { radius: 0.6 },
+            Shape::Box {
+                half: Vec3::splat(0.6),
+            },
+            Shape::Cylinder {
+                radius: 0.6,
+                half_height: 0.8,
+            },
+        ] {
+            let query = |world: &CollisionWorld, out: &mut Vec<(f32, Vec3)>| {
+                if let Shape::Sphere { radius } = shape {
+                    world.sphere_contacts(centre, radius, Layers::SOLDIER, out);
+                } else {
+                    world.shape_contacts(
+                        &shape,
+                        Mat4::from_translation(centre),
+                        Layers::SOLDIER,
+                        out,
+                    );
+                }
+            };
+            let prefix = (17.0, Vec3::new(-0.0, 2.0, -3.0));
+            let mut expected = vec![prefix];
+            for body in &separate {
+                let before = expected.len();
+                query(body, &mut expected);
+                assert!(
+                    expected.len() > before,
+                    "fixture body must contribute a contact"
+                );
+            }
+            let mut actual = vec![prefix];
+            query(&world, &mut actual);
+            assert_eq!(bits(actual), bits(expected));
+        }
+    }
+
     /// Card OBST2: [`CollisionWorld::wall_sweep_small`] asks only the bodies
     /// no wider than its limit — a wall across the way is passed over for
     /// the crate behind it, which the whole sweep never reaches — and with
@@ -1549,8 +1615,8 @@ mod tests {
         let (t, _) = world.wall_sweep(&cap, Vec3::X, 5.0).expect("blocked");
         assert!((t - 1.1).abs() < 1e-3, "the nearer wall (1.5 - 0.4): {t}");
 
-        // An exact tie: two identical slabs, one rotated 90 deg about Y so the
-        // two normals differ. The FIRST body's normal is the answer.
+        // An exact tie: identical slabs give identical numeric answers, so
+        // also observe the identity of the FIRST body that answered.
         let slab = |m: Mat4| {
             Body::new(
                 m,
@@ -1562,6 +1628,8 @@ mod tests {
         let at = Mat4::from_translation(Vec3::new(1.6, 0.0, 0.0));
         let tied = CollisionWorld::new(vec![slab(at), slab(at)], Vec::new());
         let (t0, n0) = tied.wall_sweep(&cap, Vec3::X, 5.0).expect("blocked");
+        let (_, _, body) = tied.wall_sweep_body(&cap, Vec3::X, 5.0).expect("blocked");
+        assert!(std::ptr::eq(body, &tied.bodies()[0]));
         let one = CollisionWorld::new(vec![slab(at)], Vec::new());
         assert_eq!(Some((t0, n0)), one.wall_sweep(&cap, Vec3::X, 5.0));
     }

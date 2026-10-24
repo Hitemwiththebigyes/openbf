@@ -122,6 +122,14 @@
   despawn (e.g., 3 tickets left, 2 players + 1 AI alive; player dies & respawns → the AI
   teammate despawns). Preserves comeback tension. `RE:` BF2 ticket/bleed + BF1 spawn
   reserve logic.
+  **BF1 command-walker exception (the maintainer, 2026-10-22; B1WP):** on BF1 Geonosis and Hoth,
+  a live command walker is an uncapturable held post, contributing ValueBleed 10 to
+  the bleed/countdown sum; a destroyed walker contributes nothing until it respawns.
+  Verify the maintainer's recalled lifecycle against the PS2: original-pad respawn, crew reboarding
+  and advance into enemy space (Geonosis) or attack on the shield generator (Hoth);
+  the generator is an uncapturable post until destroyed, then removed. Build the measured
+  PS2 behaviour and report any difference from the recollection in STATUS. This is the
+  approved scope, not evidence that the lifecycle has already been implemented or verified.
 - CTF: **KEEP both variants, REWORK later** — the maintainer barely played it (childhood reason: the
   clone commander says "damn" when the flag drops — optional VO filter noted); needs a
   fun pass before it matters.

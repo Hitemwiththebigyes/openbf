@@ -7,6 +7,7 @@
 //! fields its pass moves; then the depth target, the white texture and the
 //! first instance and palette buffers.
 
+use crate::bindings;
 use crate::device::create_depth_texture;
 use crate::frame::{create_instance_buffer, create_palette_buffer};
 use crate::mesh::Instance;
@@ -31,106 +32,51 @@ impl Renderer {
         let globals_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("globals bgl"),
             entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
+                bindings::uniform_layout(
+                    0,
+                    wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    false,
+                    None,
+                ),
                 // BF2's local lights (`point_light.rs`): the view's table,
                 // read by the world and skinned vertex shaders.
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
+                bindings::uniform_layout(1, wgpu::ShaderStages::VERTEX, false, None),
             ],
         });
         let texture_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("texture bgl"),
             entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
+                bindings::texture_layout(0, true),
+                bindings::sampler_layout(1),
                 // Detail map (PS2 `<name>_dtl` companion). Materials without
                 // one bind the base view here and switch it off in params.
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
+                bindings::texture_layout(2, true),
+                bindings::uniform_layout(3, wgpu::ShaderStages::FRAGMENT, false, None),
             ],
         });
 
         let palette_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("palette bgl"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: true,
-                    min_binding_size: wgpu::BufferSize::new(PALETTE_STRIDE as u64),
-                },
-                count: None,
-            }],
+            entries: &[bindings::uniform_layout(
+                0,
+                wgpu::ShaderStages::VERTEX,
+                true,
+                wgpu::BufferSize::new(PALETTE_STRIDE as u64),
+            )],
         });
 
-        let globals_buf = crate::made::buffer(
+        let globals_buf = crate::resources::buffer(
             &device,
-            &wgpu::BufferDescriptor {
-                label: Some("globals"),
-                size: std::mem::size_of::<Globals>() as u64,
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            },
+            "globals",
+            std::mem::size_of::<Globals>() as u64,
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         );
         // Zero-filled: no light until a frame files one.
-        let points_buf = crate::made::buffer(
+        let points_buf = crate::resources::buffer(
             &device,
-            &wgpu::BufferDescriptor {
-                label: Some("point lights"),
-                size: crate::point_light::POINT_TABLE_BYTES,
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            },
+            "point lights",
+            crate::point_light::POINT_TABLE_BYTES,
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         );
         let globals_bg = crate::made::bind_group(
             &device,
@@ -138,14 +84,8 @@ impl Renderer {
                 label: Some("globals bg"),
                 layout: &globals_bgl,
                 entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: globals_buf.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: points_buf.as_entire_binding(),
-                    },
+                    bindings::entire_buffer(0, &globals_buf),
+                    bindings::entire_buffer(1, &points_buf),
                 ],
             },
         );
@@ -215,7 +155,7 @@ impl Renderer {
         let water_pipeline = PipelineDesc {
             fs: "fs_water",
             blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-            depth_compare: wgpu::CompareFunction::LessEqual,
+            depth_compare: Some(wgpu::CompareFunction::LessEqual),
             ..PipelineDesc::world("map water pipeline", &pipeline_layout, &vb)
         }
         .build(&device, &shader, format);
@@ -244,7 +184,7 @@ impl Renderer {
             fs: "fs_speckle",
             blend: Some(additive),
             depth_write: false,
-            depth_compare: wgpu::CompareFunction::LessEqual,
+            depth_compare: Some(wgpu::CompareFunction::LessEqual),
             ..PipelineDesc::world("map speckle pipeline", &pipeline_layout, &vb)
         }
         .build(&device, &shader, format);
@@ -268,7 +208,7 @@ impl Renderer {
             fs: "fs_terrain_layer",
             blend: Some(wgpu::BlendState::ALPHA_BLENDING),
             depth_write: false,
-            depth_compare: wgpu::CompareFunction::LessEqual,
+            depth_compare: Some(wgpu::CompareFunction::LessEqual),
             ..PipelineDesc::world("map terrain layer pipeline", &pipeline_layout, &vb)
         }
         .build(&device, &shader, format);
@@ -339,7 +279,7 @@ impl Renderer {
                 fs: "fs_sky",
                 blend,
                 depth_write: false,
-                depth_compare: wgpu::CompareFunction::Always,
+                depth_compare: Some(wgpu::CompareFunction::Always),
                 ..PipelineDesc::world(label, &pipeline_layout, &vb)
             }
             .build(&device, &shader, format)
@@ -414,7 +354,7 @@ impl Renderer {
                 fs: "fs_spec",
                 blend: Some(additive),
                 depth_write: false,
-                depth_compare: wgpu::CompareFunction::LessEqual,
+                depth_compare: Some(wgpu::CompareFunction::LessEqual),
                 ..PipelineDesc::world(label, &spec_layout, vb)
             }
             .build(&device, &shader, format)
@@ -515,18 +455,15 @@ impl Renderer {
             fs: "fs_terrain_light",
             blend: Some(additive),
             depth_write: false,
-            depth_compare: wgpu::CompareFunction::LessEqual,
+            depth_compare: Some(wgpu::CompareFunction::LessEqual),
             ..PipelineDesc::world("terrain light pipeline", &terrain_light_layout, &vb)
         }
         .build(&device, &terrain_light_shader, format);
-        let spec_buf = crate::made::buffer(
+        let spec_buf = crate::resources::buffer(
             &device,
-            &wgpu::BufferDescriptor {
-                label: Some("specular params"),
-                size: std::mem::size_of::<crate::specular::SpecParams>() as u64,
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            },
+            "specular params",
+            std::mem::size_of::<crate::specular::SpecParams>() as u64,
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         );
 
         let copyable = match &target {
@@ -633,6 +570,7 @@ impl Renderer {
             spec_mirror: true,
             lighting: Lighting::default(),
             time: 0.0,
+            water_time: 0.0,
             adapter_info,
         })
     }
@@ -660,25 +598,26 @@ pub(crate) const FRAME_WRITES: wgpu::ColorWrites = wgpu::ColorWrites::COLOR;
 /// was a separate 40-line `RenderPipelineDescriptor` differing in at most four
 /// of those fields; the rest (one color target at the target format with
 /// [`FRAME_WRITES`], a `TriangleList` with **no culling** because baked map
-/// geometry has mixed winding, a `Depth32Float` depth buffer with the default
-/// stencil and bias, no multisampling) is identical on purpose and is written
+/// geometry has mixed winding, optional `Depth32Float` with default stencil
+/// and bias, no multisampling) is identical on purpose and is written
 /// once here. A new pass is [`PipelineDesc::world`] plus the fields it moves.
 ///
 /// Base shape adapted from Hangar `pipeline_m.rs` `MeshPipeline::new`, plus the
 /// instance-rate buffer for per-draw model/color.
-struct PipelineDesc<'a> {
-    label: &'a str,
-    layout: &'a wgpu::PipelineLayout,
+pub(crate) struct PipelineDesc<'a> {
+    pub(crate) label: &'a str,
+    pub(crate) layout: &'a wgpu::PipelineLayout,
     /// Vertex entry point in the pipeline's module.
-    vs: &'a str,
+    pub(crate) vs: &'a str,
     /// Vertex + instance buffer layouts, in bind order.
-    buffers: &'a [wgpu::VertexBufferLayout<'static>],
+    pub(crate) buffers: &'a [wgpu::VertexBufferLayout<'a>],
     /// Fragment entry point in the pipeline's module.
-    fs: &'a str,
+    pub(crate) fs: &'a str,
     /// `None` = opaque write; `Some(..)` = composited.
-    blend: Option<wgpu::BlendState>,
-    depth_write: bool,
-    depth_compare: wgpu::CompareFunction,
+    pub(crate) blend: Option<wgpu::BlendState>,
+    pub(crate) depth_write: bool,
+    /// `None` disables the depth attachment; otherwise use Depth32Float.
+    pub(crate) depth_compare: Option<wgpu::CompareFunction>,
 }
 
 impl<'a> PipelineDesc<'a> {
@@ -689,7 +628,7 @@ impl<'a> PipelineDesc<'a> {
     fn world(
         label: &'a str,
         layout: &'a wgpu::PipelineLayout,
-        buffers: &'a [wgpu::VertexBufferLayout<'static>],
+        buffers: &'a [wgpu::VertexBufferLayout<'a>],
     ) -> Self {
         Self {
             label,
@@ -699,11 +638,11 @@ impl<'a> PipelineDesc<'a> {
             fs: "fs_main",
             blend: None,
             depth_write: true,
-            depth_compare: wgpu::CompareFunction::Less,
+            depth_compare: Some(wgpu::CompareFunction::Less),
         }
     }
 
-    fn build(
+    pub(crate) fn build(
         &self,
         device: &wgpu::Device,
         shader: &wgpu::ShaderModule,
@@ -736,13 +675,15 @@ impl<'a> PipelineDesc<'a> {
                     cull_mode: None,
                     ..Default::default()
                 },
-                depth_stencil: Some(wgpu::DepthStencilState {
-                    format: wgpu::TextureFormat::Depth32Float,
-                    depth_write_enabled: self.depth_write,
-                    depth_compare: self.depth_compare,
-                    stencil: wgpu::StencilState::default(),
-                    bias: wgpu::DepthBiasState::default(),
-                }),
+                depth_stencil: self
+                    .depth_compare
+                    .map(|depth_compare| wgpu::DepthStencilState {
+                        format: wgpu::TextureFormat::Depth32Float,
+                        depth_write_enabled: self.depth_write,
+                        depth_compare,
+                        stencil: wgpu::StencilState::default(),
+                        bias: wgpu::DepthBiasState::default(),
+                    }),
                 multisample: wgpu::MultisampleState::default(),
                 multiview: None,
                 cache: None,

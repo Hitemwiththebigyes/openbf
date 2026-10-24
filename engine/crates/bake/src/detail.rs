@@ -68,23 +68,77 @@ pub fn write_ktx2(dir: &Path, file: &str, t: &Texture) -> Result<()> {
 /// Write the detail companion of `base` if the LVL carries one, returning the
 /// source name it consumed (so the caller can keep it out of the plain
 /// texture list). `all` is every decoded texture in the LVL, keyed however
-/// the caller names them — lookup is by lowercased name.
+/// the caller names them — lookup is by lowercased name. Removes an obsolete
+/// companion when none is currently present.
 pub fn write_detail_for(dir: &Path, base: &Texture, all: &[Texture]) -> Result<Option<String>> {
-    if !base.info.detail_compressed {
-        return Ok(None);
-    }
-    let want = detail_source_name(&base.name.to_ascii_lowercase());
-    let Some(d) = all.iter().find(|t| t.name.to_ascii_lowercase() == want) else {
-        // Flagged base with no companion in this LVL: nothing to modulate.
+    let file = detail_file(&base.name.to_ascii_lowercase());
+    let Some(d) = companion(base, all) else {
+        crate::remove_optional_file(&dir.join(file))?;
         return Ok(None);
     };
-    write_ktx2(dir, &detail_file(&base.name.to_ascii_lowercase()), d)?;
-    Ok(Some(want))
+    write_ktx2(dir, &file, d)?;
+    Ok(Some(d.name.to_ascii_lowercase()))
+}
+
+/// Current companion, if the base is detail-compressed and the LVL has it.
+pub(crate) fn companion<'a>(base: &Texture, all: &'a [Texture]) -> Option<&'a Texture> {
+    if !base.info.detail_compressed {
+        return None;
+    }
+    let want = detail_source_name(&base.name.to_ascii_lowercase());
+    all.iter().find(|t| t.name.to_ascii_lowercase() == want)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn current_detail_state_replaces_or_removes_only_its_companion() {
+        let dir =
+            std::env::temp_dir().join(format!("openbf-detail-lifecycle-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let texture = |name: &str| Texture {
+            name: name.into(),
+            info: mungefs::texture::TextureInfo {
+                width: 1,
+                height: 1,
+                bpp: 32,
+                detail_compressed: true,
+                mip_distance: 0.0,
+                mip_count: 1,
+            },
+            palette: Vec::new(),
+            mips: vec![vec![11, 22, 33, 44]],
+        };
+        let mut base = texture("Base");
+        let mut detail = texture("BASE_DTL");
+        detail.info.detail_compressed = false;
+        let all = [detail];
+        let path = dir.join("base.dtl.ktx2");
+        let unrelated = dir.join("other.dtl.ktx2");
+        std::fs::write(&unrelated, b"keep").unwrap();
+        write_ktx2(&dir, "expected.ktx2", &all[0]).unwrap();
+        assert_eq!(
+            write_detail_for(&dir, &base, &all).unwrap().as_deref(),
+            Some("base_dtl")
+        );
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            std::fs::read(dir.join("expected.ktx2")).unwrap()
+        );
+        assert!(write_detail_for(&dir, &base, &[]).unwrap().is_none()); // flagged, missing
+        assert!(!path.exists());
+        std::fs::write(&path, b"stale").unwrap();
+        base.info.detail_compressed = false;
+        assert!(write_detail_for(&dir, &base, &all).unwrap().is_none()); // unflagged, present
+        assert!(!path.exists());
+        assert!(write_detail_for(&dir, &base, &all).unwrap().is_none()); // already absent
+        assert_eq!(std::fs::read(unrelated).unwrap(), b"keep");
+        std::fs::create_dir(&path).unwrap();
+        assert!(write_detail_for(&dir, &base, &all).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn names_are_derived_from_the_base() {

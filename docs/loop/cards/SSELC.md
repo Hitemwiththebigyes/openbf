@@ -4,14 +4,14 @@ title: The PS2 death camera (BF2 FUN_001bc188): phase 1 eases in ~0.5 s to a vie
 milestone: M5
 value: 4
 phase: build
-status: todo
+status: blocked
 deps: SSEL
 files: engine/crates/game/src/walk.rs, engine/crates/game/src/main/windowed.rs, engine/crates/ui/src/hud.rs
 declares:
-needs:
+needs: environment — restore death-camera PS2 sheets/raw rows, BF2 corpus/ELF, Hoth/Kamino/common assets, missions and approved GPU
 effort:
 branch:
-resume:
+resume: 2026-10-24 11:57 UTC: The reported 5 m versus <=1.2 m question must distinguish collision conditions: existing analysis/re-spawn-flow.md 6.5 says 5 m when unobstructed, while section 11 explicitly proposes the floor under the lower cast for the short phase-2 eye. Use the named captured scene for Acceptance 2 and a separate unobstructed cast control; do not turn the scene-specific bar into a universal free-space distance or alter it from an unmeasured fixture. Restore rows/ELF before re-derivation. Preserve the documented observation-lag alignment. reports/20261024_1151_planner.md
 created: 2026-10-20
 ---
 ## Why
@@ -64,3 +64,4 @@ live: `analysis/re-spawn-flow.md` §0 item 8 and §6.5 (second pass, 2026-10-20)
   spawn screens at the level start use the camera shots' 48 deg (§1.1); the FEL1 0.40237 state is the one-update ease.
 - Open [H] (re-spawn-flow §11): who writes `E+0x190`; what the `+0xb8` test excludes (likely a self-kill); why the one
   explosion kill kept no killer.
+

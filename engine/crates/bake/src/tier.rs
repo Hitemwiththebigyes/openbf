@@ -115,7 +115,7 @@ pub fn same_art(ps2: &[u8], w: u32, h: u32, pc: &[u8], pw: u32, ph: u32) -> bool
         return false;
     }
     let mut sum = 0u64;
-    for (a, b) in ps2.chunks_exact(4).zip(down.chunks_exact(4)) {
+    for (a, b) in ps2.as_chunks::<4>().0.iter().zip(down.as_chunks::<4>().0) {
         for c in 0..3 {
             sum += u64::from(a[c].abs_diff(b[c]));
         }
@@ -137,8 +137,10 @@ fn luma(px: &[u8]) -> f64 {
 /// which is right: there is no structure to disagree about.
 fn correlation(a: &[u8], b: &[u8]) -> f64 {
     let (xa, xb): (Vec<f64>, Vec<f64>) = a
-        .chunks_exact(4)
-        .zip(b.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(b.as_chunks::<4>().0)
         .map(|(p, q)| (luma(p), luma(q)))
         .unzip();
     let n = xa.len() as f64;
@@ -230,12 +232,22 @@ impl Resolved {
         }
     }
 
+    /// Write the PS2 base and its current optional tier-2 sibling.
+    pub(crate) fn write_pair(&self, dir: &Path, name: &str, tier2: Option<&Self>) -> Result<()> {
+        self.write_ktx2(dir, &format!("{name}.ktx2"))?;
+        let file = format!("{name}.tier2.ktx2");
+        match tier2 {
+            Some(t) => t.write_ktx2(dir, &file),
+            None => Ok(crate::remove_optional_file(&dir.join(file))?),
+        }
+    }
+
     /// Force every texel opaque (the `segm MTRL` alpha gate — see
     /// [`crate::detail::ALPHA_IS_MEANINGFUL`]). Applied AFTER resolution so
     /// it lands on whichever tier's pixels are written.
     pub fn make_opaque(&mut self) {
         for m in &mut self.mips {
-            for px in m.chunks_exact_mut(4) {
+            for px in m.as_chunks_mut::<4>().0 {
                 px[3] = 255;
             }
         }
@@ -256,15 +268,19 @@ impl Resolved {
     ///
     /// PROVISIONAL: the PS2 mask is carried at the PS2's own resolution, so a
     /// cutout edge is as coarse on tier 2 as on the disc. The alternative —
-    /// the PC alpha where it agrees — is a fidelity call for the lead once
-    /// the runtime half exists.
+    /// the PC alpha where it agrees — remains a fidelity call for the lead.
     pub fn take_alpha_from(&mut self, base: &Resolved) {
         let Some(src) = base.mips.first() else { return };
         let (mut w, mut h) = (self.width.max(1), self.height.max(1));
         for m in &mut self.mips {
             let a = box_down(src, base.width, base.height, w, h);
             debug_assert_eq!(a.len(), m.len(), "mip {w}x{h} is not the size it claims");
-            for (px, s) in m.chunks_exact_mut(4).zip(a.chunks_exact(4)) {
+            for (px, s) in m
+                .as_chunks_mut::<4>()
+                .0
+                .iter_mut()
+                .zip(a.as_chunks::<4>().0)
+            {
                 px[3] = s[3];
             }
             w = (w / 2).max(1);
@@ -374,6 +390,46 @@ pub fn tier2(t: &Texture, pc: Option<&PcTextures>) -> Option<Resolved> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn direct_texture_pair_rebake_clears_only_the_obsolete_override() {
+        let dir =
+            std::env::temp_dir().join(format!("openbf-tier-lifecycle-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let base = Resolved::from_ps2(&ps2("Base", 1, 1, vec![20, 30, 40, 255]));
+        let larger = Resolved {
+            width: 2,
+            height: 2,
+            mips: vec![[50, 60, 70, 255].repeat(4)],
+            tier: Tier::Pc,
+        };
+        let unrelated = dir.join("Other.tier2.ktx2");
+        std::fs::write(&unrelated, b"keep").unwrap();
+        larger.write_ktx2(&dir, "expected.ktx2").unwrap();
+        base.write_pair(&dir, "Base", Some(&larger)).unwrap();
+        let optional = dir.join("Base.tier2.ktx2");
+        assert_eq!(
+            std::fs::read(&optional).unwrap(),
+            std::fs::read(dir.join("expected.ktx2")).unwrap()
+        );
+        let original = std::fs::read(dir.join("Base.ktx2")).unwrap();
+        for _ in 0..2 {
+            base.write_pair(&dir, "Base", None).unwrap();
+            assert!(!optional.exists());
+            assert_eq!(std::fs::read(dir.join("Base.ktx2")).unwrap(), original);
+            assert_eq!(std::fs::read(&unrelated).unwrap(), b"keep");
+        }
+        std::fs::create_dir(&optional).unwrap();
+        assert!(base.write_pair(&dir, "Base", None).is_err());
+        std::fs::remove_dir(&optional).unwrap();
+        // If the base cannot be written, its previous optional output survives.
+        std::fs::remove_file(dir.join("Base.ktx2")).unwrap();
+        std::fs::create_dir(dir.join("Base.ktx2")).unwrap();
+        std::fs::write(&optional, b"previous").unwrap();
+        assert!(base.write_pair(&dir, "Base", None).is_err());
+        assert_eq!(std::fs::read(optional).unwrap(), b"previous");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     fn res(w: u32, h: u32, tier: Tier) -> Resolved {
         Resolved {
@@ -515,7 +571,7 @@ mod tests {
             tier: Tier::Pc,
         };
         o.take_alpha_from(&base);
-        let a: Vec<u8> = o.mips[0].chunks_exact(4).map(|p| p[3]).collect();
+        let a: Vec<u8> = o.mips[0].as_chunks::<4>().0.iter().map(|p| p[3]).collect();
         #[rustfmt::skip]
         assert_eq!(a, vec![
             0, 0, 255, 255,
@@ -524,10 +580,14 @@ mod tests {
             255, 255, 255, 255,
         ], "the PS2 mask, nearest-sampled to 4x4");
         // Mip 1 is 2x2 and takes the mask at its own resolution.
-        let a1: Vec<u8> = o.mips[1].chunks_exact(4).map(|p| p[3]).collect();
+        let a1: Vec<u8> = o.mips[1].as_chunks::<4>().0.iter().map(|p| p[3]).collect();
         assert_eq!(a1, vec![0, 255, 255, 255]);
         // The colour is untouched — only the alpha channel moves.
-        assert!(o.mips[0].chunks_exact(4).all(|p| p[..3] == [99, 99, 99]));
+        assert!(o.mips[0]
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|p| p[..3] == [99, 99, 99]));
     }
 
     #[test]

@@ -4,14 +4,14 @@ title: The port's sky reads 3-11 levels brighter than the PS2's before the frame
 milestone: M1
 value: 3
 phase: re
-status: todo
+status: blocked
 deps:
 files:
 declares:
-needs:
+needs: Restore prefilter tools/raw rows, reference pictures and NAB1/TAT1 bakes plus primary corpora; isolate instrument share from sky changes before tuning.
 effort:
 branch:
-resume:
+resume: 2026-10-24 11:57 UTC: planner prerequisite hold; 8/8 exact named paths absent. Restore prefilter tools/raw rows, reference pictures and NAB1/TAT1 bakes plus primary corpora; isolate instrument share from sky changes before tuning. All original acceptance retained. reports/20261024_1151_planner.md; inventory/continuation lead_tmp/planner_20261024_1151/.
 created: 2026-10-03
 alpha: yes
 ---

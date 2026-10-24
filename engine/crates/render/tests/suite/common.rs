@@ -16,7 +16,10 @@
 //! — hence the module-wide allow, as in `game/tests/common/mod.rs`.
 #![allow(dead_code)]
 
-use render::{MeshData, MeshHandle, Renderer, SamplerMode, TextureDesc, TextureHandle, WrapV};
+use render::{
+    MeshData, MeshHandle, Renderer, SamplerMode, SkinnedMeshData, SkinnedMeshHandle, TextureDesc,
+    TextureHandle, WrapV,
+};
 
 /// Every referee renders at this size.
 pub const N: u32 = 64;
@@ -90,4 +93,24 @@ pub fn view_quad(r: &mut Renderer, z: f32) -> MeshHandle {
         indices: &[0, 1, 2, 0, 2, 3],
     })
     .expect("mesh upload")
+}
+
+/// A skinned quad filling the view at `z` (the shape of `common::view_quad`),
+/// every vertex on joint 0 alone, so the identity palette leaves it in place.
+pub fn skinned_quad(r: &mut Renderer, z: f32) -> SkinnedMeshHandle {
+    r.add_skinned_mesh(&SkinnedMeshData {
+        positions: &[
+            [-4.0, -4.0, z],
+            [4.0, -4.0, z],
+            [4.0, 4.0, z],
+            [-4.0, 4.0, z],
+        ],
+        normals: &[[0.0, 0.0, 1.0]; 4],
+        uvs: &[[0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]],
+        colors: None,
+        joints: &[[0, 0, 0, 0]; 4],
+        weights: &[[1.0, 0.0, 0.0, 0.0]; 4],
+        indices: &[0, 1, 2, 0, 2, 3],
+    })
+    .expect("skinned mesh upload")
 }

@@ -230,11 +230,16 @@ impl Index {
 /// A geometry's top LOD model (LOD0, else LOD1, LOD2, LOWD, else its first).
 fn top_lod(ix: &Index, geometry: &str) -> Option<String> {
     let lods = ix.lods(geometry)?;
-    let top = ["LOD0", "LOD1", "LOD2", "LOWD"]
+    Some(preferred_lod(&lods).to_owned())
+}
+
+/// Select from the nonempty rows already filtered by `Index::lods`.
+fn preferred_lod(lods: &[(String, String)]) -> &str {
+    &["LOD0", "LOD1", "LOD2", "LOWD"]
         .iter()
         .find_map(|t| lods.iter().find(|(tier, _)| tier == t))
-        .unwrap_or(&lods[0]);
-    Some(top.1.clone())
+        .unwrap_or(&lods[0])
+        .1
 }
 
 /// Bake every vehicle class of one SIDE LVL into `outdir`. `pc_lvl` is the
@@ -289,12 +294,7 @@ pub fn bake_vehicles(
                 eprintln!("vehicle {}: chunk geometry {g} not in this LVL", e.name);
                 continue;
             };
-            let best = ["LOD0", "LOD1", "LOD2", "LOWD"]
-                .iter()
-                .find_map(|t| lods.iter().find(|(tier, _)| tier == t))
-                .unwrap_or(&lods[0])
-                .1
-                .clone();
+            let best = preferred_lod(&lods).to_owned();
             geometries.push(ManifestGeometry {
                 name: g.to_owned(),
                 model: best,
@@ -424,8 +424,8 @@ pub fn bake_vehicles(
     // bone's frame (card RKHUL): it is written in model space at the bind
     // pose, as the drawn model is. [D] BF2's spider walker: through their
     // bones its four foot spheres (r 2.5) sit at y 2.50, on the ground under
-    // the drawn feet, and its body sphere 6.19 m up; as stored they all lay
-    // within 2.9 m of the origin, and rockets passed through the body.
+    // the drawn feet, and its body sphere 6.19 m up. The stored bone-local centres
+    // misplaced the bodies, and rockets passed through the drawn body.
     let mut collision: Vec<ManifestCollision> = Vec::new();
     let mut collision_index = HashMap::new();
     for g in &geometries {
@@ -475,6 +475,186 @@ pub fn bake_vehicles(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // RKHULT: exact synthetic axes make the two composition orders differ.
+    // Expectations below are worked out by following the prim's axes, then
+    // the bone's axes; they do not call the matrix helper being tested.
+    fn check_rest_prim(bone_space: bool, chunk: bool) {
+        use mungefs::coll::{PrimKind, Primitive, Primitives};
+        use mungefs::entity::{GeomLod, GeomModel};
+        use mungefs::skel::{SkelBone, Skeleton};
+        let geom = if chunk { "vehicle_chunk" } else { "vehicle" };
+        let model = format!("{geom}_lod0");
+        let mut ix = index(&[]).unwrap();
+        ix.gmods.insert(
+            geom.into(),
+            GeomModel {
+                name: geom.into(),
+                cloths: Vec::new(),
+                lods: vec![GeomLod {
+                    tier: "LOD0".into(),
+                    model: model.clone(),
+                    tris: 0,
+                }],
+            },
+        );
+        ix.models.insert(
+            model.clone(),
+            Model {
+                name: model,
+                bone_space,
+                vertex_box: mungefs::model::Aabb {
+                    min: [0.0; 3],
+                    max: [1.0; 3],
+                },
+                vis_box: mungefs::model::Aabb {
+                    min: [0.0; 3],
+                    max: [1.0; 3],
+                },
+                face_count: 0,
+                sphere: None,
+                segments: Vec::new(),
+            },
+        );
+        let identity = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+        ix.skels.insert(
+            geom.into(),
+            Skeleton {
+                name: geom.into(),
+                bones: vec![
+                    SkelBone {
+                        name: "root".into(),
+                        crc: mungefs::anim::crc32_lower("root"),
+                        parent: None,
+                        rows: identity,
+                        t: [0.0; 3],
+                    },
+                    SkelBone {
+                        name: "bone".into(),
+                        crc: mungefs::anim::crc32_lower("bone"),
+                        parent: Some(0),
+                        rows: [[0.0, 0.0, -1.0], [0.0, 1.0, 0.0], [1.0, 0.0, 0.0]],
+                        t: [10.0, 20.0, 30.0],
+                    },
+                ],
+            },
+        );
+        let make = |parent: &str| Primitive {
+            name: format!("p_{parent}"),
+            parent: parent.into(),
+            rotation: [[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, -1.0, 0.0]],
+            translation: [1.0, 2.0, 3.0],
+            kind: PrimKind::Box {
+                half: [2.0, 3.0, 4.0],
+            },
+            mask: 0x15,
+            mask_own: true,
+        };
+        let stored = Primitives {
+            model: geom.into(),
+            prims: vec![make("bone"), make("root"), make("missing")],
+        };
+        let (raw, _) = crate::map::manifest_prims(&stored);
+        let (posed, unknown) = ix.rest_prims(&stored, geom);
+        assert_eq!(unknown, 0);
+        assert_eq!(posed.len(), 3);
+        assert_eq!(posed[0].translation, [13.0, 22.0, 29.0]);
+        assert_eq!(
+            posed[0].rotation,
+            [[0.0, 0.0, -1.0], [1.0, 0.0, 0.0], [0.0, -1.0, 0.0]]
+        );
+        let mut expected = raw[0].clone();
+        expected.translation = posed[0].translation;
+        expected.rotation = posed[0].rotation;
+        assert_eq!(posed[0], expected); // dimensions, mask and names survive
+        assert_eq!(posed[1..], raw[1..]); // identity and unresolved controls
+        assert_eq!(crate::map::manifest_prims(&stored).0, raw);
+    }
+
+    #[test]
+    fn rest_prim_rotation_applies_prim_before_bone() {
+        check_rest_prim(true, false);
+    }
+
+    #[test]
+    fn rest_prim_on_non_bone_space_geometry_uses_bind() {
+        check_rest_prim(false, false);
+    }
+
+    #[test]
+    fn rest_prim_on_chunk_geometry_uses_bind() {
+        check_rest_prim(false, true);
+    }
+
+    #[test]
+    fn filtered_lods_keep_priority_first_matches_and_unknown_fallback() {
+        use mungefs::entity::{GeomLod, GeomModel};
+        let rows: Vec<_> = [
+            ("unknown", "fallback"),
+            ("LOWD", "low"),
+            ("LOD2", "second"),
+            ("LOD1", "first"),
+            ("LOD0", "missing"),
+            ("LOD1", "duplicate"),
+        ]
+        .into_iter()
+        .map(|(t, m)| (t.to_owned(), m.to_owned()))
+        .collect();
+        let mut ix = index(&[]).unwrap();
+        ix.gmods.insert(
+            "geom".into(),
+            GeomModel {
+                name: "geom".into(),
+                cloths: Vec::new(),
+                lods: rows
+                    .iter()
+                    .map(|(tier, model)| GeomLod {
+                        tier: tier.clone(),
+                        model: model.clone(),
+                        tris: 0,
+                    })
+                    .collect(),
+            },
+        );
+        for (_, name) in rows.iter().filter(|(_, m)| m != "missing") {
+            ix.models.insert(
+                name.clone(),
+                Model {
+                    name: name.clone(),
+                    bone_space: false,
+                    vertex_box: mungefs::model::Aabb {
+                        min: [0.0; 3],
+                        max: [1.0; 3],
+                    },
+                    vis_box: mungefs::model::Aabb {
+                        min: [0.0; 3],
+                        max: [1.0; 3],
+                    },
+                    face_count: 0,
+                    sphere: None,
+                    segments: Vec::new(),
+                },
+            );
+        }
+        assert_eq!(preferred_lod(&rows), "missing");
+        assert_eq!(top_lod(&ix, "geom").as_deref(), Some("first"));
+        let filtered = ix.lods("geom").unwrap();
+        assert!(!filtered.iter().any(|(_, m)| m == "missing"));
+        assert_eq!(preferred_lod(&filtered), "first");
+        assert_eq!(
+            preferred_lod(&[
+                ("other".into(), "fallback".into()),
+                ("lod0".into(), "case-sensitive".into())
+            ]),
+            "fallback"
+        );
+        assert_eq!(
+            preferred_lod(&[("unknown".into(), "fallback".into())]),
+            "fallback"
+        );
+        ix.models.clear();
+        assert!(top_lod(&ix, "geom").is_none());
+    }
 
     #[test]
     fn chunk_geometry_hash_is_the_property_name() {
@@ -572,7 +752,7 @@ mod tests {
     /// on its drawn model at the bind pose. The four foot spheres (r 2.5)
     /// touch the ground the drawn feet stand on, the body sphere sits 6.2 m
     /// up inside the drawn body, and every prim's centre is inside the drawn
-    /// model's box - as stored they all lay within 2.9 m of the origin.
+    /// model's box; the stored bone-local centres misplaced those bodies.
     #[test]
     fn a_walkers_prims_rest_on_its_drawn_model() {
         let Some(cis) = side("bf2", "CIS.LVL") else {

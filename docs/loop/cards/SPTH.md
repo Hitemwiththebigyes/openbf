@@ -4,14 +4,14 @@ title: BF2 Kamino: cp2's bots spawn on the wrong path - the conquest script move
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: blocked
 deps:
 files: scripts/gen_missions.py,engine/crates/game/src/mission.rs,engine/crates/game/src/layout.rs,engine/crates/game/src/walk.rs,engine/crates/core/src/sim/spawn.rs
 declares: sim; sweep; arena; leak
 needs:
 effort:
 branch:
-resume:
+resume: 20261024_0820 UTC cloud preflight blocked: 24 reference/tool/content/GPU paths missing; restore reports/20261024_0820_card_SPTH.json inputs, decode conquest SetProperty census and establish current-main cp2 baseline before loopctl start SPTH. No implementation or acceptance run.
 created: 2026-10-12
 alpha: yes
 ---

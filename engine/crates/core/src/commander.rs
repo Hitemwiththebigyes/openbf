@@ -254,7 +254,7 @@ impl TeamPlan {
         eat(&self.at_post);
         eat(&(self.owners.len() as u32).to_le_bytes());
         for o in &self.owners {
-            eat(&[o.map_or(u8::MAX, |t| t)]);
+            eat(&[o.unwrap_or(u8::MAX)]);
         }
         eat(&(self.spots.len() as u32).to_le_bytes());
         for s in &self.spots {
@@ -368,15 +368,7 @@ pub fn draw_post(rules: GoalRules, team: u8, posts: &[DrawPost], r: f32) -> Opti
 /// ([`crate::ai::unit_rand`]'s FNV shape; the top 24 bits, so 1.0 is never
 /// reached).
 fn roll(unit_index: u32, tick: u64, gen: u32) -> f32 {
-    let mut h: u32 = 0x811C_9DC5 ^ gen.wrapping_mul(0x9E37_79B9);
-    for b in unit_index
-        .to_le_bytes()
-        .iter()
-        .chain(tick.to_le_bytes().iter())
-    {
-        h ^= u32::from(*b);
-        h = h.wrapping_mul(0x0100_0193);
-    }
+    let mut h = crate::ai::route_rand(unit_index, tick, gen);
     // FNV's last multiply leaves the low byte's change in the low bits only.
     h ^= h >> 15;
     h = h.wrapping_mul(0x2C1B_3C6D);
@@ -455,8 +447,8 @@ pub fn plan(sim: &mut Sim, team: u8) {
 
     // --- the posts ---
     let mover = Mover::SOLDIER;
-    // One hop-distance field for every post, end to end, with one scratch
-    // queue for every BFS: it answers "can this unit route there" only.
+    // One jetless hop-distance field for every post, end to end, with one
+    // scratch queue for every BFS: the commander's shared infantry policy.
     let hub_count = sim.nav.as_ref().map_or(0, |g| g.hubs.len());
     let mut hop_field: Vec<u16> = Vec::with_capacity(hub_count * sim.cps.len());
     let mut bfs_queue: Vec<u16> = Vec::new();
@@ -1042,9 +1034,8 @@ fn hint_on_level(sim: &Sim, centre_y: f32, hint: Vec3) -> bool {
 /// card DEFS a defender's own spot is the plan's, [`TeamPlan::spot`], drawn
 /// by [`pick_spot`] with every other defender's spot taken; this is the same
 /// hint rule with nothing taken): the nearest authored Cover or Snipe
-/// hint within [`HINT_RADIUS`] of the POST, else the post's own centre — which
-/// is a spot inside the capture volume by construction, and the spot that
-/// actually holds the post under the BF2 capture rules.
+/// hint within [`HINT_RADIUS`] of the POST, or `None` when no hint qualifies.
+/// The capture-region fallback belongs to [`pick_spot`].
 ///
 /// Brief D13: the hint's ALLOWED-STANCE MASK comes back with it (never 0 — a
 /// hint with no authored `PrimaryStance` asks for stand; see [`stance_mask`]),
@@ -1589,8 +1580,8 @@ mod tests {
     /// Queue HDL: a hint on a ledge above the post is not a defend spot, even
     /// when it is the nearer one — the defender would walk its straight last
     /// leg into the wall under it (POL1's `hintnode153`, 8.5 m above cp6con).
-    /// The same-floor hint is taken instead, and with none on the floor the
-    /// post's centre is.
+    /// The same-floor hint is taken instead; with none on the floor this
+    /// optional hint query returns `None`.
     #[test]
     fn a_hint_above_the_posts_level_is_not_a_defend_spot() {
         use crate::collision::{Body, CollisionWorld, Shape};
@@ -1625,7 +1616,7 @@ mod tests {
             defend_spot(&sim, 0, from, false),
             Some((Vec3::new(2.0, 0.5, 5.0), MASK_STAND))
         );
-        // Only the ledge hint: no spot, so the defender holds the post centre.
+        // Only the ledge hint: the optional hint query returns no spot.
         sim.nav.as_mut().expect("graph").hints.truncate(1);
         assert_eq!(defend_spot(&sim, 0, from, false), None);
     }

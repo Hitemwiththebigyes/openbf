@@ -4,14 +4,14 @@ title: Vehicles against vehicles: the PS2 pairs vehicle hulls with each other (B
 milestone: M2
 value: 3
 phase: measure
-status: todo
+status: blocked
 deps:
-files: engine/crates/core/src/collision/world.rs, engine/crates/core/src/sim/vehicles.rs, engine/crates/core/src/hover.rs
+files: engine/crates/core/src/collision/world.rs, engine/crates/core/src/sim/vehicles.rs, engine/crates/core/src/vehicle/hover.rs
 declares: sim; sweep; arena
-needs:
+needs: Restore runtime maps/classes/missions for the 8x32 main overlap census; only then value and scope the PS2 contact response build.
 effort:
 branch:
-resume:
+resume: 2026-10-24 14:22 UTC: planner restoration hold; Restore runtime maps/classes/missions for the 8x32 main overlap census; only then value and scope the PS2 contact response build. Original measurable acceptance retained. reports/20261024_1422_planner.md; lead_tmp/planner_20261024_1417/preflight.json.
 created: 2026-10-16
 ---
 ## Why

@@ -4,14 +4,14 @@ title: A target in a vehicle or a turret is aimed at with the VEHICLE's error bl
 milestone: M2
 value: 4
 phase: re
-status: todo
+status: blocked
 deps: CLSE2
 files: engine/crates/core/src/sim/step.rs,engine/crates/core/src/sim/seats.rs,engine/crates/core/src/ai/gunner_foot.rs,engine/crates/core/src/vehicle.rs
 declares: sweep; arena; sim
-needs:
+needs: restoration - K5 RAM table/captures/tools, PS2 corpora/ELFs and BF2 SIDE data; bakes/missions and PCSX2 environment unavailable
 effort:
 branch:
-resume:
+resume: Blocked on restoration 2026-10-24 10:15 UTC: 28/28 named inputs missing. Restore K5 tab.txt and primary inputs, then resolve per-kind velocity/top-speed/size and human path; predict every K5 row and verify before build. Report engine/artifacts/loop/reports/20261024_1015_card_VAIM.md; queue/next prompt engine/artifacts/lead_tmp/vaim_cloud/CONTINUATION.md. Original Acceptance unchanged.
 created: 2026-10-12
 alpha: yes
 domain: vehicle

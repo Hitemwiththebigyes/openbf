@@ -45,7 +45,6 @@ def main(path):
                 return blob[va - base:end]
         return None
 
-    dblob, dsize = blobs[data['addr']], None
     dblob = blobs[data['addr']][0]
     base = data['addr']
     pairs = []          # (data_vaddr, func_vaddr, name)

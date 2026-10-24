@@ -1,217 +1,77 @@
-//! Infantry AI: Phase A — navigation on the authored planning graphs (PLAN Log
-//! "PHASE A DESIGN"). Everything that is not the graph is still the P4
-//! PLACEHOLDER, and every constant in this module is PROVISIONAL and ours —
-//! not fidelity. It drives the SAME soldier + weapon code as the player
-//! through a synthesized pad, so movement and accuracy rules are shared; the
-//! AI spread floor (0, no free-shot buffer) lives in `core::weapon`; the AI
-//! sniper distance table is `weapon::ai_sniper_yaw`, gated by
-//! `WeaponClass::ai_distance_table`.
+//! Infantry AI on the authored planning graphs, driving the same soldier
+//! and weapon code as the player through a synthesized pad. Design and
+//! named deviations: `analysis/bot-design.md`; PS2 evidence:
+//! `analysis/re-soldier-ai.md`. OURS / PROVISIONAL labels belong to the
+//! individual rules and constants; implemented rules are not all fidelity.
 //!
-//! Behaviour:
+//! Ownership (`analysis/bot-design.md` 3):
+//! - `behave::think` runs one priority chain and hands one aim request to
+//!   `gunner_foot` and one move request to `mover`; it writes no sticks.
+//! - `gunner_foot` alone writes foot look sticks and FIRE; `mover` alone
+//!   writes move sticks, ROLL_STANCE and JUMP and keeps progress books.
+//! - `route` owns objectives, graph legs, same-level waypoints and barrier
+//!   detours; `steer` probes walls, floors, hulls and level edges; `avoid`
+//!   commits to a side around obstacles. `stall` owns last-resort recycling.
+//! - `tactic` chooses and reserves fighting positions, falling back to the
+//!   stand/circle styles in `behave`; `arsenal` chooses weapons and grenades;
+//!   `crate::perception` owns contact memory and target acquisition.
+//! - `command` applies squad orders; `team` coordinates roles; `ride`,
+//!   `gunner`, `hover_drive`, `walker_drive` and `man` own seated behavior.
+//! - `state` owns AI state and its hash; `draw` owns per-unit hash draws.
+//!   This facade retains re-exports, shared tuning and test fixtures.
 //!
-//! - PERCEIVE (Phase C, `crate::perception`): a bounded memory of six
-//!   contacts per unit, filled by the PS2's view cone and view distance
-//!   through the ordnance LOS ray and by hearing, and a target chosen out of
-//!   THAT memory — nearest-first with the originals' hysteresis. Aim at the
-//!   flat-fire lead point of a SEEN target (at the remembered point of one
-//!   that was lost), fire once the tier's reaction time has passed, and
-//!   FIGHT a seen target inside the weapon's range from a position of the
-//!   bot's own fixed style (card FGHT, `behave::fight_position`: half of
-//!   them stand to shoot, spaced out, half circle on a ring round it);
-//! - otherwise FOLLOW A ROUTE over `core::nav`: the nearest command post not
-//!   owned by my team that the graph can actually reach, hop by hop through
-//!   the authored hubs, the post's own capture volume being the last leg. With
-//!   no reachable post the unit HUNTS the nearest enemy's hub; with no graph
-//!   at all it walks straight at the post, exactly as it did before Phase A.
+//! Deterministic: sim state only, with per-unit draws keyed by unit index,
+//! tick and generation; `think` reads `&Sim`. Headings are held between
+//! `HEADING_PERIOD` picks. The think/heading phase is
+//! the unit index, not its spawn tick. The AI spread floor (zero, no free
+//! shot buffer) is in `crate::weapon`; sniper distance tuning is
+//! `weapon::ai_sniper_yaw`, gated by `WeaponClass::ai_distance_table`.
 //!
-//! Phase A.1 adds the LOCAL layer under that route (PLAN Log "PHASE A.1
-//! DESIGN" and its "A.1 addendum"), in two parts:
+//! Movement contracts (`analysis/bot-design.md` 4.7, 5, 6.3, 9 / D18):
+//! - Authored `BARR` corners detour a leg without changing routing tables;
+//!   jetless soldiers exclude `crate::nav::Arc::JET_JUMP` arcs. Hubs and
+//!   waypoints must be on the unit's level, and unwalkable arcs are rejected.
+//! - The wall sweep is OURS: the PS2 uses barriers, contact push and stuck
+//!   timers (`analysis/re-soldier-ai.md` 2). The pad uses the chosen WORLD
+//!   direction, allowing strafing while yaw catches up. `Unit::wall_push`
+//!   remains hashed/tested but does not drive blocked/side-step decisions:
+//!   the A.2 experiments rejected both uses (PLAN Log "PHASE A.2 DESIGN").
+//! - Every candidate needs floor within `LEDGE_DROP` of both the feet and
+//!   aim point; no side-step over a drop. With no open way the bot stands
+//!   for re-planning. Edge barriers stop it; mission DisableBarriers calls
+//!   are replayed (`sim/bounds.rs`, card BNDS).
+//! - An arrived bot releases the stick until the destination moves beyond
+//!   `DEST_DEADBAND` or another request walks it; `ARRIVED_SLACK` tolerates
+//!   shoves and the last step is scaled. Each walk answers `Walk`; after
+//!   `GIVE_UP_AFTER` failed windows `behave::recover` gives up its goal.
+//! - `route::leg_point` leads the projection on the current leg (from the
+//!   last detour corner) by speed plus `LEG_LEAD` (MOVR2 / MOUTH). The PS2
+//!   stuck clock, arrival radii and third-window give-up were measured and
+//!   rejected; current tuning remains OURS and PROVISIONAL (D18).
 //!
-//! - the CORNER WALK, which is the PS2's own: every leg is tested against the
-//!   authored `BARR` barriers that stop the unit's type and, when it crosses
-//!   one, [`crate::nav::NavGraph::detour`] returns the intermediate corners to
-//!   walk instead. Barriers never touch the routing tables.
-//! - the WALL SWEEP, which is OURS and is not on the PS2 at all: one
-//!   [`crate::collision::CollisionWorld::wall_sweep`] per moving unit per tick
-//!   in the direction it wants to go, and when that is blocked the wall
-//!   tangent then a fan about it. The originals only have barriers, a contact
-//!   push and stuck timers; the map's model geometry that no barrier covers is
-//!   what this is for. The pad is built from the chosen WORLD direction, so a
-//!   unit strafes while its yaw catches up and nothing gates walking on the
-//!   yaw error any more (Phase A's `ADVANCE_CONE` is gone).
+//! Recovery (`LostState`, `StallState`, cards BNDS / VMESH / RCYC / RLOOP):
+//! off-level bots return to a reachable hub on their level, never farther
+//! down, with low-wall jumps (AIRC), or recycle after `LOST_RECYCLE`.
+//! A foot bot shut inside a watertight prop (`Sim::shut_in_solid`, never a
+//! room/cave/tunnel) recycles after `SHUT_RECYCLE`. A bot on the level
+//! wanting to walk but roaming less than `RECYCLE_ROAM` for `RECYCLE_AFTER`
+//! ticks recycles with its ticket; endgame progress requires new ground.
+//! Repeated failed windows at one place (`PIN_FAILS`, `PIN_ROAM`) first
+//! try RETW's floor walk to the leg waypoint, else recycle. Recycling is a
+//! last resort: the sweep records every use and repeated spots are defects.
 //!
-//! Phase A.2 (PLAN Log "PHASE A.2 DESIGN") closes the two failures the A.1
-//! sweep left, both of which looked the same from outside — a unit at full
-//! speed making no progress:
-//!
-//! - the probe became a SWEEP. A.1 translated the probe capsule a metre ahead
-//!   and asked for a contact THERE, so a wall thinner than the gap it jumped
-//!   was never touched while the wall pass pushed the unit back every tick.
-//! - the wall pass RECORDS its push ([`crate::unit::Unit::wall_push`], the
-//!   port's stand-in for the PS2's `soldier+0x970` accumulator), hashed with
-//!   the rest of the unit. The design had the steering read it as "blocked"
-//!   even when the sweep is clear, and take the side-step's side from it;
-//!   MEASURED over the 32-map sweep, both halves cost maps and neither is
-//!   wired in. With the sweep and the same-level waypoints alone: 27 of 32
-//!   finish, median `stuck_max` 1,770. Adding the "blocked" half: 24 of 32,
-//!   median 3,300. Adding only the side-step's side: 25 of 32, median 2,640.
-//!   Adding the "blocked" half WITHOUT the same-level waypoints: 22 of 32,
-//!   median 4,230. (A.1 at HEAD: 26 of 32, median 1,980.) The push is
-//!   non-zero on ~60 % of unit-ticks on the jammed maps, which is what a
-//!   push-out threshold of "any penetration at all" reports and not what a
-//!   contact accumulator should mean; the field is kept, hashed and tested so
-//!   the rule can be tried again against a real accumulator.
-//! - waypoints are resolved on the UNIT'S OWN LEVEL (`route::hub_waypoint`), and a
-//!   leg whose hub has no floor there is rejected for an alternative.
-//! - [`crate::nav::Arc::JET_JUMP`] arcs are off a jetless soldier's graph.
-//!
-//! Phase A.4 unstuck the remembered slide side, which A.1 could set but
-//! never change while the way ahead stayed blocked: the steering flips the
-//! side when its own tangent is blocked and the other is open, and the
-//! stuck window writes the side-step's side into [`AiState::slide`] so the
-//! PS2's "side-step to the side we did not use last time" reaches the
-//! wall-follow. Card OBST makes the side a COMMITMENT (`ai/avoid.rs`: one
-//! side per obstacle, an inside corner turned, the leave rule, a small body
-//! passed before it is touched) — [`PROBE_DIST`], [`FAN_STEP`], the fan
-//! order, [`SIDESTEP_OFFSET`] and the stuck constants are unchanged.
-//!
-//! Card STFAL (`analysis/re-round-stalls.md` C1, C8) gives every step the
-//! steering commits a FLOOR: a candidate whose floor one probe ahead is more
-//! than [`LEDGE_DROP`] under both the feet and the point walked at is
-//! refused like a wall, the side-step is dropped over a drop, and a unit with
-//! nowhere open stands and lets the stuck window re-plan. The probe also asks
-//! the wall pass about the vehicles' HULLS at its end, which the lifted sweep
-//! passes over. Over 32 maps x 9 seeds finishes hold (255 → 254 of 288;
-//! 28 → 26 at seed 42), BF2 KAM1's environment deaths go 8.2 → 5.1 a
-//! minute, BF1 BES1's 11.3 → 7.1, and BF1 KAS2's Empire-spawn cluster
-//! 18 → 3 episodes.
-//!
-//! Card BNDS (the maintainer, 2026-10-01) gives the AI BOUNDS and a way back, from
-//! data the disc carries (`sim/bounds.rs` has the level test):
-//!
-//! - a `BARR` barrier at an EDGE of the playable level — the ground past it
-//!   is off the level or missing — is a wall for the steering
-//!   (`steer::barrier_ahead`). BF2 Kamino rings every platform's rim rail
-//!   with barriers and the PS2's walk step never crosses one; the port's
-//!   slide and side-step carried units over the rails and down the hulls.
-//! - the mission's `DisableBarriers` calls are replayed (BF2 Kamino's door
-//!   barriers), a hub is reached and routed from ON ITS LEVEL (the resolved
-//!   hub floors: `route::hub_on_level`, `route::hub_reached`), and an arc no
-//!   soldier can walk is not planned over.
-//! - a bot that is OFF the level anyway (pushed, blasted, fallen) walks BACK:
-//!   at the nearest hub it can stand level with, never further down, jumping
-//!   a low wall from where it stands (card AIRC); with no way back for [`LOST_RECYCLE`] it is
-//!   given up and respawns ([`LostState`]). Card VMESH: one on foot SHUT inside a watertight
-//!   map body (`Sim::shut_in_solid`: a closed prop such as BF1 Endor's cp2 boulder, never a
-//!   room, cave or tunnel) is lost too, whatever it is doing, and given up after
-//!   [`SHUT_RECYCLE`].
-//!
-//! Card RCYC (the maintainer, 2026-10-01) is the last resort beside it, for a bot ON
-//! the level that goes nowhere (`stall`, [`StallState`]): one that wants to
-//! walk and has not moved [`RECYCLE_ROAM`] net (in the endgame: onto new
-//! ground) for [`RECYCLE_AFTER`] of such ticks dies as stalled, with its ticket, and respawns. It should exist and
-//! never be needed: the sweep counts and places every use
-//! (`round_to_outcome`, `sweep_seeds.py`), and each repeated spot is a defect.
-//! Card RLOOP (the maintainer, 2026-10-11) is its short form: a bot whose walk fails
-//! [`PIN_FAILS`] progress windows without leaving one place ([`PIN_ROAM`])
-//! is given up after about 22 s, whatever plans it was handed meanwhile:
-//! sent on card RETW's floor walk to its leg's waypoint when there is one,
-//! else recycled.
-//!
-//! Over 8 seeds x 32 maps (lead_tmp/fable2/README.md): BF2 Kamino's world
-//! deaths 84 → 11 and finished rounds 0 → 4 of 8, BF2 Polis Massa 0 → 8 of 8.
-//!
-//! Card HOLD (the maintainer, 2026-10-01) — bots hold ground and fight, and not as
-//! statues ([`HoldState`], `behave`):
-//!
-//! - (card TPOS: the hold a bot took at a hub when it perceived an enemy -
-//!   a hint or a drawn hub point for a 10-24 s dwell - is gone; a fight's
-//!   position is the Tactician's, `ai::tactic`.) An enemy seen inside
-//!   [`HOLD_RANGE`] is fought from a position taken where the bot stands.
-//! - on its position it looks the way the nearest enemy is and is lively by
-//!   its tier's chances (`skill::Tier`): a SHUFFLE to a spot a couple of
-//!   metres off every few seconds, a STRAFE on a burst.
-//! - card REACT (the maintainer, 2026-10-07; ours, the PS2's attacker ignores a hit):
-//!   a bot on a position that is HIT draws once a burst ([`REACT_COOLDOWN`])
-//!   over its tier's row (`skill::Tier::react`) — it stays, strafes, rolls
-//!   aside (pressed [`ROLL_LEAD`] after it sets off: a standing soldier
-//!   rolls on the spot) or moves to a new position (`behave::react`).
-//! - card JITR: its goal has ONE writer (`HoldState::step_to`) and a commit
-//!   time ([`HOLD_COMMIT`]) the shuffle and the strafe share; a
-//!   holder's answer to a hit is such a step too (never the route's 5 m
-//!   side-step, which a holder does not count down); a step of under
-//!   [`HOLD_WALK_DIST`] is walked; a goal the steering cannot go straight at
-//!   for [`HOLD_BLOCKED`] is given up for where the bot stands; and no two
-//!   holders take points within [`HOLD_SPACING`].
-//! - a grenade on the ground (`Sim::hazards`, the PS2's 7.5 m warning) is run
-//!   from, after the tier's delay and by its chance. Nothing in the port
-//!   throws one yet (card GREN); the list is its hook.
-//! - in the endgame ([`HOLD_ENDGAME`]) nobody waits in a position.
-//!
-//! BF1 KAS2, 8 seeds x 5 min against the PS2's live sample
-//! (lead_tmp/fable2/README.md): standing still 20.5 % → 24.3 % (PS2 55 %),
-//! in the lagoon 42.7 % → 41.1 % (PS2 22 %). Holding more than this — every
-//! bot at every hub in reach of an enemy reads 55 % and 20 % — stood BF2
-//! Kamino's rounds still: at the port's 3-5 kills a minute there (the PS2's
-//! 17.6) a round is decided by who takes the posts.
-//!
-//! Outside a position an engaged unit keeps WALKING ITS ROUTE while it aims
-//! and fires (design decision 4).
-//!
-//! Deterministic: sim state only. The chooser's random word is a per-unit hash
-//! of (unit index, tick, generation), like [`unit_rand`], so `think` keeps
-//! taking `&Sim` and replays bit-exactly.
-//!
-//! ## Where the code lives
-//!
-//! Split by queue SPL4 (2026-09-24, a pure move) into six parts, each
-//! re-exported here so every `crate::ai::X` path is unchanged: `state` (the AI
-//! state, its route leg and its hash), `command` (a squad order's AI side),
-//! `draw` (the per-unit hash draws and the D13 stance pick), `route`
-//! (objectives and legs on the planning graph), `steer` (the local layer) and
-//! `brain` (`think` itself); card VAI added `ride` (a bot's vehicle: the
-//! boarding claim, the driver's pad, the dismount — `think` hands a seated
-//! bot to it). This file keeps every tuning constant — together,
-//! so the sweep can move them in one place — and the test fixtures the parts'
-//! tests share.
-//!
-//! Card SPL11 (2026-10-06, no rule changed) split `brain` by OWNER, the seams
-//! of `analysis/bot-design.md` 3: `behave` (`think`: what the bot is doing —
-//! one priority chain a tick, which hands exactly one `AimRequest` to the
-//! gunner and one `MoveRequest` to the mover, and writes no stick itself),
-//! `gunner_foot` (the only writer of a foot soldier's look sticks and FIRE),
-//! `mover` (the only writer of its move sticks, ROLL_STANCE and JUMP, and the
-//! progress books), and the route's advance in `route`.
-//!
-//! Card MOVR (2026-10-06, `analysis/bot-design.md` 4.7, 5, 6.3) — the mover
-//! commits, and a walk has an outcome:
-//!
-//! - a bot that has ARRIVED stands: the stick stays released until its
-//!   request's destination moves more than [`DEST_DEADBAND`] or another link
-//!   of the chain walks it, and a shove of under [`ARRIVED_SLACK`] does not
-//!   walk it back; the last step is scaled (the PS2's);
-//! - the steering's heading is PICKED on every [`HEADING_PERIOD`]-th tick and
-//!   held between — the slide's side used to be re-picked 30 times a second;
-//! - the think's phase is the unit's index, not its spawn tick;
-//! - every tick's walk answers [`Walk`] (following / arrived / failed), and a
-//!   walk that fails [`GIVE_UP_AFTER`] progress windows in a row gives its
-//!   goal up: the commander draws the bot another post (`behave::recover`).
-//!   [`Behaviour`] names what the bot is doing, for the sweep's
-//!   unexplained-standing counter (B9) and the black box.
-//!
-//! Card MOVR2 (2026-10-07): a leg is walked by the PS2's rule — at the
-//! bot's projection on the leg's line advanced by its speed + [`LEG_LEAD`]
-//! (`route::leg_point`; card MOUTH, 2026-10-12: past a detour corner that
-//! line starts at the corner, the PS2 follower's segment). The PS2's stuck
-//! clock, its 1.0 m / 0.5 m arrival radii and a give-up at the third failed window were measured again on
-//! card OBST's steering and are NOT taken (`analysis/bot-design.md` 9, D18).
-//!
-//! Measured and NOT taken (the card's report has the tables): the PS2's own
-//! stuck clock (2 m in 3 s / no node progress in 5 s) in place of the 2 s
-//! window, its arrival radii (1.0 m at a node, 0.5 m at the last) and its
-//! leg aim (the projection advanced by |v| + 0.2 m) each cost pinball
-//! windows on BF2 Kamino or Polis Massa with the wall-slide steering of
-//! that day — card MOVR2 tries them again on card OBST's avoidance.
+//! Fighting (`behave`, `tactic`, `skill::Tier`): the Tactician's position
+//! takes priority; fallback fighters stand clear of others or circle within
+//! their own range. An engaged bot outside a position keeps walking its
+//! route while aiming and firing. Hit reactions (REACT) are a named
+//! deviation: tier chances choose staying, strafing, rolling or relocating;
+//! the PS2's attacker ignores hits. `HoldState::step_to` is the goal writer,
+//! with `HOLD_COMMIT`, `HOLD_WALK_DIST`, `HOLD_BLOCKED` and `HOLD_SPACING`
+//! controlling steps; roll input follows `ROLL_LEAD` of travel. Tactician
+//! holders instead report hits to `tactic::hit`. Ground grenades warn through
+//! `Sim::hazards` (PS2 7.5 m), with tier delay/chance to flee; grenade choice
+//! and throwing are implemented by `arsenal` / `gunner_foot`. In the
+//! endgame (`HOLD_ENDGAME`) no Tactician position or sniper spot is taken.
 
 mod arsenal;
 mod avoid;
@@ -252,7 +112,7 @@ pub use state::{
 };
 pub use steer::{rotate_xz, way_ahead, Stop, StopKind};
 
-pub(crate) use ride::{claim_seat, in_reach};
+pub(crate) use ride::{claim_seat, in_reach, vehicle_bail_allowed};
 pub(crate) use route::{hub_on_level, mover, plan_leg, start_hub};
 
 // ---------------------------------------------------------------------------
@@ -535,7 +395,7 @@ pub const HOLD_ENDGAME: u32 = 10;
 /// the last tick he was (ticks, 2 s).
 pub const HOLD_CLOSE: u64 = 2 * crate::TICK_HZ as u64;
 /// A hold from which no enemy has been perceived for this long is given up
-/// (ticks, 4 s): the bot holds to FIGHT, and with nobody to fight it advances.
+/// (ticks, 6 s): the bot holds to FIGHT, and with nobody to fight it advances.
 pub const HOLD_QUIET: u64 = 6 * crate::TICK_HZ as u64;
 /// With no hint, a point within this of the hub's centre (m; the hub's own
 /// radius when that is smaller).
@@ -700,6 +560,9 @@ pub const RIDE_GAIN: f32 = 40.0;
 /// Card VDROP: a hover whose type cannot reach a post's hub rides to the
 /// hub nearest the post, as a walker does (`route::post_hub`).
 pub const HOVER_NEAREST: bool = false;
+/// VBAIL Part 1, independent of the nearest-hub rule. Disable for paired
+/// null controls (also skips its entropy draw and ride hash extension).
+pub const VEHICLE_BAIL: bool = true;
 /// Card VTAI: a bot pilot holds its throttle this long after a teammate
 /// claims one of its gunner seats, for the gunner to walk up and board.
 pub const GUNNER_WAIT: u64 = 8 * crate::TICK_HZ as u64;

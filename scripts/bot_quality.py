@@ -61,7 +61,7 @@ def load_port(path):
                 t=float(r["t"]), p=(float(r["x"]), float(r["y"]), float(r["z"])), team=int(r["team"]),
                 seated=r["veh"] != "-1", fight=r["target"] != "-1", post=int(r.get("goal_cp") or r["cp"]),
                 steer=r["steer"].split()[0],
-                slide=int(r["slide"]), hold=int(r["hold"]), beh=r.get("beh")))
+                slide=int(r["slide"]), beh=r.get("beh")))
     return list(lives.values())
 
 
@@ -95,7 +95,7 @@ def load_ps2_bf2(path):
             if alive:
                 s = dict(t=t, p=p, team=int(r["team"]) - 1, seated=r["veh"] == "1", fight=r["otype"] == "2",
                          post=int(r["target"]) if ordered and r["target"] not in ("", "-1") else -1, steer="",
-                         slide=0, hold=0)
+                         slide=0)
                 cur.append(s)
                 last = s
             elif cur:
@@ -130,7 +130,7 @@ def load_ps2_bf1(path):
                 cur = []
             if alive:
                 cur.append(dict(t=t, p=p, team=int(r["team"]) - 1, seated=seated, fight=None, post=None, steer="",
-                                slide=0, hold=0))
+                                slide=0))
             elif cur:
                 lives.append(cur)
                 cur = []
@@ -174,7 +174,9 @@ def resample(life, t_from, t_to):
             gi += 1
             continue
         f = 0.0 if b["t"] <= a["t"] else min(1.0, max(0.0, (t - a["t"]) / (b["t"] - a["t"])))
-        s = dict(a)
+        # On the observation itself, categorical fields belong to that sample.
+        # Between observations they retain the preceding sample's state.
+        s = dict(b if abs(b["t"] - t) <= 1e-9 else a)
         s["p"] = tuple(a["p"][i] + (b["p"][i] - a["p"][i]) * f for i in range(3))
         cur.append((gi, s))
         gi += 1
@@ -560,7 +562,7 @@ def selftest():
         out, t, i = [], 0.0, 0
         while t <= secs + 1e-9:
             x, z = fn(t)
-            out.append(dict(t=t, p=(x, 0.0, z), team=0, seated=False, fight=None, post=None, steer="", slide=0, hold=0,
+            out.append(dict(t=t, p=(x, 0.0, z), team=0, seated=False, fight=None, post=None, steer="", slide=0,
                             beh=None))
             i += 1
             t = i / hz + (jitter * ((i * 7919) % 5 - 2) / 5.0 if i else 0.0)

@@ -4,14 +4,14 @@ title: loopctl's busy-files test: a parked card with needs: set holds no files -
 milestone: M0
 value: 3
 phase: build
-status: todo
+status: done
 deps:
 files: scripts/loopctl.py
 declares:
 needs:
 effort:
 branch:
-resume:
+resume: (private workflow note omitted)
 created: 2026-10-16
 alpha: yes
 ---
@@ -33,3 +33,6 @@ holds them again (and the land job takes it). STATUS / orient still list it as w
 
 ## Notes
 After it lands the planner may set SNPR / HJAM back to `parked` with `needs:` (their resume lines name the maintainer's questions).
+
+## GitHub checkpoint recovery (2026-10-24)
+

@@ -4,17 +4,17 @@ title: Shots that hit but do no damage (the maintainer's playtest 10-21): every 
 milestone: M3
 value: 5
 phase: build
-status: parked
+status: blocked
 deps:
 files: engine/crates/game/src/classdb.rs, engine/crates/core/src/weapon.rs, engine/crates/game/src/roster.rs, engine/crates/game/src/vehicle_pads.rs, engine/crates/game/tests/suite/roster.rs
 declares: sweep; arena; sim
-needs: maintainer — the RTX fell off the bus at 19:45 (Xid 79, nvidia-smi: Unknown Error): reboot, then clear this needs line; part 1 is built and every GPU-free gate passed
+needs: cloud prerequisites: branch nodmg, baked assets, missions and reference evidence absent
 effort:
 branch: nodmg
-resume: PART 1 built: branch nodmg 7a19427 (ClassDb::prop_last + roster::ScalarSrc; tests roster::weapon_numbers_read_the_last_of_a_repeated_key + the_bf2_vehicle_chainguns_do_their_damage, mutation-checked). GPU-free gates PASS except the declared sweep move (bf2_geo1, bf2_hot1 only; lead_tmp/nodmg/gates_nogpu); census zero-damage soldier hits BF2 14 -> 0, BF1 0 -> 0 (lead_tmp/nodmg/p1). NEXT: after the reboot, land.py NODMG (the gpu golden step must run on the RTX: game crate source is not skipped by deps.toml; expect no golden move). THEN PART 2 (Case B riders, steps 2/3a/4): set files to engine/crates/core/src/sim/step.rs, sim/guns.rs, sim/seats.rs, ai/gunner_foot.rs (ARVSA parked and CLSE2B blocked hold step.rs / gunner_foot.rs - planner: order or rebase)
+resume: (private workflow note omitted)
 created: 2026-10-21
 alpha: yes
-first: 3
+first: 8
 ---
 ## Why
 The maintainer (INBOX 2026-10-21 18:40 item 1): a bullet hits a unit, the impact particle shows, and the health does not always drop.
@@ -112,3 +112,4 @@ start killing - expect kills / deaths to move on bf2_geo1, bf2_kas2, bf2_end1, b
 
 ## Planner note
 `files:` left empty for the measure phase (no code is written), so the parked ARVSA branch's combat.rs tests do not hold it back. At `phase=build` fill `files:` - likely engine/crates/core/src/sim/combat.rs, sim/blast.rs, sim/vehicles.rs; ARVSA (parked, waits on the RTX) adds tests to combat.rs and blast.rs: rebase on it once it lands.
+

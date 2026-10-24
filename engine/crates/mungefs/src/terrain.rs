@@ -402,11 +402,11 @@ impl Terrain {
     pub fn parse(tern: &Chunk<'_>) -> Result<Terrain, UcfbError> {
         let bad = || UcfbError::Truncated(tern.offset);
         let name = tern.child_string(b"NAME").ok_or_else(bad)?;
-        let ip = tern.child(b"INFO").ok_or_else(bad)?.payload.to_vec();
+        let ip = tern.child(b"INFO").ok_or_else(bad)?.payload;
         if ip.len() < 28 {
             return Err(bad());
         }
-        let f = |o: usize| le::f32_at(&ip, o);
+        let f = |o: usize| le::f32_at(ip, o);
         let info = TerrainInfo {
             grid_unit: f(0),
             height_scale: f(4),
@@ -483,9 +483,11 @@ impl Terrain {
             tern.child(tag)
                 .map(|c| {
                     c.payload
-                        .chunks_exact(4)
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
                         .take(16)
-                        .map(|b| f32::from_le_bytes(b.try_into().unwrap()))
+                        .map(|b| f32::from_le_bytes(*b))
                         .collect()
                 })
                 .unwrap_or_default()
@@ -524,7 +526,9 @@ impl Terrain {
                     Some(PatchMesh {
                         positions: posi
                             .payload
-                            .chunks_exact(6)
+                            .as_chunks::<6>()
+                            .0
+                            .iter()
                             .map(|c| {
                                 [
                                     u16::from_le_bytes([c[0], c[1]]),
@@ -535,7 +539,9 @@ impl Terrain {
                             .collect(),
                         strips: strp
                             .payload
-                            .chunks_exact(2)
+                            .as_chunks::<2>()
+                            .0
+                            .iter()
                             .map(|c| u16::from_le_bytes([c[0], c[1]]))
                             .collect(),
                         height_min: u16_at(i, 4) as i16,
@@ -545,7 +551,9 @@ impl Terrain {
                             .and_then(|c| rle::decode(c.payload, 2).ok())
                             .filter(|v| v.len() == posi.payload.len() / 6 * 2)
                             .map(|v| {
-                                v.chunks_exact(2)
+                                v.as_chunks::<2>()
+                                    .0
+                                    .iter()
                                     .map(|u| psmct16_rgb(u16::from_le_bytes([u[0], u[1]])))
                                     .collect()
                             }),
@@ -602,7 +610,9 @@ impl Terrain {
                 cutters.push(Cutter {
                     sphere,
                     planes: plns.payload[..count * 16]
-                        .chunks_exact(16)
+                        .as_chunks::<16>()
+                        .0
+                        .iter()
                         .map(|c| {
                             let g = |o: usize| le::f32_at(c, o);
                             [g(0), g(4), g(8), g(12)]
@@ -749,7 +759,9 @@ fn parse_lowres(lowr: &Chunk<'_>, half: f32) -> Option<LowResSheet> {
             };
             let positions: Vec<[f32; 3]> = posi
                 .payload
-                .chunks_exact(6)
+                .as_chunks::<6>()
+                .0
+                .iter()
                 .map(|c| {
                     let q =
                         |i: usize| u16::from_le_bytes([c[i * 2], c[i * 2 + 1]]) as f32 / 65536.0;
@@ -762,7 +774,9 @@ fn parse_lowres(lowr: &Chunk<'_>, half: f32) -> Option<LowResSheet> {
                 .collect();
             let raw: Vec<u16> = strp
                 .payload
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|b| u16::from_le_bytes([b[0], b[1]]))
                 .collect();
             // Bit 15 is the strip flag; bit 14 is NOT an index bit and is not
@@ -923,6 +937,7 @@ mod tests {
     /// outside the level (KAS1 is an island in an ocean of empty patches).
     #[test]
     fn base_layer_covers_the_textured_patches() {
+        let (mut tested, mut skipped) = (0, 0);
         for (name, min_pct) in [
             ("bf1/lvl/DATA/_LVL_PS2/TAT/TAT1.LVL", 80),
             ("bf1/lvl/DATA/_LVL_PS2/KAS/KAS1.LVL", 80),
@@ -930,8 +945,10 @@ mod tests {
         ] {
             let Some(buf) = tern_of(name) else {
                 eprintln!("SKIP: {name} not present");
-                return;
+                skipped += 1;
+                continue;
             };
+            tested += 1;
             let inner = crate::open(&buf).unwrap();
             let tern = crate::chunks(inner)
                 .flatten()
@@ -956,6 +973,9 @@ mod tests {
                 "{name}"
             );
         }
+        eprintln!(
+            "base_layer_covers_the_textured_patches: {tested} maps tested, {skipped} skipped"
+        );
     }
 
     /// A synthetic `PCHS` with one flagged and one plain `PTCH`: the flag word
@@ -1050,6 +1070,7 @@ mod tests {
     /// one entry per `POSI` vertex (per layer).
     #[test]
     fn alph_walks_every_shipped_terrain_exactly() {
+        let (mut tested, mut skipped) = (0, 0);
         let lvls = [
             "bf1/BES/BES1",
             "bf1/BES/BES2",
@@ -1084,8 +1105,10 @@ mod tests {
             let (game, rest) = l.split_at(3);
             let Some(buf) = tern_of(&format!("{game}/lvl/DATA/_LVL_PS2{rest}.LVL")) else {
                 eprintln!("SKIP: {l} not present");
-                return;
+                skipped += 1;
+                continue;
             };
+            tested += 1;
             let inner = crate::open(&buf).unwrap();
             let tern = crate::chunks(inner)
                 .flatten()
@@ -1110,6 +1133,13 @@ mod tests {
                 assert_eq!(pm.alpha.len(), m.count_ones() as usize * n, "{l}: ALPH");
                 multi_replaced += usize::from(m.count_ones() > 1);
             }
+        }
+        eprintln!(
+            "alph_walks_every_shipped_terrain_exactly: {tested} maps tested, {skipped} skipped"
+        );
+        if skipped != 0 {
+            eprintln!("SKIP: full 27-map aggregate census requires every terrain");
+            return;
         }
         assert_eq!((replaced, multi_replaced), (122, 104));
         assert_eq!(multi, 4703, "multi-layer patches, census.txt's sum");
@@ -1167,6 +1197,7 @@ mod tests {
     /// used to abort on them.
     #[test]
     fn bf2_model_built_maps_have_stub_terrain() {
+        let (mut tested, mut skipped) = (0, 0);
         for (name, stub) in [("COR/COR1", true), ("DEA/DEA1", true), ("HOT/HOT1", false)] {
             let p = format!(
                 "{}/../../../extracted/bf2/lvl/DATA/_LVL_PS2/{name}.LVL",
@@ -1174,8 +1205,10 @@ mod tests {
             );
             let Ok(buf) = std::fs::read(&p) else {
                 eprintln!("SKIP: {name} not present");
-                return;
+                skipped += 1;
+                continue;
             };
+            tested += 1;
             let inner = crate::open(&buf).unwrap();
             let tern = crate::chunks(inner)
                 .flatten()
@@ -1186,6 +1219,9 @@ mod tests {
                 Terrain::parse(&tern).unwrap_or_else(|e| panic!("{name}: {e}"));
             }
         }
+        eprintln!(
+            "bf2_model_built_maps_have_stub_terrain: {tested} maps tested, {skipped} skipped"
+        );
     }
 
     /// `gridSize` is a raw u16 that squares into every allocation, so 65520

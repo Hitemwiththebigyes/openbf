@@ -4,14 +4,14 @@ title: Weather, lightning: the flashes on both Kaminos and BF1 Yavin 2 (dome and
 milestone: M1
 value: 4
 phase: build
-status: todo
+status: blocked
 deps: WTHR
-files: engine/crates/game/src/lightning.rs,engine/crates/game/src/viewer/scene.rs,engine/crates/game/src/viewer/look.rs,engine/crates/render/src/lighting.rs,engine/crates/render/src/particles.rs,engine/crates/manifest/src/lib.rs,engine/crates/bake/src/map.rs,engine/crates/game/src/event_sounds.rs
+files: engine/crates/game/src/lightning.rs (new), engine/crates/game/src/viewer/scene.rs, engine/crates/game/src/viewer/look.rs, engine/crates/render/src/lighting.rs, engine/crates/render/src/particles.rs, engine/crates/manifest/src/lib.rs, engine/crates/bake/src/map.rs, engine/crates/game/src/event_sounds.rs
 declares: rebake=maps
-needs:
+needs: environment restoration: restore wthr bolt vector/raw RAM states, Kamino/Yavin map/sound bakes, picture references and GPU device
 effort:
 branch:
-resume:
+resume: 2026-10-24 09:20 UTC: planner prerequisite census; no implementation. Restore this card's inputs in lead_tmp/planner_20261024_0913/queue_preflight.json, recheck original acceptance/current-main baseline, then loopctl start for isolated build. Full CI and required gates remain; reports/20261024_0913_planner.md.
 created: 2026-10-05
 alpha: yes
 ---
@@ -65,3 +65,4 @@ Mutation-check: BF2's sun with BF1's weight must fail test 1.
   bolts are on screen (BF1's are), the draw order inside the far pass, the HDR halving of the bolt's colour in BF2.
 - 2026-10-06 planner: `engine/CRATES.md` taken out of `files:`. The picker refuses a card whose files overlap a card in progress, and 22 open cards listed the map, so any one of them held the other 21 (a chain card in progress held WADE and WTHR). The map's row for a new or moved source file is still owed in the same branch (`scripts/size_report.sh --check-map`); a rebase conflict in it is one line. Undo: add the path back.
 - 2026-10-07 planner, WTHR's unchecked list (landed 1dbb18f; `reports/20261006_2350_card_WTHR.md`) - same files, take them here: (a) a splash ring sits over the sea edge in the one live screenshot (`lead_tmp/wthr/win/b1_2.png`); the splash ray takes terrain and ordnance bodies, not the water - what does the PS2 land a splash on? (b) the flake maps' parity rose (bf1_rhn1 +0.148, bf2_myg1 +0.094; limit 0.5) and the port's flakes look crisper than the PS2's in the zooms, cause not found; (c) BF1 and flake-map frame scores were not taken. `port_frame.py` / `pair.py` need a `pose_render` build (`--exe`).
+

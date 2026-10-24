@@ -4,14 +4,14 @@ title: Two last units hold in sight of each other and never kill: BF1 YAV2 seed 
 milestone: M3
 value: 4
 phase: measure
-status: todo
+status: blocked
 deps:
 files: engine/crates/core/src/ai/behave.rs,engine/crates/core/src/ai/mover.rs
 declares:
-needs:
+needs: (private workflow note omitted)
 effort:
 branch:
-resume:
+resume: Restore local baked maps/common/classes/vehicles and engine/missions RONs for all 32 maps plus cited ENDH/JITR snapshots and raw runs; verify class resolution and build stamps, then clear needs and set todo phase measure. On current main reproduce BF1 YAV2 seed 1 at tick 30000, digest units 3/19, count their shots/hits over ticks 29001-30000 and identify ammo/range/held-fire/miss cause; compare seed 42 and BF2 GEO1 seed 32. See reports/20261024_0740_card_ENDH.md; preserve paired null and 8x32 acceptance before any build landing.
 created: 2026-10-02
 alpha: yes
 ---
@@ -73,3 +73,6 @@ units never meet", that is one finding for BOTD's endgame row, not two patches.
   other as its target, `doing fight`, `hold 2`, `fmode 3`, speed 0, full health (300), and no event in the last 30 s
   (#5 team 0 at (93.7, -110.0, 79.3), #17 team 1 at (119.7, -114.3, 46.7)); neither is in a turret or claims one.
   Snapshot `lead_tmp/audit-turr/runs/nab14/bb_land/bf1_nab1_s14.json` (BLACKBOX_AT=59990).
+
+## Cloud preflight 2026-10-24 07:40 UTC
+Blocked before measurement on main 3d487d9: engine/assets_baked/, engine/missions/, cited wai2/JITR and later stand-off snapshots/raw runs are absent; iso/ and extracted/ are absent too. No map replay, unit-3/19 digest or last-1000-tick shot census ran. JITR seed-42 watch read from its historical report only. Cause remains unmeasured; no AI patch or BOTD classification. Restore inputs and reproduce on current main before changing behaviour. Report: `reports/20261024_0740_card_ENDH.md`.

@@ -419,7 +419,8 @@ pub(super) fn is_group(rules: GroundRules, own: u32, foes: u32) -> bool {
 fn group_counts(sim: &Sim, e: &Unit) -> (u32, u32) {
     let (mut own, mut foes) = (0, 0);
     for (_, o) in sim.alive_units() {
-        if o.mount.is_some() || o.soldier.pos.distance_squared(e.soldier.pos) > GROUP_RADIUS.powi(2)
+        if o.mount.is_some()
+            || o.soldier.pos.distance_squared(e.soldier.pos) > (GROUP_RADIUS * GROUP_RADIUS)
         {
             continue;
         }
@@ -481,7 +482,7 @@ pub fn vehicle_bonus(sim: &Sim, u: &Unit, o: &Unit) -> f32 {
     for c in slots(sim, u).iter().flatten().filter(|c| !c.empty) {
         if against_vehicle(c, &ask, kind, bf2).is_some() {
             any = true;
-            heavy |= c.heavy && d2 < c.class.ai_range[2].powi(2);
+            heavy |= c.heavy && d2 < (c.class.ai_range[2] * c.class.ai_range[2]);
         }
     }
     match (heavy, any) {

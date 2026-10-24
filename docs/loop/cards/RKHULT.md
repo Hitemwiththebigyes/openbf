@@ -4,14 +4,14 @@ title: RKHUL's tests pin neither the prim rotation's ORDER (mutation passes all 
 milestone: M2
 value: 3
 phase: build
-status: todo
+status: blocked
 deps:
-files: engine/crates/bake/src/vehicle.rs, engine/crates/bake/src/bind_pose.rs, engine/crates/game/src/vehicle_class.rs
-declares: rebake=tat1
-needs:
+files: engine/crates/bake/src/vehicle.rs, engine/crates/bake/src/bind_pose.rs, engine/crates/game/src/vehicle_class.rs, engine/crates/bake/src/map.rs
+declares: rebake=tat1; ci=+5
+needs: a real-data M4-list/chunk-geometry prim test (fixtures only kill M4/N6 today); the tat1 rebake through gates (declares rebake=tat1, sheets inspected); no PS2 RAM ref of the skiff's collision bodies yet
 effort:
 branch:
-resume: filed by AUDIT RKHUL 2026-10-22: tests first (M4, N6), then the skiff (see TCOL's map-bake rule first)
+resume: (private workflow note omitted)
 created: 2026-10-22
 ---
 ## Why
@@ -25,3 +25,4 @@ Equivalent survivors (no shipped change, no test needed): skel lookup geometry-f
 engine/artifacts/lead_tmp/audit-rkhul/: logs/mut_*.log, tools/mut_chain.py (M0-M12 in one lock hold), tools/mut_bake.py + bake_M4_rotation_order_swapped/, wf/C4-new-mutations/ (N1-N6, bake_N6_*), logs/census_side.txt + census_maps.txt + maplocal_prims.txt (tools/bake_census.rs), wf/C5-maplocal/, wf/C1-python-census/.
 ## Acceptance
 A vehicle bake test with a prim whose stored rotation is not the identity on a rotated bone (one of the M4 list) and a chunk-geometry prim: `python3 engine/artifacts/lead_tmp/audit-rkhul/tools/mut_chain.py M4_rotation_order_swapped` and the N6 mutation (wf/C4-new-mutations) each FAIL a test; the tat1 bake's skiff p_fin1 / p_fin2 at x -1.77 / +1.77, z -4.10 (bind) if the map rule is changed; the two comments true.
+

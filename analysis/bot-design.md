@@ -1,5 +1,7 @@
-# OPUS DESIGN (loop lane 2, 2026-10-03, card BOTD) - [O] UNAUDITED; no build card is taken before the maintainer has read it
+# OPUS DESIGN (loop lane 2, 2026-10-03, card BOTD) - [O] UNAUDITED; no build card is taken before the maintainer has read it (historical proposal baseline; see status note below)
 # The bot design: what the best AI soldier for this game is
+
+**Status note (2026-10-23 cleanup).** This 2026-10-03 proposal uses main e336f2e as its code baseline and includes later dated amendments. Its original read-before-build hold was released: [FGHT](../engine/artifacts/loop/cards/FGHT.md) records the maintainer’s “BOTD read, go” on 2026-10-05 and BOTD done. Historical hold/build-order wording below describes the original proposal. Consult [CRATES](../engine/CRATES.md) and the owning cards for current implementation and acceptance; this note does not declare every proposal complete.
 
 **What this is.** the maintainer, 2026-10-02: "are we just implementing so many bandaid fixes to a fundamentally flawed bot
 algorithm ... think more about high level what the best ai bot looks like for this game". This note is that: one
@@ -578,7 +580,7 @@ No "classic bots" option (the maintainer, 2026-10-02). Each line: what the PS2 d
 | D11 | a turret is kept while any threat is remembered [P 7.3] | a purpose test and five exits (6.1) | the maintainer's annoyance 1; SAIR 13.8 |
 | D12 | grenades by the clock (3 s in 30) except at a cluster [P 4.3] | the same at Normal; by situation at Hard and Elite | SAIR 13.15 |
 | D13 | a sniper stands 60-120 s at one hint (BF1 60-100 s) and after a fight usually returns to it [P 3] | 20-40 s without a target, then another hint | SAIR 13.12 |
-| D14 | "lost sight: search the last known point" is dead code [P 4.6] | built: Investigate | SAIR 13.14 |
+| D14 | "lost sight: search the last known point" is dead code [P 4.6] | measured, not landed: Investigate (see 4.4 and FGHT’s landed/not-landed amendment) | SAIR 13.14 |
 | D15 | difficulty = one skill number and three mode weights [P 8] | tiers as competence (section 7) | the maintainer: "better tiers" |
 | D16 | nothing counts tickets or enemies left [P 10a] | with nothing to capture, or in the endgame, the team hunts; nobody waits | already the port's (HOLD, CONT); rounds must end |
 | D17 | a unit is located like a goal - 3-D (BF1 hub sphere; both games' corridors and nearest arc), no level rule - and a route from an arc starts at the end its draw runs along, else the farther end [RE_LOG "Arrival and locate", audit 2026-10-03] | where a unit stands (a route's start, a hunt's quarry, a boarding, an order's goal) is located in XZ, the first containing corridor, the nearer end, with the level rule (`NavGraph::locate_unit_on`, `route::level_hub`); a post is located as the PS2 does | measured, card LOC3, 32 seeds x 32 maps against main 9f2aa09 (`lead_tmp/loc3/ab/perseed_A_C.txt`): the PS2's unit locate and start cost 1,315 recycles against 838, 1,022 of 1,024 rounds finished against 1,024, 12 maps worse beyond seed noise (BF2 Utapau kills / min 27.8 -> 16.9, BF1 Bespin Platforms 30.0 -> 19.7, BF2 Polis Massa recycles / round 0.72 -> 5.72), one better (BF2 Dagobah 2.50 -> 0.25). PROVISIONAL: to be run again when the mover cards have landed (card LOC3B) |

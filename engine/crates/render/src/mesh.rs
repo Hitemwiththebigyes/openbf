@@ -145,15 +145,17 @@ pub(crate) struct GpuMesh {
 }
 
 /// Model-space AABB of a position list.
-pub(crate) fn aabb_of(positions: &[[f32; 3]]) -> (glam::Vec3, glam::Vec3) {
+pub(crate) fn aabb_of(positions: impl IntoIterator<Item = [f32; 3]>) -> (glam::Vec3, glam::Vec3) {
     let mut lo = glam::Vec3::splat(f32::INFINITY);
     let mut hi = glam::Vec3::splat(f32::NEG_INFINITY);
+    let mut any = false;
     for p in positions {
-        let v = glam::Vec3::from(*p);
+        any = true;
+        let v = glam::Vec3::from(p);
         lo = lo.min(v);
         hi = hi.max(v);
     }
-    if positions.is_empty() {
+    if !any {
         (glam::Vec3::ZERO, glam::Vec3::ZERO)
     } else {
         (lo, hi)
@@ -236,7 +238,7 @@ impl GpuMesh {
             index_buffer,
             index_count: data.indices.len() as u32,
             max_joint: 0,
-            bounds: aabb_of(data.positions),
+            bounds: aabb_of(data.positions.iter().copied()),
         })
     }
 
@@ -315,7 +317,7 @@ impl GpuMesh {
             index_buffer,
             index_count: data.indices.len() as u32,
             max_joint: u32::from(max_joint),
-            bounds: aabb_of(data.positions),
+            bounds: aabb_of(data.positions.iter().copied()),
         })
     }
 }
@@ -421,8 +423,7 @@ impl crate::Renderer {
             )));
         }
         self.queue.write_buffer(&m.vertex_buffer, 0, bytes);
-        let positions: Vec<[f32; 3]> = vertices.iter().map(|v| v.position).collect();
-        m.bounds = aabb_of(&positions);
+        m.bounds = aabb_of(vertices.iter().map(|v| v.position));
         Ok(())
     }
 }

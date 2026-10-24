@@ -68,45 +68,7 @@ pub enum Steer {
 
 /// What the bot is doing ([`core::ai::Behaviour`]: the link of `think`'s
 /// chain that ran).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Doing {
-    #[default]
-    None,
-    Travel,
-    Fight,
-    Evade,
-    Capture,
-    Guard,
-    Board,
-    Ride,
-    Follow,
-    Recover,
-    /// Card SNPR: a sniper on its spot.
-    Overwatch,
-    /// Card TURR: in a building turret's seat.
-    Man,
-}
-
-impl Doing {
-    /// The name the sweep's rows print (`Behaviour::tag`).
-    pub fn tag(self) -> &'static str {
-        match self {
-            Doing::None => "none",
-            Doing::Travel => "travel",
-            Doing::Fight => "fight",
-            Doing::Evade => "evade",
-            Doing::Capture => "capture",
-            Doing::Guard => "guard",
-            Doing::Board => "board",
-            Doing::Ride => "ride",
-            Doing::Follow => "follow",
-            Doing::Recover => "recover",
-            Doing::Overwatch => "overwatch",
-            Doing::Man => "man",
-        }
-    }
-}
+pub use core::ai::Behaviour as Doing;
 
 /// What shuts the way the steering was asked to walk ([`StopKind`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -320,21 +282,7 @@ pub fn stance_code(s: core::soldier::Stance) -> u8 {
 
 /// A behaviour as the rows keep it ([`Probe::doing`]).
 pub fn doing_of(b: core::ai::Behaviour) -> Doing {
-    use core::ai::Behaviour as B;
-    match b {
-        B::None => Doing::None,
-        B::Travel => Doing::Travel,
-        B::Fight => Doing::Fight,
-        B::Evade => Doing::Evade,
-        B::Capture => Doing::Capture,
-        B::Guard => Doing::Guard,
-        B::Board => Doing::Board,
-        B::Ride => Doing::Ride,
-        B::Follow => Doing::Follow,
-        B::Recover => Doing::Recover,
-        B::Overwatch => Doing::Overwatch,
-        B::Man => Doing::Man,
-    }
+    b
 }
 
 impl Probe {

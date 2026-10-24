@@ -4,14 +4,14 @@ title: A jump, a roll or a sprint start adds to the unit's aim error, paid from 
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: blocked
 deps: CLSE2
 files: engine/crates/core/src/unit.rs,engine/crates/core/src/sim/step.rs,engine/crates/core/src/soldier.rs,engine/crates/core/src/ai/gunner_foot.rs
 declares: sweep; arena; sim
 needs:
 effort:
 branch:
-resume:
+resume: Cloud preflight 20261024_0807: blocked before build; restore audit-clse2 capture/mutations/observer, clse Kamino scene, baked maps/classes/common/vehicles and missions plus PS2 references; see engine/artifacts/loop/reports/20261024_0807_card_JINK.md. Then reproduce current-main baseline and all JINK acceptance before implementation/landing.
 created: 2026-10-12
 alpha: yes
 domain: ai

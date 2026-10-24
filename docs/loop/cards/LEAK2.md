@@ -4,13 +4,14 @@ title: LEAK census, second pass: validate the closed class (ray parity; Endor re
 milestone: M3
 value: 3
 phase: build
-status: todo
+status: blocked
 deps: LEAK
 files:
 declares: leak
-needs:
+needs: cloud prerequisites: baked maps/classes/common, missions and audit-leak controls absent
+effort:
 branch:
-resume:
+resume: Cloud checkpoint 2026-10-24 11:49 UTC: restore baked maps/classes/common and missions; reproduce KAS2 hut, Endor parity and NAB2 edge controls first, then isolated LEAK2 build and original acceptance. Evaluate existing collision/rays.rs enclosing (open-bottom caveat); coordinate LEAK3S sampler ownership. See engine/artifacts/loop/reports/20261024_1149_card_LEAK2.md; kit lead_tmp/leak2_cloud/.
 created: 2026-09-29
 alpha: yes
 ---

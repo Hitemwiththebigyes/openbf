@@ -427,12 +427,7 @@ impl Ctx<'_> {
         };
         // `[ours]` the reveal counts the title as row 0.
         let shown = |k: usize| m.on_page >= ROW_REVEAL * k as f32;
-        let title_pieces = [
-            "bf2_buttons_topleft",
-            "bf2_buttons_title_center",
-            "bf2_buttons_topright",
-        ];
-        self.bar(&s, lay.title, title_pieces);
+        self.bar(&s, lay.title, crate::spawn_draw::TITLE_PIECES);
         let mid = |r: [f32; 4]| ((r[0] + r[2]) * 0.5, r[1] + (ROW_H - lh) * 0.5);
         self.label(
             &s,
@@ -446,20 +441,11 @@ impl Ctx<'_> {
             if !shown(k + 1) {
                 break;
             }
-            let pieces = if k + 1 == stack.rows.len() {
-                [
-                    "bf2_buttons_botleft",
-                    "bf2_buttons_items_center",
-                    "bf2_buttons_botright",
-                ]
-            } else {
-                [
-                    "bf2_buttons_midleft",
-                    "bf2_buttons_items_center",
-                    "bf2_buttons_midright",
-                ]
-            };
-            self.bar(&s, *r, pieces);
+            self.bar(
+                &s,
+                *r,
+                crate::spawn_draw::item_pieces(k + 1 == stack.rows.len()),
+            );
             let style = if !row.enabled {
                 ([DIMMED_GREY; 3], UNSELECTED_TEXT.1)
             } else if k == stack.focus {

@@ -94,7 +94,9 @@ impl CollisionMesh {
             )));
         }
         let vertices: Vec<[f32; 3]> = posi
-            .chunks_exact(12)
+            .as_chunks::<12>()
+            .0
+            .iter()
             .map(|c| {
                 let g = |o: usize| le::f32_at(c, o);
                 [g(0), g(4), g(8)]

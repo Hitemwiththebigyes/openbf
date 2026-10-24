@@ -43,6 +43,11 @@
 //! so a gunner that arrives first drives); its pilot holds the throttle for
 //! [`GUNNER_WAIT`] after the claim; a gunner gets out when the pilot seat is
 //! empty. Both fire their seat's guns (`gunner`).
+//! VBAIL Part 1 (re-walker-ai §8, re-hover-ai §2 H2): under 20% health,
+//! a pilot whose seeded 0..=100 draw has its low two bits clear orders all
+//! AI occupants out. The card's per-boarding draw lifetime is PROVISIONAL
+//! against the PS2 controller-construction draw. The blended port uses
+//! this BF2 rule for both source games; `VEHICLE_BAIL` controls it alone.
 //! Card VMESH, ours: a vehicle its driver got out of with the stuck window
 //! spent (`DRIVE_STUCK_BAIL`) is marked where it stood
 //! (`Vehicle::stuck_at`, in step 1c) and no bot claims it until it has
@@ -342,12 +347,49 @@ pub(super) fn settle(sim: &Sim, st: &mut AiState) {
     if st.ride.is_some_and(|r| {
         r.board.is_none()
             && !r.use_req
+            && r.bail_draw.is_none()
             && sim.tick >= r.block_until
             && sim.tick >= r.closed_until
             && r.man.is_none()
     }) {
         st.ride = None;
     }
+}
+
+pub(super) fn request_exit(st: &mut AiState) {
+    let r = st.ride.unwrap_or_default();
+    st.ride = Some(RideState {
+        use_req: true,
+        board: None,
+        ..r
+    });
+}
+
+/// VBAIL, re-walker-ai §8 / re-hover-ai §2 H2: the PILOT's draw
+/// controls every AI occupant's get-out order, with a strict <20% test.
+/// The blended port uses the BF2 rule on both source games (BF1's hover
+/// has no health test, re-hover-ai §9). Humans never issue this order.
+pub(crate) fn vehicle_bail_allowed(sim: &Sim, vh: VehicleHandle) -> bool {
+    if !super::VEHICLE_BAIL {
+        return false;
+    }
+    let Some(v) = sim.vehicle(vh) else {
+        return false;
+    };
+    if !matches!(v.kind, VehicleKind::Hover | VehicleKind::Walker)
+        || v.health.cur >= v.health.max * 0.2
+    {
+        return false;
+    }
+    v.seats
+        .first()
+        .filter(|s| s.kind == SeatKind::Pilot)
+        .and_then(|s| s.occupant)
+        .and_then(|h| sim.unit(h))
+        .filter(|u| u.controller == crate::unit::Controller::Ai)
+        .and_then(|u| u.ai.ride)
+        .and_then(|r| r.bail_draw)
+        .is_some_and(|draw| draw & 3 == 0)
 }
 
 /// The think of a SEATED bot: a pilot drives its route and fires its seat's
@@ -372,14 +414,6 @@ pub(super) fn drive(
     let Some(v) = sim.vehicle(m.vehicle) else {
         return (pad, nt);
     };
-    let out = |st: &mut AiState| {
-        let r = st.ride.unwrap_or_default();
-        st.ride = Some(RideState {
-            use_req: true,
-            board: None,
-            ..r
-        });
-    };
     if v.kind == VehicleKind::Turret {
         super::man::seated(sim, me, m, st, &mut pad, &mut nt, thinking);
         return (pad, nt);
@@ -392,8 +426,12 @@ pub(super) fn drive(
         if piloted {
             super::gunner::aim(sim, me, st, &mut pad, Look::Seat, None);
         } else {
-            out(st);
+            request_exit(st);
         }
+        return (pad, nt);
+    }
+    if thinking && vehicle_bail_allowed(sim, m.vehicle) {
+        request_exit(st);
         return (pad, nt);
     }
     // Card WAI: a walker's pilot steers by the PS2's own stick law.
@@ -409,7 +447,7 @@ pub(super) fn drive(
         .get(v.class as usize)
         .and_then(|p| p.as_ref())
     else {
-        out(st);
+        request_exit(st);
         return (pad, nt);
     };
     super::hover_drive::drive(sim, me, m, hp, st, nt)
@@ -511,6 +549,209 @@ mod tests {
             seats: vec![SeatKind::Pilot, SeatKind::Gunner(0)],
         });
         (s, b, v)
+    }
+
+    fn bail_world(
+        kind: VehicleKind,
+        draw: u8,
+        health: f32,
+        gunner_first: bool,
+    ) -> (Sim, UnitHandle, UnitHandle, VehicleHandle) {
+        let (mut s, first, v) = world();
+        let second = s
+            .spawn(&UnitSpec {
+                controller: Controller::Ai,
+                ..UnitSpec::trooper(0, Vec3::ZERO)
+            })
+            .unwrap();
+        let (pilot, gunner) = if gunner_first {
+            (second, first)
+        } else {
+            (first, second)
+        };
+        s.vehicle_mut(v).unwrap().kind = kind;
+        if kind == VehicleKind::Walker {
+            s.walker_params = vec![Some(crate::vehicle::walker::tests::atst())];
+        }
+        assert!(s.enter_vehicle(pilot, v, 0));
+        assert!(s.enter_vehicle(gunner, v, 1));
+        s.unit_mut(pilot)
+            .unwrap()
+            .ai
+            .ride
+            .as_mut()
+            .unwrap()
+            .bail_draw = Some(draw);
+        // A gunner's passing draw must not override a failing pilot draw.
+        s.unit_mut(gunner)
+            .unwrap()
+            .ai
+            .ride
+            .as_mut()
+            .unwrap()
+            .bail_draw = Some(0);
+        for h in [pilot, gunner] {
+            let ai = &mut s.unit_mut(h).unwrap().ai;
+            ai.target_cp = Some(0);
+            ai.next_think = 0;
+        }
+        s.vehicle_mut(v).unwrap().health.cur = health;
+        (s, pilot, gunner, v)
+    }
+
+    #[test]
+    fn vbail_threshold_draw_and_all_ai_seats_on_next_think() {
+        for kind in [VehicleKind::Hover, VehicleKind::Walker] {
+            for gunner_first in [false, true] {
+                for (draw, health, leaves) in [
+                    (0, 190.0, true),
+                    (100, 190.0, true),
+                    (83, 190.0, false),
+                    // Low two bits, not one: 2 and 6 fail, 4 passes.
+                    (2, 190.0, false),
+                    (6, 190.0, false),
+                    (4, 190.0, true),
+                    (0, 200.0, false),
+                    (0, 210.0, false),
+                ] {
+                    let (mut s, p, g, v) = bail_world(kind, draw, health, gunner_first);
+                    s.step(&[]);
+                    assert_eq!(
+                        s.unit(p).unwrap().mount.is_none(),
+                        leaves,
+                        "pilot {kind:?} draw={draw} health={health}"
+                    );
+                    assert_eq!(
+                        s.unit(g).unwrap().mount.is_none(),
+                        leaves,
+                        "gunner {kind:?} draw={draw} health={health}"
+                    );
+                    assert_eq!(s.nav_stats.ai_bail_drivers, u64::from(leaves));
+                    assert_eq!(s.nav_stats.ai_bail_occupants, 2 * u64::from(leaves));
+                    assert_eq!(s.nav_stats.ai_bail_exposed, u64::from(health < 200.0));
+                    if leaves {
+                        for h in [p, g] {
+                            let u = s.unit(h).unwrap();
+                            assert!(u.ai.ride.unwrap().bail_draw.is_none());
+                            assert_eq!(u.ai.ride.unwrap().block_until, crate::ai::BOARD_BLOCK);
+                            assert!(u.soldier.pos.y.abs() < 0.1, "flat-ground exit");
+                        }
+                        assert!(s.vehicle(v).unwrap().is_empty());
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn vbail_waits_for_pilot_think_and_does_not_evict_humans() {
+        let (mut s, p, g, v) = bail_world(VehicleKind::Hover, 0, 190.0, true);
+        s.unit_mut(p).unwrap().ai.next_think = 10;
+        s.step(&[]);
+        assert!(s.unit(p).unwrap().mount.is_some());
+        assert!(s.unit(g).unwrap().mount.is_some());
+        assert_eq!(s.nav_stats.ai_bail_exposed, 1);
+        s.unit_mut(g).unwrap().controller = Controller::Player { slot: 0 };
+        s.unit_mut(g).unwrap().is_player = true;
+        s.unit_mut(p).unwrap().ai.next_think = s.tick;
+        s.step(&[PadState::default()]);
+        assert!(s.unit(p).unwrap().mount.is_none());
+        assert_eq!(s.unit(g).unwrap().mount.unwrap().vehicle, v);
+        assert_eq!(s.nav_stats.ai_bail_exposed, 1);
+        assert_eq!(s.nav_stats.ai_bail_occupants, 1);
+        // Human pilot does not authorize the gunner's passing draw.
+        let (mut s, p, g, v) = bail_world(VehicleKind::Hover, 0, 190.0, false);
+        s.unit_mut(p).unwrap().controller = Controller::Player { slot: 0 };
+        s.unit_mut(p).unwrap().is_player = true;
+        assert!(!vehicle_bail_allowed(&s, v));
+        s.step(&[PadState::default()]);
+        assert!(s.unit(g).unwrap().mount.is_some());
+        assert_eq!(s.nav_stats.ai_bail_drivers, 0);
+    }
+
+    #[test]
+    fn vbail_draw_uses_entropy_once_per_successful_boarding_and_is_hashed() {
+        let (mut s, p, v) = world();
+        let mut rng = s.rng.clone();
+        let expected = (rng.next_rand() % 101) as u8;
+        assert!(s.enter_vehicle(p, v, 0));
+        assert_eq!(s.rng.state(), rng.state());
+        assert_eq!(
+            s.unit(p).unwrap().ai.ride.unwrap().bail_draw,
+            Some(expected)
+        );
+        assert!(!s.enter_vehicle(p, v, 1));
+        assert_eq!(s.rng.state(), rng.state());
+        let hash = s.hash();
+        s.unit_mut(p).unwrap().ai.ride.as_mut().unwrap().bail_draw = Some((expected + 1) % 101);
+        assert_ne!(s.hash(), hash);
+        s.unit_mut(p).unwrap().ai.ride.as_mut().unwrap().bail_draw = Some(expected);
+        s.unit_mut(p).unwrap().ai.ride.as_mut().unwrap().bail_seen = true;
+        assert_ne!(s.hash(), hash);
+        let draw = s.unit(p).unwrap().ai.ride.unwrap().bail_draw;
+        let mut st = s.unit(p).unwrap().ai;
+        settle(&s, &mut st);
+        assert_eq!(st.ride.unwrap().bail_draw, draw);
+        s.exit_vehicle(p);
+        assert!(s.unit(p).unwrap().ai.ride.unwrap().bail_draw.is_none());
+        assert!(s.enter_vehicle(p, v, 0));
+        let expected = (rng.next_rand() % 101) as u8;
+        assert_eq!(s.rng.state(), rng.state());
+        assert_eq!(
+            s.unit(p).unwrap().ai.ride.unwrap().bail_draw,
+            Some(expected)
+        );
+    }
+
+    #[test]
+    fn vbail_autonomous_boarding_keeps_draw_and_non_ground_entries_consume_none() {
+        let (mut s, p, v) = world();
+        s.unit_mut(p).unwrap().soldier.pos = s.vehicle(v).unwrap().pos;
+        s.unit_mut(p).unwrap().ai.ride = Some(RideState {
+            board: Some(v),
+            use_req: true,
+            ..RideState::default()
+        });
+        s.ai_use_pass();
+        assert!(s.unit(p).unwrap().ai.ride.unwrap().bail_draw.is_some());
+        for kind in [VehicleKind::Flyer, VehicleKind::Turret] {
+            let (mut s, p, v) = world();
+            s.vehicle_mut(v).unwrap().kind = kind;
+            let rng = s.rng.state();
+            assert!(s.enter_vehicle(p, v, 0));
+            assert_eq!(s.rng.state(), rng);
+            assert!(s.unit(p).unwrap().ai.ride.is_none());
+        }
+        let (mut s, p, v) = world();
+        s.unit_mut(p).unwrap().controller = Controller::Player { slot: 0 };
+        let rng = s.rng.state();
+        assert!(s.enter_vehicle(p, v, 0));
+        assert_eq!(s.rng.state(), rng);
+    }
+
+    #[test]
+    fn vbail_seeded_draw_population_and_exact_passing_values() {
+        assert_eq!((0..=100).filter(|n| n & 3 == 0).count(), 26);
+        let mut total = 0;
+        for seed in 1..=8 {
+            let (mut s, p, v) = world();
+            s.rng = crate::rng::SimRng::new(seed);
+            let mut passing = 0;
+            for _ in 0..101 {
+                assert!(s.enter_vehicle(p, v, 0));
+                passing +=
+                    usize::from(s.unit(p).unwrap().ai.ride.unwrap().bail_draw.unwrap() & 3 == 0);
+                s.exit_vehicle(p);
+            }
+            total += passing;
+            eprintln!("VBAIL synthetic seed {seed}: {passing}/101 passing draws");
+        }
+        let share = total as f32 / 808.0;
+        eprintln!(
+            "VBAIL synthetic aggregate {total}/808 = {:.2}% (not a map sweep)",
+            100.0 * share
+        );
+        assert!((0.15..=0.37).contains(&share));
     }
 
     /// The whole card on one plane: the bot claims the hover, walks to it,

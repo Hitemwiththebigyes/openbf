@@ -284,8 +284,7 @@ pub fn rig(
 /// that, its `gmod`'s best LOD; the prims are the `prim` chunk of that model.
 pub fn rigs(chunks: &[mungefs::Chunk<'_>]) -> Vec<(String, Result<ManifestDoor, String>)> {
     let mut specs: Vec<(DoorSpec, Option<String>)> = Vec::new();
-    let mut gmods: Vec<mungefs::entity::GeomModel> = Vec::new();
-    let mut skels: Vec<Skeleton> = Vec::new();
+    let skels = crate::hardpoints::Skeletons::of(chunks);
     let mut banks: Vec<AnimBank<'_>> = Vec::new();
     let mut prims: Vec<(String, Vec<(String, String)>)> = Vec::new();
     // Per drawn model: its segments' `BNAM`, one per GLB primitive
@@ -305,16 +304,6 @@ pub fn rigs(chunks: &[mungefs::Chunk<'_>]) -> Vec<(String, Result<ManifestDoor, 
                 }
                 if let Some(s) = DoorSpec::from_entc(&e) {
                     specs.push((s, e.geometry_name().map(str::to_owned)));
-                }
-            }
-            b"gmod" => {
-                if let Ok(g) = mungefs::entity::GeomModel::parse(c) {
-                    gmods.push(g);
-                }
-            }
-            b"skel" => {
-                if let Ok(s) = mungefs::skel::parse_skel(c) {
-                    skels.push(s);
                 }
             }
             b"zaa_" => {
@@ -345,19 +334,17 @@ pub fn rigs(chunks: &[mungefs::Chunk<'_>]) -> Vec<(String, Result<ManifestDoor, 
             _ => {}
         }
     }
-    let named = |n: &str| skels.iter().find(|s| s.name.eq_ignore_ascii_case(n));
     specs
         .into_iter()
         .map(|(spec, geom)| {
             let class = spec.class.clone();
             let r = (|| {
                 let geom = geom.ok_or("no GeometryName")?;
-                let model = gmods
-                    .iter()
-                    .find(|g| g.name.eq_ignore_ascii_case(&geom))
+                let model = skels
+                    .geometry(&geom)
                     .and_then(|g| g.best_model().map(str::to_owned));
-                let skel = named(&geom)
-                    .or_else(|| model.as_deref().and_then(named))
+                let skel = skels
+                    .find(&geom)
                     .ok_or_else(|| format!("no skel for {geom}"))?;
                 let bank_name = spec.bank.as_deref().ok_or("no AnimationName line")?;
                 let bank = find_bank(&banks, bank_name)

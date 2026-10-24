@@ -4,14 +4,14 @@ title: More goldens, as groups: vehicles (each class in a fixed pose), a weapon 
 milestone: M0
 value: 3
 phase: build
-status: todo
+status: blocked
 deps: GSKIP
 files: scripts/goldens.sh,scripts/gates.py,engine/goldens/deps.toml,engine/goldens/README.md,engine/crates/game/tests/,engine/crates/game/src/gallery.rs
 declares:
-needs:
+needs: maintainer — approve [approvals.GOLDX] oracle = "guards" before gates.py edits; restore local assets/missions, approved GPU and golden environment
 effort:
 branch:
-resume:
+resume: 2026-10-24 07:50 UTC: planner guard preflight found no GOLDX approval. Obtain guards approval and restore art/GPU inputs before isolated build. Preserve original per-group deterministic renders, mutation-backed skips, coverage and viewed-golden acceptance. No new golden or approval written. engine/artifacts/loop/reports/20261024_0750_planner.md
 created: 2026-09-30
 ---
 ## Why

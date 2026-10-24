@@ -10,12 +10,10 @@
 //! why it must be serialised).
 
 use glam::{Mat4, Vec3};
-use render::{
-    Camera, DrawCmd, DrawLayer, Renderer, SkinnedDrawCmd, SkinnedMeshData, SkinnedMeshHandle,
-};
+use render::{Camera, DrawCmd, DrawLayer, SkinnedDrawCmd, SkinnedMeshData};
 
 use crate::common;
-use common::{capture_pixel, headless, pixel, upload_tex, view_quad, N};
+use common::{capture_pixel, headless, pixel, skinned_quad, upload_tex, view_quad, N};
 
 /// World point -> pixel through the camera (`N x N` target).
 fn project(cam: &Camera, p: Vec3) -> (u32, u32) {
@@ -131,26 +129,6 @@ fn two_bone_bar_follows_its_palette() {
         .render_frame(&cam, &[], &[draw(vec![Mat4::IDENTITY])], clear, None)
         .expect_err("one-joint palette for a two-joint mesh");
     assert!(format!("{err}").contains("palette"), "{err}");
-}
-
-/// A skinned quad filling the view at `z` (the shape of `common::view_quad`),
-/// every vertex on joint 0 alone, so the identity palette leaves it in place.
-fn skinned_quad(r: &mut Renderer, z: f32) -> SkinnedMeshHandle {
-    r.add_skinned_mesh(&SkinnedMeshData {
-        positions: &[
-            [-4.0, -4.0, z],
-            [4.0, -4.0, z],
-            [4.0, 4.0, z],
-            [-4.0, 4.0, z],
-        ],
-        normals: &[[0.0, 0.0, 1.0]; 4],
-        uvs: &[[0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]],
-        colors: None,
-        joints: &[[0, 0, 0, 0]; 4],
-        weights: &[[1.0, 0.0, 0.0, 0.0]; 4],
-        indices: &[0, 1, 2, 0, 2, 3],
-    })
-    .expect("skinned mesh upload")
 }
 
 /// One view-filling quad per entry — a 1x1 sheet of `texel`, at depth `z`, on

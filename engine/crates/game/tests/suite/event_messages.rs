@@ -202,9 +202,9 @@ fn every_showcase_class_has_the_discs_name() {
 }
 
 /// Card SPSEL on a baked map (shares this suite's battle helper): BF2 Hoth's
-/// player dies, one D-pad Right on the spawn map takes the post the PS2's
-/// rule gives from the post nearest his body, the spawn screen shows it, and
-/// he comes back on one of THAT post's nodes.
+/// player dies, an available D-pad direction takes the post the PS2's rule
+/// gives from the post nearest his body, the pick has an index in the post
+/// list, and he comes back on one of THAT post's nodes.
 #[test]
 fn a_dead_player_picks_a_post_on_hoth_and_spawns_there() {
     let Some((mut walk, game)) = battle("bf2_hot1", "bf2_hot1_con.ron") else {
@@ -243,9 +243,12 @@ fn a_dead_player_picks_a_post_on_hoth_and_spawns_there() {
     walk.step_tick(std::slice::from_ref(&press));
     assert_eq!(walk.sim.spawn_post_selected(0), Some(want));
     let row = spawn_screen_row(&walk);
-    assert!(row.is_some(), "the spawn screen highlights the pick");
+    assert!(
+        row.is_some(),
+        "the selected post has an index in the post list"
+    );
     println!(
-        "posts {posts:?}; pushed {bit:#x} from {:?} to {want:?}; screen row {row:?}",
+        "posts {posts:?}; pushed {bit:#x} from {:?} to {want:?}; post-list row {row:?}",
         nearest.0
     );
     let idle = core::sim::PadState::default();
@@ -270,8 +273,8 @@ fn a_dead_player_picks_a_post_on_hoth_and_spawns_there() {
     assert!(d < 1.0, "{d} m off post {want:?}'s nodes");
 }
 
-/// The spawn screen's highlighted row, as the game builds it: the sim's
-/// pick's index in `player_spawn_posts` (what `spawn_model` shows).
+/// The equivalent selection-index calculation: the sim pick's index in
+/// `player_spawn_posts`. This does not exercise `spawn_model` or the UI.
 fn spawn_screen_row(walk: &WalkSim) -> Option<usize> {
     let team = walk.sim.units[walk.player.index as usize].team;
     let list = walk.sim.player_spawn_posts(team);

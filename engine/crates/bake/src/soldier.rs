@@ -734,14 +734,7 @@ pub fn bake_soldier_anims(
         }
     }
 
-    let mut min = [f32::MAX; 3];
-    let mut max = [f32::MIN; 3];
-    for p in sm.segments.iter().flat_map(|s| s.positions.iter()) {
-        for i in 0..3 {
-            min[i] = min[i].min(p[i]);
-            max[i] = max[i].max(p[i]);
-        }
-    }
+    let (min, max) = crate::gltf_bin::min_max3(sm.segments.iter().flat_map(|s| s.positions.iter()));
     Ok(BakedSoldier {
         name: m.name.clone(),
         clips: clips.len(),
@@ -850,9 +843,8 @@ pub fn bake_textures_flagged(
         } else if let Some(o) = tier2.as_mut() {
             o.take_alpha_from(&r);
         }
-        r.write_ktx2(&dir, &format!("{name}.ktx2"))?;
-        if let Some(o) = &tier2 {
-            o.write_ktx2(&dir, &format!("{name}.tier2.ktx2"))?;
+        r.write_pair(&dir, &name, tier2.as_ref())?;
+        if tier2.is_some() {
             tier2_written += 1;
         }
         // The detail companion stays PS2: `tier::tier2` refuses a
@@ -1366,7 +1358,9 @@ mod tests {
             let n = level0.data.len() / 4;
             let mean = level0
                 .data
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .map(|px| f64::from(px[3]))
                 .sum::<f64>()
                 / n as f64;
@@ -1402,7 +1396,13 @@ mod tests {
         let bytes = std::fs::read(dir.join("textures/cis_inf_sbdroid.ktx2")).unwrap();
         let r = ktx2::Reader::new(&bytes).unwrap();
         let level0 = r.levels().next().unwrap();
-        let alpha: Vec<u8> = level0.data.chunks_exact(4).map(|p| p[3]).collect();
+        let alpha: Vec<u8> = level0
+            .data
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|p| p[3])
+            .collect();
         let mean = alpha.iter().map(|&a| f64::from(a)).sum::<f64>() / alpha.len() as f64;
         assert!(
             (20.0..50.0).contains(&mean),

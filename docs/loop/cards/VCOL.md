@@ -4,14 +4,14 @@ title: No vertical collision response for soldiers (LEAK census classes ceiling 
 milestone: M3
 value: 4
 phase: build
-status: parked
+status: blocked
 deps: LEAK
 files: engine/crates/core/src/sim/step.rs, engine/CRATES.md
 declares: leak; sweep; arena; sim
-needs: maintainer - the RTX is lost (gpu gate ADAPTER LOST); a reboot lets a land job take it (the diff cannot move a golden: core/src/sim + CRATES.md)
+needs: cloud prerequisites: branch vcol, baked assets, missions and reference evidence absent
 effort:
 branch: vcol
-resume: LAND after the GPU is back: python3 scripts/land.py VCOL. Built + gated (lead_tmp/vcol/gates2/SUMMARY.md: ci/sweep/leak MOVED, all declared; sim, fidelity, arena PASS). Residue -> VCOL2.
+resume: (private workflow note omitted)
 created: 2026-09-29
 alpha: yes
 ---
@@ -69,3 +69,4 @@ level's intended floor.
 - Floor: named from 4 traces - a steep upward face (n.y 0.51-0.73) crossed on a tick the wall pass pushes 0.17-0.60 m;
   the ceiling residue is mostly GROUNDED (step-up / slope under a low face, a head walked into a sloped underside). Both -> VCOL2.
 - Not measured with LEAK3's band sampler (LEAK3 is a parked branch, not on main).
+

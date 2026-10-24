@@ -4,14 +4,14 @@ title: No soldier freezes at sprint: a census of every class on both games for t
 milestone: M1
 value: 4
 phase: build
-status: todo
+status: blocked
 deps:
 files: engine/crates/game/src/animator.rs, engine/crates/game/src/animator/tests.rs, engine/crates/game/tests/suite/sprint_census.rs (new), engine/crates/game/tests/suite/main.rs, engine/crates/game/tests/data/sprint_rate_bf2.txt (new), engine/CRATES.md
 declares:
-needs:
+needs: environment restoration: restore real class/animation bakes, sprcl sprint replay, audited pistol/diagonal/droid fixtures and strips
 effort:
 branch:
-resume: RE done + AUDITED PARTLY (re-sprint-clip.md §7, docs 8a3680b). Build section 6 PLUS the card's 'AUDIT findings': the root twist toward the travel in a sprint and the 11.5 m/s droid fallback; start from lead_tmp/sprcl/knock_f44cdcf.patch; tests: the census (BF1 140/146 -> 0), the replay (0.009 -> < 0.0002) with pistol and diagonal fixtures from lead_tmp/audit-sprcl/ps2 and a droid case; mutation-check each; picture strip.
+resume: 2026-10-24 09:20 UTC: planner prerequisite census; no implementation. Restore this card's inputs in lead_tmp/planner_20261024_0913/queue_preflight.json, recheck original acceptance/current-main baseline, then loopctl start for isolated build. Full CI and required gates remain; reports/20261024_0913_planner.md.
 created: 2026-10-21
 alpha: yes
 ---
@@ -57,3 +57,4 @@ ANIML says "no action clip in ... sprint". Related: BLKS (the black box's sprint
   component, a scale division, the droid fallback. Add a pistol-sprint fixture (`audit-sprcl/ps2/run1/bf2_r2.pkl`, upper
   phase) and a diagonal one, and a droid rig case for the fallback. The PS2 divides by whole cm/s (9.16, not the bake's
   9.1627): optional, 0.00002 of phase per update.
+

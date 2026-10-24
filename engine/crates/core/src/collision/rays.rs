@@ -136,9 +136,11 @@ impl CollisionWorld {
     /// trailing flag — the bolt (`FUN_002764C0`), the soldier reticle
     /// (`FUN_00204748`) and the AI line of sight (`FUN_00162E88`) — test only
     /// the target model's ORDNANCE subset (`analysis/re-collision-layers.md`
-    /// §4), so those callers pass [`Layers::ORDNANCE`]. The reticle is not
-    /// built yet. The aim-assist acquisition ray passes flag 0 and tests every
-    /// body; when it is built it passes [`Layers::ALL`].
+    /// §4), so those callers pass [`Layers::ORDNANCE`]. Acquisition and the
+    /// reticle pick in `Sim::acquire_magnet` currently use
+    /// `perception::los_seat`, also with [`Layers::ORDNANCE`]. This leaves
+    /// a mask discrepancy with the PS2 acquisition ray, which passes flag 0
+    /// and tests every body ([`Layers::ALL`]).
     ///
     /// Determinism: bodies are visited in ascending `bodies` order with a
     /// strict `<` on `t`, so the FIRST body wins a tie (module header).

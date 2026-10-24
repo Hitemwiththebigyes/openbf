@@ -185,7 +185,7 @@ impl Sim {
     /// it gave to anyone.
     fn station_pass(&mut self, si: usize) -> bool {
         let s = self.stations[si];
-        let c = self.station_classes[usize::from(s.class)].clone();
+        let c = &self.station_classes[usize::from(s.class)];
         let mut gathered = 0;
         let mut served = false;
         for ui in 0..self.units.len() {

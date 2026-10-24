@@ -17,9 +17,11 @@
 //!
 //! The rule is enforced, not just documented: `no_std_transcendentals_in_core`
 //! below re-reads `core/src` and fails if any file other than this one calls
-//! a transcendental method outside `#[cfg(test)]`, and
+//! a transcendental method, primitive path/function value or denied glam
+//! helper outside `#[cfg(test)]`, and
 //! `no_std_transcendentals_in_game_sim_inputs` does the same over `game/src`,
-//! where the load path builds sim inputs, all but its presentation files.
+//! where the load path builds sim inputs, all but its presentation files
+//! and the exact, counted drawing expressions in mixed files.
 
 /// Sine and cosine of `x` radians together, as `(sin, cos)`.
 #[inline]
@@ -152,13 +154,9 @@ mod tests {
     }
 
     /// Every `std` float method that routes to the host libm, written as
-    /// the text of the call. Each row is a leading `.`, the name, then `(`,
-    /// so it matches a method call and nothing else: `.asin(` does not
-    /// match `.asinh(`, `.exp(` does not match `.exp2(`, `.tan(` does not
-    /// match `.atan(`, and a free `run_log(` does not match `.log(`. That
-    /// is why every variant needs its own row — and why the only way to
-    /// close a hole is to add one. (`sqrt` is absent on purpose, and so are
-    /// `abs`/`clamp`/`to_radians` and the arithmetic — see the module docs.)
+    /// the text of the call. Method and primitive path forms (including
+    /// function values such as `.map(f32::cos)`) are checked separately.
+    /// `sqrt`, arithmetic, `abs`, `clamp` and `to_radians` remain allowed.
     const BANNED: &[&str] = &[
         // trigonometry
         ".sin_cos(",
@@ -188,22 +186,91 @@ mod tests {
         ".log10(",
         // powers and roots
         ".powf(",
+        ".powi(",
         ".cbrt(",
         ".hypot(",
     ];
 
-    /// The banned calls `code` makes, one row per (line, pattern) hit.
-    /// `code` has already had its `#[cfg(test)]` block cut away.
+    // Glam helpers that can hide trigonometry. Matrix/quaternion conversion
+    // from existing components (`from_quat`, `from_mat3`, and
+    // `from_rotation_translation`) uses arithmetic/sqrt and is allowed.
+    const GLAM_BANNED: &[&str] = &[
+        "from_rotation_x",
+        "from_rotation_y",
+        "from_rotation_z",
+        "from_axis_angle",
+        "from_scaled_axis",
+        "from_euler",
+        "from_rotation_arc",
+        "from_rotation_arc_colinear",
+        "from_rotation_arc_2d",
+        "from_angle",
+        "from_scale_angle",
+        "from_scale_angle_translation",
+        "angle_between",
+        "angle_to",
+        "to_angle",
+        "to_axis_angle",
+        "to_scaled_axis",
+        "to_euler",
+        "slerp",
+        "rotate_towards",
+        "perspective_rh",
+        "perspective_lh",
+        "perspective_rh_gl",
+        "perspective_infinite_rh",
+        "perspective_infinite_lh",
+        "perspective_infinite_reverse_rh",
+        "perspective_infinite_reverse_lh",
+    ];
+
+    fn ident(c: char) -> bool {
+        c.is_ascii_alphanumeric() || c == '_'
+    }
+
+    /// Primitive path matches end at an identifier boundary, so `cosh`
+    /// does not also match `cos`. Whitespace cannot hide a path or call.
+    fn path_call(line: &str, path: &str) -> bool {
+        line.match_indices(path).any(|(i, _)| {
+            (path.starts_with("::") || !line[..i].chars().next_back().is_some_and(ident))
+                && !line[i + path.len()..].chars().next().is_some_and(ident)
+        })
+    }
+
+    /// One diagnostic per offending line, retaining the original line number.
     fn banned_calls_in(name: &str, code: &str) -> Vec<String> {
-        let mut hits = Vec::new();
-        for (n, line) in code.lines().enumerate() {
-            for pat in BANNED {
-                if line.contains(pat) {
-                    hits.push(format!("{name}:{}: {}", n + 1, line.trim()));
+        code.lines()
+            .enumerate()
+            .filter_map(|(n, line)| {
+                let mut compact = String::new();
+                let mut chars = line.split("//").next().unwrap_or("").chars().peekable();
+                while let Some(c) = chars.next() {
+                    if c.is_whitespace() {
+                        // Preserve identifier separation (`return f32::sin`),
+                        // while discarding spacing around `.` and `::`.
+                        if compact.chars().next_back().is_some_and(ident)
+                            && chars.peek().copied().is_some_and(ident)
+                        {
+                            compact.push(' ');
+                        }
+                    } else {
+                        compact.push(c);
+                    }
                 }
-            }
-        }
-        hits
+                let primitive = BANNED.iter().any(|pat| {
+                    let method = pat.trim_start_matches('.').trim_end_matches('(');
+                    compact.contains(pat)
+                        || ["f32", "f64"]
+                            .iter()
+                            .any(|ty| path_call(&compact, &format!("{ty}::{method}")))
+                });
+                let glam = GLAM_BANNED.iter().any(|method| {
+                    compact.contains(&format!(".{method}("))
+                        || path_call(&compact, &format!("::{method}"))
+                });
+                (primitive || glam).then(|| format!("{name}:{}: {}", n + 1, line.trim()))
+            })
+            .collect()
     }
 
     /// A guard nobody has watched fail is a guard nobody has tested. Feed
@@ -217,8 +284,44 @@ mod tests {
             let hits = banned_calls_in("probe.rs", &format!("let y = a.{name}(b);\n"));
             assert_eq!(hits.len(), 1, "{pat} is not caught exactly once: {hits:?}");
         }
+    }
+
+    #[test]
+    fn the_referee_catches_primitive_paths_and_function_values() {
+        for pat in BANNED {
+            let method = pat.trim_start_matches('.').trim_end_matches('(');
+            for ty in ["f32", "f64"] {
+                for probe in [
+                    format!("let y = {ty} :: {method} (x);"),
+                    format!("let y = xs.map({ty}::{method});"),
+                    format!("return {ty}::{method}(x);"),
+                ] {
+                    assert_eq!(banned_calls_in("probe.rs", &probe).len(), 1, "{probe}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_referee_catches_glam_helpers() {
+        for method in GLAM_BANNED {
+            for probe in [
+                format!("let y = glam::Quat::{method}(x);"),
+                format!("let y = q . {method} (x);"),
+            ] {
+                assert_eq!(banned_calls_in("probe.rs", &probe).len(), 1, "{probe}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_referee_allows_deterministic_arithmetic() {
         for allowed in [
             "let y = a.sqrt();",
+            "let y = fmath::sin(x) + fmath::cos(y);",
+            "let y = f32::sqrt(x) + myf32::sin(x);",
+            "let y = Mat4::from_rotation_translation(q, t);",
+            "let y = Quat::from_mat3(m); // q.slerp(other, t)",
             "let y = a.abs().floor().clamp(0.0, 1.0).to_radians();",
             "let y = v.arctan(w) + q.mylog(r) + run_log(s) + demo_log(t);",
         ] {
@@ -228,6 +331,37 @@ mod tests {
             );
         }
     }
+
+    // Exact rendering expressions in mixed files, not whole-file exemptions.
+    // Walk draws placeholder boxes/bolts; skin blends drawn bones; soldier_vis
+    // builds draw matrices; holo/spawn_preview build UI models; event_feed's
+    // ambush_edge returns a HUD chevron. Blend restores tick poses before stepping.
+    // None of these expressions supplies a simulation input. Each exemption is
+    // consumed exactly once: moving, changing or duplicating one needs review.
+    const DRAW_CALLS: &[(&str, &str)] = &[
+        ("walk.rs", "* Mat4::from_rotation_y(s.yaw)"),
+        ("walk.rs", "* Mat4::from_rotation_y(u.soldier.yaw)"),
+        (
+            "walk.rs",
+            "let rot = Quat::from_rotation_arc(Vec3::Z, dir);",
+        ),
+        (
+            "skin.rs",
+            "rotation: self.rotation.slerp(other.rotation, t),",
+        ),
+        (
+            "soldier_vis.rs",
+            "Mat4::from_translation(s.pos) * Mat4::from_rotation_y(s.yaw + std::f32::consts::PI)",
+        ),
+        ("holo.rs", "* Mat4::from_rotation_y(-h.spin * c.rotate)"),
+        ("holo.rs", "* Mat4::from_rotation_x(-h.tilt)"),
+        (
+            "event_feed.rs",
+            "Quat::from_rotation_y(me.soldier.yaw + std::f32::consts::PI),",
+        ),
+        ("spawn_preview.rs", ") * Mat4::from_rotation_y(yaw)"),
+        ("render_blend.rs", "o.rot = p.rot.slerp(o.rot, t);"),
+    ];
 
     /// The banned calls in every `.rs` file under `dir`, down into the
     /// module directories a split leaves (`collision/`: a flat walk would
@@ -309,13 +443,23 @@ mod tests {
                 None => text.clone(),
             };
 
-            offenders.extend(banned_calls_in(&name, &code));
+            let mut hits = banned_calls_in(&name, &code);
+            for &(file, expression) in DRAW_CALLS.iter().filter(|(file, _)| *file == name) {
+                let suffix = format!(": {expression}");
+                let count = hits.iter().filter(|h| h.ends_with(&suffix)).count();
+                assert_eq!(
+                    count, 1,
+                    "{file}: stale or duplicated drawing exception: {expression}"
+                );
+                hits.retain(|h| !h.ends_with(&suffix));
+            }
+            offenders.extend(hits);
         }
         offenders
     }
 
     /// The sim must not reach the host libm behind `fmath`'s back: a source
-    /// scan of `core/src` for transcendental method calls outside this file
+    /// scan of `core/src` for method/path calls and glam helpers outside this file
     /// and outside `#[cfg(test)]`.
     #[test]
     fn no_std_transcendentals_in_core() {

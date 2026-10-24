@@ -4,14 +4,14 @@ title: Wire card SPNC's spawn-node census into the gates: a 'spawn' census line 
 milestone: M3
 value: 3
 phase: build
-status: todo
+status: blocked
 deps: SPNC
 files: scripts/gates.py,engine/artifacts/loop/gates.toml
 declares:
-needs:
+needs: maintainer — approve [approvals.SPNCG] oracle = "guards" before gates.py edits; local baked maps/missions and census inputs also need restoration
 effort:
 branch:
-resume:
+resume: 2026-10-24 07:50 UTC: planner guard preflight: scripts/gates.py is guards-protected; only FIDSP has approval. Restore census inputs and obtain SPNCG guards approval, then implement original new-node/mutation acceptance in an isolated worktree. Builder supplies any new baseline rows for authorized planner/landing handling. No gate edit or threshold change. engine/artifacts/loop/reports/20261024_0750_planner.md
 created: 2026-10-15
 ---
 

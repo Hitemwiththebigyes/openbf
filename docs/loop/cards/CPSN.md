@@ -4,14 +4,14 @@ title: Command post sounds: the hum by the owner's faction (kept by a neutralise
 milestone: M1
 value: 4
 phase: build
-status: todo
+status: blocked
 deps:
-files: engine/crates/bake/src/sounds.rs,engine/crates/game/src/classdb.rs,engine/crates/game/src/sounds.rs,engine/crates/game/src/post_sounds.rs,engine/crates/game/src/lib.rs,engine/crates/game/src/event_sounds.rs,engine/crates/game/src/main/windowed.rs
+files: engine/crates/bake/src/sounds.rs, engine/crates/game/src/classdb.rs, engine/crates/game/src/sounds.rs, engine/crates/game/src/post_sounds.rs (new), engine/crates/game/src/lib.rs, engine/crates/game/src/event_sounds.rs, engine/crates/game/src/main/windowed.rs
 declares: rebake=sounds
-needs:
+needs: environment restoration: restore post class/sound bakes, bf1_nab1/bf2_uta1 missions and sndc/bf2_uta1_run2.csv
 effort:
 branch:
-resume:
+resume: 2026-10-24 09:20 UTC: planner prerequisite census; no implementation. Restore this card's inputs in lead_tmp/planner_20261024_0913/queue_preflight.json, recheck original acceptance/current-main baseline, then loopctl start for isolated build. Full CI and required gates remain; reports/20261024_0913_planner.md.
 created: 2026-10-03
 alpha: yes
 ---
@@ -52,3 +52,4 @@ state (owner, capture / neutralise progress, who is inside) and the two one-shot
 
 ## Notes
 - 2026-10-13 06:42 (lane 2, card CPBAR's RE): confirmed on today's main that no code names ChargeSound / DischargeSound / DisputeSound - the post is silent. CPBAR's build adds a read-only `Sim` helper for the units inside a post per team (`core/src/sim/round.rs`); the dispute loop (a NEUTRAL post with two sides inside) can take its condition from it. Live rows of both meters for the pitch ramp: `engine/artifacts/lead_tmp/cpbar/ps2/out/*.csv`.
+

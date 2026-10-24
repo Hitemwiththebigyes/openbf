@@ -4,14 +4,14 @@ title: TAT1: bots are recycled in a pocket between roofs at (-138, 20, 102) - 14
 milestone: M3
 value: 3
 phase: measure
-status: todo
+status: blocked
 deps:
 files:
 declares: sweep; arena
-needs:
+needs: Restore TAT1/Kamino bakes and missions plus spot tools/raw traces; retake both TAT1 pockets on current main before any remedy, and check hub 98 separately.
 effort:
 branch:
-resume:
+resume: 2026-10-24 11:57 UTC: planner prerequisite hold; 7/7 exact named paths absent. Restore TAT1/Kamino bakes and missions plus spot tools/raw traces; retake both TAT1 pockets on current main before any remedy, and check hub 98 separately. All original acceptance retained. reports/20261024_1151_planner.md; inventory/continuation lead_tmp/planner_20261024_1151/.
 created: 2026-10-02
 alpha: yes
 ---

@@ -28,7 +28,6 @@ fn the_sticks_are_the_ps2s_on_347_ticks() {
         let m = Body {
             pos: v3(r, 5),
             left: v3(r, 8),
-            up: v3(r, 11),
             fwd: v3(r, 14),
             vel: v3(r, 17),
             aim_origin: v3(r, 20),
@@ -85,7 +84,6 @@ fn level(pos: Vec3, fwd: Vec3, vel: Vec3) -> Body {
     Body {
         pos,
         left: Vec3::Y.cross(fwd),
-        up: Vec3::Y,
         fwd,
         vel,
         aim_origin: pos + Vec3::Y,

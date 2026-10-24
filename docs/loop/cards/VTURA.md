@@ -4,13 +4,13 @@ title: Building turrets turn, fire and let go like the PS2's (VTURB audit): cont
 milestone: M2
 value: 4
 phase: build
-status: todo
-deps:
+status: blocked
+deps: TCOL
 files: engine/crates/game/src/vehicle_class.rs,engine/crates/game/src/vehicle_pads.rs,engine/crates/core/src/vehicle/gun.rs,engine/crates/core/src/sim/guns.rs,engine/crates/core/src/sim/seats.rs
 declares:
-needs:
+needs: environment — Restore HOT1/class/mission bake and turret audit/PS2 rows; TCOL body ownership must land for own-building-only exit acceptance.
 branch:
-resume:
+resume: 2026-10-24 10:33 UTC: planner prerequisite hold; no new implementation/acceptance. VTURL already supplies building turn/aimer path. Recheck remaining BarrelNodeName fallback and exit path first, preserve original turn tests as regressions and turret_ride replay equality; no duplicate turn rewrite. Exact missing paths: lead_tmp/planner_20261024_1026/preflight.json. Restore or regenerate verified equivalent inputs before clearing hold. reports/20261024_1026_planner.md
 created: 2026-09-29
 alpha: yes
 ---
@@ -63,3 +63,6 @@ One Opus verifier: 12/12 SUPPORTED.
 
 ## Planner note (2026-09-30, M-ALPHA)
 `alpha: yes` — turrets that turn and fire right. Value 4 (kept). Showcase maps: BF1 NAB1, BF1 TAT1 (the port's `tat1`), BF1 YAV2, BF2 UTA1, BF2 MYG1, BF2 HOT1 (PLAN §Milestones M-ALPHA).
+
+## Current-source reconciliation (2026-10-24 10:33 UTC)
+Landed VTURL provides turret_law (vehicle_pads.rs:883-907), separate Aimer keys and Turn, and building-gun Aimer::chase (sim/guns.rs:350-373). The older turn-gap premises are historical for building turrets; retain their original tests as regressions. Source still uses hp_fire/turret fallback rather than BarrelNodeName (vehicle_pads.rs:849-857), and skips the turret exit path (sim/seats.rs:441). Re-measure these remaining cases before changing them. TCOL is a functional prerequisite for the exit test to ignore owned building bodies while still refusing another wall; do not rewrite VTURL or broaden this to all vehicle seats without a trace.

@@ -4,14 +4,14 @@ title: The BF2 PS2 Instant Action screen and Session Options (card BSHL's RE): t
 milestone: M5
 value: 4
 phase: build
-status: todo
+status: blocked
 deps: BSHLA
 files: engine/crates/ui/src/shell.rs, engine/crates/ui/src/menu.rs, engine/crates/bake/src/shell.rs, engine/crates/game/src/main/windowed.rs
 declares: goldens=shell.png; rebake=common
 needs:
 effort:
 branch:
-resume:
+resume: Restore BSHLB inputs listed in lead_tmp/bshlb_cloud/preflight.json; rerun preflight.py, measure Planet/Playlist outer rects from both PS2 frames BEFORE implementation, then start isolated build and run all four acceptance bars plus full gates. No source candidate or acceptance earned; reports/20261024_1132_card_BSHLB.md.
 created: 2026-10-20
 ---
 ## Why

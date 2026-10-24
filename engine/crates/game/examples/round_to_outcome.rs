@@ -41,10 +41,10 @@
 //! names, with that class's own ODF constants, health, and primary weapon,
 //! registered once per weapon NAME (two classes with the same rifle share one
 //! `Sim::weapon_classes` index). The AI then come out of `Sim::spawn_ai`,
-//! which walks the mission's per-class minimums and fills with class 0
-//! (`Sim::ai_class`, PROVISIONAL). Slot 0's unit spawns LAST, after the 16, so
-//! it takes the mix's next class like any other bot — it is class 0, the fill
-//! class, only when the mix has run out of minimums.
+//! which draws from the registered classes using `Sim::ai_class_weights`
+//! and the shared weighted selection in `Sim::ai_class`. Slot 0's replacement
+//! bot spawns LAST, after the 16, and takes the next weighted draw. The initial
+//! idle player's template remains class 0 (the mission's first class).
 //!
 //! Three things can make a team something other than its mission's mix, and
 //! all three are printed:
@@ -597,6 +597,8 @@ struct FireUnit {
     /// Where the spell began, and at which tick.
     from: glam::Vec3,
     since: u64,
+    /// Fight samples in the unqualified spell (excluding its starting tick).
+    fight_pending: u64,
     /// The hit whose answer is still awaited: where the bot stood, the tick.
     asked: Option<(glam::Vec3, u64)>,
 }
@@ -622,17 +624,21 @@ impl Fire {
             let e = &mut self.at[i];
             let p = u.soldier.pos;
             let foot = u.controller == core::unit::Controller::Ai && u.mount.is_none();
-            let Some(hit) = u
-                .last_hit
-                .map(|(_, t)| t)
-                .filter(|_| foot && e.gen == h.gen)
-            else {
+            if e.gen != h.gen {
+                *e = FireUnit {
+                    gen: h.gen,
+                    from: p,
+                    since: now,
+                    ..FireUnit::default()
+                };
+            }
+            let Some(hit) = u.last_hit.map(|(_, t)| t).filter(|_| foot) else {
                 *e = FireUnit {
                     gen: h.gen,
                     hit: u.last_hit.map_or(0, |(_, t)| t),
                     from: p,
                     since: now,
-                    asked: None,
+                    ..FireUnit::default()
                 };
                 continue;
             };
@@ -641,7 +647,7 @@ impl Fire {
                 if hit.saturating_sub(e.hit) > FIRE_TICKS || e.hit == 0 {
                     self.hits[0] += 1;
                     e.asked = Some((p, now));
-                    (e.from, e.since) = (p, now);
+                    (e.from, e.since, e.fight_pending) = (p, now, 0);
                 }
                 e.hit = hit;
             }
@@ -654,7 +660,7 @@ impl Fire {
                 continue;
             }
             if core::nav::xz_dist(e.from, p) >= FIRE_M {
-                (e.from, e.since) = (p, now);
+                (e.from, e.since, e.fight_pending) = (p, now, 0);
             }
             let spell = now - e.since;
             self.longest = self.longest.max(spell);
@@ -671,11 +677,17 @@ impl Fire {
             self.ticks += row[0];
             self.slow += row[1];
             self.stood += row[2];
-            if u.ai.behaviour == core::ai::Behaviour::Fight {
-                for (sum, add) in self.fight.iter_mut().zip(row) {
-                    *sum += add;
-                }
+            let fight = u.ai.behaviour == core::ai::Behaviour::Fight;
+            self.fight[0] += u64::from(fight);
+            self.fight[1] += u64::from(fight) * row[1];
+            if spell > 0 && spell <= FIRE_SPELL {
+                e.fight_pending += u64::from(fight);
             }
+            self.fight[2] += match spell {
+                FIRE_SPELL => e.fight_pending,
+                k if k > FIRE_SPELL => u64::from(fight),
+                _ => 0,
+            };
         }
     }
 
@@ -1693,7 +1705,7 @@ struct Shares {
     /// ...and every Fight sample in one of [`FIGHT_SPLIT`]'s classes.
     fight_split: [u64; 13],
     /// Per unit index: its generation, where the spell began, its samples.
-    stand_at: Vec<(u32, glam::Vec3, u32)>,
+    stand_at: Vec<(u32, glam::Vec3, u32, [u64; N_BEHAVIOURS])>,
 }
 
 /// The `fightsplit` line's classes of a Fight sample (card TPOS): no
@@ -1790,7 +1802,8 @@ impl Shares {
                 self.past.resize(i + 1, [None; 10]);
                 self.rim_stay.resize(i + 1, (0, 0));
                 self.target.resize(i + 1, None);
-                self.stand_at.resize(i + 1, (0, glam::Vec3::ZERO, 0));
+                self.stand_at
+                    .resize(i + 1, (0, glam::Vec3::ZERO, 0, [0; N_BEHAVIOURS]));
             }
             let p = u.soldier.pos;
             // B9: unexplained standing.
@@ -1815,7 +1828,7 @@ impl Shares {
                                 .is_some_and(|q| q.source == core::ai::tactic::Source::Cover),
                     );
                 }
-                let (gen, at, n) = self.stand_at[i];
+                let (gen, at, n, _) = self.stand_at[i];
                 let idle = u.ai.target.is_none() && !b.stands();
                 if idle && gen == h.gen && n > 0 && core::nav::xz_dist(at, p) < STAND_M {
                     self.stand_at[i].2 = n + 1;
@@ -1826,9 +1839,20 @@ impl Shares {
                         _ => 0,
                     };
                     self.stand += add;
-                    self.stand_by[b as usize] += add;
+                    if n < STAND_SECS {
+                        self.stand_at[i].3[b as usize] += 1;
+                    }
+                    if n + 1 == STAND_SECS {
+                        for (sum, pending) in self.stand_by.iter_mut().zip(self.stand_at[i].3) {
+                            *sum += pending;
+                        }
+                    } else if n + 1 > STAND_SECS {
+                        self.stand_by[b as usize] += 1;
+                    }
                 } else {
-                    self.stand_at[i] = (h.gen, p, u32::from(idle));
+                    let mut pending = [0; N_BEHAVIOURS];
+                    pending[b as usize] = u64::from(idle);
+                    self.stand_at[i] = (h.gen, p, u32::from(idle), pending);
                 }
             } else {
                 self.stand_at[i].2 = 0;
@@ -2121,6 +2145,33 @@ fn positions_line(key: &str, sim: &core::sim::Sim) -> String {
     text
 }
 
+/// Bound the diagnostic's in-memory report to one million cells.
+fn parse_floor_grid(v: &str) -> Result<(f32, f32, f32, f32, f32, i32), &'static str> {
+    let a = v
+        .split(',')
+        .map(str::parse::<f32>)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| "expected x,z,half,step,y_top numbers")?;
+    let &[cx, cz, half, step, top] = a.as_slice() else {
+        return Err("expected five numbers: x,z,half,step,y_top");
+    };
+    if !a.iter().all(|x| x.is_finite()) || half < 0.0 || step <= 0.0 {
+        return Err("values must be finite, half nonnegative and step positive");
+    }
+    let n = (half / step).round();
+    // Before casting or iterating: (2 * 499 + 1)^2 = 998001 cells.
+    if !n.is_finite() || n > 499.0 {
+        return Err("grid exceeds one million cells; reduce half or increase step");
+    }
+    if ![cx - n * step, cx + n * step, cz - n * step, cz + n * step]
+        .iter()
+        .all(|x| x.is_finite())
+    {
+        return Err("grid coordinates overflow");
+    }
+    Ok((cx, cz, half, step, top, n as i32))
+}
+
 /// `FLOOR_GRID=x,z,half,step,y_top` (card STLVL): the floors on a grid round a
 /// point — the first floor under `y_top` at each cell — with the map's posts
 /// and the hubs near it (authored height, radius, resolved floor). Read-only.
@@ -2129,11 +2180,13 @@ fn floor_grid(key: &str, sim: &core::sim::Sim) -> String {
     let Ok(v) = std::env::var("FLOOR_GRID") else {
         return text;
     };
-    let a: Vec<f32> = v.split(',').filter_map(|x| x.parse().ok()).collect();
-    let &[cx, cz, half, step, top] = a.as_slice() else {
-        return text;
+    let (cx, cz, half, step, top, n) = match parse_floor_grid(&v) {
+        Ok(grid) => grid,
+        Err(reason) => {
+            outln!(text, "floor_grid {key}: invalid FLOOR_GRID: {reason}");
+            return text;
+        }
     };
-    let n = (half / step).round() as i32;
     outln!(text, "floor_grid {key}: centre ({cx},{cz}) step {step} from y {top}; rows z ascending, columns x ascending");
     for iz in -n..=n {
         let z = cz + iz as f32 * step;
@@ -2881,7 +2934,7 @@ impl HeavyCensus {
         let foot = |h: core::unit::UnitHandle| {
             sim.units
                 .get(h.index as usize)
-                .filter(|u| u.mount.is_none() && !u.is_player)
+                .filter(|u| u.gen == h.gen && u.mount.is_none() && !u.is_player)
         };
         let target = |u: &core::unit::Unit| -> String {
             let Some(e) = u.ai.target.and_then(|t| sim.unit(t)) else {
@@ -2913,7 +2966,6 @@ impl HeavyCensus {
                 .cloned()
                 .unwrap_or_else(|| format!("class{c}"))
         };
-        let mut tk = Vec::new();
         let mut add = |k: &'static str, w: String, what: String, x: f32| {
             let e = self.n.entry((k, w, what)).or_default();
             e.0 += 1;
@@ -2959,9 +3011,12 @@ impl HeavyCensus {
                     add("vkill", by, vclass(class), 0.0);
                 }
                 Event::Kill { shooter, victim } => {
-                    if let (Some(u), Some(v)) =
-                        (foot(shooter), sim.units.get(victim.index as usize))
-                    {
+                    if let (Some(u), Some(v)) = (
+                        foot(shooter),
+                        sim.units
+                            .get(victim.index as usize)
+                            .filter(|u| u.gen == victim.gen),
+                    ) {
                         let k = if shooter == victim {
                             "selfkill"
                         } else if u.team == v.team {
@@ -2995,17 +3050,15 @@ impl HeavyCensus {
                                 let along = (at - from).dot(dir);
                                 (a.distance(from), along, (at - from - dir * along).length())
                             });
-                            tk.push((
-                                named(u, u.weapon_class),
-                                age,
-                                at.distance(from),
-                                target(u),
-                                d_target,
-                                along,
-                                off,
-                                v.soldier.vel.length(),
-                                u.soldier.vel.length(),
-                            ));
+                            let w = named(u, u.weapon_class);
+                            let dv = at.distance(from);
+                            let target = target(u);
+                            let vs = v.soldier.vel.length();
+                            let since = u.soldier.vel.length();
+                            let _ = writeln!(
+                                self.tk,
+                                "{tick},{w},{age:.2},{dv:.1},{target},{d_target:.1},{along:.1},{off:.1},{vs:.1},{since:.2}"
+                            );
                         }
                     }
                 }
@@ -3018,12 +3071,6 @@ impl HeavyCensus {
                     add("hand", named(u, u.weapon_class), String::new(), 0.0);
                 }
             }
-        }
-        for (w, age, dv, t, dt, along, off, vs, since) in tk {
-            let _ = writeln!(
-                self.tk,
-                "{tick},{w},{age:.2},{dv:.1},{t},{dt:.1},{along:.1},{off:.1},{vs:.1},{since:.2}"
-            );
         }
     }
 
@@ -3568,41 +3615,22 @@ fn run_map(
                         .join(", ")
                 ));
                 t += 1;
-                game::walk::TeamTemplate {
-                    faction: r.faction.clone(),
-                    name: f.class.clone(),
-                    consts: f.consts,
-                    max_health: f.max_health,
-                    health_type: f.health_type,
-                    weapon_class: tables[t - 1][0].weapon_class,
-                    weapon_slot: tables[t - 1][0].weapon_slot,
-                    slots: tables[t - 1][0].slots.clone(),
-                    drops: tables[t - 1][0].drops,
-                    spare_clips: f.spare_clips,
-                    geometry: f.geometry.clone(),
-                    weapon_geometry: f.weapon_geometry.clone(),
-                    classes: r
-                        .classes
+                game::walk::TeamTemplate::from_roster(
+                    r,
+                    &tables[t - 1][0],
+                    r.classes
                         .iter()
-                        .map(|c| game::walk::ClassVisual {
-                            name: c.class.clone(),
-                            label: c.label.clone(),
-                            geometry: c.geometry.clone(),
-                            weapon_geometry: c.weapon_geometry.clone(),
-                            weapon_hud: c.weapon_hud.clone(),
-                            held_hud: Vec::new(),
-                            held_models: c
+                        .map(|c| {
+                            let mut visual = game::walk::ClassVisual::from_roster(c);
+                            visual.held_models = c
                                 .held
                                 .iter()
                                 .map(|h| (h.slot, h.geometry.clone()))
-                                .collect(),
-                            foley_class: c.foley_class,
-                            cries: c.cries.clone(),
-                            anim: c.anim.clone(),
-                            skins: c.skins.clone(),
+                                .collect();
+                            visual
                         })
                         .collect(),
-                }
+                )
             })
         }
         Err(e) => {
@@ -3649,8 +3677,8 @@ fn run_map(
     }
     w.add_posts(&layout);
     // The vehicle spawn pads (card VPAD): the vehicles are in the sim state
-    // (and its hash); since card VAI the bots board, drive and leave them
-    // (nothing shoots from them until VTUR). They go in before the opening
+    // (and its hash); bots board, drive, fire from seats and leave them.
+    // They go in before the opening
     // wave, which spawns at the command walkers they are about to build
     // (card CWSP), as the game's own battle setup orders it.
     let factions = [w.teams[0].faction.clone(), w.teams[1].faction.clone()];
@@ -3811,13 +3839,135 @@ fn run_map(
         .iter()
         .any(|v| v.kind == core::vehicle::VehicleKind::Turret);
     let mut board_census = std::env::var_os("BOARD_CENSUS").map(|_| BoardCensus::default());
+    let exit_watch = std::env::var_os("EXIT_WATCH").is_some();
+    let mut exit_prev: std::collections::HashMap<
+        usize,
+        (u32, core::vehicle::VehicleHandle, u8, bool, u32, f32),
+    > = Default::default();
+    let mut exit_last: std::collections::HashMap<(u32, u32), (u64, &'static str, bool)> =
+        Default::default();
+    let mut exit_counts = [0u32; 6];
+    let mut exit_floor = [0u32; 2];
+    let mut exit_other = [0u32; 2];
     while t < max_ticks && w.sim.outcome.is_none() {
         w.step_tick(&idle);
         t += 1;
+        // Scratch observer (VBAIL local validation, EXIT_WATCH=1, stderr only):
+        // every AI hover/walker exit by unit generation + tick + vehicle, and
+        // every world death of that unit generation within 90 ticks of it.
+        if exit_watch {
+            let destroyed: std::collections::HashSet<(u32, u32)> = w
+                .sim
+                .events
+                .iter()
+                .filter_map(|ev| match ev {
+                    core::sim::Event::VehicleDestroyed { vehicle, .. } => {
+                        Some((vehicle.index, vehicle.gen))
+                    }
+                    _ => None,
+                })
+                .collect();
+            let mut now = std::collections::HashMap::new();
+            for (i, u) in w.sim.units.iter().enumerate() {
+                if u.controller != core::unit::Controller::Ai {
+                    continue;
+                }
+                if let Some(m) = u.mount {
+                    if let Some(v) = w.sim.vehicle(m.vehicle) {
+                        if matches!(
+                            v.kind,
+                            core::vehicle::VehicleKind::Hover | core::vehicle::VehicleKind::Walker
+                        ) {
+                            now.insert(
+                                i,
+                                (
+                                    u.gen,
+                                    m.vehicle,
+                                    m.seat,
+                                    v.kind == core::vehicle::VehicleKind::Hover,
+                                    v.class,
+                                    v.health.cur / v.health.max.max(1e-6),
+                                ),
+                            );
+                        }
+                    }
+                }
+            }
+            for (&i, &(gen, vh, seat, hover, class, frac)) in &exit_prev {
+                let u = &w.sim.units[i];
+                let still = u.gen == gen && u.mount.is_some_and(|m| m.vehicle == vh);
+                if still {
+                    continue;
+                }
+                let gone = destroyed.contains(&(vh.index, vh.gen)) || w.sim.vehicle(vh).is_none();
+                let why = if gone {
+                    "destroyed"
+                } else if frac < 0.2 {
+                    "lowhp"
+                } else {
+                    "voluntary"
+                };
+                let k = usize::from(!hover) * 3
+                    + match why {
+                        "destroyed" => 0,
+                        "lowhp" => 1,
+                        _ => 2,
+                    };
+                exit_counts[k] += 1;
+                let name = vehicle_classes
+                    .get(class as usize)
+                    .map_or("?", String::as_str);
+                let p = u.soldier.pos;
+                eprintln!(
+                    "vexit {key} t {t} unit {i} gen {gen} alive {} seat {seat} vehicle {}:{} {} {name} why {why} hp {frac:.3} at ({:.1},{:.1},{:.1})",
+                    u.alive && u.gen == gen,
+                    vh.index,
+                    vh.gen,
+                    if hover { "hover" } else { "walker" },
+                    p.x,
+                    p.y,
+                    p.z
+                );
+                exit_last.insert((i as u32, gen), (t, why, hover));
+            }
+            exit_prev = now;
+            for ev in &w.sim.events {
+                if let core::sim::Event::EnvDeath { unit, cause } = ev {
+                    if let Some(&(at, why, hover)) = exit_last.get(&(unit.index, unit.gen)) {
+                        if t - at <= 90 {
+                            let c = format!("{cause:?}");
+                            if matches!(cause, core::sim::DeathCause::KillFloor) {
+                                exit_floor[usize::from(!hover)] += 1;
+                            } else {
+                                exit_other[usize::from(!hover)] += 1;
+                            }
+                            let p = w.sim.units[unit.index as usize].soldier.pos;
+                            eprintln!(
+                                "vexitdeath {key} t {t} unit {} gen {} dt {} cause {c} after {why} {} at ({:.1},{:.1},{:.1})",
+                                unit.index,
+                                unit.gen,
+                                t - at,
+                                if hover { "hover" } else { "walker" },
+                                p.x,
+                                p.y,
+                                p.z
+                            );
+                        }
+                    }
+                }
+            }
+            if !(t < max_ticks && w.sim.outcome.is_none()) {
+                eprintln!(
+                    "vexitsum {key}: hover destroyed {} lowhp {} voluntary {} floor90 {} other90 {} | walker destroyed {} lowhp {} voluntary {} floor90 {} other90 {}",
+                    exit_counts[0], exit_counts[1], exit_counts[2], exit_floor[0], exit_other[0],
+                    exit_counts[3], exit_counts[4], exit_counts[5], exit_floor[1], exit_other[1]
+                );
+            }
+        }
         if let Some(b) = board_census.as_mut() {
             b.observe(&w.sim, key, &vehicle_classes);
         }
-        if has_turrets {
+        if verbose && has_turrets {
             turret_census.observe(&w.sim);
         }
         if let Some(m) = music.as_mut() {
@@ -3826,39 +3976,40 @@ fn run_map(
                 m.finish(&w.sim);
             }
         }
-        for ev in &w.sim.events {
-            if let core::sim::Event::VehicleDestroyed {
-                vehicle,
-                class,
-                killer,
-                pos,
-                ..
-            } = ev
-            {
-                if let Some(&(bot, speed)) = hover_before.get(vehicle) {
-                    let e = hover_losses.entry(*class).or_default();
-                    let k = match (bot, killer.is_some()) {
-                        (true, true) => 1,
-                        (true, false) => 2,
-                        (false, true) => 4,
-                        (false, false) if speed < 1.0 => 5,
-                        (false, false) => 6,
-                    };
-                    e[k] += 1;
-                    e[3] += u32::from(k == 2 && speed >= 10.0);
-                    if hover_loss_log {
-                        let name = vehicle_classes
-                            .get(*class as usize)
-                            .map_or("?", String::as_str);
-                        let (hp, drops) = hover_drops.remove(vehicle).unwrap_or_default();
-                        let tail: Vec<String> = drops
-                            .iter()
-                            .rev()
-                            .take(6)
-                            .rev()
-                            .map(|(at, d, v)| format!("{at}:-{d:.1}@{v:.1}"))
-                            .collect();
-                        eprintln!(
+        if verbose || hover_loss_log {
+            for ev in &w.sim.events {
+                if let core::sim::Event::VehicleDestroyed {
+                    vehicle,
+                    class,
+                    killer,
+                    pos,
+                    ..
+                } = ev
+                {
+                    if let Some(&(bot, speed)) = hover_before.get(vehicle) {
+                        let e = hover_losses.entry(*class).or_default();
+                        let k = match (bot, killer.is_some()) {
+                            (true, true) => 1,
+                            (true, false) => 2,
+                            (false, true) => 4,
+                            (false, false) if speed < 1.0 => 5,
+                            (false, false) => 6,
+                        };
+                        e[k] += 1;
+                        e[3] += u32::from(k == 2 && speed >= 10.0);
+                        if hover_loss_log {
+                            let name = vehicle_classes
+                                .get(*class as usize)
+                                .map_or("?", String::as_str);
+                            let (hp, drops) = hover_drops.remove(vehicle).unwrap_or_default();
+                            let tail: Vec<String> = drops
+                                .iter()
+                                .rev()
+                                .take(6)
+                                .rev()
+                                .map(|(at, d, v)| format!("{at}:-{d:.1}@{v:.1}"))
+                                .collect();
+                            eprintln!(
                             "hoverloss {key} t {t} {name} at ({:.0}, {:.0}, {:.0}) bot {bot} killer {} speed {speed:.1} last hp {hp:.1} drops [{}]",
                             pos.x,
                             pos.y,
@@ -3866,43 +4017,46 @@ fn run_map(
                             killer.is_some(),
                             tail.join(" ")
                         );
+                        }
                     }
                 }
             }
-        }
-        let mut now = std::collections::HashMap::new();
-        for (vh, v) in w.sim.alive_vehicles() {
-            if v.kind != core::vehicle::VehicleKind::Hover {
-                continue;
-            }
-            let bot = v
-                .seats
-                .first()
-                .filter(|s| s.kind == core::vehicle::SeatKind::Pilot)
-                .and_then(|s| s.occupant)
-                .and_then(|o| w.sim.unit(o))
-                .is_some_and(|u| u.controller == core::unit::Controller::Ai);
-            if bot && !hover_before.get(&vh).is_some_and(|b| b.0) {
-                hover_losses.entry(v.class).or_default()[0] += 1;
-            }
-            now.insert(vh, (bot, v.vel.length()));
-            if hover_loss_log {
-                let e = hover_drops.entry(vh).or_insert((v.health.cur, Vec::new()));
-                if v.health.cur < e.0 {
-                    let before = hover_before.get(&vh).map_or(0.0, |b| b.1);
-                    e.1.push((t, e.0 - v.health.cur, before));
+            let mut now = std::collections::HashMap::new();
+            for (vh, v) in w.sim.alive_vehicles() {
+                if v.kind != core::vehicle::VehicleKind::Hover {
+                    continue;
                 }
-                e.0 = v.health.cur;
+                let bot = v
+                    .seats
+                    .first()
+                    .filter(|s| s.kind == core::vehicle::SeatKind::Pilot)
+                    .and_then(|s| s.occupant)
+                    .and_then(|o| w.sim.unit(o))
+                    .is_some_and(|u| u.controller == core::unit::Controller::Ai);
+                if bot && !hover_before.get(&vh).is_some_and(|b| b.0) {
+                    hover_losses.entry(v.class).or_default()[0] += 1;
+                }
+                now.insert(vh, (bot, v.vel.length()));
+                if hover_loss_log {
+                    let e = hover_drops.entry(vh).or_insert((v.health.cur, Vec::new()));
+                    if v.health.cur < e.0 {
+                        let before = hover_before.get(&vh).map_or(0.0, |b| b.1);
+                        e.1.push((t, e.0 - v.health.cur, before));
+                    }
+                    e.0 = v.health.cur;
+                }
             }
+            hover_before = now;
         }
-        hover_before = now;
-        if let Some(k) = WALKER_CENSUS_AT.iter().position(|&at| at == t) {
-            walker_census[k] = walker_pilots(&w.sim, &vehicle_classes);
-        }
-        for ev in &w.sim.events {
-            if let core::sim::Event::VehicleDestroyed { class, killer, .. } = ev {
-                let e = vehicle_losses.entry(*class).or_default();
-                e[usize::from(killer.is_none())] += 1;
+        if verbose {
+            if let Some(k) = WALKER_CENSUS_AT.iter().position(|&at| at == t) {
+                walker_census[k] = walker_pilots(&w.sim, &vehicle_classes);
+            }
+            for ev in &w.sim.events {
+                if let core::sim::Event::VehicleDestroyed { class, killer, .. } = ev {
+                    let e = vehicle_losses.entry(*class).or_default();
+                    e[usize::from(killer.is_none())] += 1;
+                }
             }
         }
         if let Some(s) = spawns.as_mut() {
@@ -4129,6 +4283,15 @@ fn run_map(
                 w.sim.nav_stats.ai_dismounts,
                 w.sim.nav_stats.ai_drive_ticks,
                 w.sim.nav_stats.seat_shots,
+            );
+            let s = &w.sim.nav_stats;
+            outln!(
+                out,
+                "    VBAIL: low-health driver rides {} bailed {} ({:.2}%) AI occupants {}",
+                s.ai_bail_exposed,
+                s.ai_bail_drivers,
+                100.0 * s.ai_bail_drivers as f64 / s.ai_bail_exposed.max(1) as f64,
+                s.ai_bail_occupants
             );
             // Card TURR: bots in building turrets.
             if let Some(l) = turret_census.line(&w.sim, &vehicle_classes) {
@@ -4694,4 +4857,190 @@ fn main() {
         lower_median(&all),
         lower_median(&fin),
     );
+}
+
+#[cfg(test)]
+mod diagnostic_tests {
+    use super::*;
+    use core::ai::Behaviour;
+    use core::unit::{Controller, UnitHandle, UnitSpec};
+    use glam::Vec3;
+
+    fn bot(sim: &mut core::sim::Sim, pos: Vec3) -> UnitHandle {
+        sim.spawn(&UnitSpec {
+            controller: Controller::Ai,
+            ..UnitSpec::trooper(0, pos)
+        })
+        .unwrap()
+    }
+
+    fn fire_spell(fight_at: impl Fn(u64) -> bool, move_at: Option<u64>) -> Fire {
+        let mut sim = core::sim::Sim::empty(7);
+        let h = bot(&mut sim, Vec3::ZERO);
+        let mut fire = Fire::default();
+        for t in 1..=FIRE_SPELL + 1 {
+            sim.tick = t;
+            let u = sim.unit_mut(h).unwrap();
+            // Repeated hits keep the spell under fire beyond FIRE_TICKS.
+            if t % 30 == 1 {
+                u.last_hit = Some((h, t));
+            }
+            u.ai.behaviour = if fight_at(t) {
+                Behaviour::Fight
+            } else {
+                Behaviour::Travel
+            };
+            if move_at == Some(t) {
+                u.soldier.pos.x += FIRE_M;
+            }
+            let hash = sim.hash();
+            fire.observe(&sim);
+            assert_eq!(
+                sim.hash(),
+                hash,
+                "a census must not change simulation state"
+            );
+        }
+        fire
+    }
+
+    #[test]
+    fn standing_fire_credits_the_fight_samples_in_the_qualifying_spell() {
+        let enter = fire_spell(|t| t == FIRE_SPELL + 1, None);
+        assert_eq!(enter.fight, [1, 1, 1]);
+        assert_eq!(enter.stood, FIRE_SPELL);
+        let leave = fire_spell(|t| t <= FIRE_SPELL, None);
+        assert_eq!(leave.fight, [FIRE_SPELL, FIRE_SPELL, FIRE_SPELL - 1]);
+        let steady = fire_spell(|_| true, None);
+        assert_eq!(steady.fight, [FIRE_SPELL + 1, FIRE_SPELL + 1, FIRE_SPELL]);
+        let moved = fire_spell(|_| true, Some(45));
+        assert_eq!(moved.stood, 0);
+        assert_eq!(moved.fight[2], 0);
+    }
+
+    #[test]
+    fn fire_state_does_not_carry_a_pending_spell_into_a_new_generation() {
+        let mut sim = core::sim::Sim::empty(8);
+        let h = bot(&mut sim, Vec3::ZERO);
+        let mut fire = Fire::default();
+        for t in 1..=FIRE_SPELL {
+            sim.tick = t;
+            let u = sim.unit_mut(h).unwrap();
+            u.last_hit = Some((h, t));
+            u.ai.behaviour = Behaviour::Fight;
+            fire.observe(&sim);
+        }
+        sim.units[h.index as usize].gen += 1;
+        let next = UnitHandle {
+            gen: h.gen + 1,
+            ..h
+        };
+        sim.tick += 1;
+        let tick = sim.tick;
+        sim.unit_mut(next).unwrap().last_hit = Some((next, tick));
+        fire.observe(&sim);
+        assert_eq!(fire.stood, 0);
+        assert_eq!(fire.fight[2], 0);
+        assert_eq!(
+            fire.hits[0], 2,
+            "each life's first hit starts its own burst"
+        );
+        assert_eq!(fire.at[h.index as usize].fight_pending, 0);
+    }
+
+    #[test]
+    fn standing_shares_keep_each_pending_samples_behaviour() {
+        let mut sim = core::sim::Sim::empty(9);
+        let h = bot(&mut sim, Vec3::ZERO);
+        let mut shares = Shares::default();
+        for i in 1..=STAND_SECS {
+            sim.unit_mut(h).unwrap().ai.behaviour = if i == STAND_SECS {
+                Behaviour::Recover
+            } else {
+                Behaviour::Travel
+            };
+            let hash = sim.hash();
+            shares.observe(&sim, u64::from(i) * 30);
+            assert_eq!(sim.hash(), hash);
+        }
+        assert_eq!(shares.stand, u64::from(STAND_SECS));
+        assert_eq!(
+            shares.stand_by[Behaviour::Travel as usize],
+            u64::from(STAND_SECS - 1)
+        );
+        assert_eq!(shares.stand_by[Behaviour::Recover as usize], 1);
+        assert_eq!(shares.stand_by.iter().sum::<u64>(), shares.stand);
+    }
+
+    #[test]
+    fn floor_grid_rejects_invalid_or_unbounded_inputs_before_iteration() {
+        for bad in [
+            "0,0,1,0,100",
+            "0,0,1,-1,100",
+            "0,0,-1,1,100",
+            "0,0,1,NaN,100",
+            "0,0,1,inf,100",
+            "NaN,0,1,1,100",
+            "0,0,1,1,inf",
+            "0,0,1e30,1e-30,100",
+            "0,0,500,1,100",
+            "0,0,oops,1,1,100",
+        ] {
+            assert!(parse_floor_grid(bad).is_err(), "{bad}");
+        }
+        assert_eq!(
+            parse_floor_grid("2,3,1,0.5,100").unwrap(),
+            (2.0, 3.0, 1.0, 0.5, 100.0, 2)
+        );
+        assert_eq!(parse_floor_grid("0,0,0,1,100").unwrap().5, 0);
+        assert_eq!(parse_floor_grid("0,0,499,1,100").unwrap().5, 499);
+    }
+
+    #[test]
+    fn heavy_csv_preserves_event_order_precision_and_handle_generations() {
+        let mut sim = core::sim::Sim::empty(10);
+        let a = bot(&mut sim, Vec3::ZERO);
+        let b = bot(&mut sim, Vec3::new(0.0, 0.0, 3.0));
+        // A nonzero vertical component verifies the existing 3-D speed contract.
+        sim.unit_mut(a).unwrap().soldier.vel = Vec3::new(3.0, 4.0, 0.0);
+        sim.unit_mut(b).unwrap().soldier.vel = Vec3::new(0.0, 0.0, 2.0);
+        sim.weapon_classes[0].name = "fixture".into();
+        sim.events = vec![
+            core::sim::Event::Kill {
+                shooter: a,
+                victim: b,
+            },
+            core::sim::Event::Kill {
+                shooter: b,
+                victim: a,
+            },
+        ];
+        let mut census = HeavyCensus {
+            path: "unused".into(),
+            n: Default::default(),
+            tk: String::new(),
+        };
+        let hash = sim.hash();
+        census.observe(&sim, &[], 1);
+        assert_eq!(sim.hash(), hash);
+        let from = sim.unit(a).unwrap().muzzle();
+        let at = sim.unit(b).unwrap().capsule().center();
+        let distance = at.distance(from);
+        let reverse = sim
+            .unit(a)
+            .unwrap()
+            .capsule()
+            .center()
+            .distance(sim.unit(b).unwrap().muzzle());
+        assert_eq!(census.tk, format!(
+            "1,fixture,-1.00,{distance:.1},none,-1.0,-1.0,-1.0,2.0,5.00\n1,fixture,-1.00,{reverse:.1},none,-1.0,-1.0,-1.0,5.0,2.00\n"
+        ));
+        let previous = census.tk.clone();
+        sim.units[a.index as usize].gen += 1;
+        census.observe(&sim, &[], 1);
+        assert_eq!(
+            census.tk, previous,
+            "stale shooter and victim handles must not name a replacement life"
+        );
+    }
 }

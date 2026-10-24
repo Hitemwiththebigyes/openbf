@@ -236,16 +236,15 @@ pub fn pick(sim: &Sim, me: UnitHandle, u: &Unit, left: Option<Vec3>) -> Option<S
     };
     let best = |cands: &mut Vec<(f32, Vec3, u8)>| -> Option<SnipeState> {
         cands.sort_by(|a, b| a.0.total_cmp(&b.0));
-        let mut best: Option<(f32, f32, SnipeState)> = None;
+        let mut best: Option<(f32, SnipeState)> = None;
         for &(_, p, mask) in cands.iter().filter(|c| free(c.1)).take(CANDIDATES) {
             if !reach(p) {
                 continue;
             }
             let (score, len) = lane(sim, u, p);
-            if score > 0.0 && best.is_none_or(|(b, _, _)| score > b) {
+            if score > 0.0 && best.is_none_or(|(b, _)| score > b) {
                 best = Some((
                     score,
-                    len,
                     SnipeState {
                         spot: p,
                         mask,
@@ -255,7 +254,7 @@ pub fn pick(sim: &Sim, me: UnitHandle, u: &Unit, left: Option<Vec3>) -> Option<S
                 ));
             }
         }
-        best.map(|b| b.2)
+        best.map(|b| b.1)
     };
     let mut hints: Vec<(f32, Vec3, u8)> = g
         .hints

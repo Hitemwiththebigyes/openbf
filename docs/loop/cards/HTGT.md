@@ -50,7 +50,8 @@ BHUD3 lists 'the target's name and health' among a dozen HUD elements (value 4, 
    shooter's own vehicle skipped, the assist pulls toward a vehicle) + game `a_picked_vehicle_reads_its_class_name_and_hull`,
    `a_turrets_sphere_bounds_its_own_building`; 8 of 9 mutants FAIL (the vehicle assist radius survives: PROVISIONAL).
    Real maps (scratch hook `lead_tmp/htgt/tools/face.sh`): BF2 KAS2 IFT-X picked from 15 m -> "IFT-X", white (team 0),
-   bar 1.0 -> 0.98 -> 0.90 -> 0.82 -> 0.73 -> 0.67 under rifle fire; HOT1 "Hoth Dish Turret" picked (before 3b: none).
+   bar 1.0 -> 0.98 -> 0.90 -> 0.82 -> 0.73 -> 0.67 under rifle fire WITH THE HOOK FORCING THE RIFLE'S VEHICLE SCALE
+   0.1 -> 1.0 (real rifle: 1.0 -> 0.967, `lead_tmp/audit-htgt/runB.log`; see Notes); HOT1 "Hoth Dish Turret" picked (before 3b: none).
 3. Hits from bullets, grenades and rockets move the bar: the readout reads health each tick (no hit event), so a
    headless walk-replay that damages a picked vehicle by a rocket shows healthFraction falling (RKEX / KNOCK landed).
 

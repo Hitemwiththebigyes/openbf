@@ -4,13 +4,13 @@ title: The LEAK census's push residue after WPSH (1,212 runs of 1.83M, 32 maps):
 milestone: M3
 value: 3
 phase: re
-status: todo
+status: blocked
 deps: WPSH
 files:
 declares: leak; sweep; arena; sim
-needs:
+needs: Restore collision bakes/missions and push probes/raw contacts plus audit band data; classify current-main residue before proposing a wall fix.
 branch:
-resume:
+resume: 2026-10-24 11:57 UTC: planner prerequisite hold; 7/7 exact named paths absent. Restore collision bakes/missions and push probes/raw contacts plus audit band data; classify current-main residue before proposing a wall fix. All original acceptance retained. reports/20261024_1151_planner.md; inventory/continuation lead_tmp/planner_20261024_1151/.
 created: 2026-09-29
 alpha: yes
 ---

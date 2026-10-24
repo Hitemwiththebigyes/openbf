@@ -2,7 +2,7 @@
 //! modulates the base by `detail.a * 2`, applied in GAMMA space (the GS
 //! multiplies the stored texels), i.e. `pow(f, 2.2)` against our linearised
 //! base. Ignored by default — needs a real adapter.
-//!   cargo test -p render --test detail_map -- --ignored --test-threads=1
+//!   scripts/gpu_tests.sh --render
 
 use glam::Mat4;
 use render::{Camera, DetailDesc, DrawCmd};

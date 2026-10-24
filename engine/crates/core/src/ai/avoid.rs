@@ -12,11 +12,8 @@
 //!    walk — a penned bot's walk fails that much later). The side changes at
 //!    a dead end, once. Card OBSR: the window's allowance is for a BODY — a
 //!    rim barrier ([`Round::rim`]) is an edge of the level with no far side
-//!    to come round to, and a bot that followed one walked away from its
-//!    point until the rim let it off the level (BF1 Bespin Platforms: 1,328
-//!    deaths under the floor in 32 rounds, 1,078 without the allowance at a
-//!    rim; with none at a drop either BF1 Hoth's bots paced its trench
-//!    edges, 22 recycles in 8 rounds against 0 — a drop keeps it).
+//!    to come round to, so it gets no allowance. A drop keeps its allowance
+//!    (card OBSR).
 //! 2. **An inside corner is turned, not a dead end.** Where another wall
 //!    shuts the way along the first, the bot goes along THAT one on the same
 //!    hand ([`CORNER_TURNS`]): in a room it follows the walls to the door.
@@ -42,61 +39,22 @@
 //!    is behind ([`foot_ahead`]). Never the vehicle the bot boards. And a
 //!    walk point a vehicle stands ON — a waypoint, a detour corner — is
 //!    reached at the vehicle's side ([`at_foot_of`], `route::advance_route`).
-//!    MEASURED (main 17ae28e, 32 maps x 8 seeds x 10 min, `OBST_CSV`): bots
-//!    spent 14,462 s of 2.07 M walking seconds on blocked picks at a
-//!    vehicle's hull, 8,791 of them at one under 1.5 m/s (5,552 at an empty
-//!    one) — 0.70 % of walking time, the second largest class after the
-//!    maps' large bodies. With the rule: 7,293 and 2,414 (the corner alone
-//!    4,304; a third of what that left was a bot pressing on a hull parked
-//!    on its walk point). What is left is vehicles that MOVE (4,300 s: hovers
-//!    over 4 m/s 2,334, walkers under way 1,915) — the design's velocity
-//!    space, not built. 24 seeds x 32 maps, paired by seed: rounds 768 / 768
-//!    both, recycles 145 -> 150 (t +0.3), deaths off the level 58 -> 59,
-//!    under the floor 49 -> 40, kills +1.6 % (t +2.2). KNOWN: on BF1 Endor
-//!    the rule's first picks (two bots going round a parked speeder at the
-//!    Rebel spawn) shift the opening's three speeder bikes, which jostle at
-//!    one spot on main too, and one driver then stays there until it is
-//!    recycled in 20 of 72 seeds (0 on main; the map's other recycles 37 ->
-//!    41) — the drivers do not ask this module; card HJAM.
-//!    Measured and NOT taken: empty vehicles only (hull contact 12,034 s
-//!    for 8,964), a bot in a footprint sent out by its nearest side (7,138
-//!    for 7,293, nothing else moved), and moving a walk point that lies in
-//!    a MAP body to where a soldier stands — it ends the one stand-out of
-//!    the small bodies (`com_weap_gunturret`, 688 s -> 13-26 s: 677 s of it
-//!    is ONE turret on BF1 Endor, which a detour corner of the leg from hub
-//!    18 to hub 0 lies in the middle of, and the bots walk round it until
-//!    their window fails) and more than doubles that map's recycles (37 ->
-//!    82 in 72 seeds): the bots it frees walk on into a hollow tree that
-//!    traps them on main as well (`end_prop_tree01` at (170, 0): 5 recycles
-//!    in 32 rounds on main, 18 with the rule) — cards OBSV2 and ETREE.
 //!
-//! MEASURED (main 6061eec, 32 maps x 8 seeds x 10 min, `OBST_CSV`): 2,832
-//! of 6,335 stalled 10 s windows were a bot at a map body on a hub-to-hub
-//! leg, 88 % of them with three or more changes of side at over 3 m/s — a
-//! way round a wide body gets no nearer the waypoint for more than one
-//! progress window, and each failed window handed the slide the other side.
-//! With the four rules: 808 (all stalled windows 2.44 % -> 1.13 %). Stacked
-//! on the same sweep: rule 1 alone 2.14 %; + 2 1.71 %; + 3 1.26 %; without
-//! 2 2.07 %. Rule 4 does not move the stalled windows (AUDIT OBST, on the
-//! landed code: 1.18 % without it against 1.25 % with, by seed four up and
-//! four down): its gain is CONTACT — a crate and a 1.8 m box are never
-//! touched in 252 placements each (198 and 216 before). Tried and NOT
-//! taken: leaning off a grazed wall alongside (1.15 %, no gain). The card's
-//! report has the table.
+//! Limits: moving vehicles and soldiers in velocity space, barriers walked
+//! by their corners every step, and probing only checked ground are not
+//! built (bot design 4.7, card OBST2). Rule 5 applies only to standing
+//! vehicles; moving vehicle avoidance is a separate design step. Map-body
+//! walk points are not relocated by that rule: the turret corner and hollow
+//! tree cases remain tracked by OBSV2 / ETREE.
 //!
-//! COST (card OBST2, B13; main 7dfb448, BF2 Kamino, Mygeeto, Polis Massa and
-//! BF1 Kashyyyk Docks on one thread): the pick was 35 % of the whole
-//! simulation's stack samples, 15 points of it the steep-floor probe's
-//! ground query (the foot's ring of eight rays on every pick) and 13 the
-//! wall sweeps, the look-ahead's against every floor and wall inside 3 m
-//! among them (7 % of the whole cost, by switching it). The probe asks one
-//! ray first (`steer::steep_ahead`) and the look-ahead only the small
-//! bodies ([`look_ahead`]); the cylinder a down ray meets is cast in closed
-//! form (`collision::shape`). Together 0.239 -> 0.181 ms a tick.
-//!
-//! NOT here yet (the design's other steps, card OBST2): barriers as a
-//! keep-out walked by their corners every step, soldiers and moving
-//! vehicles in velocity space, the probe off checked ground only.
+//! Evidence and rejected variants live in the existing reports under
+//! `engine/artifacts/loop/reports/`: `20261007_0048_card_OBST.md`,
+//! `20261009_1840_card_OBST2.md`, `20261015_1515_card_OBSV.md`.
+//! The final OBSV landing report supersedes its pre-VMESH Endor blocker:
+//! the paired 72-seed Endor comparison was 0 / 0 recycles after VMESH.
+//! That does not resolve the separate OBSV2 / ETREE issues. OBST2's cost
+//! work keeps the first steep-floor ray (`steer::steep_ahead`) and limits
+//! look-ahead to small bodies; `collision::shape` casts cylinders directly.
 //!
 //! The tests of going round live here.
 //!
@@ -525,7 +483,7 @@ pub(super) fn pick(
     (Vec3::ZERO, SteerPick::Ledge)
 }
 
-/// Rule 2: a small body [`LOOK_DIST`] ahead along `want` is passed by the
+/// Rule 4: a small body [`LOOK_DIST`] ahead along `want` is passed by the
 /// tangent of its disc, when that heading is open. Asked only with no
 /// commitment live.
 fn look_ahead(

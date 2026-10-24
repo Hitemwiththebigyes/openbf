@@ -715,3 +715,30 @@ fn from_props_reproduces_rifle_fixtures() {
     assert!(w3.infinite_ammo());
     assert_eq!(HealthType::parse("Person"), Some(HealthType::Person));
 }
+
+/// TargetAll precedes per-kind overrides; AI inherits the resulting mask
+/// before its own overrides. Missing properties retain the defaults.
+#[test]
+fn optional_target_properties_keep_inheritance_and_override_order() {
+    let defaults = WeaponClass::from_props("w", &src(&[], &[]), OrdnanceClass::default());
+    let w = WeaponClass::from_props(
+        "w",
+        &src(
+            &[
+                ("TargetEnemy", "0"),
+                ("TargetNeutral", "2"),
+                ("TargetAll", "0"),
+                ("TargetPerson", "3"),
+                ("TargetVehicle", "0"),
+                ("AITargetPerson", "0"),
+                ("AITargetBuilding", "-2"),
+            ],
+            &[],
+        ),
+        OrdnanceClass::default(),
+    );
+    assert_eq!(w.target_team, (defaults.target_team & !1) | 2);
+    assert_eq!(w.target_kind, 1);
+    assert_eq!(w.ai_target_kind, 1 << 4);
+    assert_eq!(defaults.ai_target_kind, defaults.target_kind);
+}

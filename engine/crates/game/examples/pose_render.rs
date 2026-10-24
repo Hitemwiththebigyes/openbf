@@ -36,6 +36,9 @@ use glam::Vec3;
 use render::{Camera, Renderer};
 use std::path::Path;
 
+#[path = "support/pose_ride_spec.rs"]
+mod pose_ride_spec;
+
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let map = Path::new(
@@ -302,20 +305,7 @@ fn gunner(
     scene.install_collision(&mut sim);
     let build =
         game::vehicle_pads::install(&mut sim, &scene.manifest, map, &assets.join("classes"), &f)?;
-    let mut team = game::walk::TeamTemplate::default_trooper();
-    team.classes = vec![game::walk::ClassVisual {
-        name: body.into(),
-        label: body.into(),
-        geometry: Some(body.into()),
-        weapon_geometry: None,
-        weapon_hud: Default::default(),
-        held_hud: Vec::new(),
-        held_models: Vec::new(),
-        foley_class: 0,
-        cries: Default::default(),
-        anim: Default::default(),
-        skins: Default::default(),
-    }];
+    let team = body_team(body);
     let mut walk = game::walk::WalkSim::with_teams(sim, None, near, [team.clone(), team], None);
     walk.vehicle_seats = build.seats.clone();
     let (h, v) = walk
@@ -414,6 +404,25 @@ fn gunner(
     Ok((draws, zoom))
 }
 
+/// Body-only diagnostic visual: preserve the default team's other fields.
+fn body_team(body: &str) -> game::walk::TeamTemplate {
+    let mut team = game::walk::TeamTemplate::default_trooper();
+    team.classes = vec![game::walk::ClassVisual {
+        name: body.into(),
+        label: body.into(),
+        geometry: Some(body.into()),
+        weapon_geometry: None,
+        weapon_hud: Default::default(),
+        held_hud: Vec::new(),
+        held_models: Vec::new(),
+        foley_class: 0,
+        cries: Default::default(),
+        anim: Default::default(),
+        skins: Default::default(),
+    }];
+    team
+}
+
 /// Card VRIDE: `POSE_RIDE`'s vehicle of class `spec[0]` at the PS2 matrix `spec[2..18]`, a soldier of body `spec[1]` its
 /// pilot, the drive's inputs `spec[18..21]` held for 3 s; the vehicle's draws and the rider's, as a battle draws them.
 fn ride_draws(
@@ -423,14 +432,9 @@ fn ride_draws(
     assets: &Path,
     spec: &str,
 ) -> Result<(Vec<render::DrawCmd>, Vec<render::SkinnedDrawCmd>)> {
-    let w: Vec<&str> = spec.split(',').map(str::trim).collect();
-    let f: Vec<f32> = w[2..].iter().filter_map(|x| x.parse().ok()).collect();
-    if w.len() < 18 || f.len() < 16 {
-        return Err(anyhow!(
-            "POSE_RIDE=<class>,<soldier>,<16 matrix words>[,thr,str,trn]"
-        ));
-    }
-    let (class, body) = (w[0], w[1]);
+    let ride = pose_ride_spec::parse(spec).map_err(|e| anyhow!(e))?;
+    let (class, body) = (ride.class, ride.body);
+    let f = ride.matrix;
     let factions: Vec<String> = std::env::var("POSE_FACTIONS")
         .unwrap_or_else(|_| "all,imp".into())
         .split(',')
@@ -460,20 +464,7 @@ fn ride_draws(
     let axis = |i: usize| Vec3::new(f[4 * i], f[4 * i + 1], f[4 * i + 2]);
     let pos = axis(3);
     let rot = glam::Quat::from_mat3(&glam::Mat3::from_cols(axis(0), axis(1), axis(2))).normalize();
-    let mut team = game::walk::TeamTemplate::default_trooper();
-    team.classes = vec![game::walk::ClassVisual {
-        name: body.into(),
-        label: body.into(),
-        geometry: Some(body.into()),
-        weapon_geometry: None,
-        weapon_hud: Default::default(),
-        held_hud: Vec::new(),
-        held_models: Vec::new(),
-        foley_class: 0,
-        cries: Default::default(),
-        anim: Default::default(),
-        skins: Default::default(),
-    }];
+    let team = body_team(body);
     let mut walk = game::walk::WalkSim::with_teams(sim, None, pos, [team.clone(), team], None);
     walk.vehicle_seats = build.seats.clone();
     walk.vehicle_riders = build.riders.clone();
@@ -485,7 +476,7 @@ fn ride_draws(
     if !walk.sim.seat_unit(player, h, 0) {
         return Err(anyhow!("the pilot seat would not take him"));
     }
-    let input = [18, 19, 20].map(|i| f.get(i - 2).copied().unwrap_or(0.0));
+    let input = ride.input;
     let mut vis = game::soldier_vis::SoldierVisuals::load(
         r,
         assets,

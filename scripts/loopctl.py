@@ -10,12 +10,14 @@ free text (Why / Evidence / Acceptance / Notes). BACKLOG.md is GENERATED from th
   loopctl.py set <ID> key=value ...                edit card header fields (status, phase, branch, resume, value, ...)
   loopctl.py new <ID> --title T --milestone M --value V --phase P [--deps A,B] [--files a,b]
   loopctl.py release <ID|PLANNER|CLEANSE|AUDIT|MAIN>   drop a claim
+  loopctl.py sweep-claims --pid P                  drop dead claims and this lane's leftovers under the claim guard
   loopctl.py claim MAIN --pid P                    take the main-checkout claim (landings, docs commits)
   loopctl.py backlog                               regenerate BACKLOG.md (also done by set/new)
   loopctl.py check                                 validate every card
   loopctl.py landed <ID> <sha>                     card -> done, counters for planner/cleanse (land.py calls this)
   loopctl.py commit-docs <path…> -m MSG            commit finished docs (analysis/…, PLAN.md, engine/CRATES.md) in main:
                                                    claims MAIN, commits exactly those paths, releases MAIN — one call
+  loopctl.py finish-attempt --since T             count this unfinished session once before clean wrap-up (job from OPENBF_JOB_JSON)
   loopctl.py postmortem --since T --pid P --lane N  after a session (autoloop.sh): a claim left or a card in-progress with
                                                    no report -> a DIED journal line, the claim freed (job from OPENBF_JOB_JSON)
   loopctl.py targets [--yes]                       list (default) or delete the dead lead_tmp/*_target dirs and the cargo
@@ -24,6 +26,11 @@ free text (Why / Evidence / Acceptance / Notes). BACKLOG.md is GENERATED from th
                                                    each candidate's diff + untracked files to lead_tmp/worktree_sweep/<date>/
                                                    and removes it and its target (the maintainer's yes, STATUS 49; card LOOPT)
   loopctl.py self-test                             pick() over fixture cards, the target sweep over a fixture lead_tmp
+  loopctl.py audit-checkpoint TARGET --missing PATH … --revision REV --reason TEXT --report PATH
+                                                   remember an incomplete audit; no verdict or counter change
+  loopctl.py audit-reset TARGET --reviewed-by NAME --reason TEXT
+                                                   clear only this target's prerequisite hold after review
+  loopctl.py audit-status                          read-only audit coverage, including prerequisite holds
   loopctl.py check-absence <doc.md> [--warn] [--base REF]  every "no class authors X / absent / never …" claim in an RE doc must carry a
                                                    `[receipt:<id>]` from `re_check.py absent` (receipts/ dir); fails (exit 1) unless
                                                    --warn; --base REF checks only the lines added since REF (commit-docs does, vs HEAD)
@@ -35,6 +42,7 @@ Card header fields:
   id, title, milestone (M1..), value (1-5, the planner's ranking), phase (re|build|measure|capture|cleanup),
   status (todo|in-progress|parked|blocked|done), deps (comma ids), files (comma paths = the build's file set),
   declares (what the landing may move: goldens=<a>,<b>; rebake=<groups>; sweep; arena; sim; ci=+N), branch, resume, created.
+  Optional: tries (unfinished sessions, default 0), try_cap (positive override; re 2, other phases 3).
   Optional: alpha (yes = M-ALPHA: first at equal value), defer (post-alpha: taken only when no other card is eligible),
   acceptance (needed: never taken until the planner writes one), domain (the audit domain, else guessed from the milestone),
   first (THE MAINTAINER'S ORDER, an integer: such cards are taken before every other card, lowest number first, whatever the
@@ -44,11 +52,14 @@ Card header fields:
   Picker guards (card LRES): an in-progress card is not resumed while its `owner` claim is live, a live land.py is on
   its branch, or `needs:` is set; a parked card is a `land` job only when its `branch:` exists — with none it is an
   ordinary card once its deps are done (its `resume:` is the first step).
+  Busy files (card PKHD): in-progress cards, live claims and built parked cards hold their `files:`; a parked card
+  with `needs:` set holds none until `needs:` is cleared.
   Audits: `orient` lists the audit job's targets by risk (sim/ai/vehicle/physics/collision always, render as a 1-in-3
   sample); audits.md records a `  domain:` line under every entry.
 Effort: re / capture / audit -> xhigh, planner -> high, everything else -> medium.
 """
 import argparse, datetime, glob, json, os, re, subprocess, sys, time
+from contextlib import contextmanager
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 LOOP = os.environ.get("OPENBF_LOOP_DIR") or os.path.join(ROOT, "engine/artifacts/loop")  # override for tests
@@ -180,9 +191,64 @@ def needs_acceptance(c):
     return (c.get("acceptance") or "").strip().lower().startswith("needed")
 
 
+def try_count(c):
+    return int(c.get("tries") or 0)
+
+
+def try_cap(c):
+    return int(c.get("try_cap") or (2 if c.get("phase") == "re" else 3))
+
+
+def capped(c):
+    return try_count(c) >= try_cap(c)
+
+
+def block_stuck(c):
+    """Keep the findings intact; orient derives the planner queue from capped cards."""
+    if c.get("status") != "blocked":
+        c["status"] = "blocked"
+        write_card(c)
+        write_backlog()
+
+
+def finish_attempt(job, since):
+    """Count clean and dead unfinished sessions once, including wrap-up before postmortem."""
+    cid = job.get("card")
+    c = cards().get(cid)
+    if not c or c.get("status") == "done" or job.get("job") == "land" or job.get("phase") == "land":
+        return
+    # A build that produced a live landing branch has a result, even before land.py runs.
+    if c.get("status") == "parked" and has_branch(c):
+        return
+    st = state()
+    # A slice landed in this session (land.py -> `landed`) is a result, even if the card was reopened for the next slice.
+    if float((st.get("landed_at") or {}).get(cid) or 0) >= since:
+        return
+    token = job.get("attempt_id") or f"{job.get('claim')}:{since}"
+    finished = st.setdefault("finished_attempts", {})
+    if finished.get(cid) == token:
+        return
+    # A session that moved the card to its next phase (re -> build) finished its phase: a result, and a fresh count.
+    if job.get("phase") and c.get("phase") and c.get("phase") != job.get("phase"):
+        if try_count(c):
+            c["tries"] = "0"
+            write_card(c)
+        finished[cid] = token
+        save_state(st)
+        return
+    c["tries"] = str(try_count(c) + 1)
+    if capped(c):
+        c["status"] = "blocked"
+    write_card(c)
+    finished[cid] = token
+    save_state(st)
+    write_backlog()
+
+
 def tags(c):
     return " ".join(t for t, on in ((f"first {first_rank(c)}", first_rank(c) is not None), ("alpha", is_alpha(c)), ("post-alpha", is_deferred(c)),
-                                    ("needs-acceptance", needs_acceptance(c))) if on)
+                                    ("needs-acceptance", needs_acceptance(c)),
+                                    (f"tries {try_count(c)}/{try_cap(c)}", try_count(c) > 0)) if on)
 
 
 # ---------- state / locks ----------
@@ -253,30 +319,59 @@ def live_locks():
     return {k: v for k, v in locks().items() if held(v)}
 
 
-def claim(name, pid):
-    d = os.path.join(LOCKS, name)
+@contextmanager
+def claim_guard():
+    """Serialize claim changes on one permanent inode; never unlink this file.
+
+    Import lazily so read-only tools can still import this module off Linux.
+    """
+    import fcntl
     os.makedirs(LOCKS, exist_ok=True)
-    try:
-        os.mkdir(d)
-    except FileExistsError:
-        if held(holder(d)):
-            return False
-        open(os.path.join(d, "pid"), "w").write(str(pid))
-        return True
-    open(os.path.join(d, "pid"), "w").write(str(pid))
-    return True
+    with open(os.path.join(LOCKS, ".claims.lock"), "a") as sync:
+        fcntl.flock(sync, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(sync, fcntl.LOCK_UN)
 
 
-def release(name):
+def claim(name, pid, *, holders=()):
+    """Acquire a dead/free claim, or transfer from an explicitly permitted holder."""
     d = os.path.join(LOCKS, name)
-    try:
-        os.remove(os.path.join(d, "pid"))
-    except FileNotFoundError:
-        pass
-    try:
-        os.rmdir(d)
-    except OSError:
-        pass
+    with claim_guard():
+        try:
+            os.mkdir(d)
+        except FileExistsError:
+            owner = holder(d)
+            if owner not in holders and held(owner):
+                return False
+        with open(os.path.join(d, "pid"), "w") as f:
+            f.write(str(pid))
+        return True
+
+
+def release(name, pid=None, *, stale=False):
+    """Release under the acquisition guard, optionally only for the expected owner."""
+    d = os.path.join(LOCKS, name)
+    with claim_guard():
+        owner = holder(d)
+        if pid is not None and owner != str(pid) and (not stale or held(owner)):
+            return False
+        try:
+            os.remove(os.path.join(d, "pid"))
+        except FileNotFoundError:
+            pass
+        try:
+            os.rmdir(d)
+        except OSError:
+            pass
+        return True
+
+
+def sweep_claims(pid):
+    for name in locks():
+        if release(name, pid, stale=True):
+            print(f"sweeping stale lock {name}")
 
 
 # ---------- backlog ----------
@@ -284,11 +379,11 @@ def ranked(cs):
     st = state()
     last = st.get("last_landed_milestone", {})
     open_ = [c for c in cs.values() if c.get("status") != "done"]
-    order = list(cs)  # file order = creation order as a tie-break
+    order = {cid: i for i, cid in enumerate(cs)}  # dictionary/file order as a tie-break
     # The maintainer's `first: <n>` cards in their order; then value; among equal value an `alpha: yes` card, then the milestone
     # that landed least recently (interleaving)
     return sorted(open_, key=lambda c: (first_rank(c) is None, first_rank(c) or 0, -val(c), not is_alpha(c),
-                                        last.get(c.get("milestone", ""), ""), order.index(c["id"])))
+                                        last.get(c.get("milestone", ""), ""), order[c["id"]]))
 
 
 def write_backlog(cs=None):
@@ -359,6 +454,8 @@ def eligible(c, cs, busy_files):
         return False
     if (c.get("needs") or "").strip():  # waiting on the maintainer: out of rotation, never a reason to stop the rest
         return False
+    if capped(c):
+        return False
     if needs_acceptance(c):  # no measurable acceptance yet: the planner writes one (a refill), a worker never guesses it
         return False
     for d in lst(c.get("deps")):
@@ -393,14 +490,22 @@ def pick(lane, lanes, pid):
     cs = cards()
     live = live_locks()
     st = state()
+    audit_wait = ""
+    for c in cs.values():
+        if (c.get("status") != "done" and capped(c) and c["id"] not in live
+                and not owner_live(c, live) and not landing_live(c)
+                and not (c.get("status") == "parked" and has_branch(c))):
+            block_stuck(c)
     busy = set()
     for c in cs.values():
-        if (c.get("status") in ("in-progress", "parked") and not parked_unbuilt(c)) or c["id"] in live:
+        if (c.get("status") == "in-progress"
+                or (c.get("status") == "parked" and not (c.get("needs") or "").strip()
+                    and not parked_unbuilt(c)) or c["id"] in live):
             busy |= set(file_paths(c.get("files")))
 
     def take(job, cid=None, phase=None, reason=""):
         name = cid or job.upper()
-        if cid:
+        if cid and job != "land":
             fp = __import__("hashlib").sha1(open(cs[cid]["_path"], "rb").read()).hexdigest()
             att = st.setdefault("attempts", {})
             a = att.get(cid, {"n": 0, "fp": ""})
@@ -430,12 +535,14 @@ def pick(lane, lanes, pid):
         if job == "audit":
             st["sessions_since_audit"] = 0
         save_state(st)
-        return {"job": job, "card": cid, "phase": phase, "effort": eff, "claim": name, "lane": lane, "reason": reason}
+        return {"job": job, "card": cid, "phase": phase, "effort": eff, "claim": name, "lane": lane,
+                "reason": f"{reason}; {audit_wait}" if audit_wait else reason,
+                "attempt_id": str(time.time_ns())}
 
     # 1. resume: a card in progress whose claim is not live — and that nobody else is working (LRES): not the card of a
     #    live CLEANSE / PLANNER / AUDIT session (`owner:`), not a branch a live land.py is on, not one waiting on the maintainer
     for c in ranked(cs):
-        if (c.get("status") == "in-progress" and c["id"] not in live and not needs_acceptance(c)
+        if (c.get("status") == "in-progress" and c["id"] not in live and not capped(c) and not needs_acceptance(c)
                 and not (c.get("needs") or "").strip() and not owner_live(c, live) and not landing_live(c)):
             j = take("resume", c["id"], c.get("phase"), "in-progress with no live claim")
             if j:
@@ -469,9 +576,11 @@ def pick(lane, lanes, pid):
         if j:
             return j
     if st.get("sessions_since_audit", 0) >= AUDIT_EVERY_SESSIONS and (lane == RESEARCH_LANE or not lane_alive(RESEARCH_LANE)):
-        j = take("audit", None, None, f"{st['sessions_since_audit']} sessions since the last audit")
-        if j:
-            return j
+        audit_wait = audit_blocked_reason(cs)
+        if not audit_wait:
+            j = take("audit", None, None, f"{st['sessions_since_audit']} sessions since the last audit")
+            if j:
+                return j
     # 4. the best eligible card, preferring this lane's kinds when there are two lanes; `post-alpha` cards only when no
     #    alpha or untagged card is eligible
     r = [c for c in ranked(cs) if c["id"] not in live and eligible(c, cs, busy) and not owner_live(c, live) and not landing_live(c)]
@@ -492,6 +601,8 @@ def pick(lane, lanes, pid):
         j = take("card", c["id"], c.get("phase"), f"top eligible card (value {c.get('value')})")
         if j:
             return j
+    if audit_wait:
+        return {"job": "none", "reason": audit_wait}
     # nothing eligible: one refill planner; if the last job was already an empty-handed refill, the loop is drained
     if st.get("last_job") == "planner-refill":
         msg = (f"{datetime.datetime.now():%Y-%m-%d %H:%M}: two refill planners in a row found no eligible card "
@@ -511,7 +622,9 @@ def pick(lane, lanes, pid):
 # So: always audit the risk domains; audit rendering only when its pair check failed, it touched shared code, or as a
 # 1-in-3 sample. audits.md records a `  domain: <d>` line under every `- AUDIT` entry so the rate can be re-checked.
 AUDITS = os.path.join(LOOP, "audits.md")
-ANALYSIS = os.path.join(ROOT, "analysis")
+AUDIT_HOLDS = os.path.join(LOOP, "audit_holds.json")
+AUDIT_ROOT = os.environ.get("OPENBF_AUDIT_ROOT") or main_checkout()
+ANALYSIS = os.path.join(AUDIT_ROOT, "analysis")
 RISK_DOMAINS = ("sim", "ai", "vehicle", "physics", "collision", "behaviour")
 DOMAIN_WORDS = [  # first match wins: the risk domains before render, so "vehicle lighting" is a vehicle
     ("collision", r"collision|walls?|hull|push-?outs?|clip"),
@@ -584,15 +697,79 @@ def audit_sources(cs, log):
     return sorted(out, key=lambda x: x[0], reverse=True)
 
 
-def audit_candidates(sources, log):
+def audit_holds():
+    """Separate incomplete checkpoints from earned audit verdicts."""
+    try:
+        with open(AUDIT_HOLDS) as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+
+
+def write_audit_holds(holds):
+    # Caller holds claim_guard; replace atomically so read-only briefings never see a partial JSON write.
+    path = AUDIT_HOLDS + ".tmp"
+    with open(path, "w") as f:
+        json.dump(holds, f, indent=2, sort_keys=True)
+        f.write("\n")
+    os.replace(path, AUDIT_HOLDS)
+
+
+def audit_checkpoint(target, missing, revision, reason, report):
+    """Record only input existence, never an audit verdict or an attempt/cadence counter."""
+    if not all(x.strip() for x in [target, revision, reason, report]) or not missing:
+        raise ValueError("target, missing prerequisites, revision, reason and report are required")
+    if not os.path.isfile(os.path.join(AUDIT_ROOT, report)):
+        raise ValueError(f"checkpoint report does not exist: {report}")
+    paths = list(dict.fromkeys(missing))
+    if any(not p.strip() or os.path.exists(os.path.join(AUDIT_ROOT, p)) for p in paths):
+        raise ValueError("--missing must name exact paths that are currently absent")
+    with claim_guard():
+        holds = audit_holds()
+        # A later checkpoint cannot silently drop earlier requirements; changing scope needs a reviewed reset.
+        paths = list(dict.fromkeys(holds.get(target, {}).get("missing", []) + paths))
+        holds[target] = dict(target=target, missing=paths, revision=revision, reason=reason, report=report,
+                             recorded=datetime.datetime.now(datetime.timezone.utc).isoformat())
+        write_audit_holds(holds)
+
+
+def audit_reset(target, reviewed_by, reason):
+    if not reviewed_by.strip() or not reason.strip():
+        raise ValueError("reviewed reset requires --reviewed-by and --reason")
+    with claim_guard():
+        holds = audit_holds()
+        if target not in holds:
+            raise ValueError(f"no audit hold for {target}")
+        del holds[target]
+        write_audit_holds(holds)
+        open(JOURNAL, "a").write(f"- AUDIT RESET {target}: reviewed by {reviewed_by} — {reason}\n")
+
+
+def audit_hold_reason(target, holds):
+    h = holds.get(target)
+    if not h:
+        return ""
+    missing = [p for p in h["missing"] if not os.path.exists(os.path.join(AUDIT_ROOT, p))]
+    if not missing:
+        return ""
+    return (f"INCOMPLETE / UNAUDITED: {h['reason']}; restore ALL: {', '.join(missing)} "
+            f"(checkpoint {h['revision']}, report {h['report']}); or reviewed reset: "
+            f"loopctl.py audit-reset {target} --reviewed-by NAME --reason TEXT")
+
+
+def audit_candidates(sources, log, holds=None):
     """[(target, domain, why, pick?)]: the risk domains first (always audited), other domains next, render last —
     render picked only when sampled; otherwise listed for its two exceptions (a failed pair check, shared code)."""
     sampled = render_sampled(log)
+    holds = audit_holds() if holds is None else holds
     rank = lambda d: 0 if d in RISK_DOMAINS else 2 if d == "render" else 1
     out = []
     for date, target, d, guessed, what in sorted(sources, key=lambda x: rank(x[2])):  # stable: newest first within a rank
         dom = d + ("?" if guessed else "")
-        if d == "render" and not sampled:
+        blocked = audit_hold_reason(target, holds)
+        if blocked:
+            out.append((target, dom, f"{date} {what} — SKIP {blocked}", False))
+        elif d == "render" and not sampled:
             out.append((target, dom, f"{date} {what} — SKIP unless its PS2 pair check failed or it touched shared code", False))
         else:
             why = "risk domain: always audited" if d in RISK_DOMAINS else "render: the 1-in-3 sample is due" if d == "render" else "not render"
@@ -600,16 +777,33 @@ def audit_candidates(sources, log):
     return out
 
 
-def audit_briefing():
+def audit_rows(cs=None):
     log = audit_log(open(AUDITS).read() if os.path.exists(AUDITS) else "")
-    cands = audit_candidates(audit_sources(cards(), log), log)
+    return log, audit_candidates(audit_sources(cards() if cs is None else cs, log), log)
+
+
+def audit_blocked_reason(cs=None):
+    _, rows = audit_rows(cs)
+    if rows and not any(ok for *_, ok in rows) and any("INCOMPLETE / UNAUDITED" in why for _, _, why, _ in rows):
+        return "Incomplete audit coverage; no ready pick. " + " | ".join(f"{t}: {why}" for t, _, why, _ in rows)
+    return ""
+
+
+def audit_briefing():
+    log, cands = audit_rows()
     L = ["", "## Audit targets (audit by risk — pick the FIRST `pick` row unless you can show a skipped render row's pair check "
          "failed or it touched shared code)",
          f"Render sample due: {'yes' if render_sampled(log) else 'no'} (last two audits: "
          f"{', '.join(d for _, _, d in log[-2:]) or 'none'}). A `?` domain is a keyword guess — record the real one.",
+         "A pick row preserves selection order; verify its primary inputs before auditing. Restored path existence is not a verdict.",
          "Write the verdict as `- AUDIT <date> <target>: OK|PARTLY|WRONG — …` followed by a line `  domain: <d>` "
          f"(one of {', '.join(RISK_DOMAINS)}, render, audio, tooling, other).", ""]
-    rows = [x for x in cands if x[3]][:12] + [x for x in cands if not x[3]][:4]  # the skipped rows stay visible
+    if cands and not any(ok for *_, ok in cands):
+        L += ["INCOMPLETE COVERAGE: no ready pick; no audit verdict earned. Restore prerequisites or review a named reset.", ""]
+    # Every prerequisite hold remains visible, even beyond the ordinary render sample's four skipped rows.
+    rows = ([x for x in cands if x[3]][:12]
+            + [x for x in cands if not x[3] and "INCOMPLETE / UNAUDITED" in x[2]]
+            + [x for x in cands if not x[3] and "INCOMPLETE / UNAUDITED" not in x[2]][:4])
     L += [f"- {'pick' if ok else 'skip'} `{t}` [{d}] {why}" for t, d, why, ok in rows]
     return L
 
@@ -636,8 +830,17 @@ def orient(job):
     if job.get("card") and job["card"] in cs:
         c = cs[job["card"]]
         out += ["", f"## Your card — {c['_path'].replace(ROOT + '/', '')}", "```", open(c["_path"]).read().rstrip(), "```"]
+        if job.get("job") != "land":
+            out += ["", f"Try {try_count(c) + 1} of {try_cap(c)}: previous tries found: {c.get('resume') or '(none recorded)'}"]
     out += ["", "## Card rules (the maintainer, 2026-09-29)", *CARD_RULES]
-    if job.get("job") == "audit":
+    if job.get("job") == "planner":
+        out += ["", "## Stuck cards — planner action required",
+                "Re-cut smaller, cut a prerequisite RE card, file a Question for the maintainer in STATUS.md, or close as value 1 / defer post-alpha. "
+                "Reset tries only after one of these actions, noting the action in the card."]
+        out += [f"- STUCK: {c['id']} after {try_count(c)} tries: {c.get('resume') or '(no findings recorded)'}"
+                for c in cs.values() if c.get("status") != "done" and capped(c)
+                and not (c.get("status") == "parked" and has_branch(c))]
+    if job.get("job") in ("audit", "planner"):
         out += audit_briefing()
     out += ["", "## Live claims", run(f"ls {LOCKS} 2>/dev/null") or "(none)"]
     out += ["", "## git", "```", run("git log --oneline -6"), run("git status --short | head -15"),
@@ -719,7 +922,7 @@ def commit_docs(paths, msg, pid):
             return 1, "git commit failed (unstaged again): " + (r.stderr or r.stdout).strip()
         return 0, "committed " + git("log", "--oneline", "-1").stdout.strip()
     finally:
-        release("MAIN")
+        release("MAIN", pid)
 
 
 REPORTS = os.path.join(LOOP, "reports")
@@ -736,6 +939,7 @@ def postmortem(job, since, lane_pid, lane):
     left = pid is not None and (pid == str(lane_pid) or not held(pid))  # claims hold the LANE's pid, alive after the session
     c = cards().get(cid) if cid else None
     wip = bool(c) and c.get("status") == "in-progress"
+    finish_attempt(job, since)
     keys = {k.lower() for k in (name, cid) if k}  # report names: <stamp>_<job>_<ID>.md, <stamp>_planner.md
     # whole name tokens: VTUR must not match VTUR2's report, nor AUDIT a `cleanse-audit` one
     reported = any(os.path.getmtime(f) >= since and keys & set(re.split(r"[_.]", os.path.basename(f).lower()))
@@ -743,7 +947,7 @@ def postmortem(job, since, lane_pid, lane):
     if reported or not (left or wip):
         return ""
     if left:
-        release(name)
+        release(name, pid)
     phase = (c or {}).get("phase") or job.get("phase") or "-"
     line = (f"- DIED {datetime.datetime.now():%Y-%m-%d %H:%M:%S} lane {lane}: job {job.get('job')} card {cid or '-'} "
             f"phase {phase}, claim {name} {'left (freed)' if left else 'released'}"
@@ -942,7 +1146,7 @@ def sweep_targets(yes, quiet=False):
                 print(f"{d}\t{why}")
     finally:
         if yes:
-            release("TARGETS")
+            release("TARGETS", os.getpid())
 
 
 # ---------- worktree sweep (card LOOPT; the maintainer's yes to STATUS question 49, INBOX 2026-10-15) ----------
@@ -1132,7 +1336,7 @@ def sweep_worktrees(yes):
         return 0
     finally:
         if yes:
-            release("WORKTREES")
+            release("WORKTREES", os.getpid())
 
 
 def lead_tmp_line():
@@ -1459,6 +1663,7 @@ def self_test():
     bad += self_test_targets()
     bad += self_test_claims()
     bad += self_test_audits()
+    bad += self_test_audit_holds()
     bad += self_test_commit_docs()
     bad += self_test_postmortem()
     bad += self_test_lane3()
@@ -1550,6 +1755,16 @@ def self_test_pick_guards():
         check("a parked card with a branch is a landing", d, ("land", "PRK5"))
         card(d, "PRK5", 5, "parked", "branch: built\nneeds: maintainer - the adapter is gone\n")
         check("a parked card with a branch and needs: is not a landing", d, ("card", "FIL0"))
+    # PKHD: waiting parked work releases files; clearing needs restores its reservation.
+    with tempfile.TemporaryDirectory(prefix="loopctl_selftest_") as d:
+        fixture(d)
+        card(d, "PRK5", 5, "parked", "branch: built\nfiles: shared.rs\nneeds: maintainer - a question\n")
+        card(d, "USE5", 5, "todo", "files: shared.rs\n")
+        check("parked + needs releases its files", d, ("card", "USE5"))
+        card(d, "PRK5", 5, "parked", "branch: built\nfiles: shared.rs\nneeds: \n")
+        # Keep the landing claimed so pick reaches eligibility without taking PRK5 itself.
+        lock(d, "MAIN", me)
+        check("parked + needs cleared reserves its files", d, ("card", "FIL0"))
     # (3) waiting on the maintainer
     with tempfile.TemporaryDirectory(prefix="loopctl_selftest_") as d:
         fixture(d)
@@ -1569,6 +1784,83 @@ def self_test_pick_guards():
         json.dump(three, open(os.path.join(d, "state.json"), "w"))
         card(d, "FID5", 5, "blocked", "resume: fidelity WORSE undeclared - idle20@kam1\nneeds: maintainer - may it land?\n")
         check("the same card waiting on the maintainer: no planner for it", d, ("card", "FIL0"))
+    # RETRYCAP: every selection uses the public next CLI with fixture controls and no real claim.
+    for label, phase, count, override, status, branch, want in (
+            ("build at cap", "build", 3, "", "todo", "", ("card", "FIL0")),
+            ("build below cap", "build", 2, "", "todo", "", ("card", "CAP5")),
+            ("RE at two", "re", 2, "", "todo", "", ("card", "FIL0")),
+            ("RE below two", "re", 1, "", "todo", "", ("card", "CAP5")),
+            ("override at cap", "build", 1, "try_cap: 1\n", "todo", "", ("card", "FIL0")),
+            ("override below cap", "re", 2, "try_cap: 4\n", "todo", "", ("card", "CAP5")),
+            ("capped resume", "build", 3, "", "in-progress", "", ("card", "FIL0")),
+            ("capped branch landing", "build", 8, "", "parked", "built", ("land", "CAP5"))):
+        with tempfile.TemporaryDirectory(prefix="loopctl_retrycap_") as d:
+            fixture(d)
+            card(d, "CAP5", 5, status, f"tries: {count}\nbranch: {branch}\n{override}resume: approach found X\n")
+            run(d, ["set", "CAP5", f"phase={phase}"])
+            # Also exhaust the legacy unchanged-card guard: landing must bypass both.
+            if branch:
+                import hashlib
+                fp = hashlib.sha1(open(os.path.join(d, "cards", "CAP5.md"), "rb").read()).hexdigest()
+                json.dump({"attempts": {"CAP5": {"n": 99, "fp": fp}}}, open(os.path.join(d, "state.json"), "w"))
+            check("RETRYCAP " + label, d, want)
+            if count >= (int(override.split(":")[1]) if override else (2 if phase == "re" else 3)) and not branch:
+                brief = run(d, ["orient"], {"OPENBF_JOB_JSON": json.dumps({"job": "planner"})}).stdout
+                ok = f"STUCK: CAP5 after {count} tries" in brief and "approach found X" in brief
+                print(f"{'ok  ' if ok else 'FAIL'} RETRYCAP planner findings")
+                bad += not ok
+    with tempfile.TemporaryDirectory(prefix="loopctl_retrycap_finish_") as d:
+        fixture(d)
+        card(d, "CAP5", 5, "todo", "tries: 1\nresume: first approach X\n")
+        job = {"job": "card", "card": "CAP5", "claim": "CAP5", "phase": "build", "attempt_id": "session1"}
+        env = {"OPENBF_JOB_JSON": json.dumps(job)}
+        run(d, ["finish-attempt", "--since", "1"], env)
+        run(d, ["set", "CAP5", "resume=second approach Y"])
+        run(d, ["postmortem", "--since", "1", "--pid", me], env)
+        ok = read_card(os.path.join(d, "cards", "CAP5.md"))["tries"] == "2"
+        print(f"{'ok  ' if ok else 'FAIL'} RETRYCAP clean finish plus postmortem counts once across resume edits")
+        bad += not ok
+        brief = run(d, ["orient"], env).stdout
+        backlog = open(os.path.join(d, "BACKLOG.md")).read()
+        ok = "Try 3 of 3: previous tries found: second approach Y" in brief and "tries 2/3" in backlog
+        print(f"{'ok  ' if ok else 'FAIL'} RETRYCAP orient and backlog show cumulative tries and findings")
+        bad += not ok
+        job["attempt_id"] = "session2"
+        run(d, ["postmortem", "--since", "2", "--pid", me], {"OPENBF_JOB_JSON": json.dumps(job)})
+        c = read_card(os.path.join(d, "cards", "CAP5.md"))
+        ok = c["tries"] == "3" and c["status"] == "blocked" and not c.get("needs") and c["resume"] == "second approach Y"
+        print(f"{'ok  ' if ok else 'FAIL'} RETRYCAP cumulative cap preserves findings without the maintainer hold")
+        bad += not ok
+        for label, status, branch, kind in (("done", "done", "", "card"),
+                                             ("land", "blocked", "built", "land"),
+                                             ("ready branch", "parked", "built", "card")):
+            card(d, "EXEMPT", 1, status, f"tries: 2\nbranch: {branch}\n")
+            ex = {"job": kind, "card": "EXEMPT", "claim": "EXEMPT", "attempt_id": label}
+            run(d, ["postmortem", "--since", "3", "--pid", me], {"OPENBF_JOB_JSON": json.dumps(ex)})
+            ok = read_card(os.path.join(d, "cards", "EXEMPT.md"))["tries"] == "2"
+            print(f"{'ok  ' if ok else 'FAIL'} RETRYCAP no failed try for {label}")
+            bad += not ok
+        card(d, "SLICE", 5, "in-progress", "tries: 2\nresume: slice 1\n")
+        sl = {"job": "card", "card": "SLICE", "claim": "SLICE", "phase": "build", "attempt_id": "slice2"}
+        run(d, ["landed", "SLICE", "abc12345"])
+        run(d, ["set", "SLICE", "status=todo", "resume=slice 3 next"])
+        run(d, ["postmortem", "--since", "4", "--pid", me], {"OPENBF_JOB_JSON": json.dumps(sl)})
+        ok = read_card(os.path.join(d, "cards", "SLICE.md"))["tries"] == "0"
+        print(f"{'ok  ' if ok else 'FAIL'} RETRYCAP a slice landed in the session and reopened is no failed try")
+        bad += not ok
+        card(d, "PHASE", 5, "todo", "tries: 1\n")
+        run(d, ["set", "PHASE", "phase=build"])
+        ph = {"job": "card", "card": "PHASE", "claim": "PHASE", "phase": "re", "attempt_id": "re-done"}
+        run(d, ["postmortem", "--since", "5", "--pid", me], {"OPENBF_JOB_JSON": json.dumps(ph)})
+        ok = read_card(os.path.join(d, "cards", "PHASE.md"))["tries"] == "0"
+        print(f"{'ok  ' if ok else 'FAIL'} RETRYCAP an re session that moved the card to build is no failed try")
+        bad += not ok
+        for field in ("tries=wrong", "tries=-1", "try_cap=0", "try_cap=1.5"):
+            card(d, "BAD", 1, "todo")
+            run(d, ["set", "BAD", field])
+            ok = run(d, ["check"]).returncode == 1
+            print(f"{'ok  ' if ok else 'FAIL'} RETRYCAP check rejects {field}")
+            bad += not ok
     return bad
 
 
@@ -1805,7 +2097,9 @@ def self_test_postmortem():
         checks = [("a dead session gets one DIED line",
                    len(died) == 1 and "lane 2: job card card ZZDEAD phase build, claim ZZDEAD left (freed)" in died[0]),
                   ("its claim is freed", not os.path.exists(os.path.join(d, "locks", "ZZDEAD"))),
-                  ("a session with its report gets none", not any("ZZOK" in l for l in died))]
+                  ("a session with its report gets none", not any("ZZOK" in l for l in died)),
+                  ("dead and reported unfinished sessions both count", all(
+                      read_card(os.path.join(d, "cards", f"{cid}.md")).get("tries") == "1" for cid in ("ZZDEAD", "ZZOK")))]
     bad = 0
     for label, ok in checks:
         bad += not ok
@@ -1837,6 +2131,106 @@ def self_test_audits():
         bad += not ok
         print(f"{'ok  ' if ok else 'FAIL'} audits: {label}")
     return bad
+
+
+def self_test_audit_holds():
+    """Real checkpoint/reset CLI plus the supervisor's pick and worker briefing, entirely in fixture directories."""
+    import tempfile
+    from unittest.mock import patch
+    checks = []
+    with tempfile.TemporaryDirectory(prefix="loopctl_audit_holds_") as d:
+        analysis = os.path.join(d, "analysis")
+        os.makedirs(analysis)
+        os.makedirs(os.path.join(d, "cards"))
+        for i in range(5):
+            open(os.path.join(d, "cards", f"FILL{i}.md"), "w").write(
+                f"---\nid: FILL{i}\ntitle: fixture\nstatus: blocked\nphase: build\nmilestone: M0\nvalue: 1\n---\n")
+        sources = [("2026-01-03", "re-risk.md", "sim", False, "fixture"),
+                   ("2026-01-02", "re-tool.md", "tooling", False, "fixture"),
+                   ("2026-01-01", "re-render.md", "render", False, "fixture")]
+        sources += [("2026-01-01", f"re-extra{i}.md", "tooling", False, "fixture") for i in range(3)]
+        for _, target, _, _, _ in sources:
+            open(os.path.join(analysis, target), "w").write("# OPUS RE (2026-01-01) - [O] UNAUDITED\n")
+        ledger = os.path.join(d, "audits.md")
+        ledger_bytes = "- AUDIT 2026-01-01 OLD: OK — fixture\n  domain: sim\n".encode()
+        open(ledger, "wb").write(ledger_bytes)
+        open(os.path.join(d, "report.md"), "w").write("incomplete fixture audit\n")
+        open(os.path.join(d, "STATUS.md"), "w").write("fixture\n")
+        state_path = os.path.join(d, "state.json")
+        state_bytes = b'{"sessions_since_audit":10,"last_job":"planner"}'
+        open(state_path, "wb").write(state_bytes)
+        env = dict(os.environ, OPENBF_LOOP_DIR=d, OPENBF_CONTROL_DIR=d, OPENBF_LEAD_TMP="",
+                   OPENBF_AUDIT_ROOT=d)
+
+        def cli(*args):
+            r = subprocess.run([sys.executable, os.path.abspath(__file__), *args], env=env,
+                               capture_output=True, text=True)
+            if r.returncode:
+                raise AssertionError(r.stderr)
+            return r.stdout
+
+        def checkpoint(target, revision="fixture-rev"):
+            cli("audit-checkpoint", target, "--missing", "input-a", "--missing", "input-b",
+                "--revision", revision, "--reason", "primary inputs absent", "--report", "report.md")
+
+        with patch.dict(globals(), AUDIT_HOLDS=os.path.join(d, "audit_holds.json"), AUDIT_ROOT=d,
+                        AUDITS=ledger, ANALYSIS=analysis, CARDS=os.path.join(d, "cards")):
+            baseline = audit_candidates(sources, [])
+            checkpoint("re-risk.md")
+            first = lambda: next((t for t, _, _, ok in audit_candidates(sources, []) if ok), None)
+            checks.append(("unchanged missing inputs skip repeated target and pick next ready", first() == "re-tool.md"))
+            checkpoint("re-risk.md", "new-source-rev")
+            checks.append(("new source revision cannot restore inputs", first() == "re-tool.md"))
+            open(os.path.join(d, "input-a"), "w").close()
+            checks.append(("one of two inputs restored still skips", first() == "re-tool.md"))
+            cli("audit-checkpoint", "re-risk.md", "--missing", "input-b", "--revision", "narrower-rev",
+                "--reason", "remaining absent input", "--report", "report.md")
+            checks.append(("later checkpoint retains earlier prerequisites until reviewed reset",
+                           audit_holds()["re-risk.md"]["missing"] == ["input-a", "input-b"]))
+            open(os.path.join(d, "input-b"), "w").close()
+            checks.append(("both restored retry in original risk order", audit_candidates(sources, []) == baseline))
+            os.remove(os.path.join(d, "input-a")); os.remove(os.path.join(d, "input-b"))
+            for _, target, _, _, _ in sources[1:]:
+                checkpoint(target)
+            briefing = "\n".join(audit_briefing())
+            checks.append(("all held briefing lists every blocker without a pick",
+                           "INCOMPLETE COVERAGE" in briefing and "- pick" not in briefing
+                           and all(t in briefing for _, t, *_ in sources)
+                           and all(p in briefing for p in ("input-a", "input-b", "audit-reset"))))
+            # The actual pick() CLI is what the supervisor imports; no production claims/state are touched.
+            job = json.loads(cli("next", "--pid", str(os.getpid())))
+            checks.append(("all held supervisor waits without claiming an audit or resetting cadence",
+                           job["job"] == "none" and "Incomplete audit coverage" in job["reason"]
+                           and not os.path.exists(os.path.join(d, "locks", "AUDIT"))
+                           and open(state_path, "rb").read() == state_bytes))
+            # Exercise audit worker orientation with the same shared fixture checkpoint store.
+            r = subprocess.run([sys.executable, os.path.abspath(__file__), "orient"],
+                               env=dict(env, OPENBF_JOB_JSON='{"job":"audit"}'), capture_output=True, text=True)
+            checks.append(("worker orientation reports hold without a verdict",
+                           r.returncode == 0 and "INCOMPLETE COVERAGE" in r.stdout and "- pick" not in r.stdout))
+            open(os.path.join(d, "cards", "READY.md"), "w").write(
+                "---\nid: READY\ntitle: fixture\nstatus: todo\nphase: build\nmilestone: M0\nvalue: 1\n---\n")
+            ready = json.loads(cli("next", "--pid", str(os.getpid())))
+            checks.append(("held audit does not starve eligible card work and carries restoration reason",
+                           ready.get("card") == "READY" and "Incomplete audit coverage" in ready["reason"]
+                           and not os.path.exists(os.path.join(d, "locks", "AUDIT"))))
+            before = audit_holds()
+            refused = subprocess.run([sys.executable, os.path.abspath(__file__), "audit-reset", "re-risk.md",
+                                      "--reason", "unreviewed"], env=env, capture_output=True, text=True)
+            checks.append(("reset without review is refused without changing holds",
+                           refused.returncode != 0 and audit_holds() == before))
+            cli("audit-reset", "re-risk.md", "--reviewed-by", "fixture reviewer", "--reason", "reviewed changed scope")
+            checks.append(("reviewed reset removes only named hold",
+                           audit_holds() == {t: h for t, h in before.items() if t != "re-risk.md"}
+                           and first() == "re-risk.md"))
+            checks.append(("checkpoint/reset leave exact audit ledger bytes intact",
+                           open(ledger, "rb").read() == ledger_bytes))
+            checks.append(("holds preserve render sample and risk order",
+                           [t for t, *_ in audit_candidates(sources, [], {})] == [t for t, *_ in baseline]
+                           and not audit_candidates(sources, [("OLD", "OK", "render")], {})[-1][3]))
+    for label, ok in checks:
+        print(f"{'ok  ' if ok else 'FAIL'} audit holds: {label}")
+    return sum(not ok for _, ok in checks)
 
 
 def self_test_claims():
@@ -1962,12 +2356,20 @@ def main():
     nw.add_argument("--value", required=True); nw.add_argument("--phase", required=True, choices=PHASES); nw.add_argument("--deps", default="")
     nw.add_argument("--files", default=""); nw.add_argument("--declares", default=""); nw.add_argument("--body", default="")
     r = sp.add_parser("release"); r.add_argument("name")
+    sc = sp.add_parser("sweep-claims"); sc.add_argument("--pid", required=True)
     cl = sp.add_parser("claim"); cl.add_argument("name"); cl.add_argument("--pid", required=True)
     tg = sp.add_parser("targets"); tg.add_argument("--yes", action="store_true")
     wk = sp.add_parser("worktrees"); wk.add_argument("--yes", action="store_true")
     sp.add_parser("backlog"); sp.add_parser("check"); sp.add_parser("scoreboard"); sp.add_parser("self-test"); sp.add_parser("approvals")
+    sp.add_parser("audit-status")
+    ac = sp.add_parser("audit-checkpoint"); ac.add_argument("target")
+    ac.add_argument("--missing", action="append", required=True)
+    ac.add_argument("--revision", required=True); ac.add_argument("--reason", required=True); ac.add_argument("--report", required=True)
+    ar = sp.add_parser("audit-reset"); ar.add_argument("target")
+    ar.add_argument("--reviewed-by", required=True); ar.add_argument("--reason", required=True)
     ld = sp.add_parser("landed"); ld.add_argument("id"); ld.add_argument("sha")
     cd = sp.add_parser("commit-docs"); cd.add_argument("paths", nargs="+"); cd.add_argument("-m", "--message", required=True)
+    fa = sp.add_parser("finish-attempt"); fa.add_argument("--since", type=float, required=True)
     pm = sp.add_parser("postmortem"); pm.add_argument("--since", type=float, required=True); pm.add_argument("--pid", required=True)
     pm.add_argument("--lane", default="?")
     ca = sp.add_parser("check-absence"); ca.add_argument("doc"); ca.add_argument("--warn", action="store_true")
@@ -1991,6 +2393,14 @@ def main():
         print(orient(job))
     elif a.cmd == "start":
         start(a.id)
+    elif a.cmd == "audit-status":
+        print("\n".join(audit_briefing()))
+    elif a.cmd == "audit-checkpoint":
+        audit_checkpoint(a.target, a.missing, a.revision, a.reason, a.report)
+        print(f"{a.target}: incomplete checkpoint recorded; remains UNAUDITED")
+    elif a.cmd == "audit-reset":
+        audit_reset(a.target, a.reviewed_by, a.reason)
+        print(f"{a.target}: reviewed prerequisite hold cleared; remains UNAUDITED")
     elif a.cmd == "set":
         cs = cards()
         if a.id not in cs:
@@ -2023,6 +2433,8 @@ def main():
         print(p)
     elif a.cmd == "release":
         release(a.name); print(f"released {a.name}")
+    elif a.cmd == "sweep-claims":
+        sweep_claims(a.pid)
     elif a.cmd == "claim":
         ok = claim(a.name, a.pid); print("claimed" if ok else "HELD by a live session"); sys.exit(0 if ok else 1)
     elif a.cmd == "approvals":
@@ -2042,6 +2454,9 @@ def main():
                 print(f"{c['id']}: milestone={c.get('milestone')!r}"); bad += 1
             if not 1 <= val(c) <= 5:
                 print(f"{c['id']}: value={c.get('value')!r}"); bad += 1
+            for k, minimum in (("tries", 0), ("try_cap", 1)):
+                if k in c and (not re.fullmatch(r"[0-9]+", c[k]) or int(c[k]) < minimum):
+                    print(f"{c['id']}: {k}={c[k]!r} (integer >= {minimum} required)"); bad += 1
             for d in lst(c.get("deps")):
                 if d not in cs:
                     print(f"{c['id']}: unknown dep {d}"); bad += 1
@@ -2075,6 +2490,8 @@ def main():
     elif a.cmd == "commit-docs":
         rc, msg = commit_docs(a.paths, a.message, os.getpid())
         print(msg); sys.exit(rc)
+    elif a.cmd == "finish-attempt":
+        finish_attempt(json.loads(os.environ.get("OPENBF_JOB_JSON") or "{}"), a.since)
     elif a.cmd == "postmortem":
         job = json.loads(os.environ.get("OPENBF_JOB_JSON", "{}") or "{}")
         line = postmortem(job, a.since, a.pid, a.lane)
@@ -2082,8 +2499,11 @@ def main():
     elif a.cmd == "landed":
         cs = cards(); c = cs[a.id]
         c["status"] = "done"; c["resume"] = f"landed {a.sha} {datetime.date.today()}"
+        if "tries" in c:  # a landing is a result: a reopened multi-slice card starts its next slice at try 1
+            c["tries"] = "0"
         write_card(c)
         s = state()
+        s.setdefault("landed_at", {})[a.id] = time.time()
         s["landings_since_planner"] = s.get("landings_since_planner", 0) + 1
         s["landings_since_cleanse"] = s.get("landings_since_cleanse", 0) + 1
         s.setdefault("last_landed_milestone", {})[c.get("milestone", "")] = datetime.datetime.now().isoformat(timespec="seconds")

@@ -250,6 +250,20 @@ impl StationDraw {
         }
     }
 
+    fn step_to(&mut self, tick: u64, anim: &core::sim::StationAnim, serving: bool) {
+        let ticks = self.last_tick.map_or(1, |t| tick.saturating_sub(t));
+        self.last_tick = Some(tick);
+        // Catch up with fixed steps for callers that only have the final state.
+        // Only a per-tick callback can supply intermediate serving changes.
+        for _ in 0..ticks {
+            self.anim.step(anim, serving, core::TICK_DT);
+            if let Some(rig) = &self.rig {
+                let nodes = StationNodes::of(rig, anim);
+                pose(rig, &nodes, anim, &self.anim, &mut self.now);
+            }
+        }
+    }
+
     /// Each part's model matrix now: the instance turned by the idle yaw,
     /// a node's part by `node(now) x bind^-1`.
     fn apply(&self, draws: &mut [DrawCmd]) {
@@ -282,28 +296,27 @@ impl StationDraw {
 }
 
 impl super::SceneGpu {
-    /// Step every drawn station by the sim's ticks since the last call and
-    /// pose its draws (this module). A station with no sim twin (an unbuilt
-    /// one) stays as placed.
-    pub fn pose_stations(&mut self, sim: &core::sim::Sim) {
-        for sd in self.stations.iter_mut() {
+    /// Advance station animations at each sim tick, before rendering. Call from
+    /// the stepping callback so intermediate serving changes are observed.
+    /// The first call retains the original one-step initialization convention.
+    pub fn step_stations(&mut self, sim: &core::sim::Sim) {
+        for sd in &mut self.stations {
             let Some(st) = sim.stations.iter().find(|s| s.pos == sd.pos) else {
                 continue;
             };
             let Some(class) = sim.station_classes.get(usize::from(st.class)) else {
                 continue;
             };
-            let ticks = sd.last_tick.map_or(1, |t| sim.tick.saturating_sub(t));
-            sd.last_tick = Some(sim.tick);
-            if ticks == 0 {
-                continue;
-            }
-            sd.anim
-                .step(&class.anim, st.serving, ticks as f32 * core::TICK_DT);
-            if let Some(rig) = &sd.rig {
-                let nodes = StationNodes::of(rig, &class.anim);
-                pose(rig, &nodes, &class.anim, &sd.anim, &mut sd.now);
-            }
+            sd.step_to(sim.tick, &class.anim, st.serving);
+        }
+    }
+
+    /// Pose the final station state. Single-tick callers may use this alone;
+    /// multi-tick callers must also call `step_stations` after each sim tick
+    /// to retain intermediate serving changes.
+    pub fn pose_stations(&mut self, sim: &core::sim::Sim) {
+        self.step_stations(sim);
+        for sd in &self.stations {
             sd.apply(&mut self.draws);
         }
     }
@@ -332,6 +345,58 @@ mod tests {
             wobble_factor: 0.08,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn tick_grouping_preserves_wait_turn_boundaries_and_does_not_repeat_ticks() {
+        let a = fx7();
+        for state in [0, 1] {
+            for group in [1, 2, 3] {
+                let make = || {
+                    let mut d = StationDraw::new(0, Vec3::ZERO, Mat4::IDENTITY, None);
+                    d.last_tick = Some(0);
+                    d.anim.state = state;
+                    d.anim.timer = 0.01;
+                    d
+                };
+                let mut expected = make();
+                let mut grouped = make();
+                for tick in 1..=6 {
+                    expected.step_to(tick, &a, false);
+                }
+                for tick in (group..=6).step_by(group as usize) {
+                    grouped.step_to(tick, &a, false);
+                }
+                assert_eq!(grouped.anim, expected.anim);
+                let before = grouped.anim;
+                grouped.step_to(6, &a, false);
+                assert_eq!(grouped.anim, before);
+            }
+        }
+    }
+
+    #[test]
+    fn tick_callback_retains_serving_changes_inside_a_frame() {
+        let a = fx7();
+        let rig = rig();
+        let mut d = StationDraw::new(0, Vec3::ZERO, Mat4::IDENTITY, Some(&rig));
+        d.step_to(0, &a, false);
+        let mut expected = d.anim;
+        let mut expected_nodes = d.now.clone();
+        let nodes = StationNodes::of(&rig, &a);
+        let mut served_arm = None;
+        for (tick, serving) in [(1, true), (2, false), (3, false)] {
+            expected.step(&a, serving, core::TICK_DT);
+            pose(&rig, &nodes, &a, &expected, &mut expected_nodes);
+            d.step_to(tick, &a, serving);
+            if serving {
+                served_arm = Some(d.now[1]);
+            }
+        }
+        assert_eq!(d.anim, expected);
+        assert_eq!(d.now, expected_nodes);
+        assert_eq!(d.now[1], served_arm.unwrap());
+        assert!(!matches!(d.anim.state, 2 | 3));
     }
 
     const DT: f32 = 1.0 / 30.0;

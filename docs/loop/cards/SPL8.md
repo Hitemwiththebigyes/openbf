@@ -6,12 +6,12 @@ value: 1
 phase: cleanup
 status: todo
 deps:
-files: engine/crates/game/src/viewer/scene.rs,engine/crates/game/src/assets.rs,engine/crates/game/src/main/windowed.rs,engine/crates/game/src/sounds.rs
+files: engine/crates/game/src/assets.rs, engine/crates/game/src/main/windowed.rs, engine/crates/game/src/sounds.rs
 declares:
 needs:
 effort:
 branch:
-resume:
+resume: 2026-10-24 14:22 UTC: Current source: scene.rs 1453 already under cap; active assets.rs 1781, windowed.rs 1983, sounds.rs 2665. Do not split scene again. Check GCL16 item 9 already shared via battle_resources. One source file per slice; unchanged game/GPU/bake/sim gates still required. reports/20261024_1422_planner.md; lead_tmp/planner_20261024_1417/next_prompt.md.
 created: 2026-09-29
 ---
 

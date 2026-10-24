@@ -13,7 +13,7 @@
 //!     in both ELFs (`analysis/re-fog.md` §2.4 [V]).
 //!
 //! Ignored by default — needs a real adapter.
-//!   cargo test -p render --test sky_shell -- --ignored --test-threads=1
+//!   scripts/gpu_tests.sh --render
 
 use glam::Mat4;
 use render::{Camera, DrawCmd, Fog, Lighting, MeshData, Renderer, SkyShell};
@@ -304,7 +304,7 @@ fn the_v_wrap_mode_decides_whether_the_bottom_ring_wraps_to_the_top_row() {
     // 4x4: row 0 red, rows 1..3 blue. NEAREST, so the reading is the texel
     // the wrap lands on and not a blend of two.
     let mut texels = vec![0u8; 4 * 4 * 4];
-    for (i, px) in texels.chunks_exact_mut(4).enumerate() {
+    for (i, px) in texels.as_chunks_mut::<4>().0.iter_mut().enumerate() {
         px.copy_from_slice(if i < 4 {
             &[255, 0, 0, 255]
         } else {

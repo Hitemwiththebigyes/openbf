@@ -157,38 +157,14 @@ fn team_templates(
                         if c.jet { "  [jet pack]" } else { "" }
                     );
                     table.push(uc);
-                    visuals.push(game::walk::ClassVisual {
-                        name: c.class.clone(),
-                        label: c.label.clone(),
-                        geometry: c.geometry.clone(),
-                        weapon_geometry: c.weapon_geometry.clone(),
-                        weapon_hud: c.weapon_hud.clone(),
-                        held_hud: c.held.iter().map(|h| (h.slot, h.hud.clone())).collect(),
-                        held_models: c.held.iter().map(|h| (h.slot, h.geometry.clone())).collect(),
-                        foley_class: c.foley_class,
-                        cries: c.cries.clone(),
-                        anim: c.anim.clone(),
-                        skins: c.skins.clone(),
-                    });
+                    let mut visual = game::walk::ClassVisual::from_roster(c);
+                    visual.held_hud = c.held.iter().map(|h| (h.slot, h.hud.clone())).collect();
+                    visual.held_models = c.held.iter().map(|h| (h.slot, h.geometry.clone())).collect();
+                    visuals.push(visual);
                 }
                 sim.classes[team] = table;
                 team += 1;
-                let c = r.fill_class();
-                game::walk::TeamTemplate {
-                    faction: r.faction.clone(),
-                    name: c.class.clone(),
-                    consts: c.consts,
-                    max_health: c.max_health,
-                    health_type: c.health_type,
-                    weapon_class: sim.classes[team - 1][0].weapon_class,
-                    weapon_slot: sim.classes[team - 1][0].weapon_slot,
-                    slots: sim.classes[team - 1][0].slots.clone(),
-                    drops: sim.classes[team - 1][0].drops,
-                    spare_clips: c.spare_clips,
-                    geometry: c.geometry.clone(),
-                    weapon_geometry: c.weapon_geometry.clone(),
-                    classes: visuals,
-                }
+                game::walk::TeamTemplate::from_roster(&r, &sim.classes[team - 1][0], visuals)
             })
         }
         Err(e) => {
@@ -464,19 +440,14 @@ pub(super) fn hud_model(
             .flatten()
             .map_or(0, |(_, rel)| rel)
     });
-    let posts = |t: u8| walk.sim.cps.iter().filter(|c| c.owner == Some(t)).count();
     ui::hud::HudModel {
         team_names: [walk.teams[0].faction.clone(), walk.teams[1].faction.clone()],
         tickets: [b.teams[0].tickets(), b.teams[1].tickets()],
         bleed: [b.teams[0].bleed_per_sec, b.teams[1].bleed_per_sec],
-        posts: [posts(0), posts(1)],
         hp: me.health.cur,
         hp_max: me.health.max,
         energy: me.soldier.energy,
         energy_max: me.consts.energy_bar,
-        clip: me.weapon.clip,
-        spare: me.weapon.spare,
-        reloading: me.weapon.reloading(),
         weapon,
         weapon2,
         reticle,
@@ -623,4 +594,116 @@ pub(super) fn spawn_model(
         screen,
         page,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// HTGTW: use the battle's actual setup/install and feed constructors.
+    /// The authored building is off its pivot: a radius-zero fallback cannot
+    /// stand in for the collision bounds installed for acquisition.
+    #[test]
+    fn htgtw_battle_installs_turret_bounds_and_readout_names() {
+        use core::sim::{AimTarget, PadState};
+        let dir = std::env::temp_dir().join(format!("openbf-htgtw-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // No models or textures: this fixture exercises the setup, not GPU upload.
+        std::fs::write(
+            dir.join("manifest.ron"),
+            r#"(
+            map: "htgtw", source_game: "bf2", terrain_name: None,
+            sky_name: None, terrain_glb: None, models: [], textures: [],
+            classes: [(name: "fixture_dish", base: "armedbuilding", geometry: Some("dish"))],
+            geometries: [], regions: [],
+            instances: [(class: "fixture_dish", name: "dish1",
+                rotation: ((1,0,0),(0,1,0),(0,0,1)),
+                translation: (0,0,-15), props: [])],
+            collision: [(geometry: "dish", glb: None, prims: [(
+                name: "dish_body", kind: "box", dims: (2,2,2),
+                rotation: ((1,0,0),(0,1,0),(0,0,1)), translation: (1.5,1.5,0)
+            )])]
+        )"#,
+        )
+        .unwrap();
+        let props = [
+            ("BuildingSection", "TURRET1"),
+            ("WeaponName", "fixture_gun"),
+            ("MaxHealth", "300"),
+            ("Label", "Fixture Dish"),
+        ];
+        let defs = vec![game::classdb::ClassDef {
+            name: "fixture_dish".into(),
+            kind: "entc".into(),
+            base: "armedbuilding".into(),
+            props: props
+                .into_iter()
+                .map(|(k, v)| (mungefs::fnv1a_lowercase(k), v.into()))
+                .collect(),
+        }];
+        std::fs::write(dir.join("classes.ron"), ron::to_string(&defs).unwrap()).unwrap();
+        let mut scene = game::assets::load_scene(&dir).unwrap();
+        // A flat synthetic terrain grid grounds the player through make_walk.
+        scene.terrain = Some(game::assets::CpuMesh {
+            positions: vec![
+                [-32.0, 0.0, -32.0],
+                [32.0, 0.0, -32.0],
+                [-32.0, 0.0, 32.0],
+                [32.0, 0.0, 32.0],
+            ],
+            normals: Vec::new(),
+            uvs: Vec::new(),
+            colors: Vec::new(),
+            indices: Vec::new(),
+            submeshes: Vec::new(),
+            spec: Vec::new(),
+            light: Vec::new(),
+            sphere: None,
+        });
+        let setup = BattleSetup {
+            seed: 42,
+            difficulty: Default::default(),
+            spawn: (0.0, 0.0),
+            spawn_set: true,
+            targets: false,
+            ai: Some(0),
+            ai_cap: None,
+            tickets: 250,
+            tickets_set: false,
+            ticket_pct: 100,
+            time_limit: 0,
+            cheats: Default::default(),
+            teams: None,
+            classes_dir: dir.join("absent_sides"),
+            mission: None,
+            mission_file: None,
+            player_team: 0,
+        };
+        let mut walk = make_walk(&scene, &setup);
+        assert_eq!(walk.vehicle_classes, ["fixture_dish"]);
+        let (h, v) = walk.sim.alive_vehicles().next().expect("installed turret");
+        assert_eq!(v.instance, Some(0));
+        let (centre, radius) = v.aim_sphere.expect("building sphere stored by install");
+        // The fixture box is [-0.5,3.5] on x/y and [-2,2] on z.
+        assert!(centre.distance(glam::Vec3::new(1.5, 1.5, 0.0)) < 1e-5);
+        assert!((radius - 12.0_f32.sqrt()).abs() < 1e-5);
+        let blast = walk.sim.blast_setup[v.class as usize].as_ref().unwrap();
+        assert_eq!(blast.sphere_radius, 0.0, "no side-baked blast bounds");
+        let player = &mut walk.sim.units[walk.player.index as usize];
+        player.soldier.pitch = 0.0;
+        player.soldier.yaw = 0.0;
+        walk.sim.step(&[PadState::default()]);
+        assert_eq!(
+            walk.sim.reticle_pick[0],
+            Some((AimTarget::Vehicle(h), 0)),
+            "picked from 15 m"
+        );
+        let feed = game::event_feed::EventFeed::for_walk(&dir, "bf2", &walk);
+        let target = feed.target(&walk.sim, 0).expect("picked turret readout");
+        assert_eq!(target.name, "Fixture Dish");
+        assert_eq!(target.health_fraction, 1.0);
+        walk.sim.vehicles[h.index as usize].health.cur = 75.0;
+        assert_eq!(feed.target(&walk.sim, 0).unwrap().health_fraction, 0.25);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }

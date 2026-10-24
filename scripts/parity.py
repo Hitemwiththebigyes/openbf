@@ -2,7 +2,7 @@
 """parity.py — how close the port is to the PS2: re-render the port at every stored PCSX2 pose and score each pair (card PARITY).
 
   scripts/parity.py run [--maps a,b] [--tree T --target D] [--out DIR] [--bake DIR] [--publish] [--keep-renders]
-  scripts/parity.py main                     # main HEAD's scores (cached per sha; rendered and published when missing)
+  scripts/parity.py main                     # main HEAD's scores (cached per sha + bake; rendered and published when missing)
   scripts/parity.py gate --tree T --target D --out DIR [--allow a,b] [--base CSV] [--threshold L]   # the gates.py `parity` gate
   scripts/parity.py compare <base.csv> <new.csv> [--maps a,b] [--allow a,b]
   scripts/parity.py scoreboard               # one line from loop/parity/ (loopctl.py scoreboard prints it)
@@ -22,7 +22,7 @@ Outputs in <out>: scores.csv (map, spot, bearing, block, dluma, p99_ps2, p99_por
 deleted once scored unless --keep-renders. --publish (only a full run of main's HEAD) copies them to
 engine/artifacts/loop/parity/ latest.csv + summary.md + worst.png and appends history.csv (date, main sha, pairs,
 all-maps mean block error, per-map means); `main` does that whenever it has to score a new main HEAD, and keeps each
-sha's scores in loop/parity/main/<sha>.csv.
+sha/bake's scores in loop/parity/main/<sha>_<bake>.csv.
 
 `gate` scores the tree (all maps: a full run is ~30 s of rendering) and main's HEAD (`main`), then `compare`s them:
 per map, the mean block error over the (map, spot) pairs both scored, tree - main; a map FAILS when it rises by more
@@ -30,7 +30,8 @@ than --threshold (0.5 levels) unless --allow names it (the card's `declares: par
 has no pose_render yet (no baseline). Deterministic: the same binary over the same bake scores byte-identically. The
 tree renders the shared bake, so a bake-only change shows only once rebaked on main (like the goldens).
 """
-import argparse, csv, datetime, glob, json, os, re, subprocess, sys, time
+import argparse, csv, datetime, glob, hashlib, json, os, re, subprocess, sys, time
+from contextlib import contextmanager
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 ART = os.path.join(REPO, "engine/artifacts")
@@ -39,6 +40,47 @@ PUB = os.path.join(ART, "loop/parity")
 LOCK = os.path.join(ART, "loop/ci.lock")
 GPU_LOCK = os.path.join(ART, "loop/gpu.lock")
 BAKED = os.path.join(REPO, "engine/assets_baked")
+
+
+@contextmanager
+def ci_lock():
+    """Lock before building, reading the bake identity, rendering or publishing.
+
+    Callers already holding it pass locked=True to avoid flocking a second fd.
+    Lock order is ci.lock, main.lock, then gpu.lock throughout this module.
+    """
+    import fcntl
+    with open(LOCK, "a") as lk:
+        fcntl.flock(lk, fcntl.LOCK_EX)
+        yield
+
+
+def bake_fingerprint():
+    """Content identity of the whole shared bake: every file's relative path and bytes.
+
+    Not manifests only: common/side/classes rebakes write no manifest.ron, and pose_render draws COMMON.
+    Read only under ci.lock, which rebakes also hold. Legacy SHA-only scores are
+    deliberately ignored. A missing bake must not create a reusable empty key.
+    """
+    if not glob.glob(os.path.join(BAKED, "**/manifest.ron"), recursive=True):
+        sys.exit(f"parity: no bake manifests under {BAKED}")
+    digest = hashlib.sha256()
+    for root, dirs, files in os.walk(BAKED):
+        dirs.sort()
+        for f in sorted(files):
+            path = os.path.join(root, f)
+            name = os.path.relpath(path, BAKED).replace(os.sep, "/").encode()
+            digest.update(len(name).to_bytes(8, "big"))
+            digest.update(name)
+            with open(path, "rb") as fh:
+                digest.update(os.fstat(fh.fileno()).st_size.to_bytes(8, "big"))
+                for chunk in iter(lambda: fh.read(1 << 20), b""):
+                    digest.update(chunk)
+    return digest.hexdigest()
+
+
+def cache_path(head, bake):
+    return os.path.join(PUB, "main", f"{head}_{bake}.csv")
 
 
 def main_root():
@@ -103,7 +145,7 @@ def poses(maps=None):
 
 
 def render(tree, target, out, rows, bake_root):
-    """Build the tree's pose_render, then render every pose (one process per map) under ci.lock + gpu.lock."""
+    """Build and render every pose. Caller holds ci.lock; renderer also takes gpu.lock."""
     env = dict(os.environ, CARGO_TARGET_DIR=target)
     r = subprocess.run(["cargo", "build", "--release", "-p", "game", "--example", "pose_render"],
                        cwd=os.path.join(tree, "engine"), env=env, capture_output=True, text=True)
@@ -124,7 +166,7 @@ def render(tree, target, out, rows, bake_root):
     sh = os.path.join(out, "render.sh")  # one line per map: too long for an argv
     open(sh, "w").write(script + "\n")
     t0 = time.time()
-    r = subprocess.run(["flock", LOCK, "flock", GPU_LOCK, "bash", sh], env=renv, cwd=os.path.join(tree, "engine"))
+    r = subprocess.run(["flock", GPU_LOCK, "bash", sh], env=renv, cwd=os.path.join(tree, "engine"))
     if r.returncode:
         sys.exit(f"pose_render failed (exit {r.returncode})")
     return time.time() - t0
@@ -225,13 +267,13 @@ def git_head(tree):
     return subprocess.run(["git", "-C", tree, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
 
 
-def publish(out, pm, allm, head):
+def publish(out, pm, allm, head, bake):
     import shutil
     os.makedirs(os.path.join(PUB, "main"), exist_ok=True)
     for f, g in (("scores.csv", "latest.csv"), ("summary.md", "summary.md"), ("worst.png", "worst.png")):
         if os.path.exists(os.path.join(out, f)):
             shutil.copy(os.path.join(out, f), os.path.join(PUB, g))
-    shutil.copy(os.path.join(out, "scores.csv"), os.path.join(PUB, "main", head + ".csv"))
+    shutil.copy(os.path.join(out, "scores.csv"), cache_path(head, bake))
     hp = os.path.join(PUB, "history.csv")
     new = not os.path.exists(hp)
     with open(hp, "a", newline="") as f:
@@ -271,8 +313,11 @@ def drop_renders(out):
             os.rmdir(d)
 
 
-def run_tree(tree, target, out, maps=None, bake=None, keep=False):
+def run_tree(tree, target, out, maps=None, bake=None, keep=False, *, locked=False):
     """Render and score every pose on `tree`'s build; returns (scores, per-map, all-maps mean, head)."""
+    if not locked:
+        with ci_lock():
+            return run_tree(tree, target, out, maps, bake, keep, locked=True)
     tree = os.path.abspath(tree)
     target = os.path.abspath(target or os.path.join(tree, "engine/target"))
     head = git_head(tree)
@@ -281,6 +326,10 @@ def run_tree(tree, target, out, maps=None, bake=None, keep=False):
         sys.exit(f"no poses for {maps}")
     secs = render(tree, target, out, rows, os.path.abspath(bake or BAKED))
     res = score_all(out, rows)
+    expected = {(m, spot) for m, spot, _, _ in rows}
+    missing = expected - {(r["map"], r["spot"]) for r in res}
+    if missing:
+        sys.exit("parity: missing selected scores: " + ", ".join(f"{m}/{spot}" for m, spot in sorted(missing)))
     pm, allm = summary(res, skipped, head, secs, out)
     worst_sheet(out, res)
     if not keep:
@@ -290,37 +339,44 @@ def run_tree(tree, target, out, maps=None, bake=None, keep=False):
     return res, pm, allm, head
 
 
-def cmd_run(a):
+def cmd_run(a, *, locked=False):
+    if not locked:
+        with ci_lock():
+            return cmd_run(a, locked=True)
     maps = set(a.maps.split(",")) if a.maps else None
     head = git_head(os.path.abspath(a.tree))
     out = os.path.abspath(a.out or os.path.join(ART, "lead_tmp/parity_runs", f"{datetime.datetime.now():%Y%m%d_%H%M%S}_{head[:8]}"))
-    res, pm, allm, head = run_tree(a.tree, a.target, out, maps, a.bake, a.keep_renders)
+    res, pm, allm, head = run_tree(a.tree, a.target, out, maps, a.bake, a.keep_renders, locked=True)
     if a.publish:
         if os.path.abspath(a.tree) != main_root() or maps or a.bake:
             sys.exit("--publish: only a full run of main's checkout over the shared bake is published")
-        publish(out, pm, allm, head)
+        publish(out, pm, allm, head, bake_fingerprint())
         print(f"published to {PUB}")
 
 
-def main_scores():
-    """Path of main HEAD's scores.csv: cached per sha in loop/parity/main/; rendered (main's checkout, its engine/target)
+def main_scores(*, locked=False):
+    """Path of main HEAD's scores.csv: cached per sha + bake in loop/parity/main/; rendered (main's checkout, its engine/target)
     and published when missing. None when main has no pose_render yet. One scorer at a time (loop/parity/main.lock)."""
+    if not locked:
+        with ci_lock():
+            return main_scores(locked=True)
     import fcntl
     os.makedirs(os.path.join(PUB, "main"), exist_ok=True)
     with open(os.path.join(PUB, "main.lock"), "w") as lk:
         fcntl.flock(lk, fcntl.LOCK_EX)
         root = main_root()
         head = git_head(root)
-        cache = os.path.join(PUB, "main", head + ".csv")
-        if os.path.exists(cache):
-            return cache
         if not os.path.exists(os.path.join(root, "engine/crates/game/examples/pose_render.rs")):
             return None
+        bake = bake_fingerprint()
+        cache = cache_path(head, bake)
+        if os.path.exists(cache):
+            return cache
         out = os.path.join(ART, "lead_tmp/parity_runs", f"main_{head[:10]}")
-        res, pm, allm, h2 = run_tree(root, None, out)
-        if h2 != head:
+        res, pm, allm, h2 = run_tree(root, None, out, locked=True)
+        if h2 != head or git_head(root) != head:
             sys.exit(f"main moved during the parity run ({head[:10]} -> {h2[:10]}) — rerun")
-        publish(out, pm, allm, head)
+        publish(out, pm, allm, head, bake)
         return cache
 
 
@@ -331,19 +387,28 @@ def cmd_main(a):
     print(p)
 
 
-def cmd_gate(a):
+def cmd_gate(a, *, locked=False):
     """Score the tree, score main, compare: exit 0 (no map past the threshold, or only allowed ones), 1 (a map regressed),
     3 (no main baseline). Writes <out>/parity.md and <out>/parity.json (for gates.py)."""
+    if not locked:
+        with ci_lock():
+            return cmd_gate(a, locked=True)
     out = os.path.abspath(a.out)
     allow = set(a.allow.split(",")) if a.allow else set()
-    res, pm, allm, head = run_tree(a.tree, a.target, os.path.join(out, "tree"))
-    base = a.base or main_scores()
+    res, pm, allm, head = run_tree(a.tree, a.target, os.path.join(out, "tree"), locked=True)
+    base = a.base or main_scores(locked=True)
     if not base:
         json.dump(dict(status="no-baseline", tree=allm), open(os.path.join(out, "parity.json"), "w"))
         open(os.path.join(out, "parity.md"), "w").write(f"tree mean block error {allm:.3f}; main has no pose_render — no baseline\n")
         print("parity gate: no main baseline (main predates pose_render)"); sys.exit(3)
     rows = compare(base, os.path.join(out, "tree", "scores.csv"), None, allow, a.threshold)
-    bm = sum(r["block"] for r in read_csv(base)) / max(1, len(read_csv(base)))
+    if not rows:
+        json.dump(dict(status="error", error="no common pairs"), open(os.path.join(out, "parity.json"), "w"))
+        open(os.path.join(out, "parity.md"), "w").write("Parity gate failed: no common pairs\n")
+        print("parity gate: no common pairs", file=sys.stderr)
+        sys.exit(2)
+    baseline = read_csv(base)
+    bm = sum(r["block"] for r in baseline) / max(1, len(baseline))
     L = [f"Parity gate: tree {head[:10]} vs main {os.path.basename(base)[:10]} — all-maps mean block error {allm:.3f} "
          f"(main {bm:.3f}); a map FAILS when it rises by more than {a.threshold} unless declared (parity=<maps>).", "",
          "| map | pairs | main | tree | delta | verdict |", "|---|---|---|---|---|---|"]

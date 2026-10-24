@@ -35,7 +35,9 @@ fn level0(path: &std::path::Path) -> Vec<u8> {
 }
 
 fn alpha_range(rgba: &[u8]) -> (u8, u8) {
-    rgba.chunks_exact(4)
+    rgba.as_chunks::<4>()
+        .0
+        .iter()
         .fold((255, 0), |(lo, hi), px| (lo.min(px[3]), hi.max(px[3])))
 }
 
@@ -92,8 +94,10 @@ fn only_the_maps_own_water_sheet_keeps_its_disc_alpha() {
     );
     assert!(
         baked1
-            .chunks_exact(4)
-            .zip(baked2.chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(baked2.as_chunks::<4>().0)
             .all(|(a, b)| a[..3] == b[..3]),
         "the clause touches the alpha channel and nothing else"
     );

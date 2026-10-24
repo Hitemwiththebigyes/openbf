@@ -7,7 +7,11 @@
 //! bake are the disc's, per map: which maps fog their water and from where,
 //! how far the surface reaches, how translucent it is and its colour. A bake change that
 //! silently dropped `fx__`'s LUT or its `DisableLowRes` would leave the unit
-//! tests green and only fail here.
+//! tests green and only fail here. Where the water reaches past its fog
+//! crossover, the baked scene fog must begin no earlier than the crossover,
+//! or the far water steps into fog at the seam. BF2 FEL1 fogs from 0 m but
+//! has no far layer (`FarSceneRange(0)`, water ends at the crossover), so
+//! it has no seam (`analysis/re-fog.md` §2, `re-water-flags.md` §5).
 //!
 //! Skips cleanly when the maps are not baked (`scripts/rebake.sh`).
 
@@ -74,6 +78,16 @@ fn every_water_map_takes_the_look_its_disc_authors() {
             .find(|e| e.0 == key.as_str())
             .unwrap_or_else(|| panic!("{key} has water and is not in the census"));
         let look = water_look(&manifest.source_game, &manifest.lighting, water);
+        if let (Some(fog), Some(begin), Some(far)) =
+            (manifest.lighting.fog.as_ref(), look.fog_begin, look.far)
+        {
+            assert!(
+                far <= begin || fog.near >= begin,
+                "{key}: scene fog starts at {} before water fog crossover {begin} \
+                 (water reaches {far})",
+                fog.near
+            );
+        }
         assert_eq!(look.fog_begin, row.1, "{key}: water fog crossover");
         assert!(
             look.far.is_some_and(|f| (f - row.2).abs() < 1e-3),

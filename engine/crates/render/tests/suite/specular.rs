@@ -16,12 +16,11 @@
 
 use glam::{Mat4, Vec3};
 use render::{
-    spec_texcoord, Camera, DrawCmd, DrawLayer, Lighting, SkinnedDrawCmd, SkinnedMeshData,
-    SkinnedMeshHandle,
+    spec_texcoord, Camera, DrawCmd, DrawLayer, Lighting, SkinnedDrawCmd, SkinnedMeshHandle,
 };
 
 use crate::common;
-use common::{capture_pixel, headless, upload_tex, view_quad, N};
+use common::{capture_pixel, headless, skinned_quad, upload_tex, view_quad, N};
 
 /// A renderer that shades a texel back as itself (flat white ambient, no
 /// sun term), with the sun TRAVELLING along `sun_dir` for the tex-gen.
@@ -129,7 +128,7 @@ fn a_pass_sheet_draw_leaves_the_frame_opaque() {
         .expect("frame");
     let (rgba, _, _) = r.capture_rgba().expect("capture");
     assert!(
-        rgba.chunks_exact(4).all(|px| px[3] == 255),
+        rgba.as_chunks::<4>().0.iter().all(|px| px[3] == 255),
         "base + add: every pixel must be opaque"
     );
     // +128 · 34/255 ≈ +17 in gamma units.
@@ -145,7 +144,7 @@ fn a_pass_sheet_draw_leaves_the_frame_opaque() {
         .expect("frame");
     let (rgba, _, _) = r.capture_rgba().expect("capture");
     assert!(
-        rgba.chunks_exact(4).all(|px| px[3] == 255),
+        rgba.as_chunks::<4>().0.iter().all(|px| px[3] == 255),
         "a blended draw over it must not write its alpha either"
     );
 }
@@ -230,26 +229,6 @@ fn the_texgen_is_spec_texcoord_mirrored_and_consistent() {
             "mirror {mirror}: t {t}, want {want}, got {px:?}"
         );
     }
-}
-
-/// [`view_quad`] as a skinned mesh: every vertex on joint 0 at full weight,
-/// so the palette's joint 0 is the quad's whole transform.
-fn skinned_quad(r: &mut render::Renderer, z: f32) -> SkinnedMeshHandle {
-    r.add_skinned_mesh(&SkinnedMeshData {
-        positions: &[
-            [-4.0, -4.0, z],
-            [4.0, -4.0, z],
-            [4.0, 4.0, z],
-            [-4.0, 4.0, z],
-        ],
-        normals: &[[0.0, 0.0, 1.0]; 4],
-        uvs: &[[0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]],
-        colors: None,
-        joints: &[[0, 0, 0, 0]; 4],
-        weights: &[[1.0, 0.0, 0.0, 0.0]; 4],
-        indices: &[0, 1, 2, 0, 2, 3],
-    })
-    .expect("skinned mesh upload")
 }
 
 /// A skinned opaque base at `palette`, with the model matrix left identity.

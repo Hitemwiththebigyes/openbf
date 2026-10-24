@@ -173,16 +173,7 @@ impl WalkerWorld for WorldContacts<'_> {
     }
 
     fn building_contacts(&self, c: Vec3, r: f32, out: &mut Vec<Contact>) {
-        if self.collision.bodies().is_empty() {
-            return;
-        }
-        let mut hits = Vec::new();
-        self.collision
-            .sphere_contacts(c, r, Layers::SOLDIER, &mut hits);
-        out.extend(
-            hits.into_iter()
-                .map(|(depth, normal)| Contact { depth, normal }),
-        );
+        self.buildings(Shape::Sphere { radius: r }, Mat4::from_translation(c), out);
     }
 }
 
@@ -315,7 +306,20 @@ impl Sim {
             _ => return false,
         }
         v.team = Some(team);
+        let ground = matches!(v.kind, VehicleKind::Hover | VehicleKind::Walker);
         self.units[u.index as usize].mount = Some(Mount { vehicle: vh, seat });
+        // VBAIL: use the sim entropy, never a tick/slot hash. Failed entries
+        // and player/flyer/turret entries consume no draw. The card's per-
+        // boarding lifetime is PROVISIONAL against the PS2 controller draw.
+        if crate::ai::VEHICLE_BAIL
+            && ground
+            && self.units[u.index as usize].controller == Controller::Ai
+        {
+            let draw = (self.rng.next_rand() % 101) as u8;
+            let r = self.units[u.index as usize].ai.ride.get_or_insert_default();
+            r.bail_draw = Some(draw);
+            r.bail_seen = false;
+        }
         true
     }
 
@@ -334,6 +338,10 @@ impl Sim {
         let Some(m) = unit.mount.take() else {
             return;
         };
+        if let Some(r) = unit.ai.ride.as_mut() {
+            r.bail_draw = None;
+            r.bail_seen = false;
+        }
         let Some(v) = self
             .vehicles
             .get_mut(m.vehicle.index as usize)

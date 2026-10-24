@@ -4,14 +4,14 @@ title: A per-tick sim-state hash stream: the port writes one canonical record pe
 milestone: M0
 value: 3
 phase: build
-status: todo
+status: done
 deps:
-files: engine/crates/core/src/sim/trace.rs,engine/crates/core/src/sim/mod.rs,engine/crates/game/src/main.rs,scripts/sim_gates.sh
+files: engine/crates/core/src/sim/trace.rs (new), engine/crates/core/src/sim/trace/tests.rs (new), engine/crates/core/src/sim.rs, engine/crates/game/src/main.rs, engine/crates/game/src/main/sim_trace.rs (new), scripts/sim_gates.sh, engine/CRATES.md, engine/artifacts/oracle/README.md (new)
 declares:
 needs:
 effort:
-branch:
-resume:
+branch: shash
+resume: (private workflow note omitted)
 created: 2026-10-08
 ---
 
@@ -38,3 +38,31 @@ created: 2026-10-08
 
 ## Notes
 Filed 2026-10-08 from the research note. Group order and the quanta are decided HERE; SHSRE/PSHASH/FDIFF conform. Does not need PCSX2 at all - ships and is useful (landing bisect) by itself.
+
+## Cloud build checkpoint (2026-10-24)
+
+Incomplete: isolated uncommitted candidate on `shash` at
+`engine/artifacts/lead_tmp/worktrees/shash`; continuation/patch/logs in
+`engine/artifacts/lead_tmp/shash_cloud/`. Original Acceptance remains owed.
+
+Format decisions: FIVE groups, matching the five named groups/columns above
+(the word FOUR was a counting error); dead slots included, unit identity is
+slot plus generation; posts use registration order; whole tickets and member
+kills/deaths per team; capture meters 1/256 s, timer floats 1/1024 s; exact
+elapsed/respawn tick integers; nearest rounding with ties away from zero;
+non-finite/out-of-range values error. Full tuples are decimal encoded integers
+with a 64 MiB error cap. Quanta come from trace.rs and are emitted in the header.
+
+Implemented fixture/map CLI and observational writer. The 600-tick fixture
+InputLog replays are byte-identical; a single ly high-byte change at frame 300
+first differs at record 300. A grounded core fixture's jump-byte variant first
+differs at 301. Independent decoder checks all 3,000 full-row group hashes per
+trace and rejects a corrupted LCG tuple. Existing 100/600 hashes unchanged.
+
+Still required: real-map replay and timing within 2% with restored
+`engine/assets_baked/tat1` and `engine/artifacts/p3_walk/{walk_demo,aim_demo}.ron`,
+full CI and auto/landing gates with restored gate inputs. No commit, push,
+landing or completed-card claim. Exact checks and evidence are in the report.
+
+## GitHub checkpoint recovery (2026-10-24)
+

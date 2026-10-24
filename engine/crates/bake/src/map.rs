@@ -453,9 +453,9 @@ pub fn bake_common(lvl_path: &str, outdir: &str, pc_lvl: Option<&str>) -> Result
 }
 
 /// Bake one map. `pc_lvl` is the matching PC-format LVL, if the local PC
-/// install is present: textures it holds at a LARGER size than the PS2 one
-/// replace them (see `crate::tier`). Passing `None` bakes PS2-only, which is
-/// what every BF1 map does.
+/// install is present: eligible larger textures become optional tier-2
+/// siblings beside the PS2 base (see `crate::tier`). `None` bakes PS2-only,
+/// as every BF1 map does.
 ///
 /// Beside the manifest it writes [`MAP_CLASSES_FILE`]: the map LVL's own
 /// entc/wpnc/ordc/expc PROPS in the side-classes format (`crate::classes`).
@@ -1058,7 +1058,7 @@ fn bake_content(
                     // NAME-only tern: no heightfield to bake.
                     eprintln!("tern 0x{:X}: stub (no heightfield)", c.offset);
                 } else {
-                    let t = mungefs::terrain::Terrain::parse(c)
+                    let mut t = mungefs::terrain::Terrain::parse(c)
                         .map_err(|e| anyhow!("tern 0x{:X}: {e}", c.offset))?;
                     if terrain_cutters.is_empty() {
                         terrain_cutters = t
@@ -1070,7 +1070,7 @@ fn bake_content(
                             })
                             .collect();
                     }
-                    if let Some(sheet) = t.lowres.clone() {
+                    if let Some(sheet) = t.lowres.take() {
                         let half = t.info.grid_unit * t.info.grid_size as f32 / 2.0;
                         lowres = Some((t.name.clone(), sheet, half));
                     }
@@ -1111,7 +1111,7 @@ fn bake_content(
                     continue;
                 }
                 let (mut prims, unknown) = manifest_prims(&p);
-                // Card STDOR: a door's prims rest where its bones bind.
+                // STDOR / RKHULT: door and map-local vehicle prims rest at bind.
                 bind_pose.rest_prims(&p.model, &mut prims);
                 collision[slot].prims = prims;
                 if unknown > 0 {
@@ -1480,6 +1480,11 @@ fn bake_content(
     let mut water_alpha_kept: Vec<String> = Vec::new();
     let mut consumed: Vec<String> = Vec::new();
     for t in &all_textures {
+        // Keep the existing companion writes/consumption order. Absent
+        // companions are removed only after their base is successfully emitted.
+        if crate::detail::companion(t, &all_textures).is_none() {
+            continue;
+        }
         if let Some(name) = crate::detail::write_detail_for(&tex_dir, t, &all_textures)? {
             consumed.push(name);
         }
@@ -1572,7 +1577,7 @@ fn bake_content(
         // 2026-09-03): the base file is ALWAYS the PS2 disc's pixels — the sim
         // reads only that — and the classic-plus override, where the chain has
         // one, is written beside it as `<name>.tier2.ktx2`. The renderer picks
-        // between them at runtime (a later item).
+        // between them at runtime.
         //
         // The alpha state is the PS2 texture's on BOTH files: force it opaque
         // where no draw wants alpha, and where a draw does want it, give the
@@ -1585,7 +1590,7 @@ fn bake_content(
         let carries_alpha = || {
             r.mips
                 .iter()
-                .any(|m| m.chunks_exact(4).any(|px| px[3] < 255))
+                .any(|m| m.as_chunks::<4>().0.iter().any(|px| px[3] < 255))
         };
         if !is_sky && unnamed && carries_alpha() {
             unnamed_kept.push(t.name.clone());
@@ -1607,10 +1612,12 @@ fn bake_content(
             o.take_alpha_from(&r);
             pc_alpha_substitutions.push(t.name.clone());
         }
-        r.write_ktx2(&tex_dir, &format!("{}.ktx2", t.name))?;
+        r.write_pair(&tex_dir, &t.name, tier2.as_ref())?;
+        if crate::detail::companion(t, &all_textures).is_none() {
+            crate::remove_optional_file(&tex_dir.join(crate::detail::detail_file(&lower)))?;
+        }
         if let Some(o) = &tier2 {
             let file = format!("{}.tier2.ktx2", t.name);
-            o.write_ktx2(&tex_dir, &file)?;
             texture_tiers.push((lower.clone(), o.tier.as_str().to_owned()));
             texture_tier2.push((lower.clone(), file));
         }

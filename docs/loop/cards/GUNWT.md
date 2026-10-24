@@ -4,14 +4,14 @@ title: BF1's AI driver waits in its seat for a gunner and the AI that answer boa
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: blocked
 deps: UTALK
 files: engine/crates/core/src/ai/ride.rs, engine/crates/core/src/sim/seats.rs, engine/crates/core/src/ai/hover_drive.rs, engine/crates/core/src/ai/walker_drive.rs, engine/crates/core/src/ai/behave.rs, engine/crates/core/src/sim/step.rs, engine/crates/core/src/ai.rs, engine/crates/core/src/ai/state.rs, engine/crates/core/src/squad.rs
 declares: sim; sweep
-needs:
+needs: environment restoration — baked game data/missions plus UTALK census kit and GUNWT raw reference evidence
 effort:
 branch:
-resume: RE done (021be44, analysis/re-driver-wait.md 7). Build step A (both games): a new pilot of a hover/walker waits from its next think - stands; done when every seat is occupied; past 4.0 s from the seat taken (BF2 4.0 s from the start) only while a team-mate's board claim restamped in the last 3 s holds; BF1 MOVE OUT / AT EASE in reach sets the window to now - 2 s; replaces VTAI's GUNNER_WAIT. Step B (BF1): the need-gunner call (0.3) at the wait's start AND on every seated set-out (UTALK's SET_OUT for a seated bot), no seat test; the AI on foot within 30 m answer and claim a free seat (seats - live claims - human-held seats) at their next think, walk to it, give up when the vehicle moves faster than 2 m/s. Referees: UTALK's census kit (lead_tmp/utalk/census run.sh + tab.py; TAT1 yes 12.0 / gate 4.25, NAB1 2.0 / 2.75 within 30 %), a 2-seat hover scene (driver stands, a bot 20 m off boards, leaves when full; alone: leaves 4 s after the seat), the sweep's boarding counts sorted NOISE / EXPOSED / CAUSED
+resume: Cloud preflight 20261024_0756: BLOCKED before implementation; baked maps/common/classes/vehicles, missions, UTALK census kit and GUNWT raw RE tools/states absent. Restore inputs, reproduce current-main census/boarding trace, then start isolated build for re-driver-wait section 7 A+B. Report engine/artifacts/loop/reports/20261024_0756_card_GUNWT.md. Original spec preserved below.
 created: 2026-10-16
 alpha: yes
 ---

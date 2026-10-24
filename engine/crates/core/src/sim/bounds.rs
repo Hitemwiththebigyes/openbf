@@ -605,7 +605,28 @@ impl Sim {
             .copied()
             .filter(|f| !f.is_nan())
     }
-
+    /// Nearest eligible floor hubs; the caller owns floor lookup and filtering.
+    pub(crate) fn nearest_floor_hubs<const N: usize>(
+        &self,
+        g: &crate::nav::NavGraph,
+        pos: Vec3,
+        floor: impl Fn(usize) -> Option<f32>,
+    ) -> [(f32, u16); N] {
+        let p = Vec2::new(pos.x, pos.z);
+        let mut near = [(f32::INFINITY, u16::MAX); N];
+        for (i, hub) in g.hubs.iter().enumerate() {
+            let Some(f) = floor(i) else { continue };
+            let d =
+                ((hub.xz() - p).length() - hub.radius).max(0.0) + LEVEL_RISE * (f - pos.y).abs();
+            let mut cand = (d, i as u16);
+            for slot in &mut near {
+                if cand.0 < slot.0 {
+                    std::mem::swap(slot, &mut cand);
+                }
+            }
+        }
+        near
+    }
     /// Where `feet` stands against the playable level (the module header's
     /// rule): on the terrain, in a trench cut into it, or no more than
     /// [`BOUND_DROP`] under the floor
@@ -646,20 +667,10 @@ impl Sim {
         // between their floor and the feet, weighted ([`LEVEL_RISE`]) so a
         // hub on the feet's own storey outranks one straight overhead (index
         // breaks ties).
-        let mut near: [(f32, u16); LEVEL_HUBS] = [(f32::INFINITY, u16::MAX); LEVEL_HUBS];
-        for (i, h) in g.hubs.iter().enumerate() {
+        let near = self.nearest_floor_hubs::<LEVEL_HUBS>(g, feet, |i| {
             let f = self.nav_floors[i];
-            if f.is_nan() {
-                continue;
-            }
-            let d = ((h.xz() - p).length() - h.radius).max(0.0) + LEVEL_RISE * (f - feet.y).abs();
-            let mut cand = (d, i as u16);
-            for slot in near.iter_mut() {
-                if cand.0 < slot.0 {
-                    std::mem::swap(slot, &mut cand);
-                }
-            }
-        }
+            (!f.is_nan()).then_some(f)
+        });
         // Walk from each hub toward the point, as far as the first barrier:
         // the floor reached there, against the feet. A walk that ends near
         // the point and level with it says ON; any walk that ends over it
@@ -714,19 +725,7 @@ impl Sim {
             }
         }
         let p = Vec2::new(feet.x, feet.z);
-        let mut near: [(f32, u16); RIM_HUBS] = [(f32::INFINITY, u16::MAX); RIM_HUBS];
-        for (i, h) in g.hubs.iter().enumerate() {
-            let Some(f) = self.nav_floor(i as u16) else {
-                continue;
-            };
-            let d = ((h.xz() - p).length() - h.radius).max(0.0) + LEVEL_RISE * (f - feet.y).abs();
-            let mut cand = (d, i as u16);
-            for slot in near.iter_mut() {
-                if cand.0 < slot.0 {
-                    std::mem::swap(slot, &mut cand);
-                }
-            }
-        }
+        let near = self.nearest_floor_hubs::<RIM_HUBS>(g, feet, |i| self.nav_floor(i as u16));
         let first = self.nav_floor(near[0].1)?;
         near.iter()
             .filter(|c| c.1 != u16::MAX)

@@ -4,14 +4,14 @@ title: BF2 Hoth's AT-AT as a mobile command post: spawn on it, its capture / los
 milestone: M2
 value: 3
 phase: re
-status: todo
+status: blocked
 deps:
 files:
 declares:
-needs:
+needs: Restore BF2 Hoth mission/bake and primary corpus/ELF/state toolkit; derive the BF2 mobile-post rule before code or picture acceptance.
 effort:
 branch:
-resume:
+resume: 2026-10-24 14:22 UTC: planner restoration hold; Restore BF2 Hoth mission/bake and primary corpus/ELF/state toolkit; derive the BF2 mobile-post rule before code or picture acceptance. Original measurable acceptance retained. reports/20261024_1422_planner.md; lead_tmp/planner_20261024_1417/preflight.json.
 created: 2026-10-21
 ---
 ## Why

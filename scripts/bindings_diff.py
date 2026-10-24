@@ -16,7 +16,6 @@ with analysis/a3-subsystem-map.md.
 """
 import argparse
 import re
-import sys
 from collections import OrderedDict
 from pathlib import Path
 

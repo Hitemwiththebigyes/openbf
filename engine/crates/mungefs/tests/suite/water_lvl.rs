@@ -2,15 +2,8 @@
 //! SKIP cleanly when it is absent). Expected values are the measurements in
 //! the `mungefs::water` module header.
 
-use mungefs::{chunks, open, water::Water, Chunk};
-
-fn lvl(rel: &str) -> Option<Vec<u8>> {
-    std::fs::read(format!(
-        "{}/../../../extracted/{rel}",
-        env!("CARGO_MANIFEST_DIR")
-    ))
-    .ok()
-}
+use super::support::{lvl, tern_of};
+use mungefs::water::Water;
 
 macro_rules! require_data {
     ($e:expr, $what:expr) => {
@@ -22,14 +15,6 @@ macro_rules! require_data {
             }
         }
     };
-}
-
-fn tern_of(buf: &[u8]) -> Chunk<'_> {
-    let inner = open(buf).unwrap();
-    chunks(inner)
-        .flatten()
-        .find(|c| &c.tag == b"tern")
-        .expect("a tern")
 }
 
 /// BF1 Kashyyyk Islands: the clearest water map on either disc — the whole

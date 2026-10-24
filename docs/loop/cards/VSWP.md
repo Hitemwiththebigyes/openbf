@@ -4,14 +4,14 @@ title: Seats the way the maintainer wants them (his words 2026-10-07): a player 
 milestone: M2
 value: 4
 phase: build
-status: parked
+status: blocked
 deps:
 files: engine/crates/core/src/sim/seats.rs,engine/crates/core/src/sim/guns.rs
 declares:
-needs: maintainer - RTX lost (vulkaninfo shows only the Intel iGPU + llvmpipe): reboot, then a land job takes this branch; every GPU-free gate identical to main, ci +4 tests
+needs: cloud prerequisites: branch vswp, baked assets, missions and reference evidence absent
 effort:
 branch: vswp
-resume: python3 scripts/land.py VSWP once vulkaninfo --summary lists the NVIDIA GPU (branch vswp 68a961d; gates lead_tmp/vswp/gates2/SUMMARY.md)
+resume: (private workflow note omitted)
 created: 2026-10-07
 alpha: yes
 ---
@@ -30,3 +30,4 @@ The maintainer, 2026-10-07: "a user should always be able to get in a teammate b
 
 ## Notes
 Filed 2026-10-07 by Claude in chat from the maintainer's questions. His words are quoted; the code facts were read by Claude from `core/src/sim/seats.rs`, `sim/guns.rs` and `ai/ride.rs` the same day.
+

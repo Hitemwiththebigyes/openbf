@@ -4,14 +4,14 @@ title: Vehicle shadow volumes, the data: parse shdw (NAME INFO SHDV SHDI half-ed
 milestone: M1
 value: 4
 phase: build
-status: todo
+status: blocked
 deps:
 files: engine/crates/mungefs/src/shdw.rs (new), engine/crates/mungefs/src/lib.rs, engine/crates/bake/src/vehicle.rs, engine/crates/manifest/src/lib.rs, engine/CRATES.md
 declares: rebake=side
-needs:
+needs: environment restoration: restore both discs 404 shadow chunks, vshd/shdw_check.py, fxc/census.tsv and BF1 ALL side bake
 effort:
 branch:
-resume: RE done (analysis/re-vehicle-shadow.md). Build the parser + bake per ## What to build; acceptance = the 404-chunk mungefs test + the X-wing's 9 pieces in the rebaked BF1 ALL manifest
+resume: 2026-10-24 09:20 UTC: planner prerequisite census; no implementation. Restore this card's inputs in lead_tmp/planner_20261024_0913/queue_preflight.json, recheck original acceptance/current-main baseline, then loopctl start for isolated build. Full CI and required gates remain; reports/20261024_0913_planner.md.
 created: 2026-10-16
 alpha: yes
 ---
@@ -74,3 +74,8 @@ The NAB1 X-wing pose rendered by the port (VREST's `--cam` recipe, `lead_tmp/vre
 the PS2 pair: the port's shadow band, measured the same way as `lead_tmp/fxc/ps2` (pixels darker with shadows on than off),
 covers 9.5 % +- 3 points of the frame with on / off brightness 0.63 +- 0.08; plus a mungefs test that parses every disc
 `shdw` (240 BF1 + 164 BF2 chunks) without error.
+No implementation or acceptance run. Restore both discs 404 shadow chunks, vshd/shdw_check.py, fxc/census.tsv and BF1 ALL side bake.
+Exact checked paths (some diagnostic candidates), file counts and controls: `lead_tmp/planner_20261024_0913/queue_preflight.json`;
+coordinator repeat: `lead_tmp/planner_20261024_0913/coordinator_preflight.json`.
+Original acceptance remains required; skipped/empty-data tests and historical receipts do not pass it.
+After restoration recheck inputs, reproduce current-main baselines and use an isolated build with full applicable gates.

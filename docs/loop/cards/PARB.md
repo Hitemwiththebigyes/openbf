@@ -4,13 +4,14 @@ title: parity.py: the gate can score the tree and main over different shared bak
 milestone: M0
 value: 2
 phase: build
-status: todo
+status: blocked
 deps:
-files: scripts/parity.py
+files: scripts/parity.py, scripts/tests/test_parity_bake.py, scripts/tests/test_parity_inputs.py
 declares:
-needs:
+needs: one real gates.py parity PASS in a normal landing (the whole-bake fingerprint fix is committed; CI is green once CLN6's water_look fix landed)
+effort:
 branch:
-resume:
+resume: (private workflow note omitted)
 created: 2026-09-30
 ---
 ## Why
@@ -31,3 +32,15 @@ The parity score then counts those props as PS2-only pixels on every pose that s
 battle.rs: `load_common(baked_root()/common_<game>)` then `scene.merge_common(c)`. It is proven in
 `lead_tmp/audit-vtur2/audit_pose.rs`: the pads then draw where the PS2's do (COR1 walk/cp1_cp2_b090, TAT2
 walk/cp1_cp2_b270). Expect parity to move on maps with common props: declare it as a parity re-baseline.
+
+## Cloud source checkpoint (2026-10-24)
+Implemented SHA + manifest-content cache identity and one CI hold across gate
+builds/renders/main-cache/publication. Legacy SHA-only CSVs are ignored. Four
+synthetic fixtures cover changed-manifest rescoring at fixed HEAD, inventory/path
+identity, real OS lock exclusion and renderer lock nesting. Parity11 and the
+full Python92 suite PASS (one corpus-dependent skip); constant-fingerprint and
+no-lock mutants each fail two referees. See reports/20261024_1800_card_PARB.md.
+The old common-props note above is historical: pose_render currently calls
+`assets::load_battle_scene` (SKIPC), including COMMON by default. No scene edit
+or parity rebaseline is part of this source checkpoint.
+

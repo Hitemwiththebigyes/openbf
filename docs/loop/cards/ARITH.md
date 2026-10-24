@@ -4,14 +4,14 @@ title: A tiny deterministic arithmetic helper for RE sessions - int convert (hex
 milestone: M0
 value: 3
 phase: build
-status: todo
+status: done
 deps:
-files: scripts/re_calc.py,scripts/re_calc_selftest.sh,engine/artifacts/briefs/LOOP_PROMPT.md
+files: scripts/re_calc.py, scripts/re_calc_selftest.sh, scripts/re_check.py, scripts/gates_selftest.py, engine/artifacts/briefs/LOOP_PROMPT.md
 declares:
 needs:
 effort:
-branch:
-resume:
+branch: arith
+resume: (private workflow note omitted)
 created: 2026-10-08
 ---
 
@@ -36,3 +36,6 @@ Research rec. 7 (Lewis; ida-pro-mcp ships `int_convert` for this reason): struct
 
 ## Notes
 Keep it a single file under ~200 lines; no MCP wrapper (research suggests a typed tool, but a CLI the RE session already calls via Bash is the smallest thing). If GHMCP lands GO, an MCP wrapper can be a follow-up.
+
+## GitHub checkpoint recovery (2026-10-24)
+

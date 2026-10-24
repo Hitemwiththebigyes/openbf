@@ -15,7 +15,11 @@ fn common_bf1() -> Option<String> {
 }
 
 fn alpha_zero(rgba: &[u8]) -> usize {
-    rgba.chunks_exact(4).filter(|px| px[3] == 0).count()
+    rgba.as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|px| px[3] == 0)
+        .count()
 }
 
 #[test]

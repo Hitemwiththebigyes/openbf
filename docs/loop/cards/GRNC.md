@@ -4,14 +4,14 @@ title: The floor census as a kept tool, and the holes GRND left: commit examples
 milestone: M3
 value: 3
 phase: measure
-status: todo
+status: blocked
 deps:
 files: engine/crates/game/examples/floor_census.rs,engine/crates/core/src/collision/rays.rs
 declares:
-needs:
+needs: environment — restore census kit, 32 baked maps and PCSX2 render/drop-test inputs; see lead_tmp/grnc_cloud/preflight.json
 effort:
 branch:
-resume:
+resume: Restore exact inputs in lead_tmp/grnc_cloud/preflight.json; reconcile historical 0.3 m A/B/ground-hole metrics with GRNC 0.05 m criterion; recover instrument traps, keep and validate floor_census.rs, census all 32 maps and render/classify every >0.3 m cluster on eight required maps. See reports/20261024_1238_card_GRNC.md and lead_tmp/grnc_cloud/next_prompt.md.
 created: 2026-10-01
 ---
 ## Why

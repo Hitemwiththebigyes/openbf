@@ -608,6 +608,23 @@ struct HoverClock {
 const CORPSE_SECS: f32 = 6.0;
 
 impl SoldierVisuals {
+    /// Load the battle's soldier models and install its turret and walker rigs.
+    pub fn for_walk(
+        r: &mut Renderer,
+        assets_dir: &Path,
+        scene: &crate::assets::Scene,
+        walk: &WalkSim,
+    ) -> Self {
+        let mut vis = Self::load(r, assets_dir, &scene.manifest.source_game, &walk.teams);
+        vis.set_turrets(tp::rigged_turrets(scene));
+        vis.set_walker_rigs(crate::viewer::walker_rigs(
+            &scene.manifest,
+            assets_dir,
+            &walk.vehicle_geometry,
+        ));
+        vis
+    }
+
     /// Load every class model both teams name, from
     /// `assets_dir/side_<game>/soldiers/`. Classes whose GLB is missing take
     /// their team's first class's asset; a team with no model at all keeps

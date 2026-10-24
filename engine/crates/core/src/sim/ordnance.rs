@@ -272,12 +272,26 @@ impl Sim {
         // put right — the place and the real fuse — once it lies still.
         let ticks = |s: f32| (s * crate::TICK_HZ as f32).ceil() as u64;
         if first {
+            let id = self
+                .last_warning_id
+                .checked_add(1)
+                .expect("grenade warning identity exhausted");
             self.add_hazard_by(g.pos, ticks(g.life + HAZARD_BOUNCE_TIME), Some(g.owner));
+            self.last_warning_id = id;
+            g.warning_id = Some(id);
+            self.hazards
+                .last_mut()
+                .expect("warning just inserted")
+                .warning_id = Some(id);
         }
         if matches!(out, Contact::Rest | Contact::Stuck) {
-            let (since, now) = (g.touched.unwrap_or(self.tick), self.tick);
+            let now = self.tick;
             let fuse = ticks(g.life.min(life_span));
-            if let Some(z) = self.hazards.iter_mut().rev().find(|z| z.since == since) {
+            if let Some(z) = self
+                .hazards
+                .iter_mut()
+                .find(|z| g.warning_id.is_some() && z.warning_id == g.warning_id)
+            {
                 z.pos = g.pos;
                 z.until = now + fuse;
             }
@@ -378,9 +392,13 @@ impl Sim {
             pos: g.pos,
             weapon_class: wc as u32,
         });
-        if let Some(since) = g.touched {
+        if g.warning_id.is_some() {
             let now = self.tick;
-            if let Some(z) = self.hazards.iter_mut().rev().find(|z| z.since == since) {
+            if let Some(z) = self
+                .hazards
+                .iter_mut()
+                .find(|z| g.warning_id.is_some() && z.warning_id == g.warning_id)
+            {
                 z.until = now;
             }
         }
@@ -403,6 +421,166 @@ mod tests {
     use crate::unit::{SlotSpec, UnitHandle, UnitSpec};
     use crate::weapon::{ExplosionClass, OrdnanceClass, Thrown, WeaponClass};
     use crate::TICK_DT;
+
+    /// Same-owner warnings are linked to instances, even when contacts share
+    /// a tick and unrelated warnings are compacted out of the vector.
+    #[test]
+    fn same_tick_grenades_keep_their_own_warnings() {
+        let mut s = Sim::empty(7);
+        s.heightfield = Some(flat_ground());
+        let owner = s
+            .spawn(&UnitSpec::trooper(0, Vec3::new(0.0, 0.0, 40.0)))
+            .unwrap();
+        let mut wc = thermal(true);
+        let class = wc.ordnance.sticky.as_mut().unwrap();
+        class.stick_mask = 0;
+        class.explosion = None;
+        let class = class.clone();
+        let first_class = s.add_weapon_class(wc.clone());
+        wc.ordnance.life_span = 1.5;
+        let second_class = s.add_weapon_class(wc);
+        s.add_hazard(Vec3::ZERO, 1);
+        let mut a = Sticky::new(
+            Vec3::new(-5.0, 0.1, 0.0),
+            Vec3::new(2.0, -5.0, 0.0),
+            &class,
+            0.6,
+            owner,
+            0,
+            first_class,
+        );
+        let mut b = Sticky::new(
+            Vec3::new(5.0, 0.1, 0.0),
+            Vec3::new(-2.0, -9.0, 0.0),
+            &class,
+            1.5,
+            owner,
+            0,
+            second_class,
+        );
+        assert!(s.tick_sticky(&mut a, TICK_DT));
+        assert!(s.tick_sticky(&mut b, TICK_DT));
+        assert_eq!(a.touched, Some(0));
+        assert_eq!(a.touched, b.touched);
+        assert!(a.moving && b.moving, "first contacts bounce");
+        assert_ne!(a.warning_id, b.warning_id);
+        let (mut alive_a, mut alive_b) = (true, true);
+        let (mut rested_a, mut rested_b, mut first_expired_alone) = (false, false, false);
+        for tick in 1..600 {
+            s.tick = tick;
+            // Compact the unrelated warning. Keep grenade warnings through
+            // their burn tick so expiry matching can be inspected even if a
+            // rounded deadline becomes due one tick before the float fuse.
+            s.hazards.retain(|z| z.warning_id.is_some());
+            let (was_moving_a, was_moving_b) = (a.moving, b.moving);
+            if alive_a {
+                alive_a = s.tick_sticky(&mut a, TICK_DT);
+            }
+            if alive_b {
+                alive_b = s.tick_sticky(&mut b, TICK_DT);
+            }
+            for (g, alive, was_moving, rested) in [
+                (&a, alive_a, was_moving_a, &mut rested_a),
+                (&b, alive_b, was_moving_b, &mut rested_b),
+            ] {
+                // A's warning is deliberately compacted after detonation.
+                if !alive && *rested {
+                    continue;
+                }
+                let z = s
+                    .hazards
+                    .iter()
+                    .find(|z| z.warning_id == g.warning_id)
+                    .expect("own warning before detonation compaction");
+                assert_eq!(z.since, 0, "reaction clock stays at first contact");
+                assert_eq!(z.owner, Some(owner));
+                if alive && was_moving && !g.moving {
+                    *rested = true;
+                    assert_eq!(z.pos, g.pos, "rest corrects only its own warning");
+                    let span = s.weapon_classes[g.weapon_class].ordnance.life_span;
+                    assert_eq!(
+                        z.until,
+                        tick + (g.life.min(span) * crate::TICK_HZ as f32).ceil() as u64
+                    );
+                }
+            }
+            if !alive_a && alive_b && !first_expired_alone {
+                let a_warning = s
+                    .hazards
+                    .iter()
+                    .find(|z| z.warning_id == a.warning_id)
+                    .unwrap();
+                assert_eq!(a_warning.until, tick, "A expires its own warning");
+                let b_warning = s
+                    .hazards
+                    .iter()
+                    .find(|z| z.warning_id == b.warning_id)
+                    .unwrap();
+                assert!(
+                    b_warning.until > tick,
+                    "B retains its separate later warning"
+                );
+                s.hazards.retain(|z| z.warning_id != a.warning_id);
+                first_expired_alone = true;
+            }
+            if !alive_a && !alive_b {
+                let b_warning = s
+                    .hazards
+                    .iter()
+                    .find(|z| z.warning_id == b.warning_id)
+                    .unwrap();
+                assert_eq!(
+                    b_warning.until, tick,
+                    "B expires its own warning after compaction"
+                );
+                break;
+            }
+        }
+        assert!(rested_a && rested_b && first_expired_alone);
+        assert!(!alive_a && !alive_b);
+    }
+
+    #[test]
+    fn warning_links_and_allocator_are_observed_by_the_hash() {
+        let mut s = Sim::empty(7);
+        let baseline = s.hash();
+        s.add_hazard(Vec3::ZERO, 10);
+        let unlinked = s.hash();
+        s.hazards[0].warning_id = Some(1);
+        assert_ne!(s.hash(), unlinked);
+        let linked = s.hash();
+        s.hazards[0].warning_id = Some(2);
+        assert_ne!(s.hash(), linked);
+        s.hazards.clear();
+        assert_eq!(s.hash(), baseline, "external warnings issue no identity");
+        s.last_warning_id = 1;
+        assert_ne!(
+            s.hash(),
+            baseline,
+            "allocator history survives empty vectors"
+        );
+        let c = StickyClass::new(true);
+        let mut g = Sticky::new(
+            Vec3::ZERO,
+            Vec3::Y,
+            &c,
+            1.0,
+            UnitHandle { index: 0, gen: 1 },
+            0,
+            0,
+        );
+        let bytes = |g: &Sticky| {
+            let mut bytes = Vec::new();
+            g.hash_into(&mut |part| bytes.extend_from_slice(part));
+            bytes
+        };
+        let no_link = bytes(&g);
+        g.warning_id = Some(1);
+        let first_link = bytes(&g);
+        assert_ne!(first_link, no_link);
+        g.warning_id = Some(2);
+        assert_ne!(bytes(&g), first_link);
+    }
 
     /// The thermal detonator as the discs author it (`re-grenades.md` §9):
     /// BF1 ShotDelay 1.4, wind-up 0.3, fuse 0.9; BF2 1.3, 0.51, 0.6.
@@ -904,8 +1082,6 @@ mod tests {
         assert_eq!(a_blast, rest + 18);
     }
 
-    /// A unit with one weapon is untouched by any of this: no held slots,
-    /// the same hash stream as before the card.
     /// Card GRFL: a grenade thrown down at 48 deg onto a level MESH floor (a
     /// two-triangle sheet, either winding) bounces and rests on it. The steep
     /// impact leaves along the normal (f = 1), so the next sweep starts
@@ -975,6 +1151,7 @@ mod tests {
         }
     }
 
+    /// A unit with one weapon retains its channels, held slots and ordnance.
     #[test]
     fn a_one_weapon_unit_has_no_channels() {
         let mut s = Sim::empty(7);

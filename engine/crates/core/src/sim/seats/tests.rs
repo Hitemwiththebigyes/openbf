@@ -350,3 +350,167 @@ fn a_hover_driven_at_a_closed_body_stays_outside() {
     assert!(nearest < -30.0, "it reached the wall: {nearest}");
     assert!(fastest > 23.0, "at speed: {fastest} m/s");
 }
+
+/// Failed public entry must preserve the occupant and both mounts.
+#[test]
+fn refused_takeovers_do_not_evict_the_rider() {
+    let (mut s, p, v) = world(Vec3::new(0.0, 2.0, -6.0), None, true);
+    let ai = s.spawn(&UnitSpec::trooper(0, Vec3::X * 3.0)).unwrap();
+    assert!(s.seat_unit(ai, v, 0));
+    let rider_pos = s.unit(ai).unwrap().soldier.pos;
+    let stale = UnitHandle {
+        gen: p.gen + 1,
+        ..p
+    };
+    assert!(!s.enter_vehicle(stale, v, 0));
+    let dead = s.spawn(&UnitSpec::trooper(0, Vec3::X * 9.0)).unwrap();
+    s.kill_environment(dead, crate::sim::DeathCause::KillFloor);
+    assert!(!s.enter_vehicle(dead, v, 0));
+    assert!(s.seat_unit(p, v, 1));
+    assert!(!s.enter_vehicle(p, v, 0));
+    assert_eq!(s.vehicle(v).unwrap().seats[0].occupant, Some(ai));
+    assert_eq!(s.unit(ai).unwrap().soldier.pos, rider_pos);
+    assert_eq!(s.unit(ai).unwrap().mount.unwrap().seat, 0);
+    assert_eq!(s.unit(p).unwrap().mount.unwrap().seat, 1);
+    s.unseat_unit(p);
+    assert!(s.enter_vehicle(p, v, 0), "human can replace an AI");
+    assert!(!s.enter_vehicle(ai, v, 0), "AI cannot replace a human");
+    assert_eq!(s.vehicle(v).unwrap().seats[0].occupant, Some(p));
+    assert!(s.unit(ai).unwrap().mount.is_none());
+}
+
+/// SQVEH's follower slice, independent of baked assets. The free seats in
+/// `world` have no guns: following must not use autonomous gunner eligibility.
+fn sqveh_follower(s: &mut Sim, leader: UnitHandle, at: Vec3) -> UnitHandle {
+    let bot = s
+        .spawn(&UnitSpec {
+            controller: Controller::Ai,
+            ..UnitSpec::trooper(0, at)
+        })
+        .unwrap();
+    s.issue_command(0, crate::squad::CommandKind::Follow(leader));
+    assert!(s.unit(bot).unwrap().command.is_some());
+    bot
+}
+
+#[test]
+fn sqveh_follower_walks_to_leaders_vehicle_and_boards_within_two_seconds() {
+    let (mut s, p, v) = world(Vec3::new(0.0, 2.0, -6.0), None, true);
+    let bot = sqveh_follower(&mut s, p, Vec3::new(0.0, 0.0, 8.0));
+    // A directed board must still work during an autonomous-search cooldown.
+    s.unit_mut(bot).unwrap().ai.ride = Some(crate::ai::RideState {
+        block_until: 20 * u64::from(crate::TICK_HZ),
+        ..Default::default()
+    });
+    assert!(s.enter_vehicle(p, v, 0));
+    let mut boarded_at = None;
+    for _ in 0..2 * crate::TICK_HZ {
+        s.step(&[PadState::default()]);
+        if let Some(m) = s.unit(bot).unwrap().mount {
+            assert_eq!((m.vehicle, m.seat), (v, 1));
+            boarded_at = Some(s.tick);
+            break;
+        }
+    }
+    let tick = boarded_at.expect("the follower boards within 2 s");
+    assert!(tick > 1, "starts outside the boarding radius and must walk");
+    assert_eq!(s.unit(bot).unwrap().command, None);
+    assert_eq!(s.unit(bot).unwrap().ai.cmd, None);
+    assert_eq!(s.nav_stats.ai_boards, 1);
+    println!(
+        "SQVEH follower: boarded at tick {tick}, {:.3} s",
+        tick as f32 * crate::TICK_DT
+    );
+}
+
+#[test]
+fn sqveh_full_vehicle_releases_follower_within_one_think() {
+    let (mut s, p, v) = world(Vec3::new(0.0, 2.0, -6.0), None, true);
+    let bot = sqveh_follower(&mut s, p, Vec3::ZERO);
+    for k in 1..4 {
+        let passenger = s.spawn(&UnitSpec::trooper(0, Vec3::ZERO)).unwrap();
+        assert!(s.enter_vehicle(passenger, v, k));
+    }
+    assert!(s.enter_vehicle(p, v, 0));
+    for _ in 0..crate::ai::THINK_PERIOD {
+        s.step(&[PadState::default()]);
+    }
+    assert!(s.unit(bot).unwrap().mount.is_none());
+    assert!(s.unit(bot).unwrap().command.is_none());
+    assert_eq!(s.nav_stats.releases, 1);
+}
+
+#[test]
+fn sqveh_two_followers_compete_for_one_seat_without_displacing_riders() {
+    let (mut s, p, v) = world(Vec3::new(0.0, 2.0, -6.0), None, true);
+    let bots = [
+        sqveh_follower(&mut s, p, Vec3::ZERO),
+        sqveh_follower(&mut s, p, Vec3::X),
+    ];
+    s.seat_setup[0].as_mut().unwrap().boardable = vec![true, true, false, false];
+    assert!(s.enter_vehicle(p, v, 0));
+    for _ in 0..crate::ai::THINK_PERIOD * 2 {
+        s.step(&[PadState::default()]);
+    }
+    assert_eq!(
+        bots.iter()
+            .filter(|&&b| s.unit(b).unwrap().mount.is_some())
+            .count(),
+        1
+    );
+    assert!(bots.iter().all(|&b| s.unit(b).unwrap().command.is_none()));
+    assert_eq!(s.vehicle(v).unwrap().seats[0].occupant, Some(p));
+    println!("SQVEH competition: 2 followers / 1 free seat -> 1 boarded, 1 released");
+}
+
+#[test]
+fn sqveh_holder_and_follower_of_an_unmounted_leader_do_not_board() {
+    let (mut s, p, v) = world(Vec3::new(0.0, 2.0, -6.0), None, true);
+    let bot = sqveh_follower(&mut s, p, Vec3::ZERO);
+    s.ai_use_pass();
+    assert!(s.unit(bot).unwrap().mount.is_none());
+    s.unit_mut(bot).unwrap().command.as_mut().unwrap().kind =
+        crate::squad::CommandKind::Hold(Vec3::ZERO);
+    assert!(s.enter_vehicle(p, v, 0));
+    s.ai_use_pass();
+    assert!(s.unit(bot).unwrap().mount.is_none());
+    assert_eq!(s.nav_stats.ai_boards, 0);
+}
+
+#[test]
+fn sqveh_follower_never_boards_after_leader_has_left_or_died() {
+    let (mut s, p, v) = world(Vec3::new(0.0, 2.0, -6.0), None, true);
+    let bot = sqveh_follower(&mut s, p, Vec3::ZERO);
+    assert!(s.enter_vehicle(p, v, 0));
+    s.exit_vehicle(p);
+    s.ai_use_pass();
+    assert!(s.unit(bot).unwrap().mount.is_none());
+    assert!(s.enter_vehicle(p, v, 0));
+    s.kill_environment(p, crate::sim::DeathCause::Fall);
+    s.ai_use_pass();
+    assert!(s.unit(bot).unwrap().mount.is_none());
+}
+
+#[test]
+fn sqveh_following_cancels_an_old_autonomous_board_request() {
+    let (mut s, p, v) = world(Vec3::new(0.0, 2.0, -6.0), None, true);
+    let bot = sqveh_follower(&mut s, p, Vec3::new(0.0, 0.0, 20.0));
+    assert!(s.enter_vehicle(p, v, 0));
+    s.unit_mut(bot).unwrap().ai.ride = Some(crate::ai::RideState {
+        board: Some(v),
+        use_req: true,
+        block_until: 600,
+        ..Default::default()
+    });
+    // Before its next think an old request must not be serviced or shorten
+    // the active cooldown just because the leader's vehicle is out of reach.
+    s.ai_use_pass();
+    assert_eq!(s.unit(bot).unwrap().ai.ride.unwrap().block_until, 600);
+    s.step(&[PadState::default()]);
+    let u = s.unit(bot).unwrap();
+    assert!(u.mount.is_none());
+    let r = u.ai.ride.unwrap();
+    assert!(r.board.is_none());
+    assert!(!r.use_req);
+    assert_eq!(r.block_until, 600);
+}

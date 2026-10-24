@@ -4,14 +4,14 @@ title: The right stick's turn ramps up as on the PS2: a held stick starts at 48 
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: blocked
 deps:
 files: engine/crates/input/src/lib.rs, engine/crates/core/src/sim/input.rs, engine/crates/core/src/soldier.rs, engine/crates/core/src/soldier/tests.rs, engine/crates/core/src/aim_assist.rs, engine/crates/core/src/sim/seats.rs, engine/crates/game/src/roster.rs
 declares: sim; sweep; arena
 needs:
 effort:
 branch:
-resume: build per the card's Build spec 1-5 and the rewritten Acceptance; RE in analysis/re-look-ramp.md; the PS2 rows and the reference model rows.py are in engine/artifacts/lead_tmp/lookr; run the branch gates once and narrow declares (goldens none expected)
+resume: Cloud preflight 2026-10-24: restore lead_tmp/lookr PS2 CSVs for both games (full,0.5,0.8,0.9,0.95,0.98), tools/rows.py and verifier/check receipts; baked assets, missions and approved GPU gate environment missing. No implementation or branch. See reports/20261024_0813_card_LOOKR.md; then requeue build spec 1-5, fixture replays and five mutations, CI and branch gates before landing.
 created: 2026-10-06
 alpha: yes
 ---

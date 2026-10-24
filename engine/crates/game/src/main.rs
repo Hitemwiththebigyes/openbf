@@ -2,7 +2,10 @@
 //! the start; the map viewer, walk mode, the shell, the bench, the orbit
 //! capture and the scene report were added phase by phase.
 //!
+//!   --aim-replay <out-dir>      scripted target/cone/friend/range/wall referee (no GPU)
 //!   --sim-hash <ticks>            run N ticks (idle input), print state hash
+//!   --sim-trace <out> <ticks> [--input <log.ron>] [--seed S] [--map <baked-dir>]
+//!     --trace-full               include quantized tuples (64 MiB cap)
 //!   --replay <log.ron>            run an input log, print final hash
 //!   (no args) | --shell           BF2-style instant-action shell (windowed)
 //!     --assets <dir>              baked maps root (default assets_baked)
@@ -120,6 +123,8 @@
 mod battle;
 #[path = "main/headless.rs"]
 mod headless;
+#[path = "main/sim_trace.rs"]
+mod sim_trace;
 #[path = "main/windowed.rs"]
 mod windowed;
 
@@ -226,6 +231,8 @@ fn main() -> Result<()> {
             println!("packed {} files into {}", entries.len(), out.display());
             Ok(())
         }
+        "--aim-replay" => headless::run_aim_replay(&args[1..]),
+        "--sim-trace" => sim_trace::run(&args[1..]),
         "--sim-hash" => {
             let n: u64 = it
                 .next()

@@ -38,6 +38,28 @@ use crate::hud_draw::{
 use crate::hud_tree::{HAlign, FRAME_H, FRAME_W};
 use glam::{Mat4, Vec3};
 
+pub(crate) const TITLE_PIECES: [&str; 3] = [
+    "bf2_buttons_topleft",
+    "bf2_buttons_title_center",
+    "bf2_buttons_topright",
+];
+
+pub(crate) fn item_pieces(last: bool) -> [&'static str; 3] {
+    if last {
+        [
+            "bf2_buttons_botleft",
+            "bf2_buttons_items_center",
+            "bf2_buttons_botright",
+        ]
+    } else {
+        [
+            "bf2_buttons_midleft",
+            "bf2_buttons_items_center",
+            "bf2_buttons_midright",
+        ]
+    }
+}
+
 /// The menu buttons' font (`gMenuButtonFont`, `re-bf2-shell.md` §3.1).
 pub const BUTTON_FONT: &str = "gamefont_large";
 /// The help lines' and the class panel's font: their measured widths fit
@@ -238,7 +260,7 @@ impl Ctx<'_> {
         );
     }
 
-    /// One text run in the shell's units; `None` when the font is missing.
+    /// One text run in the shell's units; skips missing fonts.
     pub(crate) fn label(
         &mut self,
         s: &Screen,
@@ -378,15 +400,7 @@ impl Ctx<'_> {
                     [x0, y, x1, y + ROW_H]
                 };
                 let r = row(0);
-                self.bar(
-                    &s,
-                    r,
-                    [
-                        "bf2_buttons_topleft",
-                        "bf2_buttons_title_center",
-                        "bf2_buttons_topright",
-                    ],
-                );
+                self.bar(&s, r, TITLE_PIECES);
                 let mid = r[1] + (ROW_H - lh) * 0.5;
                 self.label(
                     &s,
@@ -398,21 +412,7 @@ impl Ctx<'_> {
                 );
                 for (k, text) in rows.iter().enumerate() {
                     let r = row(k + 1);
-                    let last = k + 1 == rows.len();
-                    let pieces = if last {
-                        [
-                            "bf2_buttons_botleft",
-                            "bf2_buttons_items_center",
-                            "bf2_buttons_botright",
-                        ]
-                    } else {
-                        [
-                            "bf2_buttons_midleft",
-                            "bf2_buttons_items_center",
-                            "bf2_buttons_midright",
-                        ]
-                    };
-                    self.bar(&s, r, pieces);
+                    self.bar(&s, r, item_pieces(k + 1 == rows.len()));
                     let style = if k == *selected {
                         SELECTED_TEXT
                     } else {
@@ -436,15 +436,7 @@ impl Ctx<'_> {
                 ..
             } => {
                 let s = screen_at(size, Anchor::Centre);
-                self.bar(
-                    &s,
-                    CLASS_TAB,
-                    [
-                        "bf2_buttons_topleft",
-                        "bf2_buttons_title_center",
-                        "bf2_buttons_topright",
-                    ],
-                );
+                self.bar(&s, CLASS_TAB, TITLE_PIECES);
                 let lh = self.line_height(SMALL_FONT);
                 let [x0, y0, x1, y1] = CLASS_TAB;
                 let at = ((x0 + x1) * 0.5, y0 + (y1 - y0 - lh) * 0.5);

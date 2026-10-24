@@ -1,5 +1,5 @@
 //! Card TPOS: the position table's and the Tactician's tests (out of
-//! line: `tactic.rs` is under the 2,000-line cap).
+//! line from the implementation in `tactic.rs`).
 
 use super::*;
 use crate::ai::FightState;
@@ -1138,6 +1138,7 @@ fn a_position_by_a_grenade_is_not_chosen() {
         since: 0,
         until: u64::MAX,
         owner: None,
+        warning_id: None,
     });
     assert!(ask(&sim, h, e, None).is_none(), "by the grenade");
 }

@@ -138,8 +138,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&out);
     }
 
-    /// Data-gated Tier-1: BF2 LOAD/TAT2.LVL → 6 Mos Eisley stills (pool);
-    /// LOAD/COMMON.LVL → the single generic `loadscreen`.
+    /// Data-gated Tier-1: BF2 LOAD/TAT2.LVL → 6 Mos Eisley stills (pool).
     #[test]
     fn bf2_tat2_loadscreen_pool() {
         let p = concat!(
@@ -158,11 +157,23 @@ mod tests {
             ["mos_1", "mos_2", "mos_3", "mos_4", "mos_5", "mos_6"]
         );
         assert!(ls.extras.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Data-gated Tier-1: BF2 LOAD/COMMON.LVL → the single generic `loadscreen`.
+    #[test]
+    fn bf2_common_loadscreen_pool() {
         let c = concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../../extracted/bf2/lvl/DATA/_LVL_PS2/LOAD/COMMON.LVL"
         );
-        let common = bake_loadscreen(c, dir.join("common").to_str().unwrap()).unwrap();
+        if !std::path::Path::new(c).exists() {
+            eprintln!("SKIP: BF2 LOAD/COMMON.LVL not present");
+            return;
+        }
+        let dir =
+            std::env::temp_dir().join(format!("openbf_bf2load_common_{}", std::process::id()));
+        let common = bake_loadscreen(c, dir.to_str().unwrap()).unwrap();
         assert_eq!(common.style, LoadStyle::Pool);
         assert_eq!(common.sequence, ["loadscreen"]);
         let _ = std::fs::remove_dir_all(&dir);

@@ -53,8 +53,8 @@ fn ogg_crc(page: &[u8]) -> u32 {
 }
 
 /// Set every page's serial to `serial` and recompute its CRC, in place.
-/// Errors rather than half-rewriting a buffer it could not walk, so a corrupt
-/// stream never reaches the bake. Returns the page count.
+/// Rejects malformed page sequences. Earlier pages may already be modified on
+/// error; callers must discard unsuccessful results. Returns the page count.
 ///
 /// This is the crate's ONE Ogg page walk: `bake::global_sound` reaches it
 /// through [`encode_mono`], `bake::beep` calls it on the file ffmpeg wrote.
@@ -267,7 +267,7 @@ mod tests {
         assert_ne!(one, three);
     }
 
-    /// A stream that is not a page sequence is refused, not half-written.
+    /// A stream that is not a page sequence is refused.
     #[test]
     fn pin_ogg_serial_rejects_non_ogg() {
         let mut junk = *b"NOTOggS junk payload____";

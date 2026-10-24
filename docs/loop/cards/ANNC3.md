@@ -4,14 +4,14 @@ title: The music follows the listener's FACTION too (the mission's music calls a
 milestone: M3
 value: 4
 phase: build
-status: parked
+status: blocked
 deps:
 files: engine/crates/game/src/music.rs,engine/crates/core/src/music.rs,engine/crates/game/src/announce.rs,engine/crates/core/src/announcer.rs,engine/crates/game/src/main/battle.rs
 declares:
-needs: maintainer - the RTX is lost (nvidia-smi: Unknown Error for 0000:01:00.0; Vulkan sees only Intel RPL-S + llvmpipe); reboot / reset it, then clear this needs and the next land job lands branch annc3 c007fd3 (every non-gpu gate PASS, byte-identical sim)
+needs: cloud prerequisites: branch annc3, baked assets, missions and reference evidence absent
 effort:
 branch: annc3
-resume: LAND once nvidia-smi -L lists the RTX: land.py ANNC3 (gpu expected PASS, ci MOVED = 4 new tests). Land session 2026-10-21 19:56 found the adapter still lost and did not run land.py. Never regenerate goldens from an iGPU run.
+resume: (private workflow note omitted)
 created: 2026-10-05
 alpha: yes
 domain: behaviour
@@ -41,3 +41,4 @@ declares: nothing (presentation).
   0 of 37, sim hashes unchanged. (3) T7: `bf1s_no_post_line_repeats_at_every_loss`. (4) HUD: BF2 reads the script's
   rate (verifier 6/6). 8 mutations caught. PARKED: the RTX was lost mid-gates (gpu moved 97 goldens on the iGPU); every
   other gate PASS. Item 5 split off as card MUSB1.
+

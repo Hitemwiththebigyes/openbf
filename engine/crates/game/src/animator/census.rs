@@ -130,8 +130,13 @@ impl Census {
                 ))]
                 .abs();
                 let v = input.speed();
-                let rate = (move_rate(v, vc) * vc - v).abs() / v;
-                let plain = (vc - v).abs() / v;
+                let scale = if input.root_scale > 0.0 {
+                    input.root_scale
+                } else {
+                    1.0
+                };
+                let rate = (move_rate(v / scale, vc) * vc * scale - v).abs() / v;
+                let plain = (vc * scale - v).abs() / v;
                 self.slide += 1;
                 self.slide_rate += f64::from(rate);
                 self.slide_plain += f64::from(plain);

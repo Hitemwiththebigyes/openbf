@@ -4,14 +4,14 @@ title: Seat guns' exploding shells (since RKEX every vehicle / turret gun whose 
 milestone: M2
 value: 4
 phase: build
-status: todo
+status: blocked
 deps:
 files: engine/crates/core/src/sim/guns.rs, engine/crates/core/src/ai/gunner.rs, engine/crates/core/src/ai/gunner_foot.rs, engine/crates/core/src/sim/step.rs
 declares: sim; sweep; arena
-needs:
+needs: restoration - audit-rkslf observer and baseline rows; baked maps/classes/seat weapons and missions; primary references and supported GPU for applicable gates
 effort:
 branch:
-resume:
+resume: Restore lead_tmp/rkseat/prerequisites.json inputs; rerun current-main audit observer on 32 maps seeds 1-8 and 9-16 and trace one seat-gun own-side casualty before implementation. Then isolated loopctl start RKSEAT; both mounted-mate scene controls, FEEL_NOTES, full acceptance and CI/gates. See lead_tmp/rkseat/NEXT_PROMPT.md.
 created: 2026-10-20
 alpha: yes
 ---
@@ -24,3 +24,11 @@ The port's own-side rules (OURS: RKEX friend_in_blast, RKSLF release_blasts_own_
 - A FEEL_NOTES line (OURS: the PS2's gunners fire regardless).
 ## Notes
 The PS2 bar for seat-gun team kills is not measured; the fidelity gate's teamkill_pct (dir down) is at 0.85 % on main against the parent's 1.14 %, with seat-gun blasts off 0.82 %.
+
+## Cloud checkpoint — 2026-10-24 10:08 UTC
+Blocked before implementation: 17/17 named prerequisite paths absent, including original audit-rkslf observer,
+assets_baked and missions. Scoped /workspace observer/corpus filename search found no copies.
+Current-main symptom baseline and casualty trace required by RULES cannot run; acceptance unchanged.
+Source-only observation confirms mounted dispatch precedes foot release safety and both foot checks exclude
+mounted mates; this is not a measured casualty verdict. No production edit or landing.
+Report reports/20261024_1008_card_RKSEAT.md; restoration inventory and next prompt lead_tmp/rkseat/.

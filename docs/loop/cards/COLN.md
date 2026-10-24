@@ -4,14 +4,14 @@ title: How the PS2 tests a soldier against a collision mesh: its ray-vs-leaf tes
 milestone: M3
 value: 3
 phase: re
-status: todo
+status: blocked
 deps:
 files:
 declares:
 needs:
 effort:
 branch:
-resume:
+resume: Restore the 23 COLN evidence/runtime paths in lead_tmp/coln_cloud/preflight.json; rerun preflight.py, then trace both games' soldier-vs-leaf and ray-vs-leaf paths with RE self-checks and one primary-evidence verifier. Count reachable original back faces on all 32 maps and compare MUS1 leaf 16 to PCSX2 walk/RAM. No acceptance earned; see reports/20261024_1218_card_COLN.md and lead_tmp/coln_cloud/next_prompt.md.
 created: 2026-10-02
 ---
 ## Why

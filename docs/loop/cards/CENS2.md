@@ -4,14 +4,14 @@ title: The collision census depends on the runs before it: one run of 52,845 on 
 milestone: M0
 value: 3
 phase: measure
-status: todo
+status: blocked
 deps:
 files: engine/crates/game/examples/leak_census.rs,engine/crates/core/src/sim/state.rs
 declares:
-needs:
+needs: Restore 32-map collision/runtime data and missions; reproduce KAM1 history-dependent run before changing reset state or chunk count.
 effort:
 branch:
-resume:
+resume: 2026-10-24 13:06 UTC: planner restoration hold, 6 exact named inputs absent. Restore 32-map collision/runtime data and missions; reproduce KAM1 history-dependent run before changing reset state or chunk count. Original measurable acceptance unchanged. reports/20261024_1306_planner.md; lead_tmp/planner_20261024_1303/preflight.json.
 created: 2026-10-07
 ---
 

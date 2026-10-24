@@ -586,12 +586,10 @@ mod tests {
                 .collect();
             files.push(core_path);
             let mut n = [0; 3];
-            let mut names = std::collections::HashSet::new();
             for f in &files {
                 let (subs, k) = kept(f, &core);
                 n = [n[0] + k[0], n[1] + k[1], n[2] + k[2]];
                 for p in subs.iter().flatten() {
-                    names.insert(p.name_hash);
                     // What is kept is a sound, never a label or a float.
                     for l in &p.layers {
                         assert!((0.0..20.0).contains(&l.delay), "{f} {:08x}", p.name_hash);

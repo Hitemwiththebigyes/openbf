@@ -67,7 +67,8 @@ def need(tool, why):
 
 
 # What a bake / the missions are made by: when any of it changes, the output is stale and is made again.
-BAKE_INPUTS = ("engine/crates/bake", "engine/crates/mungefs", "engine/crates/manifest", "scripts/rebake.sh")
+BAKE_INPUTS = ("engine/crates/bake", "engine/crates/mungefs", "engine/crates/manifest", "scripts/rebake.sh",
+               "engine/crates/bake/src/effect_names.txt", "engine/Cargo.toml", "engine/Cargo.lock")
 MISSION_INPUTS = ("scripts/gen_missions.py", "scripts/extract_lua.py")
 # Kept in extracted/ (local, ignored by git): engine/missions/ is tracked in the dev tree.
 BAKE_STAMP = os.path.join(EXTRACTED, "bake_inputs.sha256")
@@ -84,7 +85,8 @@ def inputs_hash(paths):
             if f.endswith((".rs", ".toml")) and os.sep + "tests" not in d[len(full):])
         for f in files:
             h.update(os.path.relpath(f, ROOT).replace(os.sep, "/").encode())
-            h.update(open(f, "rb").read().replace(b"\r\n", b"\n"))
+            with open(f, "rb") as source:
+                h.update(source.read().replace(b"\r\n", b"\n"))
     return h.hexdigest()
 
 

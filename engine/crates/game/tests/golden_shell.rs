@@ -105,13 +105,8 @@ fn front_screen(m: &ui::shell_ps2::ShellMenus, size: [u32; 2]) -> (Vec<u8>, u32,
 #[ignore = "requires a GPU adapter + the BF2 common bake"]
 fn ps2_front_screens_match_golden() {
     common::force_ps2_tier();
-    // A bake from before card BSHLA has no shell: land.py's branch gates
-    // render the shared bake before its rebake, so this skips, saying so,
-    // there; after the rebake it draws.
-    if game::shell_movie::load_index(&game::assets::baked_root()).is_none() {
-        eprintln!("skip: no shell in the BF2 common bake (rebake common)");
-        return;
-    }
+    game::shell_movie::load_index(&game::assets::baked_root())
+        .expect("no valid shell index in the BF2 common bake (rebake common)");
     let ps2 = std::env::var_os("SHELL_PS2_OUT").map(std::path::PathBuf::from);
     let mut failures = Vec::new();
     for (name, m) in front_screens() {

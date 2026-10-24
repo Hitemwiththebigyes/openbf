@@ -118,26 +118,18 @@ pub fn lowres_to_glb(
     let uv = bin.f32s(&uvs, "VEC2", json!({}));
     let idx = bin.u32s(&indices, json!({}));
 
-    let doc = json!({
-        "asset": {"version": "2.0", "generator": "openbf bake"},
-        "buffers": [{"byteLength": bin.bytes.len()}],
-        "bufferViews": bin.views,
-        "accessors": bin.accessors,
-        "materials": [{"name": texture.unwrap_or_default()}],
-        "meshes": [{"name": name, "primitives": [{
+    crate::gltf_bin::rigid_glb(
+        bin,
+        json!({"name": name, "primitives": [{
             "attributes": {"POSITION":pos,"NORMAL":nrm,"TEXCOORD_0":uv},
             "indices": idx,
             "material": 0,
             "mode": 4
-        }]}],
-        "nodes": [{"mesh": 0, "name": name}],
-        "scenes": [{"nodes": [0]}],
-        "scene": 0
-    });
-    Ok(Some(crate::glb::pack_glb_public(
-        &serde_json::to_vec(&doc)?,
-        &bin.bytes,
-    )))
+        }]}),
+        name,
+        Some(json!([{"name": texture.unwrap_or_default()}])),
+    )
+    .map(Some)
 }
 
 #[cfg(test)]

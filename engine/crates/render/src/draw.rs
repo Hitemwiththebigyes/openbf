@@ -316,17 +316,8 @@ pub struct Fade {
 impl DrawCmd {
     pub fn textured(mesh: MeshHandle, texture: TextureHandle, model: Mat4) -> Self {
         Self {
-            mesh,
             texture: Some(texture),
-            color: [1.0; 4],
-            model,
-            layer: DrawLayer::Opaque,
-            cull: None,
-            cull_near: None,
-            lod: None,
-            light: LightPath::Lit,
-            fade: None,
-            lit: None,
+            ..Self::flat(mesh, [1.0; 4], model)
         }
     }
 

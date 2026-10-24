@@ -154,11 +154,11 @@ pub struct Report {
 }
 
 /// GPU ms per section of a frame (`Renderer::gpu_sections`), summed over the
-/// timed frames: (section, total ms, frames it appeared in), in first-seen
-/// order.
+/// timed frames: (section, total ms), in first-seen order, with one shared
+/// timed-frame count.
 #[derive(Default, Clone)]
 pub struct Sections {
-    rows: Vec<(&'static str, f64, u32)>,
+    rows: Vec<(&'static str, f64)>,
     frames: u32,
 }
 
@@ -173,9 +173,8 @@ impl Sections {
             match self.rows.iter_mut().find(|r| r.0 == label) {
                 Some(r) => {
                     r.1 += ms;
-                    r.2 += 1;
                 }
-                None => self.rows.push((label, ms, 1)),
+                None => self.rows.push((label, ms)),
             }
         }
     }

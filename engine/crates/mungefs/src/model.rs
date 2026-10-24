@@ -159,7 +159,7 @@ impl Model {
     pub fn parse(modl: &Chunk<'_>) -> Result<Model, UcfbError> {
         let bad = || UcfbError::Truncated(modl.offset);
         let name = modl.child_string(b"NAME").ok_or_else(bad)?;
-        let info = modl.child(b"INFO").ok_or_else(bad)?.payload.to_vec();
+        let info = modl.child(b"INFO").ok_or_else(bad)?.payload;
         if info.len() < 68 {
             return Err(bad());
         }
@@ -170,7 +170,7 @@ impl Model {
         // A2's "PS2 BF2 keeps 68 B" was an erratum.
         let base = if info.len() >= 72 { 16 } else { 12 };
         let bone_space = u32::from_le_bytes(info[0..4].try_into().unwrap()) == 1;
-        let f32le = |o: usize| le::f32_at(&info, o);
+        let f32le = |o: usize| le::f32_at(info, o);
         let vec3 = |o: usize| [f32le(o), f32le(o + 4), f32le(o + 8)];
         let vertex_box = Aabb {
             min: vec3(base),
@@ -204,7 +204,7 @@ impl Model {
 
 fn parse_segment(segm: &Chunk<'_>, vbox: &Aabb) -> Result<Segment, UcfbError> {
     let bad = || UcfbError::Truncated(segm.offset);
-    let info = segm.child(b"INFO").ok_or_else(bad)?.payload.to_vec();
+    let info = segm.child(b"INFO").ok_or_else(bad)?.payload;
     if info.len() < 8 {
         return Err(bad());
     }
@@ -298,9 +298,7 @@ fn parse_segment(segm: &Chunk<'_>, vbox: &Aabb) -> Result<Segment, UcfbError> {
     if posi.len() < n * 6 {
         return Err(bad());
     }
-    let scale: Vec<f32> = (0..3)
-        .map(|i| (vbox.max[i] - vbox.min[i]) / 65535.0)
-        .collect();
+    let scale: [f32; 3] = std::array::from_fn(|i| (vbox.max[i] - vbox.min[i]) / 65535.0);
     let positions: Vec<[f32; 3]> = (0..n)
         .map(|v| {
             let mut p = [0f32; 3];

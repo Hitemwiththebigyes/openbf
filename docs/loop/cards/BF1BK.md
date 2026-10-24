@@ -4,14 +4,14 @@ title: Two ground movers to the PS2's, one build in soldier.rs: (a) BF1 soldiers
 milestone: M3
 value: 4
 phase: build
-status: parked
+status: blocked
 deps:
 files: engine/crates/core/src/soldier.rs
 declares: sim; sweep; arena; leak
-needs: maintainer - the RTX is lost (nvidia-smi: Unknown Error); reboot, then the card lands as is
+needs: cloud prerequisites: branch bf1bk, baked assets, missions and reference evidence absent
 effort:
 branch: bf1bk
-resume: built + gated (lead_tmp/bf1bk/gates/SUMMARY.md: ci 1832->1834 = the 2 new tests, sim/sweep/arena MOVED = declared, fidelity PASS both blocks, leak/ordnance/simhash PASS; gpu not run - adapter lost). land.py BF1BK once nvidia-smi -L shows the RTX; soldier.rs is not golden-skipped, so land's gpu gate decides goldens
+resume: (private workflow note omitted)
 created: 2026-10-02
 alpha: yes
 domain: physics
@@ -112,3 +112,4 @@ unit circle of (6.5, 4.5) - and its backward take-off -6.596. BF1's own jump rul
 - Seen in `FUN_002471b0` while reading the roll (B2 162242-162262), not measured: the roll's speed-up to
   RollSpeedFactor x MaxSpeed adds to the FORWARD component only when it is positive, and to the side component
   always - a back-diagonal roll (allowed up to 120 degrees) would be boosted sideways only. The port scales both.
+

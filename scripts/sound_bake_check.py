@@ -10,7 +10,7 @@ Needs ffmpeg and numpy; reads the discs under ROOT/extracted (read-only). Defaul
 A name is right and a time is right in every sound log; this is the check that listens to the samples.
 Known result (2026-10-06, main f5990f8): 9,160 files of 34 map directories, 9,035 equal frame for frame; 125 files (6 takes)
 differ only after a saturated frame (the bake keeps the clamped value as the filter's history, ffmpeg the unclamped one).
-Exit code 1 on a rate or frame-count difference, a take the disc does not hold, or a file over 1 % at full scale."""
+Exit code 1 on a rate or frame-count difference, a take the disc does not hold, or a file over 1 % at full scale. Exit 2 if candidates lack disc sources or no WAVs are checked."""
 import collections, glob, os, re, struct, subprocess, sys, tempfile, wave
 from concurrent.futures import ThreadPoolExecutor
 import numpy as np
@@ -127,6 +127,7 @@ def main():
         wavs = sorted(glob.glob(os.path.join(mapdir, 'sounds', '*', '*.wav')))
         if lvl is None:
             tot['map dirs with no disc source found'] += 1
+            tot['baked WAVs unchecked (no disc source)'] += len(wavs)
             print('NO SOURCE', name, len(wavs), 'files')
             continue
         tot['map dirs'] += 1
@@ -176,7 +177,10 @@ def main():
     if '--list' in sys.argv:
         for w, e in bad:
             print('  ', os.path.relpath(w, baked), e)
-    sys.exit(1 if fatal else 0)
+    if not tot['baked WAVs checked']:
+        print("NO COMPARISON: no baked WAVs checked")
+    incomplete = tot['baked WAVs unchecked (no disc source)'] or not tot['baked WAVs checked']
+    sys.exit(1 if fatal else 2 if incomplete else 0)
 
 
 main()

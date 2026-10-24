@@ -4,14 +4,14 @@ title: The leak census misses walls a soldier meets, and its gate accepts any ri
 milestone: M3
 value: 4
 phase: build
-status: parked
+status: blocked
 deps:
 files: engine/crates/game/examples/leak_census.rs,engine/crates/game/examples/leak_census_accepted.txt,scripts/gates.py,scripts/land.py
 declares: leak
-needs: maintainer — the RTX is gone (nvidia-smi Unknown Error): gates.py --auto plans goldens + parity for a game-crate example and stops ADAPTER LOST; land when the GPU is back (or --adapter-any if the maintainer says an example cannot move a golden)
+needs: cloud prerequisites: branch leak3, baked assets, missions and reference evidence absent
 effort:
 branch: leak3
-resume: land.py LEAK3 once the RTX is back: branch leak3 2e654cd, GPU-free gates PASS with only the declared leak MOVED (lead_tmp/leak3/gates2/SUMMARY.md). Part 1 only (pins); the gate half is LEAK3G (needs the guards approval, draft lead_tmp/leak3/README.md), the sampler is LEAK3S
+resume: (private workflow note omitted)
 created: 2026-09-30
 alpha: yes
 ---
@@ -83,3 +83,4 @@ Report `engine/artifacts/loop/reports/20260930_0930_audit_LEAK.md`; scratch `eng
 - The gate half went to **LEAK3G**: scripts/gates.py / land.py are oracle-guarded (hook refused the edit); draft + test in
   lead_tmp/leak3/. The sampler half went to **LEAK3S**. This card's Acceptance "`new` > 0 on a new hole" is met here;
   "Coverage" moves to LEAK3S, "Gate" moved rows / scoped declare to LEAK3G.
+

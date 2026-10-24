@@ -4,13 +4,14 @@ title: A destroyed vehicle throws its CHUNKn bodies: the baked chunk models laun
 milestone: M2
 value: 4
 phase: build
-status: todo
+status: blocked
 deps: VDTH
 files: engine/crates/game/src/chunks.rs,engine/crates/game/src/viewer/vehicles.rs,engine/crates/game/src/vehicle_class.rs,engine/crates/manifest/src/lib.rs,engine/crates/bake/src/vehicle.rs
 declares: rebake=side
-needs:
+needs: environment restoration — BF1/BF2 SIDE LVLs and vehicle/map bakes, missions and approved GPU acceptance; see lead_tmp/vchnk_cloud/inputs.json
+effort:
 branch:
-resume:
+resume: Restore and verify inputs in lead_tmp/vchnk_cloud/inputs.json; then loopctl start VCHNK in an isolated checkout. Inspect CHUNKSECTION properties, ChunkNodeName and prim origins before extending bake/parser; implement cosmetic launch/body/debris with launch/lifetime tests, side rebake, scripted destruction frame, CI and applicable gates. No implementation or landing yet.
 created: 2026-09-29
 alpha: yes
 ---

@@ -1286,19 +1286,8 @@ impl SoundLib {
     /// this bake holds.
     pub fn voice_take(&mut self, name: &str) -> Option<(PathBuf, f32, f32)> {
         let (p, core) = self.find_named(name)?;
-        let path = match self.pick_sample(&p.samples) {
-            Some(id) => self.bank(core).and_then(|b| b.sample_path(id)),
-            None => self
-                .pick_sample(&p.segments)
-                .and_then(|id| self.segment_path(id)),
-        }?;
-        if !self.cache.contains_key(&path) {
-            let data = decode_noted(&path)
-                .map_err(|e| eprintln!("decode {}: {e:#}", path.display()))
-                .ok()?;
-            self.cache.insert(path.clone(), data);
-        }
-        let secs = self.cache[&path].duration_secs() / p.pitch.max(0.05);
+        let path = self.file_take(&p, core)?;
+        let secs = self.voice_secs(&path)? / p.pitch.max(0.05);
         Some((path, p.gain, secs))
     }
 
@@ -1445,13 +1434,17 @@ impl SoundLib {
         let hash = fnv1a_lowercase(&line.name);
         let pitch = self.find(hash)?.0.pitch.max(0.05);
         let path = self.take_path_by_hash(hash, usize::from(nth))?;
-        if !self.cache.contains_key(&path) {
-            let data = decode_noted(&path)
+        Some(self.voice_secs(&path)? / pitch)
+    }
+
+    fn voice_secs(&mut self, path: &Path) -> Option<f32> {
+        if !self.cache.contains_key(path) {
+            let data = decode_noted(path)
                 .map_err(|e| eprintln!("decode {}: {e:#}", path.display()))
                 .ok()?;
-            self.cache.insert(path.clone(), data);
+            self.cache.insert(path.to_path_buf(), data);
         }
-        Some(self.cache[&path].duration_secs() / pitch)
+        Some(self.cache[path].duration_secs())
     }
 
     /// The index of a weighted draw over `list` ([`SoundLib::pick_sample`]'s
@@ -1470,22 +1463,12 @@ impl SoundLib {
         pos: Vec3,
         listener: &Listener,
     ) -> bool {
-        self.play_hash(audio, fnv1a_lowercase(name), pos, listener)
+        self.play_by_hash(audio, fnv1a_lowercase(name), pos, listener)
     }
 
     /// [`SoundLib::play`] for a property known by its hash (the foley
     /// table's slots, `crate::foley`).
     pub fn play_by_hash(
-        &mut self,
-        audio: &mut audio::Audio,
-        hash: u32,
-        pos: Vec3,
-        listener: &Listener,
-    ) -> bool {
-        self.play_hash(audio, hash, pos, listener)
-    }
-
-    fn play_hash(
         &mut self,
         audio: &mut audio::Audio,
         hash: u32,
@@ -1641,7 +1624,7 @@ impl SoundLib {
             let from = out.len();
             self.start(hash, pos, ears, &mut out);
             if let Some(s) = out.get(from) {
-                let (path, pitch) = (s.path.clone(), s.pitch.max(0.05));
+                let (path, pitch) = (s.path.clone(), (s.pitch * self.rate_mul).max(0.05));
                 let secs = self.decoded(&path).map_or(0.0, |d| d.duration_secs());
                 self.station_voices.insert(station, self.now + secs / pitch);
             }
@@ -1767,12 +1750,7 @@ impl SoundLib {
         // A bank sample when the property has one; otherwise the streamed VO
         // take. No property on either disc carries both (measured over the
         // 34 baked banks: 0 of 69,795 records name samples AND segments).
-        let path = match self.pick_sample(&p.samples) {
-            Some(id) => self.bank(core).and_then(|b| b.sample_path(id)),
-            None => self
-                .pick_sample(&p.segments)
-                .and_then(|id| self.segment_path(id)),
-        };
+        let path = self.file_take(&p, core);
         let Some(path) = path else {
             return;
         };
@@ -2667,6 +2645,21 @@ mod tests {
         let far = Vec3::new(500.0, 0.0, 0.0);
         assert!(l.station_ambient(&[(3, sure, far)], ears).is_empty());
         assert_eq!(l.station_ambient(&[(3, sure, pos)], ears).len(), 1);
+        // A slowed positional take keeps its station for the actual mixer
+        // duration. The rate is fixed when the take starts.
+        l.rate_mul = 0.3;
+        assert_eq!(l.station_ambient(&[(4, sure, pos)], ears).len(), 1);
+        l.tick(1.1, ears, &mut sink);
+        assert!(l.station_ambient(&[(4, sure, pos)], ears).is_empty());
+        l.tick(2.3, ears, &mut sink);
+        assert_eq!(l.station_ambient(&[(4, sure, pos)], ears).len(), 1);
+        // At a low base pitch the mixer floors the product, not its factors.
+        l.map.props.get_mut(&sure).unwrap().pitch = 0.01;
+        assert_eq!(l.station_ambient(&[(5, sure, pos)], ears).len(), 1);
+        l.tick(19.9, ears, &mut sink);
+        assert!(l.station_ambient(&[(5, sure, pos)], ears).is_empty());
+        l.tick(0.2, ears, &mut sink);
+        assert_eq!(l.station_ambient(&[(5, sure, pos)], ears).len(), 1);
         let _ = std::fs::remove_dir_all(dir);
     }
 }

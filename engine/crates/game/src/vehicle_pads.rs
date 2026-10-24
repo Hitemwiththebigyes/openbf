@@ -93,7 +93,9 @@ pub fn class_key_team(key: u32, factions: &[String; 2]) -> Option<u8> {
         return None;
     }
     for (t, f) in factions.iter().enumerate() {
-        let (name, stem) = side_row(f)?;
+        let Some((name, stem)) = side_row(f) else {
+            continue;
+        };
         let col = if t == 0 { "Atk" } else { "Def" };
         if key == fnv1a_lowercase(&format!("Class{name}"))
             || key == fnv1a_lowercase(&format!("Class{stem}{col}"))
@@ -422,7 +424,8 @@ pub fn install(
         names.iter().position(|n| n.eq_ignore_ascii_case(zone))
     });
     // Each flyer class's LandedHeight (card VREST), before any pad spawns.
-    let floors = vis_floors(map_dir, &game);
+    let sides = side_vehicle_files(map_dir, &game);
+    let floors = vis_floors_from(&sides);
     let landed: Vec<Option<f32>> = b
         .classes
         .iter()
@@ -461,14 +464,14 @@ pub fn install(
         .map(|c| {
             vehicle_class::HoverClass::from_db(&db, c).map(|h| core::vehicle::hover::HoverParams {
                 bf1_ai: game == "bf1",
-                hull: hover_hull(m, map_dir, &game, c, &h),
+                hull: hover_hull_from(m, map_dir, &sides, c, &h),
                 ..h.params()
             })
         })
         .collect();
     // The walker numbers per class (card WALK), with each class's baked
     // anim table and prim origins from the side bakes.
-    let walkers = walker_bakes(map_dir, &game);
+    let walkers = walker_bakes_from(&sides);
     sim.walker_params = b
         .classes
         .iter()
@@ -498,7 +501,7 @@ pub fn install(
         })
         .collect();
     // Each class's death explosion and blast sphere (card VDTH).
-    let spheres = spheres(map_dir, &game);
+    let spheres = spheres_from(&sides);
     sim.blast_setup = b
         .classes
         .iter()
@@ -512,11 +515,11 @@ pub fn install(
         .collect();
     // Each class's hull (card VHULL), before anything spawns from a pad; a
     // building turret has none — its building is the world's own body.
-    sim.hull_parts = hull_parts(m, map_dir, &game, &b.classes, |c| {
+    sim.hull_parts = hull_parts_from(m, map_dir, &sides, &b.classes, |c| {
         vehicle_class::is_turret(&db, c)
     });
     sim.sync_hulls();
-    let nodes = hardpoints(m, map_dir, &game);
+    let nodes = hardpoints_from(m, &sides);
     b.riders = b
         .classes
         .iter()
@@ -564,6 +567,13 @@ pub fn hardpoints(
     map_dir: &std::path::Path,
     game: &str,
 ) -> HashMap<String, Vec<ManifestHardpoint>> {
+    hardpoints_from(m, &side_vehicle_files(map_dir, game))
+}
+
+fn hardpoints_from(
+    m: &Manifest,
+    sides: &[(std::path::PathBuf, manifest::VehicleManifest)],
+) -> HashMap<String, Vec<ManifestHardpoint>> {
     let mut out: HashMap<String, Vec<ManifestHardpoint>> = HashMap::new();
     let mut add = |k: &manifest::ManifestClass| {
         if !k.hardpoints.is_empty() {
@@ -572,8 +582,9 @@ pub fn hardpoints(
         }
     };
     m.classes.iter().for_each(&mut add);
-    side_vehicles(map_dir, game)
+    sides
         .iter()
+        .flat_map(|(_, vm)| &vm.vehicles)
         .for_each(|v| add(&v.class));
     out
 }
@@ -582,8 +593,14 @@ pub fn hardpoints(
 /// class name, from the side bakes as [`hardpoints`] walks them. A map's own
 /// class (the TAT1 skiff) has none: the map bake does not write it.
 pub fn spheres(map_dir: &std::path::Path, game: &str) -> HashMap<String, [f32; 4]> {
+    spheres_from(&side_vehicle_files(map_dir, game))
+}
+
+fn spheres_from(
+    sides: &[(std::path::PathBuf, manifest::VehicleManifest)],
+) -> HashMap<String, [f32; 4]> {
     let mut out = HashMap::new();
-    for v in side_vehicles(map_dir, game) {
+    for v in sides.iter().flat_map(|(_, vm)| &vm.vehicles) {
         if let Some(s) = v.sphere {
             out.entry(v.class.name.to_ascii_lowercase()).or_insert(s);
         }
@@ -595,8 +612,14 @@ pub fn spheres(map_dir: &std::path::Path, game: &str) -> HashMap<String, [f32; 4
 /// card VREST), by lowercase class name, from the side bakes as
 /// [`hardpoints`] walks them. A map's own class has none.
 pub fn vis_floors(map_dir: &std::path::Path, game: &str) -> HashMap<String, f32> {
+    vis_floors_from(&side_vehicle_files(map_dir, game))
+}
+
+fn vis_floors_from(
+    sides: &[(std::path::PathBuf, manifest::VehicleManifest)],
+) -> HashMap<String, f32> {
     let mut out = HashMap::new();
-    for v in side_vehicles(map_dir, game) {
+    for v in sides.iter().flat_map(|(_, vm)| &vm.vehicles) {
         if let Some(y) = v.vis_min_y {
             out.entry(v.class.name.to_ascii_lowercase()).or_insert(y);
         }
@@ -610,10 +633,17 @@ pub fn walker_bakes(
     map_dir: &std::path::Path,
     game: &str,
 ) -> HashMap<String, manifest::ManifestWalker> {
+    walker_bakes_from(&side_vehicle_files(map_dir, game))
+}
+
+fn walker_bakes_from(
+    sides: &[(std::path::PathBuf, manifest::VehicleManifest)],
+) -> HashMap<String, manifest::ManifestWalker> {
     let mut out = HashMap::new();
-    for v in side_vehicles(map_dir, game) {
-        if let Some(w) = v.walker {
-            out.entry(v.class.name.to_ascii_lowercase()).or_insert(w);
+    for v in sides.iter().flat_map(|(_, vm)| &vm.vehicles) {
+        if let Some(w) = &v.walker {
+            out.entry(v.class.name.to_ascii_lowercase())
+                .or_insert_with(|| w.clone());
         }
     }
     out
@@ -669,8 +699,20 @@ pub fn hover_hull(
     if !h.names_a_hull_body() {
         return Vec::new();
     }
-    let sides = side_vehicle_files(map_dir, game);
-    class_collision(m, map_dir, &sides, class)
+    hover_hull_from(m, map_dir, &side_vehicle_files(map_dir, game), class, h)
+}
+
+fn hover_hull_from(
+    m: &Manifest,
+    map_dir: &std::path::Path,
+    sides: &[(std::path::PathBuf, manifest::VehicleManifest)],
+    class: &str,
+    h: &vehicle_class::HoverClass,
+) -> Vec<core::vehicle::hover::HullBody> {
+    if !h.names_a_hull_body() {
+        return Vec::new();
+    }
+    class_collision(m, map_dir, sides, class)
         .map(|(_, _, entry)| h.hull(&entry.prims))
         .unwrap_or_default()
 }
@@ -687,27 +729,33 @@ pub fn hull_parts(
     classes: &[String],
     turret: impl Fn(&str) -> bool,
 ) -> Vec<Option<std::sync::Arc<[core::collision::HullPart]>>> {
-    let sides = side_vehicle_files(map_dir, game);
+    hull_parts_from(
+        m,
+        map_dir,
+        &side_vehicle_files(map_dir, game),
+        classes,
+        turret,
+    )
+}
+
+fn hull_parts_from(
+    m: &Manifest,
+    map_dir: &std::path::Path,
+    sides: &[(std::path::PathBuf, manifest::VehicleManifest)],
+    classes: &[String],
+    turret: impl Fn(&str) -> bool,
+) -> Vec<Option<std::sync::Arc<[core::collision::HullPart]>>> {
     classes
         .iter()
         .map(|c| {
             if turret(c) {
                 return None;
             }
-            let (dir, k, entry) = class_collision(m, map_dir, &sides, c)?;
+            let (dir, k, entry) = class_collision(m, map_dir, sides, c)?;
             let cg = crate::assets::load_collision_geom(dir, &entry).ok()?;
             let parts = crate::assets::hull_parts(&cg, &k.collision);
             (!parts.is_empty()).then(|| parts.into())
         })
-        .collect()
-}
-
-/// Each `side_<game>/vehicles/*/vehicles.ron` beside the map's bake, in path
-/// order, its vehicles in file order.
-fn side_vehicles(map_dir: &std::path::Path, game: &str) -> Vec<manifest::ManifestVehicle> {
-    side_vehicle_files(map_dir, game)
-        .into_iter()
-        .flat_map(|(_, vm)| vm.vehicles)
         .collect()
 }
 
@@ -807,21 +855,7 @@ pub fn seat_gun(
         })
         .or(turret)
         .unwrap_or(Vec3::ZERO);
-    let d = std::f32::consts::PI / 180.0;
-    let lim = |l: [f32; 2]| [l[0].min(l[1]) * d, l[0].max(l[1]) * d];
-    let mut aimer = Aimer::default();
-    if let Some(l) = s.yaw_limits {
-        aimer.yaw = lim(l);
-    }
-    if let Some(l) = s.pitch_limits {
-        aimer.pitch = lim(l);
-    }
-    if let Some(r) = s.yaw_rate {
-        aimer.yaw_rate = r;
-    }
-    if let Some(r) = s.pitch_rate {
-        aimer.pitch_rate = r;
-    }
+    let mut aimer = aimer(s.yaw_limits, s.pitch_limits, s.yaw_rate, s.pitch_rate);
     let pilot = s.kind == vehicle_class::SeatKind::Pilot;
     if pilot {
         // The hover pilot's aim-yaw clamp, K+0x690/+0x694 = 0/0 (re-hover §5.1 I11).
@@ -861,30 +895,15 @@ pub fn turret_law(g: &mut GunSetup, s: &vehicle_class::SeatSpec, bf2: bool) {
         ),
         if bf2 { Slew::Linear } else { Slew::Exp },
     ));
-    let d = std::f32::consts::PI / 180.0;
-    let lim = |l: [f32; 2]| [l[0].min(l[1]) * d, l[0].max(l[1]) * d];
-    let mut aimer = Aimer::default();
-    if let Some(l) = s.aimer_yaw_limits {
-        aimer.yaw = lim(l);
-    }
-    if let Some(l) = s.aimer_pitch_limits {
-        aimer.pitch = lim(l);
-    }
-    if let Some(r) = s.aimer_yaw_rate {
-        aimer.yaw_rate = r;
-    }
-    if let Some(r) = s.aimer_pitch_rate {
-        aimer.pitch_rate = r;
-    }
-    g.aimer = aimer;
+    g.aimer = aimer(
+        s.aimer_yaw_limits,
+        s.aimer_pitch_limits,
+        s.aimer_yaw_rate,
+        s.aimer_pitch_rate,
+    );
     g.framed = s.turret_node.is_some();
 }
 
-/// A class's [`SeatSetup`]: a seat boards a soldier for PilotType `vehicle`
-/// or `vehicleself` (re-vehicles §5); the exit's ground ray is BF1's 10 m or
-/// BF2's 15 m; the radius (PROVISIONAL — the PS2 reads the collision sphere,
-/// FUN_001645a0) bounds the hover's spring spheres about the origin — the
-/// TAT1 skiff 5.0 m — else [`VEHICLE_RADIUS`].
 /// A class's [`BlastSetup`] (card VDTH): its `ExplosionName` class read as
 /// an [`ExplosionClass`], and [`vehicle_class::blast_sphere`] over the baked
 /// SPHR `sphr`.
@@ -903,6 +922,11 @@ pub fn blast_setup(db: &ClassDb, class: &str, sphr: Option<[f32; 4]>) -> BlastSe
     }
 }
 
+/// A class's [`SeatSetup`]: a seat boards a soldier for PilotType `vehicle`
+/// or `vehicleself` (re-vehicles §5); the exit's ground ray is BF1's 10 m or
+/// BF2's 15 m; the radius (PROVISIONAL — the PS2 reads the collision sphere,
+/// FUN_001645a0) bounds the hover's spring spheres about the origin — the
+/// TAT1 skiff 5.0 m — else [`VEHICLE_RADIUS`].
 pub fn seat_setup(
     db: &ClassDb,
     class: &str,
@@ -912,9 +936,9 @@ pub fn seat_setup(
     use vehicle_class::PilotType;
     let radius = vehicle_class::HoverClass::from_db(db, class)
         .map(|h| {
-            h.springs
+            h.springs()
                 .iter()
-                .map(|s| Vec3::from(s.pos).length() + s.radius)
+                .map(|s| s.pos.length() + s.radius)
                 .fold(0.0f32, f32::max)
         })
         .filter(|r| *r > 0.0)
@@ -935,9 +959,108 @@ pub fn seat_setup(
     }
 }
 
+/// Apply the optional authored limits and rates without changing default fields.
+fn aimer(
+    yaw_limits: Option<[f32; 2]>,
+    pitch_limits: Option<[f32; 2]>,
+    yaw_rate: Option<f32>,
+    pitch_rate: Option<f32>,
+) -> Aimer {
+    let d = std::f32::consts::PI / 180.0;
+    let lim = |l: [f32; 2]| [l[0].min(l[1]) * d, l[0].max(l[1]) * d];
+    let mut aimer = Aimer::default();
+    if let Some(l) = yaw_limits {
+        aimer.yaw = lim(l);
+    }
+    if let Some(l) = pitch_limits {
+        aimer.pitch = lim(l);
+    }
+    if let Some(r) = yaw_rate {
+        aimer.yaw_rate = r;
+    }
+    if let Some(r) = pitch_rate {
+        aimer.pitch_rate = r;
+    }
+    aimer
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unsupported_faction_does_not_hide_the_other_teams_pad_key() {
+        let key = fnv1a_lowercase("ClassImpDef");
+        assert_eq!(class_key_team(key, &["gun".into(), "imp".into()]), Some(1));
+        assert_eq!(
+            class_key_team(
+                fnv1a_lowercase("ClassEmpire"),
+                &["imp".into(), "gun".into()]
+            ),
+            Some(0)
+        );
+        assert_eq!(class_key_team(key, &["gun".into(), "ewk".into()]), None);
+        assert_eq!(
+            class_key_team(
+                fnv1a_lowercase("ClassNeutral"),
+                &["gun".into(), "imp".into()]
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn aimer_overrides_keep_defaults_sort_limits_and_set_rates_independently() {
+        let default = Aimer::default();
+        let a = aimer(None, None, None, None);
+        assert_eq!(
+            (a.yaw, a.pitch, a.yaw_rate, a.pitch_rate),
+            (
+                default.yaw,
+                default.pitch,
+                default.yaw_rate,
+                default.pitch_rate
+            )
+        );
+        let d = std::f32::consts::PI / 180.0;
+        let a = aimer(Some([40.0, -20.0]), Some([15.0, -5.0]), Some(7.0), None);
+        assert_eq!(a.yaw, [-20.0 * d, 40.0 * d]);
+        assert_eq!(a.pitch, [-5.0 * d, 15.0 * d]);
+        assert_eq!((a.yaw_rate, a.pitch_rate), (7.0, default.pitch_rate));
+        let a = aimer(None, None, None, Some(9.0));
+        assert_eq!((a.yaw_rate, a.pitch_rate), (default.yaw_rate, 9.0));
+    }
+
+    #[test]
+    fn duplicate_side_classes_select_each_fields_first_present_value() {
+        let vm = |vehicles: &str| {
+            ron::from_str::<manifest::VehicleManifest>(&format!(r#"(
+            source: "test", vehicles: [{vehicles}], geometries: [], models: [], textures: [], collision: []
+        )"#)).unwrap()
+        };
+        let row = |name: &str, sphere: &str, floor: &str| {
+            format!(
+                r#"(
+            class: (name: "{name}", base: "hover", geometry: None), chunks: [],
+            sphere: {sphere}, vis_min_y: {floor}
+        )"#
+            )
+        };
+        let sides = vec![
+            ("a".into(), vm(&row("Shared", "None", "Some(-2.0)"))),
+            (
+                "b".into(),
+                vm(&row("shared", "Some((1.0, 2.0, 3.0, 4.0))", "Some(-8.0)")),
+            ),
+            (
+                "c".into(),
+                vm(&row("SHARED", "Some((5.0, 6.0, 7.0, 8.0))", "None")),
+            ),
+        ];
+        assert_eq!(vis_floors_from(&sides)["shared"], -2.0);
+        assert_eq!(spheres_from(&sides)["shared"], [1.0, 2.0, 3.0, 4.0]);
+        assert!(walker_bakes_from(&sides).is_empty());
+    }
 
     /// Card HTGT: a turret's acquisition sphere is the box around its own
     /// building's bodies only, its centre in the turret's turned frame.

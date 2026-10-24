@@ -4,14 +4,14 @@ title: On both Hoth maps half a bot's legs still walk at the hub's centre (BF2 H
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: blocked
 deps: MOVR
 files: engine/crates/core/src/ai/route.rs,engine/crates/core/src/ai/route/tests.rs
 declares: sim; sweep; arena
-needs:
+needs: environment — restore audit-hubp claims/verifier/tools/raw runs, PS2 references, baked maps/common/classes/vehicles and missions for current-main baseline and full acceptance
 effort:
 branch:
-resume:
+resume: Cloud preflight 2026-10-24: no implementation or doc lift; restore audit-hubp/CLAIMS.md C5-C7,C11 plus verify/VERDICTS.md first, verify citations and perform required analysis/re-soldier-ai.md section 2 doc commit; then current-main observer baseline and traced Hoth refusal before start HUBO. Run 4-seed census, 8x32 plus seeds 9-40 changed maps, mutation tests and full gates. See reports/20261024_0806_card_HUBO.md.
 created: 2026-10-06
 alpha: yes
 ---

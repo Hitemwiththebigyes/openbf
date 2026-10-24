@@ -4,14 +4,14 @@ title: Bolts are swept every tick against units, as on the PS2: the predictive s
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: blocked
 deps:
 files: engine/crates/core/src/projectile.rs, engine/crates/core/src/sim/combat.rs, engine/crates/core/src/sim/ordnance.rs, engine/crates/core/src/weapon.rs
 declares: sim; sweep; arena
-needs:
+needs: environment restoration — PS2 bolt captures/tables, baked maps/classes/vehicles, missions and approved gate device
 effort:
 branch:
-resume:
+resume: 2026-10-24 08:56 UTC cloud prerequisite checkpoint: restore audit-uord PS2 bolt captures/tables and probes, real baked maps/classes/vehicles and missions plus approved gate device; then current-main baseline, isolated build and full original acceptance. See engine/artifacts/loop/reports/20261024_0856_card_UORDS.md and lead_tmp/uords_20261024_0854/inventory.json. No implementation or landing.
 created: 2026-10-22
 alpha: yes
 ---

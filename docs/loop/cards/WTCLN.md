@@ -4,17 +4,17 @@ title: Scratch worktrees remove themselves: a scratch tree stays clean (outputs 
 milestone: M0
 value: 4
 phase: build
-status: parked
+status: blocked
 deps:
 files: scripts/loopctl.py
 declares:
-needs: maintainer - the RTX is lost (land.py exit 7: a full golden regeneration is due, so even this scripts-only diff needs the goldens' GPU). After a reboot: land.py WTCLN
+needs: cloud prerequisites: branch wtcln, baked assets, missions and reference evidence absent
 effort:
 branch: wtcln
-resume: land: python3 scripts/land.py WTCLN (branch wtcln 1f347f5, scripts/loopctl.py only; ci + protect PASS in lead_tmp/wtcln/gates2; self-test PASS with 9 scratch-tree fixtures; info/exclude already holds the 5 links on the real repo; acceptance run removed 3 trees, saves in lead_tmp/worktree_sweep/2026-10-22/). After landing: check after a day that git worktree list shows only branch trees of open cards + named trees
+resume: (private workflow note omitted)
 created: 2026-10-21
 alpha: yes
-first: 10
+first: 15
 ---
 
 ## Why
@@ -50,3 +50,4 @@ The maintainer still runs `python3 scripts/loopctl.py worktrees --yes` once for 
 
 ## Notes
 - planner 2026-10-22 00:00: filed from the INBOX note; needs no GPU (scripts only), so it can land during the RTX outage.
+

@@ -4,14 +4,14 @@ title: Class skins seen in a battle: a picture pair of the port's CIS droid skin
 milestone: M1
 value: 3
 phase: measure
-status: todo
+status: blocked
 deps:
 files: engine/crates/game/src/soldier_vis.rs
 declares:
-needs:
+needs: Restore class/side bakes and original PS2 skin sheets with approved rendering support; make the original per-class battle picture pairs.
 effort:
 branch:
-resume:
+resume: 2026-10-24 13:06 UTC: planner restoration hold, 6 exact named inputs absent. Restore class/side bakes and original PS2 skin sheets with approved rendering support; make the original per-class battle picture pairs. Original measurable acceptance unchanged. reports/20261024_1306_planner.md; lead_tmp/planner_20261024_1303/preflight.json.
 created: 2026-10-20
 ---
 ## Why

@@ -34,11 +34,14 @@ Each seed keeps its raw output: `sweep_s<seed>.txt` (stdout — byte-identical t
 Medians are LOWER medians (a value some seed produced), as the example's own footer. `--baseline <dir>` (a previous
 run's out dir, or any dir of `sweep_s<seed>.txt` [+ `.err`]) adds per-map deltas over the seeds both runs have.
 `--check <file>` (default: gates.toml's baseline_dir/sweep_main_1.txt, when seed 42 is in the run) compares seed 42's
-stdout with the gate's baseline row by row — the instrument check. `--reuse` keeps a seed whose files exist.
+stdout with the gate's baseline row by row — the instrument check. `--reuse` keeps only matching successful receipts with intact output artifacts.
 Exit: 0 ok, 1 a seed's run failed, 2 the seed-42 check differs.
 """
 import argparse
 import fcntl
+import hashlib
+import json
+import tempfile
 import os
 import re
 import subprocess
@@ -349,6 +352,65 @@ def check_42(out, check, subset):
     return whole, lines
 
 
+def file_hash(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def completed_artifacts(out, seed, maps, botq):
+    """Validate the executable's result inventory, including unfinished rounds.
+
+    Default selection is discovered by the executable: its `done (N/M, ...)`
+    stderr lines carry all selected map keys, including failed loads.
+    """
+    o, e = f"sweep_s{seed}.txt", f"sweep_s{seed}.err"
+    rows = parse_stdout(os.path.join(out, o))
+    with open(os.path.join(out, e)) as f:
+        done = re.findall(r"^(\S+) done \((\d+)/(\d+),", f.read(), re.M)
+    expected = set(maps) if maps else {m for m, _, _ in done}
+    if not expected or (not maps and (len(done) != len(expected) or
+            any(int(n) != len(expected) for _, _, n in done) or
+            {int(i) for _, i, _ in done} != set(range(1, len(expected) + 1)))):
+        raise ValueError("missing/incomplete selected-map inventory")
+    if set(rows) != expected or any(rows[m]["stuck_max"] is None for m in expected):
+        raise ValueError("missing/incomplete result rows for selected maps")
+    with open(os.path.join(out, o)) as f:
+        footer = re.search(r"^sweep: finished \d+/(\d+)  stuck_max median ", f.read(), re.M)
+    if not footer or int(footer[1]) != len(expected):
+        raise ValueError("missing/incomplete sweep scoreboard")
+    artifacts = [o, e]
+    if botq:
+        artifacts += [f"botq/{m}_s{seed}{suffix}" for m in sorted(expected) for suffix in (".csv", ".ev.csv")]
+    if any(os.path.getsize(os.path.join(out, f)) == 0 for f in artifacts if f not in (e,)):
+        raise ValueError("empty required artifact")
+    return {f: file_hash(os.path.join(out, f)) for f in artifacts}
+
+
+def reusable(receipt, identity, out):
+    try:
+        with open(receipt) as f:
+            rec = json.load(f)
+        return (rec["identity"] == identity and rec["artifacts"] ==
+                completed_artifacts(out, identity["seed"], identity["maps"], identity["botq"]))
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+
+
+def write_completion(receipt, identity, artifacts):
+    # Same-directory replacement: an interrupted write never becomes success.
+    fd, tmp = tempfile.mkstemp(prefix=".sweep-receipt-", dir=os.path.dirname(receipt))
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(dict(identity=identity, artifacts=artifacts), f, sort_keys=True)
+        os.replace(tmp, receipt)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--out", required=True)
@@ -378,14 +440,36 @@ def main():
         if a.botq:
             env.update(BOT_SAMPLES=os.path.join(out, "botq"), BOT_SAMPLES_SECS="540")
 
+        binary = file_hash(exe)
+        env_hash = hashlib.sha256(json.dumps(env, sort_keys=True).encode()).hexdigest()
+
         def one(seed):
             o, e = os.path.join(out, f"sweep_s{seed}.txt"), os.path.join(out, f"sweep_s{seed}.err")
-            if a.reuse and os.path.exists(o) and os.path.getsize(o) > 0:
+            receipt = os.path.join(out, f"sweep_s{seed}.complete.json")
+            identity = dict(version=1, binary=binary, executable=os.path.realpath(exe), seed=seed,
+                            ticks=a.ticks, maps=a.maps, threads=a.threads, botq=a.botq, environment=env_hash)
+            if a.reuse and reusable(receipt, identity, out):
                 return 0
+            # Invalidate success before truncating any previous output.
+            if os.path.exists(receipt):
+                os.unlink(receipt)
+            if a.botq:
+                import glob
+                for old in glob.glob(os.path.join(out, "botq", f"*_s{seed}.csv")) + glob.glob(os.path.join(out, "botq", f"*_s{seed}.ev.csv")):
+                    os.unlink(old)
             t0 = time.time()
             with open(o, "w") as fo, open(e, "w") as fe:
                 rc = subprocess.call([exe, str(a.ticks), str(seed)] + a.maps, cwd=os.path.join(ROOT, "engine"),
                                      env=env, stdout=fo, stderr=fe)
+            if rc == 0:
+                try:
+                    artifacts = completed_artifacts(out, seed, a.maps, a.botq)
+                    if file_hash(exe) != binary:
+                        raise ValueError("binary changed during run")
+                    write_completion(receipt, identity, artifacts)
+                except (OSError, ValueError) as exc:
+                    print(f"[sweep_seeds] seed {seed}: incomplete output: {exc}", file=sys.stderr)
+                    rc = 1
             print(f"[sweep_seeds] seed {seed}: exit {rc}, {time.time() - t0:.0f} s", flush=True)
             return rc
 

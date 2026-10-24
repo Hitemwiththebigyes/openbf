@@ -9,10 +9,11 @@
 //!
 //! Since queue item VO it also bakes the LVL's OWN streams into
 //! `<mapdir>/sounds/streams/` — the mono `<map>_emt` takes to OGG, the stereo
-//! music indexed only (`bake::global_sound::bake_map_streams`).
+//! music kept as encoded ADPCM bodies for streaming
+//! (`bake::global_sound::bake_map_streams`).
 
 use anyhow::{anyhow, bail, Context, Result};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 /// The RON's two structs live in the `manifest` crate: ONE definition,
@@ -198,7 +199,7 @@ pub fn bake_sounds(sound_lvl: &str, outdir: &str, core_lvl: Option<&str>) -> Res
 
     let banks = mungefs::soundbank::find_banks_deep(inner);
     let mut samples: Vec<(u32, String)> = Vec::new();
-    let mut seen: HashMap<u32, ()> = HashMap::new();
+    let mut seen: HashSet<u32> = HashSet::new();
     let mut bank_list = Vec::new();
     for b in &banks {
         bank_list.push((b.name_hash, b.samples.len()));
@@ -207,7 +208,7 @@ pub fn bake_sounds(sound_lvl: &str, outdir: &str, core_lvl: Option<&str>) -> Res
         // Aliases share the target's WAV; real samples are written once per id.
         let mut written: HashMap<u32, String> = HashMap::new();
         for s in b.samples.iter().filter(|s| s.alias_of.is_none()) {
-            if seen.contains_key(&s.id_hash) {
+            if seen.contains(&s.id_hash) {
                 continue;
             }
             let end = s.offset + s.size;
@@ -222,12 +223,12 @@ pub fn bake_sounds(sound_lvl: &str, outdir: &str, core_lvl: Option<&str>) -> Res
             let wav = crate::adpcm::wav_mono_s16(s.frequency, &pcm);
             let rel = format!("{:08x}/{:08x}.wav", b.name_hash, s.id_hash);
             std::fs::write(out.join(&rel), wav)?;
-            seen.insert(s.id_hash, ());
+            seen.insert(s.id_hash);
             written.insert(s.id_hash, rel.clone());
             samples.push((s.id_hash, rel));
         }
         for s in b.samples.iter().filter(|s| s.alias_of.is_some()) {
-            if seen.contains_key(&s.id_hash) {
+            if seen.contains(&s.id_hash) {
                 continue;
             }
             let target = s.alias_of.unwrap();
@@ -238,7 +239,7 @@ pub fn bake_sounds(sound_lvl: &str, outdir: &str, core_lvl: Option<&str>) -> Res
                     None => bail!("alias {:08x} -> {:08x} unresolved", s.id_hash, target),
                 },
             };
-            seen.insert(s.id_hash, ());
+            seen.insert(s.id_hash);
             samples.push((s.id_hash, rel));
         }
     }
@@ -286,6 +287,8 @@ pub fn bake_sounds(sound_lvl: &str, outdir: &str, core_lvl: Option<&str>) -> Res
     // all.
     if !mungefs::stream::find_streams(inner).is_empty() {
         crate::global_sound::bake_map_streams(sound_lvl, &out.join("streams"))?;
+    } else {
+        crate::remove_optional_file(&out.join("streams").join(crate::global_sound::MAP_INDEX))?;
     }
     Ok(ron_out)
 }
@@ -392,6 +395,37 @@ fn take_locks(p: &mungefs::sound_props::SoundProp) -> Vec<(f32, f32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn empty_direct_rebake_removes_only_owned_optional_audio_indexes() {
+        let out = std::env::temp_dir().join(format!("openbf-empty-sounds-{}", std::process::id()));
+        std::fs::create_dir_all(out.join("sounds/streams")).unwrap();
+        let source = out.join("empty.lvl");
+        std::fs::write(&source, b"ucfb\0\0\0\0").unwrap();
+        let foley = out.join("sounds/foley.ron");
+        let streams = out.join("sounds/streams/streams.ron");
+        let body = out.join("sounds/streams/retained.adpcm");
+        let unrelated = out.join("sounds/global.ron");
+        for path in [&foley, &streams, &body, &unrelated] {
+            std::fs::write(path, b"old").unwrap();
+        }
+        for _ in 0..2 {
+            // Both stale and already absent cases succeed.
+            let baked = bake_sounds(source.to_str().unwrap(), out.to_str().unwrap(), None).unwrap();
+            assert!(baked.samples.is_empty());
+            assert!(!foley.exists());
+            assert!(!streams.exists());
+            assert_eq!(std::fs::read(&body).unwrap(), b"old");
+            assert_eq!(std::fs::read(&unrelated).unwrap(), b"old");
+        }
+        // Genuine removal failures must not look like a successful rebake.
+        std::fs::create_dir(&foley).unwrap();
+        assert!(bake_sounds(source.to_str().unwrap(), out.to_str().unwrap(), None).is_err());
+        std::fs::remove_dir(&foley).unwrap();
+        std::fs::create_dir(&streams).unwrap();
+        assert!(bake_sounds(source.to_str().unwrap(), out.to_str().unwrap(), None).is_err());
+        std::fs::remove_dir_all(out).unwrap();
+    }
 
     /// Data-gated Tier-1: BF1 SOUND/TAT.LVL bakes ~1600 samples and the
     /// rifle fire property points at an existing WAV.

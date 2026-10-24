@@ -4,14 +4,14 @@ title: Game findings of cleanse 16: the seat leaves the animator's yaw / legs fr
 milestone: M0
 value: 3
 phase: build
-status: todo
+status: blocked
 deps:
-files: engine/crates/game/src/animator.rs,engine/crates/game/src/roster.rs,engine/crates/game/src/minimap.rs,engine/crates/game/src/event_feed.rs,engine/crates/game/src/blackbox.rs,engine/crates/game/src/main/headless.rs,engine/crates/game/src/unit_probe.rs,engine/crates/game/src/main/windowed.rs
+files: engine/crates/game/src/animator.rs, engine/crates/game/src/roster.rs, engine/crates/game/src/minimap.rs, engine/crates/game/src/event_feed.rs, engine/crates/game/src/blackbox.rs, engine/crates/game/src/blackbox/rotating.rs, engine/crates/game/src/main/headless.rs, engine/crates/game/src/unit_probe.rs, engine/crates/game/src/main/windowed.rs, engine/CRATES.md, engine/crates/game/src/bolt_vis.rs
 declares:
-needs:
+needs: (private workflow note omitted)
 effort:
 branch:
-resume:
+resume: (private workflow note omitted)
 created: 2026-10-15
 ---
 
@@ -48,3 +48,20 @@ A test per fixed item that fails on main (1: a seated gunner turned 90 deg steps
 the completing tick gets 2 points; 6: two writers do not lose a file; 7: `out` stays bounded); 9 is a pure move, every gate PASS.
 
 ## Notes
+
+## Cloud build checkpoint (2026-10-24 13:49 UTC)
+Item 6 implemented only in retained, uncommitted `gcl16` at
+Rotation now serializes the panic/hotkey writers, with same-thread recursion skipped;
+stuck crossings write directly to the bounded event ring rather than an eight-row staging array.
+15 blackbox tests, fmt and game-lib Clippy PASS. Concurrent mutex-removal mutant FAILS;
+the stuck fixture failed before the fix with 8 of 12 events, passes with 12 and no duplicate edge.
+Item 9 is already implemented on main: `battle_resources` (`windowed.rs:897`), called by
+shell `:1033` and direct launch `:1264`; introduced in `70b0557`. No refactor redone here.
+Items 1-5,7,8,10 remain; Acceptance above is unchanged, full CI/required gates still owed.
+No assets, missions, references or graphics device; size-map check exit 1 lists eight missing
+asset/reference paths, zero missing source rows/zero stale counts.
+Report `reports/20261024_1349_card_GCL16.md`; patch, exact logs and continuation `lead_tmp/gcl16_cloud/`.
+No commit, push, landing, MAIN claim or agents.
+
+## GitHub checkpoint recovery (2026-10-24)
+

@@ -103,7 +103,7 @@ impl Default for Mapping {
     }
 }
 
-/// Radial deadzone applied before quantization. PROVISIONAL and ours: no
+/// Per-axis deadzone applied before quantization. PROVISIONAL and ours: no
 /// PS2 value has been traced (the DualShock 2 deadzone lives in the game's
 /// pad code, untouched by the RE so far); 0.15 is a common modern-pad
 /// default. Settled by an `analysis/` citation or the maintainer's feel check.
@@ -346,6 +346,17 @@ pub fn stick_arms(x: f32, y: f32, held: u32) -> u32 {
 
 /// [`pad_from_gamepad`] through a given [`Mapping`].
 pub fn pad_from_gamepad_with(pad: &gilrs::Gamepad<'_>, map: &Mapping) -> PadState {
+    pad_from_gamepad_with_arms(pad, map, 0).0
+}
+
+/// Sample with the previous gameplay stick arms, returning the new latch.
+/// The caller owns controller selection and resets `held` on disconnect/change.
+/// Stateless samplers above remain available to one-shot consumers.
+pub fn pad_from_gamepad_with_arms(
+    pad: &gilrs::Gamepad<'_>,
+    map: &Mapping,
+    held: u32,
+) -> (PadState, u32) {
     use gilrs::Axis;
     let mut b = 0u32;
     for &(gb, bit) in &map.table {
@@ -356,7 +367,11 @@ pub fn pad_from_gamepad_with(pad: &gilrs::Gamepad<'_>, map: &Mapping) -> PadStat
 
     // The left stick also moves the spawn map's post while dead (the sim
     // reads post bits only dead; alive the stick walks).
-    let arms = stick_arms(pad.value(Axis::LeftStickX), pad.value(Axis::LeftStickY), 0);
+    let arms = stick_arms(
+        pad.value(Axis::LeftStickX),
+        pad.value(Axis::LeftStickY),
+        held,
+    );
     for (arm, bit) in [
         (1, buttons::SPAWN_POST_UP),
         (2, buttons::SPAWN_POST_DOWN),
@@ -368,13 +383,16 @@ pub fn pad_from_gamepad_with(pad: &gilrs::Gamepad<'_>, map: &Mapping) -> PadStat
         }
     }
 
-    PadState {
-        lx: PadState::quantize(move_axis(pad.value(Axis::LeftStickX))),
-        ly: PadState::quantize(move_axis(pad.value(Axis::LeftStickY))),
-        rx: PadState::quantize(dz(pad.value(Axis::RightStickX)) * LOOK_SCALE),
-        ry: PadState::quantize(dz(pad.value(Axis::RightStickY)) * LOOK_SCALE),
-        buttons: b,
-    }
+    (
+        PadState {
+            lx: PadState::quantize(move_axis(pad.value(Axis::LeftStickX))),
+            ly: PadState::quantize(move_axis(pad.value(Axis::LeftStickY))),
+            rx: PadState::quantize(dz(pad.value(Axis::RightStickX)) * LOOK_SCALE),
+            ry: PadState::quantize(dz(pad.value(Axis::RightStickY)) * LOOK_SCALE),
+            buttons: b,
+        },
+        arms,
+    )
 }
 
 #[cfg(test)]

@@ -55,8 +55,8 @@ fn backdrop_veil_alpha() -> u8 {
 }
 
 /// Which of the sim's spawn screens is up (card SSELA, `Sim::spawn_stage`),
-/// when the battle runs them. A placeholder text layer over this panel until
-/// card SSELB draws the PS2's own screens.
+/// when the battle runs them. Shared state for the HUD-pass screens and
+/// the egui fallback panel.
 #[derive(Debug, Clone)]
 pub enum SpawnScreen {
     /// The side select: team 1, team 2, Auto Assign, and the highlighted row.

@@ -4,8 +4,8 @@
 //!     state = state * 0x41C64E6D + 0x3039;
 //!     return state & 0x7FFFFFFF;   // 31-bit output, NO >>16 shift
 //!   srand (fn immediately preceding each) stores the seed verbatim.
-//! This is the sim's only randomness source — never wall-clock or OS RNG in
-//! sim logic (PLAN.md determinism spine).
+//! This and [`crate::lcg::GameLcg`] are separate seeded sim streams. Never
+//! use wall-clock or OS RNG in sim logic (PLAN.md determinism spine).
 
 #[derive(Clone, Debug)]
 pub struct SimRng {

@@ -199,14 +199,7 @@ impl Audio {
     pub fn play_oneshot(&mut self, sound: &SoundData, volume_db: f32, rate: f64, pan: f32) {
         #[cfg(feature = "backend")]
         {
-            let data = sound
-                .inner
-                .volume(volume_db)
-                .playback_rate(rate)
-                .panning(pan.clamp(-1.0, 1.0));
-            if let Err(e) = self.manager.play(data) {
-                eprintln!("audio: play failed ({e})");
-            }
+            let _ = self.play_static(&sound.inner, volume_db, rate, pan);
         }
         #[cfg(not(feature = "backend"))]
         {
@@ -225,18 +218,8 @@ impl Audio {
     ) -> Option<Shot> {
         #[cfg(feature = "backend")]
         {
-            let data = sound
-                .inner
-                .volume(volume_db)
-                .playback_rate(rate)
-                .panning(pan.clamp(-1.0, 1.0));
-            match self.manager.play(data) {
-                Ok(inner) => Some(Shot { inner }),
-                Err(e) => {
-                    eprintln!("audio: play failed ({e})");
-                    None
-                }
-            }
+            self.play_static(&sound.inner, volume_db, rate, pan)
+                .map(|inner| Shot { inner })
         }
         #[cfg(not(feature = "backend"))]
         {
@@ -255,25 +238,32 @@ impl Audio {
     ) -> Option<Voice> {
         #[cfg(feature = "backend")]
         {
-            let data = sound
-                .inner
-                .loop_region(..)
-                .volume(volume_db)
-                .playback_rate(rate)
-                .panning(pan.clamp(-1.0, 1.0));
-            match self.manager.play(data) {
-                Ok(inner) => Some(Voice { inner }),
-                Err(e) => {
-                    eprintln!("audio: play failed ({e})");
-                    None
-                }
-            }
+            self.play_static(&sound.inner.loop_region(..), volume_db, rate, pan)
+                .map(|inner| Voice { inner })
         }
         #[cfg(not(feature = "backend"))]
         {
             let _ = (sound, volume_db, rate, pan);
             Some(Voice {})
         }
+    }
+
+    #[cfg(feature = "backend")]
+    fn play_static(
+        &mut self,
+        sound: &kira::sound::static_sound::StaticSoundData,
+        volume_db: f32,
+        rate: f64,
+        pan: f32,
+    ) -> Option<kira::sound::static_sound::StaticSoundHandle> {
+        let data = sound
+            .volume(volume_db)
+            .playback_rate(rate)
+            .panning(pan.clamp(-1.0, 1.0));
+        self.manager
+            .play(data)
+            .inspect_err(|e| eprintln!("audio: play failed ({e})"))
+            .ok()
     }
 
     pub fn stop(&mut self, handle: &mut LoopHandle) {

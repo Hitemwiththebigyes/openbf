@@ -4,14 +4,14 @@ title: BF2's lamp glows that are not light: EntityLight lens flares (the red haz
 milestone: M1
 value: 4
 phase: build
-status: parked
+status: blocked
 deps: BPNT,CPHOL
 files: engine/crates/bake/src/entity_light.rs, engine/crates/manifest/src/lib.rs, engine/crates/game/src/entity_glow.rs, engine/crates/render/src/lens_flare.rs, engine/crates/render/src/light_beam.rs, engine/crates/game/src/point_light.rs
 declares: ci; rebake=maps; goldens=maps/bf2_cor1.png,maps/bf2_dag1.png,maps/bf2_dea1.png,maps/bf2_end1.png,maps/bf2_fel1.png,maps/bf2_hot1.png,maps/bf2_kam1.png,maps/bf2_pol1.png,maps/bf2_tan1.png,maps/bf2_uta1.png,maps/bf2_yav1.png,hot1_spawn_class.png,hot1_spawn_map.png,hot1_spawn_side.png; parity=bf2_uta1,bf2_dea1
-needs: maintainer — the RTX is lost (nvidia-smi: Unable to determine the device handle for gpu 0000:01:00.0; gates: ADAPTER LOST); reboot, then a land job runs the gpu group
+needs: cloud prerequisites: branch lflr, baked assets, missions and reference evidence absent
 effort:
 branch: lflr
-resume: land: branch lflr 6ea5b03; GPU-free gates as declared (lead_tmp/lflr/gates2/SUMMARY.md: ci +8 tests, bake DIFF=11 = the 11 BF2 maps' manifest.ron, rebake=maps); only the gpu group is left: expect the declared BF2 map goldens (and maybe hot1_spawn_*) to move once land phase 1 rebakes - VIEW them for the lamp haze / cones
+resume: (private workflow note omitted)
 created: 2026-09-30
 alpha: yes
 ---
@@ -116,3 +116,4 @@ The lead re-read the GS words.
   downward cone are visible (`lead_tmp/lflr/lflr_sheet.png`, `diff_cp2.png`), at about half the PS2's added level (the
   additive blend in linear light: card ADDB). The flare is cut by the lamp dish's depth like the PS2's GEQUAL test.
 - Left: the hologram's own flare + icon UV animation -> card HOLOF (value 2).
+

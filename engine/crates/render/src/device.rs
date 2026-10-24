@@ -104,23 +104,14 @@ impl Renderer {
         let (adapter, device, queue) = request_device(&instance, None)?;
         let info = adapter.get_info();
 
-        let texture = crate::made::texture(
+        let texture = crate::resources::texture_2d(
             &device,
-            &wgpu::TextureDescriptor {
-                label: Some("headless color"),
-                size: wgpu::Extent3d {
-                    width,
-                    height,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: HEADLESS_FORMAT,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-                // For the HUD pass (`Renderer::display_view_format`).
-                view_formats: &[HEADLESS_FORMAT.remove_srgb_suffix()],
-            },
+            "headless color",
+            [width, height],
+            HEADLESS_FORMAT,
+            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            // For the HUD pass (`Renderer::display_view_format`).
+            &[HEADLESS_FORMAT.remove_srgb_suffix()],
         );
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -307,22 +298,13 @@ fn pick_adapter(instance: &wgpu::Instance, want: &str) -> Result<wgpu::Adapter, 
 /// Depth32Float depth target, matching the pipeline's depth-stencil state.
 /// From an earlier wgpu project's renderer/mod.rs `create_depth_texture` (binding usage dropped).
 pub fn create_depth_texture(device: &wgpu::Device, width: u32, height: u32) -> wgpu::TextureView {
-    let texture = crate::made::texture(
+    let texture = crate::resources::texture_2d(
         device,
-        &wgpu::TextureDescriptor {
-            label: Some("depth"),
-            size: wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Depth32Float,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        },
+        "depth",
+        [width, height],
+        wgpu::TextureFormat::Depth32Float,
+        wgpu::TextureUsages::RENDER_ATTACHMENT,
+        &[],
     );
     texture.create_view(&wgpu::TextureViewDescriptor::default())
 }

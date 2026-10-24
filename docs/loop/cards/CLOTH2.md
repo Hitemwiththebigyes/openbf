@@ -4,14 +4,14 @@ title: BF2 cloth slice 2: the PS2's cloth step on the CPU - Verlet with gravity 
 milestone: M1
 value: 4
 phase: build
-status: todo
+status: blocked
 deps: CLOTH
 files: engine/crates/game/src/cloth.rs (new), engine/crates/game/src/soldier_vis.rs, engine/crates/manifest/src/lib.rs, engine/crates/bake/src/soldier.rs, engine/CRATES.md
 declares:
-needs:
+needs: environment — restore BF2 cloth inputs/recorded poses, real bakes, PS2 reference/capture tools and approved GPU gate device; see lead_tmp/cloth2_20261024_0905/inventory.json
 effort:
 branch:
-resume:
+resume: Preflight blocked before implementation: 26/29 paths absent; report reports/20261024_0908_card_CLOTH2.md. Restore named raw cloth tools/RAM capture and BF2 IMP/REP inputs, record running snowtrooper pose sequence, rebuild real assets and restore approved GPU/reference checks. Then isolated loopctl start CLOTH2, implement re-cloth 4 CPU step and bake/runtime uploads; mutation-check replay, measure hem 0.1-0.4m and no cylinder penetration, view PS2/port running pair, full gates. Acceptance unchanged; no source edits or landing.
 created: 2026-10-16
 alpha: yes
 ---
@@ -53,4 +53,4 @@ sits inside a thigh / calf cylinder. (3) A PS2 | port pair of a running snowtroo
 ## Note from CLOTH (2026-10-16)
 Slice 1 landed (f1cd4ac): cloth segments are in the soldier GLB with material `extras.cloth` (bake/src/cloth.rs), each
 vertex rigid on one bone (pins on theirs, free on the nearest pin's). The rigid skirt cuts through the thighs on the unit
-sheets' crouch / jump poses - this card's step fixes it. Keep AIM_SIZE's measure off the cloth (tests/roster.rs).
+sheets' crouch / jump poses - this card's step fixes it. Keep AIM_SIZE's measure off the cloth (`engine/crates/game/tests/suite/roster.rs`).

@@ -165,7 +165,9 @@ impl CameraBlockers {
                 // paths filter the same way).
                 let indices: Vec<u32> = cpu
                     .indices
-                    .chunks_exact(3)
+                    .as_chunks::<3>()
+                    .0
+                    .iter()
                     .filter(|tri| tri.iter().all(|&i| (i as usize) < positions.len()))
                     .flatten()
                     .copied()
@@ -213,7 +215,7 @@ impl CameraBlockers {
             }
             let o = b.inv.transform_point3(target);
             let d = b.inv.transform_vector3(dir);
-            for tri in b.mesh.indices.chunks_exact(3) {
+            for tri in b.mesh.indices.as_chunks::<3>().0 {
                 let (a, bb, c) = (
                     b.mesh.positions[tri[0] as usize],
                     b.mesh.positions[tri[1] as usize],

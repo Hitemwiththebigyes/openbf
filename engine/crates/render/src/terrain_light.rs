@@ -26,6 +26,7 @@
 //! through the additive blend. A window whose surface cannot be copied
 //! draws no pass (said once on stderr).
 
+use crate::bindings;
 use crate::texture::upload_levels;
 use crate::{RenderError, Renderer};
 use glam::Vec3;
@@ -182,35 +183,23 @@ impl Renderer {
         let bytes: &[u8] = bytemuck::cast_slice(&words);
         let t = &mut self.terrain_lights;
         if t.params_buf.is_none() {
-            t.params_buf = Some(crate::made::buffer(
+            t.params_buf = Some(crate::resources::buffer(
                 &self.device,
-                &wgpu::BufferDescriptor {
-                    label: Some("terrain light params"),
-                    size: bytes.len() as u64,
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                },
+                "terrain light params",
+                bytes.len() as u64,
+                wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             ));
         }
         let buf = t.params_buf.as_ref().expect("made above");
         self.queue.write_buffer(buf, 0, bytes);
         if !matches!(&t.dest, Some((_, _, dw, dh)) if (*dw, *dh) == (w, h)) {
-            let tex = crate::made::texture(
+            let tex = crate::resources::texture_2d(
                 &self.device,
-                &wgpu::TextureDescriptor {
-                    label: Some("terrain light destination"),
-                    size: wgpu::Extent3d {
-                        width: w,
-                        height: h,
-                        depth_or_array_layers: 1,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format: self.format,
-                    usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
-                    view_formats: &[],
-                },
+                "terrain light destination",
+                [w, h],
+                self.format,
+                wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
+                &[],
             );
             let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
             t.dest = Some((tex, view, w, h));
@@ -226,22 +215,10 @@ impl Renderer {
                     label: Some("terrain light bg"),
                     layout: &self.terrain_light_bgl,
                     entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: wgpu::BindingResource::TextureView(ov),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: wgpu::BindingResource::Sampler(os),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: wgpu::BindingResource::TextureView(dv),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 3,
-                            resource: buf.as_entire_binding(),
-                        },
+                        bindings::texture_view(0, ov),
+                        bindings::sampler(1, os),
+                        bindings::texture_view(2, dv),
+                        bindings::entire_buffer(3, buf),
                     ],
                 },
             ));
@@ -288,37 +265,13 @@ impl Renderer {
 /// Group 1 of the light pass: the texture, its sampler, the destination
 /// copy (read with `textureLoad`) and `TlParams`.
 pub(crate) fn terrain_light_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
-    let tex = |binding, filterable| wgpu::BindGroupLayoutEntry {
-        binding,
-        visibility: wgpu::ShaderStages::FRAGMENT,
-        ty: wgpu::BindingType::Texture {
-            sample_type: wgpu::TextureSampleType::Float { filterable },
-            view_dimension: wgpu::TextureViewDimension::D2,
-            multisampled: false,
-        },
-        count: None,
-    };
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("terrain light bgl"),
         entries: &[
-            tex(0, true),
-            wgpu::BindGroupLayoutEntry {
-                binding: 1,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                count: None,
-            },
-            tex(2, false),
-            wgpu::BindGroupLayoutEntry {
-                binding: 3,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
+            bindings::texture_layout(0, true),
+            bindings::sampler_layout(1),
+            bindings::texture_layout(2, false),
+            bindings::uniform_layout(3, wgpu::ShaderStages::FRAGMENT, false, None),
         ],
     })
 }

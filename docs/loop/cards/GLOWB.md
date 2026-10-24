@@ -4,13 +4,14 @@ title: BF2's HDR bloom: the halo around lamps, strips and lava on the 13 HDR map
 milestone: M1
 value: 4
 phase: build
-status: todo
+status: blocked
 deps: GLOW
-files: engine/crates/render/src/frame.rs,engine/crates/render/src/pipelines.rs,engine/crates/render/src/lib.rs,engine/crates/render/src/bloom.rs,engine/crates/render/src/bloom.wgsl,engine/crates/render/src/shader.wgsl,engine/crates/game/src/viewer/look.rs,engine/crates/game/src/viewer/scene.rs
+files: engine/crates/render/src/frame.rs, engine/crates/render/src/pipelines.rs, engine/crates/render/src/lib.rs, engine/crates/render/src/bloom.rs (new), engine/crates/render/src/bloom.wgsl (new), engine/crates/render/src/shader.wgsl, engine/crates/game/src/viewer/look.rs, engine/crates/game/src/viewer/scene.rs
 declares: goldens=maps/bf2_cor1.png,maps/bf2_dea1.png,maps/bf2_fel1.png,maps/bf2_geo1.png,maps/bf2_hot1.png,maps/bf2_kam1.png,maps/bf2_kas2.png,maps/bf2_mus1.png,maps/bf2_myg1.png,maps/bf2_nab2.png,maps/bf2_pol1.png,maps/bf2_tan1.png,maps/bf2_uta1.png
-needs:
+needs: environment restoration: restore 13 HDR-map bakes, MYG1/UTA1/POL1/KAM1 picture references and approved GPU gate device
+effort:
 branch:
-resume:
+resume: 2026-10-24 09:20 UTC: planner prerequisite census; no implementation. Restore this card's inputs in lead_tmp/planner_20261024_0913/queue_preflight.json, recheck original acceptance/current-main baseline, then loopctl start for isolated build. Full CI and required gates remain; reports/20261024_0913_planner.md.
 created: 2026-09-30
 alpha: yes
 ---
@@ -31,3 +32,4 @@ control 123.8/119.0/127.0, bloom off 105.7/102.4/109.0, specular pass off 95.0/9
 the pass adds about 10 and the bloom about 18, and the bloom adds nothing once the pass is off (the highlight takes
 the white deck lines over the threshold). At the stored pose `walk/cp2_cp3_b270` the same box reads PS2 157/163/171
 against 107/114/122 with LSUM + B1DK prototyped (main 76/79/84). `analysis/re-kamino-decks.md` §1.3, §8. A referee box for this card.
+

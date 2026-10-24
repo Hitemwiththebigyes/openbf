@@ -40,7 +40,6 @@ fn worst_rot(a: &Mat4, b: &Mat4) -> f32 {
 }
 
 struct Class {
-    game: String,
     ytf: f32,
     ptf: f32,
     bind: Mat4,
@@ -110,7 +109,6 @@ fn tally() -> HashMap<String, Tally> {
             classes.insert(
                 tag,
                 Class {
-                    game: w[2].to_owned(),
                     ytf: f[0],
                     ptf: f[1],
                     bind,
@@ -152,7 +150,6 @@ fn tally() -> HashMap<String, Tally> {
             t.barrel += usize::from(worst(&tp::barrel_node(parent, *off, slide), &bm) < TOL);
             t.barrel_no_slide += usize::from(worst(&tp::barrel_node(parent, *off, 0.0), &bm) < TOL);
         }
-        let _ = &c.game;
     }
     out
 }
@@ -444,7 +441,7 @@ fn the_drawn_turret_follows_its_seats_gun_state() {
 }
 
 /// Card VTURL, data-gated (the bake): the player seated in a turret of each
-/// class the PS2 rows hold, a stick held full for 2 s per axis. The look's
+/// class the PS2 rows hold, a stick held full for 2.5 s per axis. The look's
 /// steady rate and its pitch limits against the PS2's own (the turret's
 /// rate field and pitch per update in `lead_tmp/vturd/ps2/*_rows.bin`,
 /// `lead_tmp/vturl/rates.py`): rates within 10 %, limits within 0.1 deg.

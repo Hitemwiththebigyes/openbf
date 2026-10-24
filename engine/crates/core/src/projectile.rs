@@ -5,7 +5,8 @@
 //! at the precomputed time as long as that object is still alive — targets
 //! cannot dodge after the shot, and anything entering the path later is
 //! never hit. Flagged for a PCSX2 confirmation; a per-tick sweep would be
-//! an openbf divergence.
+//! an openbf divergence. Complete bit-exact bolt replay serialization is
+//! owned here by `Bolt::hash_into` (card HASH).
 
 use crate::collision::{ray_heightfield, Capsule, CollisionWorld, HullFilter, Layers};
 use crate::heightfield::Heightfield;
@@ -71,6 +72,46 @@ pub struct Shooter {
 }
 
 impl Bolt {
+    /// Bit-exact replay state (card HASH). Hit variants have distinct tags;
+    /// historical handles retain their generations after slot reuse.
+    pub(crate) fn hash_into(&self, eat: &mut impl FnMut(&[u8])) {
+        for v in [
+            self.pos.x,
+            self.pos.y,
+            self.pos.z,
+            self.vel.x,
+            self.vel.y,
+            self.vel.z,
+            self.remaining,
+            self.age,
+            self.end.x,
+            self.end.y,
+            self.end.z,
+        ] {
+            eat(&v.to_bits().to_le_bytes());
+        }
+        eat(&self.owner.index.to_le_bytes());
+        eat(&self.owner.gen.to_le_bytes());
+        eat(&[self.team]);
+        eat(&(self.weapon_class as u64).to_le_bytes());
+        eat(&[u8::from(self.shooter_is_player)]);
+        match self.hit {
+            Hit::None => eat(&[0]),
+            Hit::Terrain => eat(&[1]),
+            Hit::World => eat(&[2]),
+            Hit::Target(Target::Unit(h)) => {
+                eat(&[3]);
+                eat(&h.index.to_le_bytes());
+                eat(&h.gen.to_le_bytes());
+            }
+            Hit::Target(Target::Vehicle(h)) => {
+                eat(&[4]);
+                eat(&h.index.to_le_bytes());
+                eat(&h.gen.to_le_bytes());
+            }
+        }
+    }
+
     /// Spawn with the predictive raycast: candidates = terrain + the given
     /// unit capsules (owner excluded by the caller). `speed` = ordnance
     /// Velocity, `life_span` = ordnance LifeSpan.

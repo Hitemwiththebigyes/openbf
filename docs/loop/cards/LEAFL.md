@@ -4,14 +4,14 @@ title: BF2 leaves still sum their light in linear space: grass.wgsl's leaf path 
 milestone: M1
 value: 3
 phase: build
-status: todo
+status: blocked
 deps:
 files: engine/crates/render/src/grass.wgsl
 declares:
 needs:
 effort:
 branch:
-resume:
+resume: RESTORATION HOLD 2026-10-24: restore hardware GPU access, baked maps and golden/reference inputs; reproduce current-main leaf/Lit delta before isolated build. See reports/20261024_1330_card_LEAFL.md and lead_tmp/leafl_cloud/next_prompt.md. Original Acceptance and PROVISIONAL leaf formula retained.
 created: 2026-10-16
 ---
 ## Why

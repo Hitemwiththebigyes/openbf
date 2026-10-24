@@ -34,8 +34,8 @@ pub struct TeamState {
     pub reinforcements: f32,
     pub alive_players: u32,
     pub alive_ai: u32,
-    /// CP-majority ticket drain, per second (0 = no bleed). RE will supply
-    /// the authentic thresholds/rates.
+    /// Currently applied ticket drain per second (0 = no bleed), set by
+    /// [`crate::cp::apply_bleed`] for the command-post majority.
     pub bleed_per_sec: f32,
 }
 
@@ -277,9 +277,8 @@ mod tests {
         assert!(b.teams[0].tickets() <= 2);
         assert!(shed_total >= 1);
         assert!(b.teams[0].invariant_holds());
-        // Drain to zero: everyone left alive stays until killed, but once
-        // alive hits 0 with 0 tickets the team has nothing left — which is
-        // what `Sim::step` reads (tickets() == 0), field by field.
+        // Drain to zero and shed the remaining AI. Players are exempt from
+        // shedding; Sim's ticket-zero outcome does not require alive == 0.
         for _ in 0..200 {
             b.tick_bleed(1.0 / 30.0);
         }

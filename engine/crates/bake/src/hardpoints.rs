@@ -10,6 +10,7 @@
 //! as the class's `GeometryName`, else as its `gmod`'s best LOD.
 
 use manifest::{ManifestClass, ManifestHardpoint};
+use mungefs::entity::GeomModel;
 use mungefs::skel::Skeleton;
 
 /// The BASEs whose classes carry seats: every vehicle label, and the
@@ -45,23 +46,27 @@ pub fn of(skel: &Skeleton) -> Vec<ManifestHardpoint> {
 /// best LOD (first of a name wins, the walk's own rule).
 pub struct Skeletons {
     skels: Vec<Skeleton>,
-    gmods: Vec<mungefs::entity::GeomModel>,
+    gmods: Vec<GeomModel>,
 }
 
 impl Skeletons {
     pub fn of(chunks: &[mungefs::Chunk<'_>]) -> Skeletons {
         let mut skels: Vec<Skeleton> = Vec::new();
-        let mut gmods: Vec<mungefs::entity::GeomModel> = Vec::new();
+        let mut gmods: Vec<GeomModel> = Vec::new();
         for c in chunks {
             match &c.tag {
                 b"skel" => {
                     if let Ok(s) = mungefs::skel::parse_skel(c) {
-                        skels.push(s);
+                        if !skels.iter().any(|k| k.name.eq_ignore_ascii_case(&s.name)) {
+                            skels.push(s);
+                        }
                     }
                 }
                 b"gmod" => {
-                    if let Ok(g) = mungefs::entity::GeomModel::parse(c) {
-                        gmods.push(g);
+                    if let Ok(g) = GeomModel::parse(c) {
+                        if !gmods.iter().any(|k| k.name.eq_ignore_ascii_case(&g.name)) {
+                            gmods.push(g);
+                        }
                     }
                 }
                 _ => {}
@@ -70,15 +75,54 @@ impl Skeletons {
         Skeletons { skels, gmods }
     }
 
+    #[cfg(test)]
+    pub(crate) fn from_skeleton(skel: Skeleton) -> Self {
+        Self {
+            skels: vec![skel],
+            gmods: Vec::new(),
+        }
+    }
+
+    fn named(&self, name: &str) -> Option<&Skeleton> {
+        self.skels
+            .iter()
+            .find(|s| s.name.eq_ignore_ascii_case(name))
+    }
+
+    pub(crate) fn geometries(&self) -> &[GeomModel] {
+        &self.gmods
+    }
+
+    pub(crate) fn geometry(&self, name: &str) -> Option<&GeomModel> {
+        self.gmods
+            .iter()
+            .find(|g| g.name.eq_ignore_ascii_case(name))
+    }
+
     /// The skeleton of a class whose `GeometryName` is `geom`.
     pub fn find(&self, geom: &str) -> Option<&Skeleton> {
-        let named = |n: &str| self.skels.iter().find(|s| s.name.eq_ignore_ascii_case(n));
-        named(geom).or_else(|| {
+        self.named(geom).or_else(|| {
+            self.geometry(geom)
+                .and_then(|g| g.best_model())
+                .and_then(|n| self.named(n))
+        })
+    }
+
+    /// A named skeleton, else the first geometry containing this LOD's
+    /// skeleton (geometry name, then best LOD). `geometry_matches` also
+    /// accepts the geometry's own name, as required by turret rigs.
+    pub(crate) fn find_model(&self, model: &str, geometry_matches: bool) -> Option<&Skeleton> {
+        self.named(model).or_else(|| {
             self.gmods
                 .iter()
-                .find(|g| g.name.eq_ignore_ascii_case(geom))
-                .and_then(|g| g.best_model())
-                .and_then(named)
+                .find(|g| {
+                    (geometry_matches && g.name.eq_ignore_ascii_case(model))
+                        || g.lods.iter().any(|l| l.model.eq_ignore_ascii_case(model))
+                })
+                .and_then(|g| {
+                    self.named(&g.name)
+                        .or_else(|| g.best_model().and_then(|n| self.named(n)))
+                })
         })
     }
 }

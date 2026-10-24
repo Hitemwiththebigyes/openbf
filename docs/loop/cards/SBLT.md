@@ -4,14 +4,14 @@ title: Soldier base lighting: the port's un-passed droids are darker than the PS
 milestone: M1
 value: 4
 phase: build
-status: parked
+status: blocked
 deps:
 files: engine/crates/bake/src/lighting.rs
 declares: rebake=maps (bf1_kas2/bf1_nab1/bf1_yav2 manifest.ron only: character_ambient Some(0.2159 x3)); goldens=maps/bf1_kas2.png,maps/bf1_nab1.png,maps/bf1_yav2.png (their soldier-for-scale, LightPath::Character; unit sheets carry no map lighting); ci (+1 test)
-needs: maintainer - the RTX is lost (nvidia-smi Unknown Error); the golden step needs it. After the reboot clear this and a land job takes the branch
+needs: cloud prerequisites: branch sblt, baked assets, missions and reference evidence absent
 effort: high
 branch: sblt
-resume: LAND: branch sblt c7347aa, ci + GPU-free gates as declared (lead_tmp/sblt/gates2/SUMMARY.md). land.py SBLT; view maps/bf1_kas2, bf1_nab1, bf1_yav2 (the soldier for scale brighter, neutral, no blue cast); unit sheets must not move
+resume: (private workflow note omitted)
 created: 2026-09-29
 alpha: yes
 ---
@@ -93,3 +93,4 @@ RE here.
 - Acceptance 3 (Intel iGPU, the RTX is lost): no-pass SBD mean on the fixed mask 28.6 (main's bake) -> **44.5** (branch
   overlay; target 43.8 +- 1.5); the branch frame is byte-equal to main + `SBLT_CAMB=128`; mean RGB (25.2, 29.9, 31.0) ->
   (42.7, 45.2, 45.0): the blue cast is gone. Sheet `lead_tmp/sblt/sheet_build_kas2.png` (main | branch | PS2).
+

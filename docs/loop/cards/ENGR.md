@@ -5,13 +5,13 @@ milestone: M3
 value: 3
 phase: build
 status: todo
-deps: BOTD,GRAI,TEAM
+deps: BOTD,GRAI,TEAM,MINE,FCUT
 files: engine/crates/core/src/ai/behave.rs,engine/crates/core/src/ai/gunner_foot.rs,engine/crates/core/src/commander.rs
 declares: sim; sweep; arena
 needs:
 effort:
 branch:
-resume:
+resume: 2026-10-24 11:57 UTC: MINE dispenser/mine and FCUT repair are required before original four serving checks; restore cited captures/runtime data and retake on current main. reports/20261024_1151_planner.md
 created: 2026-10-02
 ---
 
@@ -63,3 +63,4 @@ Not in BOTV's deps (value 3, not an alpha card): PERF does not wait for it.
 - BF2 GEO1 has one `com_item_healthrecharge_unbuilt` (a buildable health droid, hologram `com_holo_health`): the same
   build rule would apply; not on a showcase map.
 - 2026-10-05 planner - **The maintainer has read the bot design: "BOTD read, go" (INBOX 2026-10-03 14:08). All eight decisions take the note's defaults; the 16 deviations D1-D16 are all on. This card is released (BOTD is done).**
+

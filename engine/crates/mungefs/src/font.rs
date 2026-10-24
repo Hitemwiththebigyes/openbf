@@ -80,7 +80,9 @@ pub fn parse(chunk: &Chunk<'_>) -> Result<Font, UcfbError> {
     }
     let glyphs = body
         .payload
-        .chunks_exact(GLYPH_BYTES)
+        .as_chunks::<GLYPH_BYTES>()
+        .0
+        .iter()
         .take(count)
         .map(|g| Glyph {
             code: u16_at(g, 0),

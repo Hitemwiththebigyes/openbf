@@ -4,14 +4,14 @@ title: Soldiers in light-map shadow: on maps with DomeInfo TerrainColorDarkening
 milestone: M1
 value: 3
 phase: build
-status: todo
+status: blocked
 deps:
 files: engine/crates/game/src/soldier_vis.rs, engine/crates/bake/src/lighting.rs
 declares: rebake=maps (the flag in the manifests of the flagged maps); goldens=none expected (no golden draws a soldier on those maps; confirm)
-needs:
+needs: Restore LUMI/sky map data, flag census, state and BF2 primary inputs; resolve BF2 enable flag and retain the within-3-level shadow ratio check.
 effort:
 branch:
-resume:
+resume: 2026-10-24 11:57 UTC: planner prerequisite hold; 7/7 exact named paths absent. Restore LUMI/sky map data, flag census, state and BF2 primary inputs; resolve BF2 enable flag and retain the within-3-level shadow ratio check. All original acceptance retained. reports/20261024_1151_planner.md; inventory/continuation lead_tmp/planner_20261024_1151/.
 created: 2026-10-16
 alpha: yes
 ---

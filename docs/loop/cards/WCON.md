@@ -4,14 +4,14 @@ title: A walker's body prim on the terrain, as the PS2's: a tauntaun or kaadu pa
 milestone: M2
 value: 3
 phase: build
-status: todo
+status: blocked
 deps: WALKB1
 files: engine/crates/core/src/vehicle/walker.rs,engine/crates/core/src/vehicle/walker/tests.rs,engine/crates/core/src/sim/vehicles.rs,engine/crates/game/src/vehicle_class/walker.rs,engine/crates/bake/src/walker.rs
 declares: sweep; sim
-needs:
+needs: Restore kaadu velocity rows, slope/rest census tools and NAB1/HOT1 side bakes/missions; parent-versus-branch three-pad vectors are the first referee.
 effort:
 branch:
-resume: Read analysis/re-walker.md 16 and 13.1. Add the terrain contact of every TerrainCollision prim no leg pair claims to core::vehicle::walker (v.y = 0, supported, push-out by normal x depth) and move the contact pass between the fall and the legs; Acceptance 1 (the three NAB1 kaadus' velocity vectors) is the first referee.
+resume: 2026-10-24 11:57 UTC: planner prerequisite hold; 10/10 exact named paths absent. Restore kaadu velocity rows, slope/rest census tools and NAB1/HOT1 side bakes/missions; parent-versus-branch three-pad vectors are the first referee. All original acceptance retained. reports/20261024_1151_planner.md; inventory/continuation lead_tmp/planner_20261024_1151/.
 created: 2026-10-07
 alpha: yes
 ---

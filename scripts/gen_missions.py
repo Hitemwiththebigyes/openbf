@@ -493,8 +493,16 @@ def calls50(f, out=None, globs=None, base=None, ups=None, recurse=True):
             R[a] = Unknown("arith")
             if isinstance(x, float) and isinstance(y, float):
                 try:
-                    R[a] = {"ADD": x + y, "SUB": x - y, "MUL": x * y,
-                            "DIV": x / y if y else 0.0, "POW": x ** y}[op]
+                    if op == "ADD":
+                        R[a] = x + y
+                    elif op == "SUB":
+                        R[a] = x - y
+                    elif op == "MUL":
+                        R[a] = x * y
+                    elif op == "DIV":
+                        R[a] = x / y if y else 0.0
+                    else:
+                        R[a] = x ** y
                 except (OverflowError, ZeroDivisionError):
                     pass
         elif op in ("UNM", "NOT", "CONCAT"):
@@ -502,6 +510,42 @@ def calls50(f, out=None, globs=None, base=None, ups=None, recurse=True):
     if recurse:
         for i, p in enumerate(f.protos):
             calls50(p, out, globs, base, closure_ups.get(i, []))
+    return out
+
+
+def global_functions50(f):
+    """Global closures registered by the chunk, in instruction order."""
+    top = {}
+    reg = {}
+    for ins in f.code:
+        op = OPS50[ins & 0x3F]
+        a, bx = (ins >> 24) & 0xFF, (ins >> 6) & 0x3FFFF
+        if op == "CLOSURE" and bx < len(f.protos):
+            reg[a] = f.protos[bx]
+        elif op == "SETGLOBAL" and a in reg and isinstance(f.k[bx], str):
+            top[f.k[bx]] = reg.pop(a)
+    return top
+
+
+def startup_calls50(f, verbs):
+    """Replay startup verb calls, following only zero-argument globals."""
+    top = global_functions50(f)
+    base = _rk_base(f)
+    out = []
+
+    def run(name, depth):
+        p = top.get(name)
+        if p is None or depth > 4:
+            return
+        for c in calls50(p, base=base, recurse=False):
+            if c.name in verbs:
+                for arg in c.args:
+                    if isinstance(arg, str):
+                        out.append((arg, c.name == verbs[0]))
+            elif c.name in top and not c.args:
+                run(c.name, depth + 1)
+
+    run("ScriptPostLoad", 0)
     return out
 
 
@@ -520,32 +564,7 @@ def arc_calls50(f):
     the PS2 (the mask starts at 0, `core::route_patch`), but it is kept so the
     list replays the script.
     """
-    top = {}
-    reg = {}
-    for ins in f.code:
-        op = OPS50[ins & 0x3F]
-        a, bx = (ins >> 24) & 0xFF, (ins >> 6) & 0x3FFFF
-        if op == "CLOSURE" and bx < len(f.protos):
-            reg[a] = f.protos[bx]
-        elif op == "SETGLOBAL" and a in reg and isinstance(f.k[bx], str):
-            top[f.k[bx]] = reg.pop(a)
-    base = _rk_base(f)
-    out = []
-
-    def run(name, depth):
-        p = top.get(name)
-        if p is None or depth > 4:
-            return
-        for c in calls50(p, base=base, recurse=False):
-            if c.name in ARC_VERBS:
-                for arg in c.args:
-                    if isinstance(arg, str):
-                        out.append((arg, c.name == ARC_VERBS[0]))
-            elif c.name in top and not c.args:
-                run(c.name, depth + 1)
-
-    run("ScriptPostLoad", 0)
-    return out
+    return startup_calls50(f, ARC_VERBS)
 
 
 BARRIER_VERBS = ("EnableBarriers", "DisableBarriers")
@@ -562,32 +581,7 @@ def barrier_calls50(f):
     here is what opens a door's barrier for the round (BF2 KAM1's FRONTDOOR*,
     `camp`, `frog`).  64 BF2 mission scripts call one; no BF1 script does.
     """
-    top = {}
-    reg = {}
-    for ins in f.code:
-        op = OPS50[ins & 0x3F]
-        a, bx = (ins >> 24) & 0xFF, (ins >> 6) & 0x3FFFF
-        if op == "CLOSURE" and bx < len(f.protos):
-            reg[a] = f.protos[bx]
-        elif op == "SETGLOBAL" and a in reg and isinstance(f.k[bx], str):
-            top[f.k[bx]] = reg.pop(a)
-    base = _rk_base(f)
-    out = []
-
-    def run(name, depth):
-        p = top.get(name)
-        if p is None or depth > 4:
-            return
-        for c in calls50(p, base=base, recurse=False):
-            if c.name in BARRIER_VERBS:
-                for arg in c.args:
-                    if isinstance(arg, str):
-                        out.append((arg, c.name == BARRIER_VERBS[0]))
-            elif c.name in top and not c.args:
-                run(c.name, depth + 1)
-
-    run("ScriptPostLoad", 0)
-    return out
+    return startup_calls50(f, BARRIER_VERBS)
 
 
 def death_drains50(f):
@@ -600,15 +594,7 @@ def death_drains50(f):
     the dying character, Lua team drained, n)`; a handler with anything else
     in it (a condition, another call) is not a plain drain and is skipped.
     """
-    top = {}
-    reg = {}
-    for ins in f.code:
-        op = OPS50[ins & 0x3F]
-        a, bx = (ins >> 24) & 0xFF, (ins >> 6) & 0x3FFFF
-        if op == "CLOSURE" and bx < len(f.protos):
-            reg[a] = f.protos[bx]
-        elif op == "SETGLOBAL" and a in reg and isinstance(f.k[bx], str):
-            top[f.k[bx]] = reg.pop(a)
+    top = global_functions50(f)
     p = top.get("ScriptPostLoad")
     if p is None:
         return []

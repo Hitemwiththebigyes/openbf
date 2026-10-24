@@ -22,6 +22,7 @@
 //! Its depth test is `LessEqual` on the base's own depth, no depth write
 //! (§7: the pass shares its base's Z and a nearer later draw covers it).
 
+use crate::bindings;
 use crate::texture::upload_levels;
 use crate::{RenderError, Renderer};
 use glam::Vec3;
@@ -104,18 +105,9 @@ impl Renderer {
                 label: Some("specular bg"),
                 layout: &self.spec_bgl,
                 entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: self.spec_buf.as_entire_binding(),
-                    },
+                    bindings::texture_view(0, &view),
+                    bindings::sampler(1, &sampler),
+                    bindings::entire_buffer(2, &self.spec_buf),
                 ],
             },
         ));
@@ -128,32 +120,9 @@ pub(crate) fn spec_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLa
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("specular bgl"),
         entries: &[
-            wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                    multisampled: false,
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 1,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 2,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
+            bindings::texture_layout(0, true),
+            bindings::sampler_layout(1),
+            bindings::uniform_layout(2, wgpu::ShaderStages::VERTEX, false, None),
         ],
     })
 }

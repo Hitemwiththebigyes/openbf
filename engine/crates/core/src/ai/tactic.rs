@@ -1106,18 +1106,8 @@ fn take(sim: &Sim, tk: &Tick, st: &mut AiState, h: &mut HoldState, p: Pick, nt: 
 /// and a [`STEP`] of its height it is arrived where the bot stands (`true`),
 /// else the walk failed ([`failed`]).
 pub(super) fn cut_short(sim: &Sim, tk: &Tick, st: &mut AiState, h: &mut HoldState) -> bool {
-    let here = tk.u.soldier.pos;
-    let near = st
-        .tpos
-        .held
-        .and_then(|i| sim.positions.positions.get(i as usize))
-        .is_some_and(|q| {
-            nav::xz_dist(here, q.pos) <= NEAR_ENOUGH && (here.y - q.pos.y).abs() <= STEP
-        });
-    if near {
-        st.tpos.stand = here;
-        arrive(sim, tk, st, h);
-    } else {
+    let near = walk_arrived(sim, tk, st, h);
+    if !near {
         failed(st, sim.tick);
     }
     near

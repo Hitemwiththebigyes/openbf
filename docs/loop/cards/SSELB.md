@@ -4,17 +4,17 @@ title: The PS2 BF2 spawn screens drawn: side select (Select a team: the two team
 milestone: M5
 value: 5
 phase: build
-status: todo
+status: blocked
 deps: SSELA
 files: scripts/gen_missions.py, engine/crates/game/src/mission.rs, engine/crates/ui/src/spawn.rs, engine/crates/game/src/main/battle.rs, engine/crates/game/src/main/windowed.rs, engine/crates/game/src/walk.rs
 declares:
-needs:
+needs: cloud prerequisites: baked assets, PS2 corpus and SSELB capture/tool scratch absent
 effort:
 branch: sselb
-resume: Slices 1-9 on main (slice 9 = c01c7b5 + 078c77c, landing closed by the planner 2026-10-21 20:55: gpu was skipped by deps.toml, the stale golden list was LANDG's bug; land state moved to lead_tmp/sselb/land/state.json.closed_by_planner_20261021 - use a FRESH land out dir next time). landed 078c77c 2026-10-21
+resume: Cloud preflight blocked 2026-10-24; restore assets_baked, extracted PS2 corpus and lead_tmp/ssel + sselb captures/tools. Slices 1-9 previously landed per card; slice 9 closed by planner, do not reopen old land state. Next reconcile centred stack labels against PS2 frames and current ui/src/spawn_draw.rs, then fresh land out dir. Report engine/artifacts/loop/reports/20261024_0702_card_SSELB.md.
 created: 2026-10-20
 alpha: yes
-first: 5
+first: 10
 ---
 ## Why
 The spawn screens as the PS2's BF2 draws them (the maintainer 2026-10-19; `analysis/re-spawn-flow.md` §0-§4, §6, [O]). Today

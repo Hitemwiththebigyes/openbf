@@ -4,19 +4,26 @@ title: The opening wave draws a post, then a node, as the PS2's members do - tod
 milestone: M3
 value: 5
 phase: build
-status: todo
+status: blocked
 deps: BSPN
 files: engine/crates/game/src/walk.rs
 declares: sim; sweep; arena; leak
-needs:
+needs: maintainer — restore baked assets and local PS2/census evidence for required acceptance
 effort:
 branch:
-resume:
+resume: 2026-10-24 07:06 UTC cloud preflight blocked; see reports/20261024_0706_card_OPNW.md. Restore engine/assets_baked and the referenced PS2/census evidence; clear needs and set todo. Check shared STOP/PAUSE, loopctl.py start OPNW, take current-main 8 seeds x 32 maps SPAWN_CENSUS baseline before editing; implement post-then-node opening including pad command walkers, mutation-check 1/2/6-node test, repeat census and applicable gates; no source change or validation receipt this run.
 created: 2026-10-09
 alpha: yes
 ---
 ## Why
 Card BSPN made a bot's RESPAWN draw one eligible post and then one of its nodes (the maintainer, 2026-10-07: 'make the bot spawn the same as the ps2'). The opening wave was left as it is: `WalkSim::opening_wave` (`game/src/walk.rs`) deals `ai_per_team` bots round-robin over `Sim::spawn_points` plus `pad_walker_spawn_points`.
+
+Planner 2026-10-24 08:25 UTC: OPNW remains the sole opening-wave implementation
+owner. SPST is now a blocked measure follow-up depending on BSPN and OPNW; it
+retains the exact respawn referee, opening-walker shares, 240-second spawn and
+all-map outcome checks, plus the HOT1 walker-light diagnostic. Preserve per-walker
+opening columns in OPNW's census so SPST can check its bars without duplicating
+the implementation. This division changes no OPNW acceptance or restoration hold.
 
 ## Evidence
 - The PS2's opening members draw a post by the same rule (re-command-walker-post 6, RAM: BF1 Hoth's 24 Empire AI chose the fixed post 10, the AT-ATs 9 and 5; BF2 Hoth 18 AI: 5 / 5 / 4 / 4).

@@ -4,16 +4,18 @@ title: BF2 Kamino: Imperial attackers ping-pong between hubs 46 and 44 at kam_bl
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: blocked
 deps:
 files:
 declares:
-needs:
+needs: cloud prerequisites: baked KAM1, missions, PS2 corpus and WINS raw traces absent
 effort:
 branch:
-resume:
+resume: Restore WINS/KAM1 evidence and data; start KAMPP in an isolated checkout, re-trace hubs 46/44 to 47 on current main, then implement root route fix and mutation-check its graph test. Repeat 16 seeds and all applicable gates. See reports/20261024_0713_planner.md.
 created: 2026-10-22
-defer: post-alpha
+defer:
+first: 2
+alpha: yes
 ---
 ## Why
 Card WINS (2026-10-22): on main 3ae13d3 the Rebels win BF2 Kamino 16 of 16 seeds (fidelity baseline) and 8 of 8 (WINS
@@ -43,3 +45,9 @@ soldier filter or `arc_unwalkable` later drops, a level-rejected leg, a barrier 
 - A test on the KAM1 graph: from hubs 46 and 44 the routes to hub 47 agree (no hop back along the arc just walked), mutation-checked.
 - 8-seed census on the branch: Imperial unit-s within 20 m of cp1 / cp6 per round >= 40 (main 9-10); report the win share
   (main 16-0 Rebels; the PS2 had the Imperials ahead in both rounds).
+
+## The maintainer's 2026-10-22 priority and referee
+Promoted from post-alpha by explicit instruction. After the existing 8-seed spatial bar,
+run 16 seeds on current main and candidate: no side above 12 wins unless bots-only PS2
+rounds demonstrate the same lean. Name the PS2 evidence and all unfinished rounds;
+an unexplained one-sided result remains a port fault. Do not change the baseline.

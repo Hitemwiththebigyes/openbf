@@ -1,17 +1,17 @@
 ---
 id: PWAI
-title: BF2 bots near the player detour to a pickup: every 2 s a bot at AI level of detail 3+ looks for an item within 6 m that gives it health or ammo and walks to it (BF1 bots never do)
+title: BF2 bots detour to useful health/ammo pickups, including far/no-human bots under approved BOTD D1; retain the PS2 near/far rate sample and BF1 negative control
 milestone: M3
 value: 3
 phase: build
-status: todo
+status: blocked
 deps: PWUP,BOTD,MOVR
-files: engine/crates/core/src/ai/pickup_seek.rs
+files: engine/crates/core/src/ai/pickup_seek.rs, engine/crates/core/src/ai.rs, engine/crates/core/src/ai/behave.rs, engine/crates/core/src/ai/state.rs, engine/crates/core/src/sim/pickups.rs
 declares: sim; sweep
-needs:
+needs: restore PWAI PS2 sampling kit, live BF2 state, baked maps and missions
 effort:
 branch:
-resume:
+resume: 2026-10-24 13:06 UTC: retain PS2-sample-FIRST restoration hold and pwai_cloud/next_prompt.md. Active acceptance now explicitly implements approved BOTD D1 for near/far/no-human BF2 bots; full-health/ammo, energy/buff and BF1 negatives retained. Caller/hash/dry-run ownership recorded; no implementation. reports/20261024_1306_planner.md
 created: 2026-10-02
 ---
 ## Why
@@ -34,7 +34,8 @@ of detail: a human player within 20 m.
   and standing in the battle (hold him, god mode: walk_bf2.py's hold), counting items taken within 20 m of the player
   per minute against the same battle's far items (re-powerups §8: 1.1 / 4.9 per minute with nobody near).
 - Sim tests: a hurt bot 5 m from a health item with a human 10 m away reaches it within 4 s; the same bot with no
-  human within 20 m does not turn; a full-health, full-ammo bot does not; an energy or buff item is ignored; a BF1
+  human within 20 m also reaches it within 4 s (approved BOTD D1); repeat with a human farther than 20 m.
+  A full-health, full-ammo bot does not detour; an energy or buff item is ignored; a BF1
   bot never detours. Mutation-check the need test.
 - Battle census: detours per minute and items taken near the player, beside the PS2 sample's number.
 - Gates: declared `sim; sweep` only.
@@ -47,3 +48,18 @@ This card changes the soldier brain (`core/src/ai`) that the bot programme is ab
 ## BOTD (2026-10-03) - adopted; after MOVR
 Under D1 (one think rate for every bot, bot-design.md 9) the PS2's "near the player only" detour applies to every bot: say so in FEEL_NOTES. Not in BOTV's deps.
 - 2026-10-05 planner - **The maintainer has read the bot design: "BOTD read, go" (INBOX 2026-10-03 14:08). All eight decisions take the note's defaults; the 16 deviations D1-D16 are all on. This card is released (BOTD is done).** Decision 8 (one think rate, D1): the detour applies to every bot, not only those near the player.
+
+## Active build scope (2026-10-24 13:06 UTC; approved BOTD D1)
+The BOTD adoption above supersedes the original human-distance gate in What to
+build and the original no-human negative control ("does not turn"). Preserve
+the PS2 near/far sampling FIRST as source-game evidence; the port's near, far
+and no-human BF2 cases all seek, as specified by bot-design.md D1 and its PWAI row.
+Mutation-check both the need test and an accidental restoration of the 20 m
+human gate; retain the original full-health/ammo, energy/buff and BF1 negatives.
+The live caller is ai/behave.rs, not the historical ai/brain.rs. Route the detour
+through MoveRequest and the sole mover; persistent/hash state belongs in
+ai/state.rs, the module registration in ai.rs. Share a health/ammo-only dry-run
+with sim/pickups.rs without granting an item during the query. The file set now
+covers those integration points; keep the original 2 s/4 s, 6 m, three-point
+detour, battle census and declared gates. Record the deviation in FEEL_NOTES only
+with the eventual implementation. No PS2 number or port success was measured here.

@@ -4,14 +4,14 @@ title: Rockets still pass through the BF2 BARC speeder (0/6 after RKHUL): its co
 milestone: M2
 value: 4
 phase: re
-status: todo
+status: blocked
 deps: RKHUL
 files: engine/crates/bake/src/vehicle.rs, engine/crates/game/src/assets.rs
 declares:
-needs:
+needs: restore RKHUL/RKEX raw repro and scorer; BF2 corpus/ELF/SIDE LVLs; KAS2/GEO1 bakes, vehicle sides and missions
 effort:
 branch:
-resume:
+resume: 2026-10-24 10:05 UTC BLOCKED on restoration; 20/20 inputs absent. Restore rkhul/rkex instrument+rows, BF2 decomp/ELF/SIDE LVLs, KAS2/GEO1 bakes and missions; reproduce on current main, then verify vehicle loader NODE/parent placement. See lead_tmp/rkbarc/NEXT_PROMPT.md and reports/20261024_1005_card_RKBARC.md; no source edit or landing.
 created: 2026-10-21
 alpha: yes
 ---
@@ -27,3 +27,16 @@ The same repro: BARC 6/6 and STAP 12/12 at 5/20/60 m on KAS2 + GEO1; the RE answ
   parent hash 0 (B2 `FUN_001e4970` B2:94422), i.e. at the model root whatever the `coll` chunk's NODE says. B2
   `FUN_001d1f58` builds a 'CollisionMesh' body the same way (B2:80739) - check whether that is the vehicle class's
   parser before reading the BARC's mesh as root-placed.
+
+## 2026-10-24 cloud RE checkpoint
+Blocked on input restoration at main `3d487d9`: 20/20 named prerequisite paths are missing
+(`engine/artifacts/lead_tmp/rkbarc/prerequisites.json`). Neither the original RKHUL/RKEX repro/scorer/rows,
+the BF2 decomp/ELF and SIDE LVLs, nor the KAS2/GEO1 bakes, vehicle sides and mission directory are present.
+Scoped `/workspace` filename search found no matching alternate copies; the broader `/tmp` search was incomplete
+because a daemon directory is unreadable. `re_check.py fn b2 80739 94422` exits 1 on the missing BF2 corpus.
+Source inspection only: `bake/src/vehicle.rs:439-440` stores NODE and writes the coll mesh;
+`game/src/assets.rs:912-917` adds that mesh with an identity matrix. These are port observations, not a PS2 placement rule.
+The TCOL building-parser lead remains [H] for vehicles. No height offset, MASK change, hit-count measurement,
+new RE claim, implementation, commit or landing. Acceptance above is unchanged.
+Restore the original instrument and inputs, reproduce on current main, then establish the vehicle loader's
+identity/parent/NODE rule from primary evidence with an independent verifier before changing collision.

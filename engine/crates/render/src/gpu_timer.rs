@@ -82,25 +82,19 @@ impl GpuTimer {
             ty: wgpu::QueryType::Timestamp,
             count: CAP,
         });
-        let resolve = crate::made::buffer(
+        let resolve = crate::resources::buffer(
             device,
-            &wgpu::BufferDescriptor {
-                label: Some("gpu timer resolve"),
-                size: bytes,
-                usage: wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
-                mapped_at_creation: false,
-            },
+            "gpu timer resolve",
+            bytes,
+            wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
         );
         let ring = (0..RING)
             .map(|_| Slot {
-                buf: crate::made::buffer(
+                buf: crate::resources::buffer(
                     device,
-                    &wgpu::BufferDescriptor {
-                        label: Some("gpu timer readback"),
-                        size: bytes,
-                        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-                        mapped_at_creation: false,
-                    },
+                    "gpu timer readback",
+                    bytes,
+                    wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
                 ),
                 labels: Vec::new(),
                 state: Arc::new(AtomicU8::new(IDLE)),
@@ -181,9 +175,11 @@ impl GpuTimer {
         let n = slot.labels.len();
         let ticks: Vec<u64> = {
             let view = slot.buf.slice(..(n as u64 * 8).max(8)).get_mapped_range();
-            view.chunks_exact(8)
+            view.as_chunks::<8>()
+                .0
+                .iter()
                 .take(n)
-                .map(|b| u64::from_le_bytes(b.try_into().expect("8 bytes")))
+                .map(|b| u64::from_le_bytes(*b))
                 .collect()
         };
         slot.buf.unmap();

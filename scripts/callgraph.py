@@ -16,7 +16,6 @@ Roots file format: one root per line, either an 8-hex address or a name
 """
 import argparse
 import re
-import sys
 from collections import defaultdict, deque
 from pathlib import Path
 
@@ -105,14 +104,12 @@ def parse_decomp(decomp_path, name2addr, census):
     lits = defaultdict(set)
 
     # pass 1: headers -> name resolution for everything defined in this corpus
-    order = []
     with open(decomp_path, errors="replace") as f:
         for line in f:
             m = HEADER_RE.match(line)
             if m:
                 addr, nm = m.group(1), m.group(2)
                 name2addr.setdefault(nm, addr)
-                order.append(addr)
                 tm = re.fullmatch(r"thunk_FUN_([0-9a-f]{8})", nm)
                 if tm:
                     calls[addr].add(tm.group(1))  # thunk -> target

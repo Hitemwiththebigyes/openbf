@@ -37,6 +37,14 @@ pub fn decode(jpeg: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
 }
 
 type Job = (Arc<FramePack>, usize, u64);
+
+#[derive(Default)]
+struct JobSlot {
+    pending: Option<Job>,
+    shutdown: bool,
+}
+
+type Jobs = Arc<(Mutex<JobSlot>, Condvar)>;
 type Decoded = (u64, Vec<u8>, u32, u32);
 
 /// One movie property's packs, loaded.
@@ -53,11 +61,62 @@ pub struct ShellMovie {
     t: f32,
     /// The frame last asked of the worker, by (property, segment, frame).
     asked: Option<(usize, usize, usize)>,
-    serial: u64,
-    job: Arc<(Mutex<Option<Job>>, Condvar)>,
+    /// Changes on each property transition, including A → B → A.
+    generation: u64,
+    job: Jobs,
+    worker: Option<std::thread::JoinHandle<()>>,
     done: mpsc::Receiver<Decoded>,
     /// Whether any frame has been shown since the property started.
     pub shown: bool,
+}
+
+// One decoder, with only the newest pending request retained. Decoding never
+// holds the slot lock, so a property change or shutdown can always wake it.
+fn run_worker(
+    jobs: Jobs,
+    tx: mpsc::Sender<Decoded>,
+    mut decode_job: impl FnMut(Job) -> Option<Decoded>,
+) {
+    loop {
+        let (lock, wake) = &*jobs;
+        let mut slot = lock.lock().unwrap_or_else(|e| e.into_inner());
+        while slot.pending.is_none() && !slot.shutdown {
+            slot = wake.wait(slot).unwrap_or_else(|e| e.into_inner());
+        }
+        if slot.shutdown {
+            return;
+        }
+        let job = slot.pending.take().expect("a job");
+        drop(slot);
+        let decoded = decode_job(job);
+        // Drop may have arrived during decoding. Do not publish or take a
+        // pending job after shutdown.
+        if lock.lock().unwrap_or_else(|e| e.into_inner()).shutdown {
+            return;
+        }
+        if let Some(decoded) = decoded {
+            if tx.send(decoded).is_err() {
+                return;
+            }
+        }
+    }
+}
+
+impl Drop for ShellMovie {
+    fn drop(&mut self) {
+        let (lock, wake) = &*self.job;
+        {
+            let mut slot = lock.lock().unwrap_or_else(|e| e.into_inner());
+            slot.shutdown = true;
+            slot.pending = None;
+            wake.notify_one();
+        }
+        // A decode already running may finish; join only after releasing the
+        // lock it needs to observe shutdown.
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
 }
 
 impl ShellMovie {
@@ -83,24 +142,16 @@ impl ShellMovie {
                 });
             }
         }
-        let job: Arc<(Mutex<Option<Job>>, Condvar)> = Arc::new((Mutex::new(None), Condvar::new()));
+        let job = Arc::new((Mutex::new(JobSlot::default()), Condvar::new()));
         let (tx, done) = mpsc::channel();
-        let worker = Arc::clone(&job);
-        std::thread::Builder::new()
+        let jobs = Arc::clone(&job);
+        let worker = std::thread::Builder::new()
             .name("shell movie".into())
-            .spawn(move || loop {
-                let (lock, wake) = &*worker;
-                let mut slot = lock.lock().unwrap_or_else(|e| e.into_inner());
-                while slot.is_none() {
-                    slot = wake.wait(slot).unwrap_or_else(|e| e.into_inner());
-                }
-                let (pack, k, serial) = slot.take().expect("a job");
-                drop(slot);
-                if let Some((rgba, w, h)) = pack.frame(k).and_then(decode) {
-                    if tx.send((serial, rgba, w, h)).is_err() {
-                        return;
-                    }
-                }
+            .spawn(move || {
+                run_worker(jobs, tx, |(pack, k, generation)| {
+                    let (rgba, w, h) = pack.frame(k).and_then(decode)?;
+                    Some((generation, rgba, w, h))
+                });
             })
             .ok()?;
         Some(ShellMovie {
@@ -109,8 +160,9 @@ impl ShellMovie {
             segment: 0,
             t: 0.0,
             asked: None,
-            serial: 0,
+            generation: 0,
             job,
+            worker: Some(worker),
             done,
             shown: false,
         })
@@ -120,6 +172,10 @@ impl ShellMovie {
     pub fn play(&mut self, name: &str) {
         let k = self.properties.iter().position(|p| p.name == name);
         if k != self.playing {
+            self.generation = self.generation.wrapping_add(1);
+            // Supersede any pending request; an in-flight result is rejected
+            // by its generation when it returns.
+            self.job.0.lock().unwrap_or_else(|e| e.into_inner()).pending = None;
             self.playing = k;
             self.segment = 0;
             self.t = 0.0;
@@ -149,16 +205,18 @@ impl ShellMovie {
         if let (Some(p), Some((seg, k))) = (self.playing, self.advance(dt)) {
             if self.asked != Some((p, seg, k)) {
                 self.asked = Some((p, seg, k));
-                self.serial += 1;
                 let pack = Arc::clone(&self.properties[p].packs[seg]);
                 let (lock, wake) = &*self.job;
-                *lock.lock().unwrap_or_else(|e| e.into_inner()) = Some((pack, k, self.serial));
+                lock.lock().unwrap_or_else(|e| e.into_inner()).pending =
+                    Some((pack, k, self.generation));
                 wake.notify_one();
             }
         }
         let mut newest = None;
-        while let Ok((_, rgba, w, h)) = self.done.try_recv() {
-            newest = Some((rgba, w, h));
+        while let Ok((generation, rgba, w, h)) = self.done.try_recv() {
+            if self.playing.is_some() && generation == self.generation {
+                newest = Some((rgba, w, h));
+            }
         }
         if newest.is_some() {
             self.shown = true;
@@ -177,6 +235,135 @@ impl ShellMovie {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn pack() -> Arc<FramePack> {
+        Arc::new(FramePack::parse(FramePack::write(1, 1, (1, 1), &[vec![0]])).unwrap())
+    }
+
+    fn synthetic() -> (ShellMovie, mpsc::Sender<Decoded>) {
+        let (tx, done) = mpsc::channel();
+        (
+            ShellMovie {
+                properties: ["A", "B"]
+                    .into_iter()
+                    .map(|name| Property {
+                        name: name.into(),
+                        packs: vec![pack()],
+                    })
+                    .collect(),
+                playing: None,
+                segment: 0,
+                t: 0.0,
+                asked: None,
+                generation: 0,
+                job: Arc::new((Mutex::new(JobSlot::default()), Condvar::new())),
+                worker: None,
+                done,
+                shown: false,
+            },
+            tx,
+        )
+    }
+
+    #[test]
+    fn property_transitions_reject_completed_and_inflight_old_frames() {
+        let (mut movie, tx) = synthetic();
+        movie.play("A");
+        movie.frame(0.0); // A requested; completion can arrive after play(B).
+        let first_a = movie.generation;
+        movie.play("A");
+        assert_eq!(movie.generation, first_a, "the playing property continues");
+        // A completed result already in the queue and a late in-flight result
+        // must both be rejected after the transition.
+        tx.send((first_a, vec![0], 1, 1)).unwrap();
+        movie.play("B");
+        tx.send((first_a, vec![1], 1, 1)).unwrap();
+        assert!(movie.frame(0.0).is_none());
+        assert!(!movie.shown);
+        let b = movie.generation;
+        tx.send((b, vec![2], 1, 1)).unwrap();
+        assert_eq!(movie.frame(0.0).unwrap().0, [2]);
+        assert!(movie.shown);
+        movie.play("A");
+        // Neither the first A nor B belongs to this second start of A.
+        tx.send((first_a, vec![1], 1, 1)).unwrap();
+        tx.send((b, vec![2], 1, 1)).unwrap();
+        assert!(movie.frame(0.0).is_none());
+        assert!(!movie.shown);
+        // Accept newest available in this generation even if a newer frame
+        // has already been requested: do not require per-frame serial equality.
+        tx.send((movie.generation, vec![3], 1, 1)).unwrap();
+        tx.send((movie.generation, vec![4], 1, 1)).unwrap();
+        assert_eq!(movie.frame(1.0).unwrap().0, [4]);
+        let a = movie.generation;
+        movie.play("unknown");
+        tx.send((a, vec![5], 1, 1)).unwrap();
+        assert!(movie.frame(0.0).is_none());
+        assert!(!movie.shown);
+    }
+
+    #[test]
+    fn pending_requests_keep_only_the_latest_frame() {
+        let (mut movie, _) = synthetic();
+        movie.play("A");
+        movie.frame(0.0);
+        let a = movie.generation;
+        assert_eq!(movie.job.0.lock().unwrap().pending.as_ref().unwrap().2, a);
+        movie.play("B");
+        assert!(movie.job.0.lock().unwrap().pending.is_none());
+        movie.frame(0.0);
+        let b = movie.generation;
+        let pending = movie.job.0.lock().unwrap().pending.take().unwrap();
+        assert_eq!(pending.2, b);
+        assert_ne!(a, b);
+        assert!(Arc::ptr_eq(&pending.0, &movie.properties[1].packs[0]));
+    }
+
+    #[test]
+    fn dropping_idle_and_inflight_workers_terminates_them() {
+        use std::time::Duration;
+        for inflight in [false, true] {
+            let (mut movie, _) = synthetic();
+            let (decoded, done) = mpsc::channel();
+            movie.done = done;
+            let (entered_tx, entered) = mpsc::channel();
+            let (release, released) = mpsc::channel();
+            let jobs = Arc::clone(&movie.job);
+            movie.worker = Some(std::thread::spawn(move || {
+                run_worker(jobs, decoded, |(_, _, generation)| {
+                    entered_tx.send(()).unwrap();
+                    released.recv_timeout(Duration::from_secs(2)).unwrap();
+                    Some((generation, vec![1], 1, 1))
+                });
+            }));
+            if inflight {
+                movie.play("A");
+                movie.frame(0.0);
+                entered.recv_timeout(Duration::from_secs(2)).unwrap();
+            }
+            let jobs = Arc::clone(&movie.job);
+            let (finished, completion) = mpsc::channel();
+            let dropper = std::thread::spawn(move || {
+                drop(movie);
+                finished.send(()).unwrap();
+            });
+            if inflight {
+                // Observe the actual shutdown predicate before releasing the
+                // decoder, rather than relying on thread-count timing.
+                let deadline = std::time::Instant::now() + Duration::from_secs(2);
+                while !jobs.0.lock().unwrap().shutdown {
+                    assert!(std::time::Instant::now() < deadline);
+                    std::thread::yield_now();
+                }
+                assert!(completion.try_recv().is_err());
+                release.send(()).unwrap();
+            }
+            completion.recv_timeout(Duration::from_secs(2)).unwrap();
+            dropper.join().unwrap();
+            assert!(jobs.0.lock().unwrap().shutdown);
+            assert!(jobs.0.lock().unwrap().pending.is_none());
+        }
+    }
 
     /// Acceptance 3 of card BSHLA: the menu loops decode - segment 0's
     /// frames 0 and 300 are 512 x 448 pictures (pinned by checksum, the

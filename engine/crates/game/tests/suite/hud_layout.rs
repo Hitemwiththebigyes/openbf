@@ -35,8 +35,6 @@ fn hot1_post_a() -> ui::hud::HudModel {
         hp_max: 300.0,
         energy: 100.0,
         energy_max: 100.0,
-        clip: 50,
-        spare: 200,
         weapon: Some(ui::hud::HudWeapon {
             key: "all_weap_inf_rifle".into(),
             class: String::new(),
@@ -227,8 +225,8 @@ fn a_kill_opens_the_statistics_popup_where_the_ps2_has_it() {
     };
     // The battle's first frame publishes the zeros (the PS2 does too) and
     // the pop-up of that has run out by the time this view is settled.
-    let mut settled = HudView::load(&game::assets::baked_root(), render::HEADLESS_FORMAT, None)
-        .expect("hud bake loads");
+    let mut settled =
+        HudView::load(&baked(), render::HEADLESS_FORMAT, None).expect("hud bake loads");
     settled.update(&quiet, 0.0, [640, 480]);
     assert!(settled.bounds("player1statskills.icon").is_none());
     v.update(&quiet, 0.0, [640, 480]);
@@ -278,7 +276,7 @@ fn the_minimap_puts_hot1s_posts_where_the_ps2_frames_have_them() {
     let Some(mut v) = view([640, 480]) else {
         return;
     };
-    let dir = game::assets::baked_root().join("bf2_hot1");
+    let dir = baked().join("bf2_hot1");
     if !dir.join("manifest.ron").is_file() {
         eprintln!("skip: no baked bf2_hot1");
         return;
@@ -380,7 +378,7 @@ fn cross(arm: u8, count: Option<u32>, seconds: f32) -> Option<ui::hud_squad::Squ
 
 fn squad_view(size: [u32; 2], sq: Option<ui::hud_squad::SquadCross>) -> Option<HudView> {
     let mut v = view(size)?;
-    if !game::assets::baked_root()
+    if !baked()
         .join("common_bf1/fonts/bf1_gamefont_tiny.ron")
         .is_file()
     {

@@ -298,12 +298,7 @@ fn apply_cheat_word(
 }
 
 /// Apply a pause-menu action to the battle/session.
-fn apply_menu_action(
-    walk: &mut WalkSim,
-    a: ui::menu::MenuAction,
-    paused: &mut bool,
-    event_loop: &winit::event_loop::ActiveEventLoop,
-) {
+fn apply_menu_action(walk: &mut WalkSim, a: ui::menu::MenuAction, paused: &mut bool) {
     use ui::menu::MenuAction;
     match a {
         MenuAction::Resume => *paused = false,
@@ -324,9 +319,7 @@ fn apply_menu_action(
         }
         // Quit: --map launches exit, shell launches return to the shell —
         // decided by the caller (needs App state).
-        MenuAction::Quit => {
-            let _ = event_loop;
-        }
+        MenuAction::Quit => {}
     }
 }
 
@@ -443,6 +436,8 @@ struct App {
     round_recorded: bool,
     /// Previous frame's menu-relevant buttons (edge detection).
     prev_menu_buttons: u32,
+    /// Separate from menu/D-pad state; reset when the sampled controller changes.
+    gameplay_stick: GameplayStick<gilrs::GamepadId>,
     /// The menu bits the keyboard holds (the shell only: arrows, Enter as
     /// Cross + Start, Escape / Backspace as Back; card BSHLA).
     keys_held: u32,
@@ -541,85 +536,155 @@ fn open_pads() -> (Option<gilrs::Gilrs>, Option<String>) {
     }
 }
 
+/// Resolve only interactive direct-launch settings. Headless remains profile-free.
+fn resolve_direct_settings(
+    setup: &mut BattleSetup,
+    cli_difficulty: Option<core::skill::Difficulty>,
+    settings: &game::profile::Settings,
+) {
+    setup.difficulty = cli_difficulty.unwrap_or(settings.difficulty);
+    setup.ai_cap = setup.ai_cap.or(settings.ai_alive_cap);
+}
+
+struct GameplayStick<Id> {
+    controller: Option<Id>,
+    arms: u32,
+}
+
+impl<Id> Default for GameplayStick<Id> {
+    fn default() -> Self {
+        Self {
+            controller: None,
+            arms: 0,
+        }
+    }
+}
+
+impl<Id: PartialEq> GameplayStick<Id> {
+    fn select(&mut self, controller: Option<Id>) {
+        if self.controller != controller || controller.is_none() {
+            self.arms = 0;
+        }
+        self.controller = controller;
+    }
+}
+
 pub(super) fn run_windowed(v: ViewerArgs) -> Result<()> {
     let event_loop = winit::event_loop::EventLoop::new()?;
     event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
     let (gilrs, pad_warning) = open_pads();
     let setup = BattleSetup::from_args(&v, v.seed)?;
-    let mut app = App {
-        map: Some(v.map.clone()),
-        screen: Screen::Battle,
-        shell: ui::shell::ShellModel::default(),
-        shell_last_map: usize::MAX,
-        loading: None,
-        audio: audio::Audio::new(),
-        sounds: None,
-        music_voice: None,
-        foley: None,
-        engines: Default::default(),
-        ambience: Default::default(),
-        assets_dir: v
-            .map
-            .parent()
-            .map(|p| p.to_path_buf())
-            .unwrap_or_else(|| PathBuf::from(".")),
-        missions_dir: PathBuf::from("missions"),
-        cam: camera_from(v.cam),
-        walk_requested: v.walk,
+    let audio = audio::Audio::new();
+    let frame_profile = game::frame_profile::FrameProfile::from_env();
+    let profile = game::profile::Profile::load_or_default();
+    let autopilot = game::dev::on() && std::env::var("OPENBF_AUTOPILOT").is_ok_and(|v| v == "1");
+    let quit_at = quit_at();
+    let mut setup = setup;
+    resolve_direct_settings(&mut setup, v.difficulty, &profile.settings);
+    let assets_dir = v
+        .map
+        .parent()
+        .map_or_else(|| PathBuf::from("."), PathBuf::from);
+    let mut app = App::new(
+        assets_dir,
+        PathBuf::from("missions"),
         setup,
-        mode: v.mode.clone(),
-        frames: 0,
-        outcome_reported: false,
-        overlay: None,
-        feed: game::event_feed::EventFeed::default(),
-        paused: false,
-        menu_cursor: 0,
-        quit_clicked: false,
-        frame_profile: game::frame_profile::FrameProfile::from_env(),
-        profile: game::profile::Profile::load_or_default(),
-        round_recorded: false,
-        fx: game::fx::Fx::default(),
-        weather: None,
-        holos: game::holo::Holos::default(),
-        bolts: game::bolt_vis::BoltVis::default(),
-        fx_quad: None,
-        fx_sprite: None,
-        squad_icons: (None, None),
-        hud_view: None,
-        blackbox: None,
-        snapshot_requested: false,
-        prev_menu_buttons: 0,
-        keys_held: 0,
-        keys_tapped: 0,
-        front: None,
-        sprint_latch: input::SprintLatch::default(),
-        autopilot: game::dev::on() && std::env::var("OPENBF_AUTOPILOT").is_ok_and(|v| v == "1"),
-        quit_at: quit_at(),
-        morse: ui::menu::MorseCheats::new(),
-        hud_hidden: false,
-        sfx_slow: false,
-        window: None,
-        renderer: None,
-        gpu: None,
-        walk: None,
-        soldier_vis: None,
-        spawn_preview: Default::default(),
-        vehicle_vis: Default::default(),
         gilrs,
         pad_warning,
-        last: std::time::Instant::now(),
-    };
+        audio,
+        profile,
+    );
+    app.frame_profile = frame_profile;
+    app.autopilot = autopilot;
+    app.quit_at = quit_at;
+    app.map = Some(v.map);
+    app.screen = Screen::Battle;
+    app.cam = camera_from(v.cam);
+    app.walk_requested = v.walk;
+    app.mode = v.mode;
     event_loop.run_app(&mut app)?;
     Ok(())
 }
 
 impl App {
+    fn new(
+        assets_dir: PathBuf,
+        missions_dir: PathBuf,
+        setup: BattleSetup,
+        gilrs: Option<gilrs::Gilrs>,
+        pad_warning: Option<String>,
+        audio: Option<audio::Audio>,
+        profile: game::profile::Profile,
+    ) -> Self {
+        Self {
+            map: None,
+            screen: Screen::Shell,
+            shell: ui::shell::ShellModel::default(),
+            shell_last_map: usize::MAX,
+            loading: None,
+            audio,
+            sounds: None,
+            music_voice: None,
+            foley: None,
+            engines: Default::default(),
+            ambience: Default::default(),
+            assets_dir,
+            missions_dir,
+            cam: camera_from(GOLDEN_CAM),
+            walk_requested: true,
+            setup,
+            mode: "con".to_string(),
+            frames: 0,
+            outcome_reported: false,
+            overlay: None,
+            feed: game::event_feed::EventFeed::default(),
+            paused: false,
+            menu_cursor: 0,
+            quit_clicked: false,
+            frame_profile: None,
+            profile,
+            round_recorded: false,
+            fx: game::fx::Fx::default(),
+            weather: None,
+            holos: game::holo::Holos::default(),
+            bolts: game::bolt_vis::BoltVis::default(),
+            fx_quad: None,
+            fx_sprite: None,
+            squad_icons: (None, None),
+            hud_view: None,
+            blackbox: None,
+            snapshot_requested: false,
+            prev_menu_buttons: 0,
+            gameplay_stick: GameplayStick::default(),
+            keys_held: 0,
+            keys_tapped: 0,
+            front: None,
+            sprint_latch: input::SprintLatch::default(),
+            autopilot: false,
+            quit_at: None,
+            morse: ui::menu::MorseCheats::new(),
+            hud_hidden: false,
+            sfx_slow: false,
+            window: None,
+            renderer: None,
+            gpu: None,
+            walk: None,
+            soldier_vis: None,
+            spawn_preview: Default::default(),
+            vehicle_vis: Default::default(),
+            gilrs,
+            pad_warning,
+            last: std::time::Instant::now(),
+        }
+    }
+
     /// Fly-cam: left stick moves (yaw-relative), right stick looks, triggers
     /// fly down/up, south button = speed boost.
     fn drive_fly_camera(&mut self, dt: f32) {
         let Some(g) = &mut self.gilrs else { return };
         if input::pump(g) {
             self.pad_warning = input::log_pads(g);
+            self.gameplay_stick.select(None);
         }
         let Some((_, pad)) = g.gamepads().next() else {
             return;
@@ -827,6 +892,79 @@ impl App {
         }
     }
 
+    /// Build resources in launch order. Shell supplies its newly resolved setup;
+    /// direct launch uses the setup already stored on the App.
+    fn battle_resources(
+        &mut self,
+        renderer: &mut Renderer,
+        scene: &game::assets::Scene,
+        setup: Option<&BattleSetup>,
+    ) -> (WalkSim, MeshHandle) {
+        let cube = upload_unit_cube(renderer).expect("cube");
+        self.fx_quad = game::viewer::upload_billboard_quad(renderer).ok();
+        self.fx_sprite = game::viewer::upload_fx_sprite(renderer).ok();
+        let dir = self.assets_dir.clone();
+        self.squad_icons = squad_icons(renderer, &dir);
+        self.hud_view = load_hud_view(&dir, renderer);
+        self.bolts = game::bolt_vis::BoltVis::new(&self.assets_dir, &scene.manifest.source_game);
+        let setup = setup.unwrap_or(&self.setup);
+        let mut walk = make_walk(scene, setup);
+        walk.blend = game::render_blend::Blend::from_env();
+        self.foley = game::foley::Foley::load(&scene.dir, &walk);
+        self.engines = game::engine_sound::EngineSounds::new(&scene.dir, &walk);
+        self.ambience =
+            game::ambience::Ambience::load(&scene.manifest, &scene.dir, &setup.classes_dir);
+        if let Some(sl) = self.sounds.as_mut() {
+            sl.for_walk(&scene.dir, &walk);
+            preload_sounds(sl);
+        }
+        self.blackbox = start_blackbox(scene, &walk, &self.mode, setup, self.sounds.as_mut());
+        self.feed = game::event_feed::EventFeed::for_walk(
+            &self.assets_dir,
+            &scene.manifest.source_game,
+            &walk,
+        );
+        self.fx = game::fx::Fx::for_walk(
+            &self.assets_dir,
+            &scene.dir,
+            &scene.manifest.source_game,
+            &walk,
+        );
+        self.fx.preload(renderer);
+        self.weather = game::weather::Weather::load(
+            &scene.manifest,
+            &self.assets_dir,
+            &scene.dir,
+            WEATHER_SEED,
+        );
+        self.soldier_vis = Some(game::soldier_vis::SoldierVisuals::for_walk(
+            renderer,
+            &self.assets_dir,
+            scene,
+            &walk,
+        ));
+        self.vehicle_vis = game::viewer::VehicleVisuals::load(
+            renderer,
+            scene,
+            &self.assets_dir,
+            &walk.vehicle_geometry,
+        );
+        // What the battle can show later, behind the loading (card HITCH).
+        self.vehicle_vis.preload(renderer, &walk.sim);
+        self.bolts.preload(renderer, &walk);
+        walk.sim.assist_intensity = self.profile.settings.assist_intensity;
+        walk.fov_scale = self.profile.settings.fov_scale;
+        if let Some(m) = walk.music.as_mut() {
+            m.volume = game::music::volume_from_env(self.profile.settings.music_volume);
+        }
+        // THE MAINTAINER'S RULE: the aim assist is the PLAYER'S switch — no difficulty
+        // tier reads it (the PS2 BF2's Elite clears it, RE §9.3; not ours).
+        walk.sim.assist_armed = self.profile.settings.aim_assist;
+        walk.sim.human_damage_on = self.profile.settings.human_damage_on;
+        walk.sim.team_handicap_on = self.profile.settings.team_handicap_on;
+        (walk, cube)
+    }
+
     /// Load the map + build the battle with the shell's settings.
     fn start_battle(&mut self, name: String, dir: PathBuf) {
         let Some(renderer) = self.renderer.as_mut() else {
@@ -890,76 +1028,10 @@ impl App {
             mission_file,
             player_team,
         };
-        let cube = upload_unit_cube(renderer).expect("cube");
-        self.fx_quad = game::viewer::upload_billboard_quad(renderer).ok();
-        self.fx_sprite = game::viewer::upload_fx_sprite(renderer).ok();
-        let dir = self.assets_dir.clone();
-        self.squad_icons = squad_icons(renderer, &dir);
-        self.hud_view = load_hud_view(&dir, renderer);
-        self.bolts = game::bolt_vis::BoltVis::new(&self.assets_dir, &scene.manifest.source_game);
-        let mut walk = make_walk(&scene, &setup);
-        walk.blend = game::render_blend::Blend::from_env();
-        self.foley = game::foley::Foley::load(&scene.dir, &walk);
-        self.engines = game::engine_sound::EngineSounds::new(&scene.dir, &walk);
-        self.ambience =
-            game::ambience::Ambience::load(&scene.manifest, &scene.dir, &setup.classes_dir);
-        if let Some(sl) = self.sounds.as_mut() {
-            sl.for_walk(&scene.dir, &walk);
-            preload_sounds(sl);
-        }
-        self.blackbox = start_blackbox(&scene, &walk, &self.mode, &setup, self.sounds.as_mut());
-        self.feed = game::event_feed::EventFeed::for_walk(
-            &self.assets_dir,
-            &scene.manifest.source_game,
-            &walk,
-        );
-        self.fx = game::fx::Fx::for_walk(
-            &self.assets_dir,
-            &scene.dir,
-            &scene.manifest.source_game,
-            &walk,
-        );
-        self.fx.preload(renderer);
-        self.weather = game::weather::Weather::load(
-            &scene.manifest,
-            &self.assets_dir,
-            &scene.dir,
-            WEATHER_SEED,
-        );
-        self.soldier_vis = Some({
-            let mut vis = game::soldier_vis::SoldierVisuals::load(
-                renderer,
-                &self.assets_dir,
-                &scene.manifest.source_game,
-                &walk.teams,
-            );
-            vis.set_turrets(game::viewer::turret_pose::rigged_turrets(&scene));
-            vis.set_walker_rigs(game::viewer::walker_rigs(
-                &scene.manifest,
-                &self.assets_dir,
-                &walk.vehicle_geometry,
-            ));
-            vis
-        });
-        self.vehicle_vis = game::viewer::VehicleVisuals::load(
-            renderer,
-            &scene,
-            &self.assets_dir,
-            &walk.vehicle_geometry,
-        );
-        // What the battle can show later, behind the loading (card HITCH).
-        self.vehicle_vis.preload(renderer, &walk.sim);
-        self.bolts.preload(renderer, &walk);
-        walk.sim.assist_intensity = self.profile.settings.assist_intensity;
-        walk.fov_scale = self.profile.settings.fov_scale;
-        if let Some(m) = walk.music.as_mut() {
-            m.volume = game::music::volume_from_env(self.profile.settings.music_volume);
-        }
-        // THE MAINTAINER'S RULE: the aim assist is the PLAYER'S switch — no difficulty
-        // tier reads it (the PS2 BF2's Elite clears it, RE §9.3; not ours).
-        walk.sim.assist_armed = self.profile.settings.aim_assist;
-        walk.sim.human_damage_on = self.profile.settings.human_damage_on;
-        walk.sim.team_handicap_on = self.profile.settings.team_handicap_on;
+        // Release the renderer field borrow while installing the other App resources.
+        let mut renderer = self.renderer.take().expect("loaded renderer");
+        let (mut walk, cube) = self.battle_resources(&mut renderer, &scene, Some(&setup));
+        self.renderer = Some(renderer);
         if let Some(cap) = self.profile.settings.ai_alive_cap {
             walk.sim.ai_alive_cap = cap;
         }
@@ -1030,6 +1102,7 @@ impl App {
         if let Some(g) = &mut self.gilrs {
             if input::pump(g) {
                 self.pad_warning = input::log_pads(g);
+                self.gameplay_stick.select(None);
             }
             if let Some((_, pad)) = g.gamepads().next() {
                 use gilrs::Button;
@@ -1073,14 +1146,29 @@ impl App {
     /// Sample the first gamepad into a sim PadState (walk mode).
     fn sample_pad(&mut self) -> PadState {
         let Some(g) = &mut self.gilrs else {
+            self.gameplay_stick.select(None);
             return PadState::default();
         };
         if input::pump(g) {
             self.pad_warning = input::log_pads(g);
+            // A disconnect/reconnect can reuse the same gilrs ID between frames.
+            self.gameplay_stick.select(None);
         }
         match g.gamepads().next() {
-            Some((_, pad)) => input::pad_from_gamepad(&pad),
-            None => PadState::default(),
+            Some((id, pad)) => {
+                self.gameplay_stick.select(Some(id));
+                let (state, arms) = input::pad_from_gamepad_with_arms(
+                    &pad,
+                    &input::Mapping::ps2_default(),
+                    self.gameplay_stick.arms,
+                );
+                self.gameplay_stick.arms = arms;
+                state
+            }
+            None => {
+                self.gameplay_stick.select(None);
+                PadState::default()
+            }
         }
     }
 }
@@ -1090,83 +1178,42 @@ pub(super) fn run_shell(assets_dir: PathBuf, missions_dir: PathBuf) -> Result<()
     let event_loop = winit::event_loop::EventLoop::new()?;
     event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
     let (gilrs, pad_warning) = open_pads();
-    let mut app = App {
-        map: None,
-        fx: game::fx::Fx::default(),
-        weather: None,
-        holos: game::holo::Holos::default(),
-        bolts: game::bolt_vis::BoltVis::default(),
-        fx_quad: None,
-        fx_sprite: None,
-        squad_icons: (None, None),
-        hud_view: None,
-        blackbox: None,
-        snapshot_requested: false,
-        screen: Screen::Shell,
-        shell: ui::shell::ShellModel::default(),
-        shell_last_map: usize::MAX,
-        assets_dir: assets_dir.clone(),
+    let audio = audio::Audio::new();
+    let setup = BattleSetup {
+        seed: 42,
+        difficulty: core::skill::Difficulty::default(),
+        spawn: (0.0, 0.0),
+        spawn_set: false,
+        targets: false,
+        ai: None,
+        ai_cap: None,
+        tickets: 250,
+        tickets_set: false,
+        ticket_pct: 100,
+        time_limit: 0,
+        cheats: core::sim::Cheats::default(),
+        teams: None,
+        classes_dir: assets_dir.join("classes"),
+        mission: None,
+        mission_file: None,
+        player_team: 0,
+    };
+    let autopilot = game::dev::on() && std::env::var("OPENBF_AUTOPILOT").is_ok_and(|v| v == "1");
+    let quit_at = quit_at();
+    let frame_profile = game::frame_profile::FrameProfile::from_env();
+    let profile = game::profile::Profile::load_or_default();
+    let mut app = App::new(
+        assets_dir,
         missions_dir,
-        loading: None,
-        audio: audio::Audio::new(),
-        sounds: None,
-        music_voice: None,
-        foley: None,
-        engines: Default::default(),
-        ambience: Default::default(),
-        cam: camera_from(GOLDEN_CAM),
-        walk_requested: true,
-        setup: BattleSetup {
-            seed: 42,
-            difficulty: core::skill::Difficulty::default(),
-            spawn: (0.0, 0.0),
-            spawn_set: false,
-            targets: false,
-            ai: None,
-            ai_cap: None,
-            tickets: 250,
-            tickets_set: false,
-            ticket_pct: 100,
-            time_limit: 0,
-            cheats: core::sim::Cheats::default(),
-            teams: None,
-            classes_dir: assets_dir.join("classes"),
-            mission: None,
-            mission_file: None,
-            player_team: 0,
-        },
-        mode: "con".to_string(),
-        frames: 0,
-        outcome_reported: false,
-        overlay: None,
-        feed: game::event_feed::EventFeed::default(),
-        paused: false,
-        menu_cursor: 0,
-        prev_menu_buttons: 0,
-        keys_held: 0,
-        keys_tapped: 0,
-        front: None,
-        sprint_latch: input::SprintLatch::default(),
-        autopilot: game::dev::on() && std::env::var("OPENBF_AUTOPILOT").is_ok_and(|v| v == "1"),
-        quit_at: quit_at(),
-        morse: ui::menu::MorseCheats::new(),
-        hud_hidden: false,
-        sfx_slow: false,
-        quit_clicked: false,
-        frame_profile: game::frame_profile::FrameProfile::from_env(),
-        profile: game::profile::Profile::load_or_default(),
-        round_recorded: false,
-        window: None,
-        renderer: None,
-        gpu: None,
-        walk: None,
-        soldier_vis: None,
-        spawn_preview: Default::default(),
-        vehicle_vis: Default::default(),
+        setup,
         gilrs,
         pad_warning,
-        last: std::time::Instant::now(),
-    };
+        audio,
+        profile,
+    );
+    app.frame_profile = frame_profile;
+    app.autopilot = autopilot;
+    app.quit_at = quit_at;
     event_loop.run_app(&mut app)?;
     Ok(())
 }
@@ -1214,91 +1261,7 @@ impl winit::application::ApplicationHandler for App {
         match load_and_upload(&mut renderer, &map, &self.mode) {
             Ok((gpu, scene)) => {
                 if self.walk_requested {
-                    let cube = upload_unit_cube(&mut renderer).expect("cube");
-                    self.fx_quad = game::viewer::upload_billboard_quad(&mut renderer).ok();
-                    self.fx_sprite = game::viewer::upload_fx_sprite(&mut renderer).ok();
-                    let dir = self.assets_dir.clone();
-                    self.squad_icons = squad_icons(&mut renderer, &dir);
-                    self.hud_view = load_hud_view(&dir, &renderer);
-                    self.bolts =
-                        game::bolt_vis::BoltVis::new(&self.assets_dir, &scene.manifest.source_game);
-                    let mut walk = make_walk(&scene, &self.setup);
-                    walk.blend = game::render_blend::Blend::from_env();
-                    self.foley = game::foley::Foley::load(&scene.dir, &walk);
-                    self.engines = game::engine_sound::EngineSounds::new(&scene.dir, &walk);
-                    self.ambience = game::ambience::Ambience::load(
-                        &scene.manifest,
-                        &scene.dir,
-                        &self.setup.classes_dir,
-                    );
-                    if let Some(sl) = self.sounds.as_mut() {
-                        sl.for_walk(&scene.dir, &walk);
-                        preload_sounds(sl);
-                    }
-                    self.blackbox = start_blackbox(
-                        &scene,
-                        &walk,
-                        &self.mode,
-                        &self.setup,
-                        self.sounds.as_mut(),
-                    );
-                    self.feed = game::event_feed::EventFeed::for_walk(
-                        &self.assets_dir,
-                        &scene.manifest.source_game,
-                        &walk,
-                    );
-                    self.fx = game::fx::Fx::for_walk(
-                        &self.assets_dir,
-                        &scene.dir,
-                        &scene.manifest.source_game,
-                        &walk,
-                    );
-                    self.fx.preload(&mut renderer);
-                    self.weather = game::weather::Weather::load(
-                        &scene.manifest,
-                        &self.assets_dir,
-                        &scene.dir,
-                        WEATHER_SEED,
-                    );
-                    self.soldier_vis = Some({
-                        let mut vis = game::soldier_vis::SoldierVisuals::load(
-                            &mut renderer,
-                            &self.assets_dir,
-                            &scene.manifest.source_game,
-                            &walk.teams,
-                        );
-                        vis.set_turrets(game::viewer::turret_pose::rigged_turrets(&scene));
-                        vis.set_walker_rigs(game::viewer::walker_rigs(
-                            &scene.manifest,
-                            &self.assets_dir,
-                            &walk.vehicle_geometry,
-                        ));
-                        vis
-                    });
-                    self.vehicle_vis = game::viewer::VehicleVisuals::load(
-                        &mut renderer,
-                        &scene,
-                        &self.assets_dir,
-                        &walk.vehicle_geometry,
-                    );
-                    // What the battle can show later, behind the loading
-                    // (card HITCH).
-                    self.vehicle_vis.preload(&mut renderer, &walk.sim);
-                    self.bolts.preload(&mut renderer, &walk);
-                    // Profile settings + remember the session for next time.
-                    walk.sim.assist_intensity = self.profile.settings.assist_intensity;
-                    walk.fov_scale = self.profile.settings.fov_scale;
-                    if let Some(m) = walk.music.as_mut() {
-                        m.volume = game::music::volume_from_env(self.profile.settings.music_volume);
-                    }
-                    // THE MAINTAINER'S RULE: the aim assist is the PLAYER'S switch — no difficulty
-                    // tier reads it (the PS2 BF2's Elite clears it, RE §9.3; not ours).
-                    walk.sim.assist_armed = self.profile.settings.aim_assist;
-                    walk.sim.human_damage_on = self.profile.settings.human_damage_on;
-                    walk.sim.team_handicap_on = self.profile.settings.team_handicap_on;
-                    if let Some(cap) = self.profile.settings.ai_alive_cap {
-                        walk.sim.ai_alive_cap = cap;
-                    }
+                    let (walk, cube) = self.battle_resources(&mut renderer, &scene, None);
                     self.profile.settings.last_map = Some(scene.manifest.map.clone());
                     self.profile.settings.last_mode = Some(self.mode.clone());
                     self.profile.settings.last_teams =
@@ -1406,6 +1369,7 @@ impl winit::application::ApplicationHandler for App {
                 // its f32 precision in a long session — see Renderer::time.
                 if let Some(r) = self.renderer.as_mut() {
                     r.time = (r.time + dt) % render::TIME_WRAP;
+                    r.water_time += f64::from(dt);
                 }
 
                 if matches!(self.screen, Screen::Shell) {
@@ -1513,7 +1477,7 @@ impl winit::application::ApplicationHandler for App {
                         self.menu_cursor = cursor;
                         let mut quit = false;
                         for a in actions {
-                            apply_menu_action(walk, a, &mut self.paused, event_loop);
+                            apply_menu_action(walk, a, &mut self.paused);
                             persist_setting(&mut self.profile, a, walk);
                             quit |= a == ui::menu::MenuAction::Quit;
                             // The music follows its slider while paused.
@@ -1555,8 +1519,16 @@ impl winit::application::ApplicationHandler for App {
                         // re-spawn-flow §4.3).
                         let points = self.feed.stats(&walk.sim, walk.player).points;
                         walk.sim.set_spawn_points(0, points);
+                        // Station serving is observed for every sim tick, even when a
+                        // frame catches up several ticks before posing the scene.
+                        if let Some(gpu) = self.gpu.as_mut() {
+                            gpu.step_stations(&walk.sim);
+                        }
                         walk.advance_with(dt, std::slice::from_ref(&pad), |walk| {
                             let hook_t0 = std::time::Instant::now();
+                            if let Some(gpu) = self.gpu.as_mut() {
+                                gpu.step_stations(&walk.sim);
+                            }
                             self.fx.ingest(walk);
                             let effect_sounds = self.fx.take_sounds();
                             if let Some(vis) = self.soldier_vis.as_mut() {
@@ -1758,7 +1730,7 @@ impl winit::application::ApplicationHandler for App {
 
                 if let (Some(r), Some(gpu)) = (&mut self.renderer, &mut self.gpu) {
                     // The water moves on the renderer's clock (queue OC).
-                    let clock = game::water_anim::clock(r.time);
+                    let clock = game::water_anim::clock(r.water_time);
                     if let Err(e) = gpu.animate_water(r, clock, camera.position) {
                         eprintln!("water: {e:#}");
                     }
@@ -1881,7 +1853,7 @@ impl winit::application::ApplicationHandler for App {
                             }
                             if let Some((walk, _)) = self.walk.as_mut() {
                                 for a in clicked {
-                                    apply_menu_action(walk, a, &mut self.paused, event_loop);
+                                    apply_menu_action(walk, a, &mut self.paused);
                                     persist_setting(&mut self.profile, a, walk);
                                     if a == ui::menu::MenuAction::Quit {
                                         self.quit_clicked = true;
@@ -1935,5 +1907,78 @@ impl winit::application::ApplicationHandler for App {
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn setup(cap: Option<u32>) -> BattleSetup {
+        BattleSetup {
+            seed: 42,
+            difficulty: Default::default(),
+            spawn: (0.0, 0.0),
+            spawn_set: false,
+            targets: false,
+            ai: None,
+            ai_cap: cap,
+            tickets: 250,
+            tickets_set: false,
+            ticket_pct: 100,
+            time_limit: 0,
+            cheats: Default::default(),
+            teams: None,
+            classes_dir: PathBuf::new(),
+            mission: None,
+            mission_file: None,
+            player_team: 0,
+        }
+    }
+
+    #[test]
+    fn direct_settings_resolve_before_battle_construction() {
+        use core::skill::Difficulty::{Easy, Elite};
+        let settings = game::profile::Settings {
+            difficulty: Elite,
+            ai_alive_cap: Some(16),
+            ..Default::default()
+        };
+        let mut battle = setup(Some(64));
+        resolve_direct_settings(&mut battle, None, &settings);
+        assert_eq!(battle.difficulty, Elite);
+        assert_eq!(battle.ai_cap, Some(64));
+        let mut battle = setup(None);
+        resolve_direct_settings(&mut battle, Some(Easy), &settings);
+        assert_eq!(battle.difficulty, Easy);
+        assert_eq!(battle.ai_cap, Some(16));
+        let mut battle = setup(None);
+        resolve_direct_settings(&mut battle, None, &game::profile::Settings::default());
+        assert_eq!(battle.difficulty, core::skill::Difficulty::default());
+        assert_eq!(battle.ai_cap, None, "leave the mission's cap available");
+    }
+
+    #[test]
+    fn gameplay_stick_holds_through_wobble_and_resets_on_controller_changes() {
+        let mut latch = GameplayStick::<u8>::default();
+        latch.select(Some(1));
+        let mut previous = 0;
+        let mut edges = 0;
+        for y in [0.61, 0.59, 0.61, 0.34, 0.61] {
+            latch.arms = input::stick_arms(0.0, y, latch.arms);
+            edges += (latch.arms & !previous != 0) as u32;
+            previous = latch.arms;
+        }
+        assert_eq!(edges, 2, "one initial edge, then one after release");
+        latch.select(Some(1));
+        assert_eq!(latch.arms, 1, "same controller retains the held arm");
+        latch.select(Some(2));
+        assert_eq!(latch.arms, 0);
+        latch.arms = input::stick_arms(0.0, 0.59, latch.arms);
+        assert_eq!(latch.arms, 0, "new controller must reach the on threshold");
+        latch.arms = 1;
+        latch.select(None);
+        latch.select(Some(2));
+        assert_eq!(input::stick_arms(0.0, 0.59, latch.arms), 0);
     }
 }

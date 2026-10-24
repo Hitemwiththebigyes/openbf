@@ -30,7 +30,7 @@
 //! class db, where the game reads the seat's section.
 
 use manifest::{ManifestClass, ManifestRigNode, ManifestTurretRig};
-use mungefs::entity::{EntityClass, GeomModel};
+use mungefs::entity::EntityClass;
 use mungefs::model::{Model, Segment};
 use mungefs::skel::Skeleton;
 use std::collections::{HashMap, HashSet};
@@ -47,8 +47,7 @@ pub const STATION_BASE: &str = "powerupstation";
 /// An LVL's turret classes with what their rigs need, from the map bake's
 /// flattened walk (first of a name wins, the walk's own rule).
 pub struct TurretRigs {
-    skels: Vec<Skeleton>,
-    gmods: Vec<GeomModel>,
+    skels: crate::hardpoints::Skeletons,
     /// (class, geometry), lower-cased.
     classes: Vec<(String, String)>,
     /// Lower-cased names of every model a turret class draws (its geometry's
@@ -58,33 +57,15 @@ pub struct TurretRigs {
 
 impl TurretRigs {
     pub fn of(chunks: &[mungefs::Chunk<'_>]) -> TurretRigs {
-        let mut skels: Vec<Skeleton> = Vec::new();
-        let mut gmods: Vec<GeomModel> = Vec::new();
+        let skels = crate::hardpoints::Skeletons::of(chunks);
         let mut entcs: Vec<EntityClass> = Vec::new();
         for c in chunks {
-            match &c.tag {
-                b"skel" => {
-                    if let Ok(s) = mungefs::skel::parse_skel(c) {
-                        if !skels.iter().any(|k| k.name.eq_ignore_ascii_case(&s.name)) {
-                            skels.push(s);
-                        }
+            if &c.tag == b"entc" {
+                if let Ok(e) = EntityClass::parse(c) {
+                    if !entcs.iter().any(|k| k.name.eq_ignore_ascii_case(&e.name)) {
+                        entcs.push(e);
                     }
                 }
-                b"gmod" => {
-                    if let Ok(g) = GeomModel::parse(c) {
-                        if !gmods.iter().any(|k| k.name.eq_ignore_ascii_case(&g.name)) {
-                            gmods.push(g);
-                        }
-                    }
-                }
-                b"entc" => {
-                    if let Ok(e) = EntityClass::parse(c) {
-                        if !entcs.iter().any(|k| k.name.eq_ignore_ascii_case(&e.name)) {
-                            entcs.push(e);
-                        }
-                    }
-                }
-                _ => {}
             }
         }
         // A class's chain inside this LVL, itself first (a cycle ends it).
@@ -118,32 +99,16 @@ impl TurretRigs {
             };
             let geom = geom.to_ascii_lowercase();
             models.insert(geom.clone());
-            if let Some(g) = gmods.iter().find(|g| g.name.eq_ignore_ascii_case(&geom)) {
+            if let Some(g) = skels.geometry(&geom) {
                 models.extend(g.lods.iter().map(|l| l.model.to_ascii_lowercase()));
             }
             classes.push((e.name.to_ascii_lowercase(), geom));
         }
         TurretRigs {
             skels,
-            gmods,
             classes,
             models,
         }
-    }
-
-    /// The skeleton of a model or geometry name
-    /// (`crate::bind_pose::BindPose`'s rule).
-    fn skel_of(&self, model: &str) -> Option<&Skeleton> {
-        let named = |n: &str| self.skels.iter().find(|s| s.name.eq_ignore_ascii_case(n));
-        named(model).or_else(|| {
-            self.gmods
-                .iter()
-                .find(|g| {
-                    g.name.eq_ignore_ascii_case(model)
-                        || g.lods.iter().any(|l| l.model.eq_ignore_ascii_case(model))
-                })
-                .and_then(|g| named(&g.name).or_else(|| g.best_model().and_then(named)))
-        })
     }
 
     /// A turret class's model with every soft segment cut into one segment
@@ -151,18 +116,23 @@ impl TurretRigs {
     /// cut; `Err` names a model that cannot be cut (a triangle across nodes,
     /// a vertex with no node) — it is written whole and gets no rig.
     pub fn split(&self, m: &Model) -> Result<Option<Model>, String> {
-        if !self.models.contains(&m.name.to_ascii_lowercase()) || self.skel_of(&m.name).is_none() {
+        if !self.models.contains(&m.name.to_ascii_lowercase())
+            || self.skels.find_model(&m.name, true).is_none()
+        {
             return Ok(None);
         }
-        let mut out = m.clone();
-        out.segments.clear();
+        let mut segments = Vec::new();
         let mut cut = false;
         for seg in &m.segments {
             let parts = split_segment(seg).map_err(|e| format!("{}: {e}", m.name))?;
             cut |= parts.len() > 1;
-            out.segments.extend(parts);
+            segments.extend(parts);
         }
-        Ok(cut.then_some(out))
+        Ok(cut.then(|| Model {
+            name: m.name.clone(),
+            segments,
+            ..*m
+        }))
     }
 
     /// Fill [`ManifestClass::turret_rig`] for every turret class whose drawn
@@ -181,12 +151,12 @@ impl TurretRigs {
                 continue;
             };
             let drawn = self
-                .gmods
-                .iter()
-                .find(|g| g.name.eq_ignore_ascii_case(geom))
+                .skels
+                .geometry(geom)
                 .and_then(|g| g.best_model())
                 .map_or(geom.clone(), str::to_ascii_lowercase);
-            let (Some(m), Some(skel)) = (models.get(&drawn), self.skel_of(&drawn)) else {
+            let (Some(m), Some(skel)) = (models.get(&drawn), self.skels.find_model(&drawn, true))
+            else {
                 report.push(format!("{}: no model or skel for {drawn} - no rig", k.name));
                 continue;
             };
@@ -306,6 +276,78 @@ fn rig(m: &Model, skel: &Skeleton) -> Result<ManifestTurretRig, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn synthetic_split_preserves_model_metadata_and_first_node_order() {
+        let seg = Segment {
+            vertex_count: 6,
+            index_count: 6,
+            bf2_material: true,
+            material_flags: 2,
+            render_type: mungefs::model::RenderType::Absent,
+            spec_power: 4,
+            spec_color: 7,
+            textures: vec![(0, "sheet".into())],
+            bone: None,
+            group: None,
+            bmap: vec![0, 1],
+            bind: vec![[0; 4], [0; 4], [0; 4], [4; 4], [4; 4], [4; 4]],
+            wght: vec![[255, 0, 0, 0]; 6],
+            positions: vec![[1.0, 2.0, 3.0]; 6],
+            normals: Vec::new(),
+            uvs: Vec::new(),
+            colors: None,
+            triangles: vec![[3, 4, 5], [0, 1, 2]],
+        };
+        let mut m = Model {
+            name: "fixture".into(),
+            bone_space: true,
+            vertex_box: mungefs::model::Aabb {
+                min: [-1.0, -2.0, -3.0],
+                max: [1.0, 2.0, 3.0],
+            },
+            vis_box: mungefs::model::Aabb {
+                min: [-4.0, -5.0, -6.0],
+                max: [4.0, 5.0, 6.0],
+            },
+            face_count: 17,
+            sphere: Some([2.0, 3.0, 4.0, 5.0]),
+            segments: vec![seg],
+        };
+        let rigs = TurretRigs {
+            skels: crate::hardpoints::Skeletons::from_skeleton(Skeleton {
+                name: m.name.clone(),
+                bones: Vec::new(),
+            }),
+            classes: Vec::new(),
+            models: HashSet::from([m.name.clone()]),
+        };
+        let out = rigs.split(&m).unwrap().unwrap();
+        assert_eq!(out.name, m.name);
+        assert_eq!(out.bone_space, m.bone_space);
+        assert_eq!(out.vertex_box.min, m.vertex_box.min);
+        assert_eq!(out.vertex_box.max, m.vertex_box.max);
+        assert_eq!(out.vis_box.min, m.vis_box.min);
+        assert_eq!(out.vis_box.max, m.vis_box.max);
+        assert_eq!(out.face_count, m.face_count);
+        assert_eq!(out.sphere, m.sphere);
+        assert_eq!(out.segments.len(), 2);
+        for (part, node) in out.segments.iter().zip([1, 0]) {
+            assert_eq!(soft_node(part, 0).unwrap(), node);
+            assert_eq!(part.triangles, [[0, 1, 2]]);
+            assert_eq!(part.positions, m.segments[0].positions[..3]);
+            assert_eq!(part.material_flags, 2);
+            assert_eq!(part.spec_color, 7);
+            assert_eq!(part.spec_power, 4);
+        }
+        m.segments[0].triangles = vec![[0, 1, 2]];
+        assert!(rigs.split(&m).unwrap().is_none());
+        m.segments[0].triangles = vec![[0, 1, 3]];
+        assert_eq!(
+            rigs.split(&m).err().as_deref(),
+            Some("fixture: a triangle has vertices on two nodes")
+        );
+    }
 
     fn lvl(game: &str, rel: &str) -> Option<Vec<u8>> {
         let p = format!(

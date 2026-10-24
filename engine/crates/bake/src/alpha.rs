@@ -219,7 +219,7 @@ impl AlphaStats {
         let mut lo = 0usize;
         let mut amax = 0u8;
         let mut n = 0usize;
-        for px in rgba.chunks_exact(4) {
+        for px in rgba.as_chunks::<4>().0 {
             let a = px[3];
             n += 1;
             if a <= 31 {
@@ -614,12 +614,12 @@ pub fn keep_alpha(
 /// iff at least one draw is MASK or BLEND, and lands in the manifest's derived
 /// `transparent` list iff at least one draw is BLEND.
 ///
-/// Both maps are keyed by texture and hold the MODEL names that asked, because
-/// D7 has to ask the question again with the sky dome models left out.
+/// Alpha requests retain the MODEL names so D7 can exclude sky dome models.
+/// Blended textures need only membership: any blending draw adds the texture.
 #[derive(Default, Debug)]
 pub struct AlphaUsage {
     needs_alpha: HashMap<String, std::collections::BTreeSet<String>>,
-    blended: HashMap<String, std::collections::BTreeSet<String>>,
+    blended: std::collections::HashSet<String>,
     by_model: HashMap<String, std::collections::BTreeSet<String>>,
 }
 
@@ -650,10 +650,7 @@ impl AlphaUsage {
             .or_default()
             .insert(model.to_owned());
         if blend {
-            self.blended
-                .entry(texture.to_owned())
-                .or_default()
-                .insert(model.to_owned());
+            self.blended.insert(texture.to_owned());
         }
     }
 
@@ -676,7 +673,7 @@ impl AlphaUsage {
 
     /// Is any draw in this bake compositing this texture?
     pub fn blended(&self, texture_lower: &str) -> bool {
-        self.blended.contains_key(texture_lower)
+        self.blended.contains(texture_lower)
     }
 
     /// Every texture the drawn segments of `model_lower` name.
@@ -750,12 +747,20 @@ mod tests {
                 .find(|t| t.name.eq_ignore_ascii_case(sheet))
                 .unwrap_or_else(|| panic!("{sheet} not in {lvl}"));
             let rgba = t.rgba8(0);
-            let mean = rgba.chunks_exact(4).map(|p| f64::from(p[3])).sum::<f64>()
+            let mean = rgba
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|p| f64::from(p[3]))
+                .sum::<f64>()
                 / (rgba.len() / 4) as f64;
             eprintln!("{sheet}: mean alpha {mean:.1}");
             assert!((mean - 38.0).abs() < 1.5, "{sheet}: mean alpha {mean}");
             assert!(
-                rgba.chunks_exact(4).all(|p| p[..3] == [255, 255, 255]),
+                rgba.as_chunks::<4>()
+                    .0
+                    .iter()
+                    .all(|p| p[..3] == [255, 255, 255]),
                 "{sheet} is white"
             );
         }
@@ -1334,6 +1339,14 @@ mod tests {
         let mut users: Vec<_> = u.models_using("shared").collect();
         users.sort_unstable();
         assert_eq!(users, vec!["hut", "skydome"]);
+
+        assert!(!u.blended("shared"));
+        assert!(!u.blended("sky_only"));
+        let mut blend = masked("shared");
+        blend[0].mode = AlphaMode::Blend;
+        u.record_model(&model("Glass", "shared"), &blend);
+        assert!(u.blended("shared"));
+        assert!(!u.blended("sky_only"));
     }
 
     #[test]

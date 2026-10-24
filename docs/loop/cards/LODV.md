@@ -4,14 +4,14 @@ title: Vehicles take the far scene's model / LOWD switch: a vehicle past NearSce
 milestone: M1
 value: 3
 phase: build
-status: todo
+status: blocked
 deps: LOD
 files: engine/crates/game/src/viewer/vehicles.rs
 declares:
 needs:
 effort:
 branch:
-resume:
+resume: BLOCKED/incomplete 2026-10-24: 12/12 runtime/GPU prerequisite paths absent; restore baked maps/common/classes/missions/vehicle sides and suitable adapter, then baseline and implement model/LOWD pairing. Acceptance unchanged. Report reports/20261024_1331_card_LODV.md; kit lead_tmp/lodv_cloud/next_prompt.md
 created: 2026-10-19
 ---
 ## Why

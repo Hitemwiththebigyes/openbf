@@ -75,9 +75,27 @@ pub fn compare_golden(golden: &Path, rgba: &[u8], w: u32, h: u32) -> Option<Stri
             img.height()
         ));
     }
+    let expected = usize::try_from(w).ok().and_then(|w| {
+        usize::try_from(h)
+            .ok()
+            .and_then(|h| w.checked_mul(h)?.checked_mul(4))
+    });
+    let Some(expected) = expected else {
+        return Some(format!(
+            "{}: RGBA dimensions {w}x{h} overflow the buffer length",
+            golden.display()
+        ));
+    };
+    if rgba.len() != expected {
+        return Some(format!(
+            "{}: RGBA buffer has {} bytes, expected {expected} for {w}x{h}",
+            golden.display(),
+            rgba.len()
+        ));
+    }
     let g = img.as_raw();
     let (mut sum_abs, mut bad_px) = (0u64, 0u32);
-    for (i, px) in rgba.chunks_exact(4).enumerate() {
+    for (i, px) in rgba.as_chunks::<4>().0.iter().enumerate() {
         let mut worst = 0u8;
         for c in 0..3 {
             let d = px[c].abs_diff(g[i * 4 + c]);

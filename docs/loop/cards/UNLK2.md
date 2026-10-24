@@ -4,14 +4,14 @@ title: The career counter (OURS): the profile counts the player's career kills p
 milestone: M3
 value: 3
 phase: build
-status: todo
+status: blocked
 deps:
 files: engine/crates/game/src/profile.rs
 declares:
-needs:
+needs: Restore class RONs, baked maps/missions and full-CI font/graphics prerequisites listed in lead_tmp/unlk2_cloud/preflight.json
 effort:
 branch:
-resume:
+resume: 2026-10-24 prerequisite checkpoint; no implementation. Read lead_tmp/unlk2_cloud/next_prompt.md and source_checkpoint.md; implement shared per-tick class attribution and save/load acceptance after restoring runtime inputs. Original Acceptance retained.
 created: 2026-10-21
 ---
 ## Why

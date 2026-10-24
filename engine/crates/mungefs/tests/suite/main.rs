@@ -8,5 +8,6 @@ mod fx_lvl;
 mod hostile;
 mod iso_read;
 mod sanm_lvl;
+mod support;
 mod tat1_lvl;
 mod water_lvl;

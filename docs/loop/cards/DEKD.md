@@ -14,7 +14,7 @@ branch:
 resume:
 created: 2026-10-03
 alpha: yes
-first: 7
+first: 12
 ---
 ## Why
 `analysis/re-droideka-unit.md` section 4 [O]: the model, its bank and its states are known; the port bakes neither. A unit the sim holds (DEKU) must be seen before it is fielded (DEKF).

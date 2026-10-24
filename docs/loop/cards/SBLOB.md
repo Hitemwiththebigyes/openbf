@@ -4,14 +4,14 @@ title: Soldier / pickup drop-shadow blob (player_shadow, RedShadowBlob): both PS
 milestone: M1
 value: 3
 phase: re
-status: todo
+status: blocked
 deps:
 files:
 declares:
-needs:
+needs: Restore both corpora/ELFs and live states/toolkit; measure BF1/BF2 blob knock-outs before assigning a visible-gap value or build.
 effort:
 branch:
-resume:
+resume: 2026-10-24 13:06 UTC: planner restoration hold, 6 exact named inputs absent. Restore both corpora/ELFs and live states/toolkit; measure BF1/BF2 blob knock-outs before assigning a visible-gap value or build. Original measurable acceptance unchanged. reports/20261024_1306_planner.md; lead_tmp/planner_20261024_1303/preflight.json.
 created: 2026-10-16
 ---
 ## Why

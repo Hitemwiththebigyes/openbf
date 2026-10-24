@@ -73,24 +73,40 @@ def read_cstr(buf, off, size):
 # ---------------------------------------------------------------- Lua headers
 
 def parse_lua_header(body: bytes):
-    """Parse a Lua 4.0 / 5.0 dump header. Returns a dict or None if not bytecode."""
-    if len(body) < 14 or body[:4] != b"\x1bLua":
+    """Return header metadata (with `error` if truncated), or None for source text."""
+    if body[:4] != b"\x1bLua":
         return None
+
+    def truncated(version):
+        return dict(version=version, endian=None, sizeof_int=None,
+                    sizeof_size_t=None, sizeof_instr=None, sizeof_number=None,
+                    test_number=None, error="truncated header")
+
+    if len(body) < 5:
+        return truncated("unknown")
     ver = body[4]
     if ver == 0x40:  # Lua 4.0: endian, int, size_t, Instruction, SIZE_INSTRUCTION,
         #             SIZE_B, SIZE_OP(?), sizeof(Number), test number
+        if len(body) < 13:
+            return truncated("4.0")
         (endian, si, ss, sinstr, bits_instr, bits_b, bits_op,
          snum) = struct.unpack_from("<8B", body, 5)
         fmt = "<f" if snum == 4 else "<d"
+        if len(body) < 13 + struct.calcsize(fmt):
+            return truncated("4.0")
         (test,) = struct.unpack_from(fmt, body, 13)
         return dict(version="4.0", endian=endian, sizeof_int=si,
                     sizeof_size_t=ss, sizeof_instr=sinstr,
                     sizeof_number=snum, test_number=test)
     if ver == 0x50:  # Lua 5.0: endian, int, size_t, Instruction,
         #             SIZE_OP, SIZE_A, SIZE_B, SIZE_C, sizeof(Number), test
+        if len(body) < 14:
+            return truncated("5.0")
         (endian, si, ss, sinstr, sop, sa, sb, sc,
          snum) = struct.unpack_from("<9B", body, 5)
         fmt = "<f" if snum == 4 else "<d"
+        if len(body) < 14 + struct.calcsize(fmt):
+            return truncated("5.0")
         (test,) = struct.unpack_from(fmt, body, 14)
         return dict(version="5.0", endian=endian, sizeof_int=si,
                     sizeof_size_t=ss, sizeof_instr=sinstr,
@@ -143,7 +159,7 @@ def collect_scripts(buf, off, end, found, source_tag=""):
             found.append(dict(kind="scr_", name=name, info=info,
                               body=sbody, wrapper=source_tag))
         elif tag == "mcfg":
-            name_hash, payload_off = None, body
+            name_hash = None
             for ctag, cbody, csize in iter_chunks(buf, body, body + size):
                 if ctag == "NAME" and csize == 4:
                     (name_hash,) = struct.unpack_from("<I", buf, cbody)
@@ -207,6 +223,8 @@ def main():
             if s["kind"] == "scr_":
                 base = s["name"] or "unnamed"
                 kind = (f"Lua {hdr['version']} bytecode" if hdr else "source text")
+                if hdr and hdr.get("error"):
+                    kind = f"malformed {kind}: {hdr['error']}"
                 if hdr:
                     vers[hdr["version"]] = vers.get(hdr["version"], 0) + 1
                     ext = ".luac"

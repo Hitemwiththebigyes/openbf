@@ -14,7 +14,7 @@
 #   scripts/autoloop.sh --once         # one iteration, then exit
 #   scripts/autoloop.sh --probe        # only the limit probe (haiku, 1 turn)
 #
-# Lanes never collide: claims are atomic mkdirs under engine/artifacts/loop/locks/ holding the lane's pid (swept once the
+# Lanes never collide: loopctl serializes claims under engine/artifacts/loop/locks/ holding the lane's pid (swept once the
 # pid is dead, or when it is this lane's own leftover); every ci / gpu / rebake / goldens / PCSX2 run holds flock
 # engine/artifacts/loop/ci.lock; cards with overlapping `files:` are never in flight together; main moves only under the
 # MAIN claim (scripts/land.py).
@@ -135,15 +135,7 @@ wait_for_limit_reset() {
 # Drop item claims whose lane is gone (a session that died without its wrap-up)
 # and any claim carrying THIS lane's pid (our previous iteration's leftover).
 sweep_stale_locks() {
-  local d pid
-  for d in "$LOCKS_DIR"/*/; do
-    [ -d "$d" ] || continue
-    pid="$(cat "$d/pid" 2>/dev/null || echo 0)"
-    if [ "$pid" = "$$" ] || ! kill -0 "$pid" 2>/dev/null; then
-      log "sweeping stale lock $(basename "$d") (pid ${pid:-?})"
-      rm -f "$d/pid"; rmdir "$d" 2>/dev/null || true
-    fi
-  done
+  python3 "$ROOT/scripts/loopctl.py" sweep-claims --pid "$$"
 }
 
 if [ "${1:-}" = "--probe" ]; then probe; exit $?; fi

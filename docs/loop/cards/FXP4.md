@@ -4,14 +4,14 @@ title: Particle effects, part 4: GEOMETRY emitters draw their model (debris chun
 milestone: M1
 value: 4
 phase: build
-status: parked
+status: blocked
 deps: FXP2
 files: engine/crates/game/src/fx.rs,engine/crates/game/src/fx/emitter.rs,engine/crates/game/src/fx/draw.rs,engine/crates/render/src/particles.rs
 declares: ci
-needs: maintainer — the RTX is lost (nvidia-smi: Unable to determine the device handle for gpu 0000:01:00.0; gates: ADAPTER LOST); reboot, then a land job runs the gpu group
+needs: cloud prerequisites: branch fxp4, baked assets, missions and reference evidence absent
 effort:
 branch: fxp4
-resume: land: branch fxp4 d8e22f3; GPU-free gates PASS (lead_tmp/fxp4/gates2/SUMMARY.md, ci +2 tests declared); only the gpu group is left (no golden frames a live effect, expect none to move)
+resume: (private workflow note omitted)
 created: 2026-09-30
 alpha: yes
 ---
@@ -36,3 +36,4 @@ node matrix; missing model → nothing; ADDITIVE flag 0x400001 B1 / 0x800001 B2)
 
 - FXMF build (2026-09-30): `render::ParticleShape::Mesh` + `game::soldier_vis::FlashModel` (load a common GLB's triangles
   and sheets, place by a matrix, emit additive particle draws) is the reusable path for GEOMETRY particles.
+

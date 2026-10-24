@@ -23,6 +23,17 @@ use std::path::{Path, PathBuf};
 
 const DT: f32 = 1.0 / 30.0;
 
+/// Resolve definitions for the armies actually seated, including swap/era mix.
+fn battle_sounds(dir: &Path, w: &WalkSim, named: &[String]) -> Option<game::sounds::SoundLib> {
+    let mut lib = game::sounds::SoundLib::load(dir)?;
+    lib.for_battle(
+        dir,
+        [w.teams[0].faction.as_str(), w.teams[1].faction.as_str()],
+        named,
+    );
+    Some(lib)
+}
+
 fn run(
     mission_path: &Path,
     max_ticks: u64,
@@ -90,23 +101,8 @@ fn run(
                     let uc = c.register(&mut sim, &mut names);
                     tables[t].push(uc);
                 }
-                let f = r.fill_class();
                 t += 1;
-                game::walk::TeamTemplate {
-                    faction: r.faction.clone(),
-                    name: f.class.clone(),
-                    consts: f.consts,
-                    max_health: f.max_health,
-                    health_type: f.health_type,
-                    weapon_class: tables[t - 1][0].weapon_class,
-                    weapon_slot: tables[t - 1][0].weapon_slot,
-                    slots: tables[t - 1][0].slots.clone(),
-                    drops: tables[t - 1][0].drops,
-                    spare_clips: f.spare_clips,
-                    geometry: f.geometry.clone(),
-                    weapon_geometry: f.weapon_geometry.clone(),
-                    classes: Vec::new(),
-                }
+                game::walk::TeamTemplate::from_roster(r, &tables[t - 1][0], Vec::new())
             })
         }
         Err(e) => {
@@ -154,9 +150,8 @@ fn run(
         };
     ps2_update(&w.sim.cps, &mut ps2_rate, &mut ps2_timer);
     let mut ps2_shown = ps2_rate;
-    let (mut n_ps2_asked, mut ps2_busy) = (0u32, 0.0f32);
-    let _ = &mut ps2_busy;
-    let mut sl = game::sounds::SoundLib::load(&dir);
+    let mut n_ps2_asked = 0u32;
+    let mut sl = battle_sounds(&dir, &w, &mission.sound_levels());
     let start_tickets = [0, 1].map(|t| w.sim.battle.teams[t].tickets());
     println!(
         "== {key} map {} seed {seed} factions {:?} (mission {:?}) ai {:?} tickets {:?} low_thr {:?} listener {} posts {} swap {swap}",
@@ -368,5 +363,89 @@ fn main() {
             p.player_team
         );
         run(&p.path, max_ticks, seed, Some(p.player_team), false, seats);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn battle_sound_definitions_follow_named_levels_and_actual_armies() {
+        let root = std::env::temp_dir().join(format!("openbf-annc-fixture-{}", std::process::id()));
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        let dir = root.join("bf1_kas2");
+        std::fs::create_dir_all(dir.join("sounds")).unwrap();
+        for seconds in [1u32, 2] {
+            let data = vec![0u8; seconds as usize * 8000 * 2];
+            let mut wav = Vec::new();
+            wav.extend_from_slice(b"RIFF");
+            wav.extend_from_slice(&(36 + data.len() as u32).to_le_bytes());
+            wav.extend_from_slice(b"WAVEfmt ");
+            wav.extend_from_slice(&16u32.to_le_bytes());
+            wav.extend_from_slice(&1u16.to_le_bytes());
+            wav.extend_from_slice(&1u16.to_le_bytes());
+            wav.extend_from_slice(&8000u32.to_le_bytes());
+            wav.extend_from_slice(&16000u32.to_le_bytes());
+            wav.extend_from_slice(&2u16.to_le_bytes());
+            wav.extend_from_slice(&16u16.to_le_bytes());
+            wav.extend_from_slice(b"data");
+            wav.extend_from_slice(&(data.len() as u32).to_le_bytes());
+            wav.extend_from_slice(&data);
+            std::fs::write(dir.join(format!("sounds/{seconds}.wav")), wav).unwrap();
+        }
+        let hash = game::classdb::fnv1a_lowercase;
+        let mut props = Vec::new();
+        for name in [
+            "all_off_com_report_captured_commandpost",
+            "rep_off_com_report_captured_commandpost",
+        ] {
+            for (level, sample) in [("kas2cw", 1), ("kas2gcw", 2)] {
+                props.push(format!(
+                    "(name_hash:{},kind:0,gain:1.0,pitch:1.0,min_distance:0.0,max_distance:100.0,rolloff:1.0,priority:1.0,looping:false,samples:[({sample},1.0)],layers:[],level:{})",
+                    hash(name), hash(level)
+                ));
+            }
+        }
+        let bank = format!(
+            "(source:\"fixture\",banks:[],samples:[(1,\"1.wav\"),(2,\"2.wav\")],props:[{}])",
+            props.join(",")
+        );
+        std::fs::write(dir.join("sounds/sounds.ron"), bank).unwrap();
+        let mut w = WalkSim::new(1, glam::Vec3::ZERO, None);
+        // A GCW mission differs from the map-default CW guess; team reversal
+        // must still use the GCW definition.
+        w.teams[0].faction = "imp".into();
+        w.teams[1].faction = "all".into();
+        let named = ["kas2gcw".to_owned()];
+        let mut sl = battle_sounds(&dir, &w, &named).unwrap();
+        assert_eq!(
+            sl.voice_take("all_off_com_report_captured_commandpost")
+                .unwrap()
+                .2,
+            2.0
+        );
+        // A Republic army seated in that GCW mission needs its own era's
+        // definition, even though the mission itself still names GCW.
+        w.teams[0].faction = "rep".into();
+        let mut sl = battle_sounds(&dir, &w, &named).unwrap();
+        assert_eq!(
+            sl.voice_take("rep_off_com_report_captured_commandpost")
+                .unwrap()
+                .2,
+            1.0
+        );
+        assert_eq!(
+            sl.voice_take("all_off_com_report_captured_commandpost")
+                .unwrap()
+                .2,
+            2.0
+        );
     }
 }

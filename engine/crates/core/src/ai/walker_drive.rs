@@ -34,13 +34,14 @@
 //! arrives with an enemy in sight stays, stopped, and fights from the seat
 //! until it sees none (the PS2's AT-ST stood with an aim order on 1040 of
 //! its 2093 sampled ticks, §10), and a command walker's pilot (the AT-AT,
-//! the AT-TE) stays in for good (card WAI2, §13); a stopped walker
+//! the AT-TE) stays at its post (card WAI2, §13), subject to VBAIL
+//! low-health exit in `ride::drive`; a stopped walker
 //! turns to its seen target's centre (the PS2's lead and aim error, §5, are
 //! not transcribed); with no goal the throttle is 0 (the PS2 leaves the old
 //! value, and A8 flips the stick's sign each tick — seen only on the tick an
 //! AI attaches). Not built: the boost (speed mode 3's senders are [H], §8),
-//! the 7.5 s yield (the port has no walker-vehicle contact), the 20 %
-//! bail-out (card VBAIL), the 30 ticks a rider stands after boarding (§10).
+//! the 7.5 s yield (the port has no walker-vehicle contact), the 30 ticks
+//! a rider stands after boarding (§10).
 
 use super::gunner::Look;
 use super::mover::stuck_window;
@@ -312,12 +313,7 @@ pub(super) fn drive(
         return (pad, nt);
     }
     let Some(gp) = goal.filter(|_| !at_post && !stuck) else {
-        let r = st.ride.unwrap_or_default();
-        st.ride = Some(RideState {
-            use_req: true,
-            board: None,
-            ..r
-        });
+        super::ride::request_exit(st);
         nt.stuck_run = st.route.map_or(0, |r| r.stuck_run);
         return (pad, nt);
     };

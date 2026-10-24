@@ -472,7 +472,7 @@ impl FlankState {
         eat(&[12]);
         eat(&self.from.to_le_bytes());
         eat(&self.to.to_le_bytes());
-        eat(&self.route.map_or(u16::MAX, |k| k).to_le_bytes());
+        eat(&self.route.unwrap_or(u16::MAX).to_le_bytes());
         eat(&self.since.to_le_bytes());
     }
 }
@@ -664,6 +664,12 @@ impl StallState {
 /// the entry itself is the PS2's instant Enter slot (re-vehicles §5).
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct RideState {
+    /// VBAIL: 0..=100, once per successful AI hover/walker boarding.
+    /// PROVISIONAL lifetime: the card asks per boarding; re-walker-ai §1
+    /// records a PS2 controller-construction draw instead.
+    pub bail_draw: Option<u8>,
+    /// This ride has been counted among pilots exposed to <20% health.
+    pub bail_seen: bool,
     /// The vehicle it is walking to, to take its pilot seat.
     pub board: Option<crate::vehicle::VehicleHandle>,
     /// The tick that claim began (the give-up clock).
@@ -768,7 +774,8 @@ pub struct LostState {
 /// never read by a rule: the sweep's unexplained-standing counter (B9) and
 /// the black box read it. `None` is a bot with nowhere to be and nobody to
 /// fight.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Behaviour {
     #[default]
     None,
@@ -1025,7 +1032,7 @@ impl WalkAsk {
 /// zero for a bot that is not fighting; hashed only then not.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct FightState {
-    /// [`FightState::STAND`] .. [`FightState::MOVE`]; 0 = no fight position.
+    /// [`FightState::STAND`] .. [`FightState::COVER`]; 0 = no fight position.
     pub mode: u8,
     /// The circle's pause lasts until this tick; a new ring point is drawn
     /// after it.
@@ -1124,7 +1131,7 @@ impl TposState {
             self.lean as u8,
         ]);
         for v in [self.held, self.prev].iter().chain(&self.bad) {
-            eat(&v.map_or(u32::MAX, |i| i).to_le_bytes());
+            eat(&v.unwrap_or(u32::MAX).to_le_bytes());
         }
         for t in [
             self.at,
@@ -1152,13 +1159,13 @@ impl TposState {
 pub struct HoldState {
     /// The position taken: a Cover / Snipe hint, or a point in the hub.
     pub spot: Vec3,
-    /// Where it stands right now: the spot, a shuffle off it, a strafe.
+    /// Current movement goal: its spot or a reaction/strafe step.
     pub goal: Vec3,
     /// The dwell ends at this tick.
     pub until: u64,
     /// Hubs to walk past before the next hold.
     pub skip: u8,
-    /// The next shuffle opportunity.
+    /// Legacy shuffle deadline, retained in the hash for compatibility.
     pub shuffle_at: u64,
     /// The side the last strafe went (the next goes the other way).
     pub strafe_side: i8,
@@ -1184,7 +1191,7 @@ pub struct HoldState {
 
 impl HoldState {
     /// Card JITR: the ONE writer of a holder's goal once the position is
-    /// taken — the shuffle, the strafe and the on-hit step all come through
+    /// taken — the strafe and the on-hit step both come through
     /// here. A step is refused inside the last one's commit time unless it is
     /// `forced` (the on-hit step, which has its own cooldown).
     pub fn step_to(&mut self, p: Vec3, tick: u64, forced: bool) -> bool {
@@ -1269,6 +1276,9 @@ impl RideState {
     fn hash_into(&self, eat: &mut impl FnMut(&[u8])) {
         // Tag 2: `CmdState`'s stream starts with 1, so the two stay apart.
         eat(&[2, u8::from(self.use_req)]);
+        if let Some(draw) = self.bail_draw {
+            eat(&[11, draw, u8::from(self.bail_seen)]);
+        }
         match self.board {
             Some(v) => {
                 eat(&v.index.to_le_bytes());
@@ -1320,9 +1330,9 @@ impl RideState {
 }
 
 impl Default for AiState {
-    /// All zero EXCEPT the tracked-position error, which starts at the PS2's
-    /// no-target floor (LEAD ADDENDUM 4a): a unit that has never tracked
-    /// anything is in exactly the state of one that has been target-less for
+    /// Neutral state with tap_gate enabled and flank NONE sentinels. The
+    /// tracked-position error starts at the PS2's no-target floor (LEAD
+    /// ADDENDUM 4a): a unit that has never tracked anything is in exactly the state of one that has been target-less for
     /// a while, and its first target does not begin with a perfect aim point.
     fn default() -> Self {
         Self {
@@ -1373,7 +1383,7 @@ impl Default for AiState {
 
 impl AiState {
     pub fn hash_into(&self, eat: &mut impl FnMut(&[u8])) {
-        eat(&self.target_cp.map_or(u32::MAX, |c| c).to_le_bytes());
+        eat(&self.target_cp.unwrap_or(u32::MAX).to_le_bytes());
         match self.target {
             Some(e) => {
                 eat(&[1]);
@@ -1442,8 +1452,7 @@ impl AiState {
         // with no order eats NOTHING here, not even a 0 byte, so the AI hash of
         // a command-free sim is byte-for-byte the pre-Phase-D one and the three
         // replay gate values do not move. `CmdState::hash_into`'s leading 1 tag
-        // is what keeps the stream self-delimiting, and this is the LAST field
-        // of the AI state for the same reason.
+        // identifies this first optional extension; later extensions follow.
         if let Some(c) = self.cmd {
             c.hash_into(eat);
         }
@@ -1708,7 +1717,7 @@ mod tests {
         // replay gates rest on — an AiState with NO order eats NOTHING for it.
         // The no-order stream is a strict PREFIX of the ordered one, shorter by
         // exactly the 23 bytes `CmdState::hash_into` writes, which is only true
-        // because the field is hashed LAST and skipped entirely when `None`.
+        // because all later optional extensions are absent in this fixture.
         let bytes = |st: &AiState| {
             let mut out: Vec<u8> = Vec::new();
             st.hash_into(&mut |b| out.extend_from_slice(b));

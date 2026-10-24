@@ -87,6 +87,20 @@ pub struct HudVertex {
     pub color: [f32; 4],
 }
 
+/// Window bounds of emitted vertices; an empty iterator keeps the extrema.
+pub(crate) fn vertex_bounds<'a>(vertices: impl IntoIterator<Item = &'a HudVertex>) -> [f32; 4] {
+    vertices
+        .into_iter()
+        .fold([f32::MAX, f32::MAX, f32::MIN, f32::MIN], |b, v| {
+            [
+                b[0].min(v.pos[0]),
+                b[1].min(v.pos[1]),
+                b[2].max(v.pos[0]),
+                b[3].max(v.pos[1]),
+            ]
+        })
+}
+
 /// A run of triangles sharing one texture and state, in draw order.
 #[derive(Debug, Clone, PartialEq)]
 pub struct HudBatch {

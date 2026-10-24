@@ -180,7 +180,7 @@ impl SpawnWaves {
         slot
     }
 
-    /// Absolute slots the member is ahead of the manager (≤ 0 = may spawn).
+    /// Absolute slots the member is ahead of the manager (< 0 = may spawn).
     fn ahead(&self, (w, s): (u32, u32)) -> i64 {
         (i64::from(w) - i64::from(self.wave)) * i64::from(self.slots())
             + (i64::from(s) - i64::from(self.cur_slot()))
@@ -913,33 +913,15 @@ impl Sim {
     /// field).
     pub fn sync_slot_tables(&mut self) {
         let n = self.players.len();
-        if self.assist.len() != n {
-            self.assist.resize(n, AssistState::default());
-        }
-        if self.magnet.len() != n {
-            self.magnet.resize(n, None);
-        }
-        if self.reticle_pick.len() != n {
-            self.reticle_pick.resize(n, None);
-        }
-        if self.spawn_choice.len() != n {
-            self.spawn_choice.resize(n, 0);
-        }
-        if self.prev_spawn_bits.len() != n {
-            self.prev_spawn_bits.resize(n, 0);
-        }
-        if self.spawn_post_choice.len() != n {
-            self.spawn_post_choice.resize(n, None);
-        }
-        if self.spawn_stage.len() != n {
-            self.spawn_stage.resize(n, SpawnStage::Accepted);
-        }
-        if self.side_choice.len() != n {
-            self.side_choice.resize(n, SideChoice::Team1);
-        }
-        if self.class_carousel.len() != n {
-            self.class_carousel.resize(n, Carousel::default());
-        }
+        self.assist.resize(n, AssistState::default());
+        self.magnet.resize(n, None);
+        self.reticle_pick.resize(n, None);
+        self.spawn_choice.resize(n, 0);
+        self.prev_spawn_bits.resize(n, 0);
+        self.spawn_post_choice.resize(n, None);
+        self.spawn_stage.resize(n, SpawnStage::Accepted);
+        self.side_choice.resize(n, SideChoice::Team1);
+        self.class_carousel.resize(n, Carousel::default());
     }
 
     /// Card SSELA: put human slot `slot` behind the spawn screens - the game

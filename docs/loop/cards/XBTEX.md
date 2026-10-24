@@ -4,14 +4,14 @@ title: The Xbox discs as texture donors: pack.py / rebake.sh find the Xbox BF1 a
 milestone: M1
 value: 5
 phase: build
-status: parked
+status: blocked
 deps:
 files: engine/crates/bake/src/tier.rs, engine/crates/mungefs/src/texture_xbox.rs, engine/crates/mungefs/src/xdvdfs.rs, engine/crates/bake/src/main.rs, engine/crates/game/src/assets.rs, scripts/pack.py, scripts/rebake.sh
 declares: rebake=tat1,tat2,common,side,maps
-needs: maintainer — the RTX is still off the bus (gates: ADAPTER LOST, only Intel + llvmpipe): reboot, then clear this needs line; the branch is built and every GPU-free gate passed
+needs: cloud prerequisites: branch xbtex, baked assets, missions and reference evidence absent
 effort:
 branch: xbtex
-resume: BUILT: branch xbtex de77a64. GPU-free gates (lead_tmp/xbtex/gates2/SUMMARY.md): sim / simhash / sweep / arena / leak / ordnance identical, ci 1832 -> 1841 tests (+9 new), bake MOVED = the declared rebake (276 new .tier2.ktx2, the tier lists of 22 RONs, one tier 2 dropped: bf2_end1 end_canopy, alpha-only, exclusion 4). NEXT after the reboot: land.py XBTEX (gpu + parity must run on the RTX; goldens force the PS2 tier, so expect no golden or parity move). Census lead_tmp/xbtex/census/census.txt, sheets census/top20.png + top20_xbox_maps.png
+resume: (private workflow note omitted)
 created: 2026-10-21
 alpha: yes
 ---
@@ -49,3 +49,4 @@ values, mission values, terrain heights, animation timing that moves a unit, hit
   (`game::assets::load_texture`; test `the_detail_companion_goes_with_the_ps2_base`, mutation-checked).
 - Sheets: `census/top20.png` (all sources), `census/top20_xbox_maps.png` (Xbox map textures).
 - Gates without the GPU (`lead_tmp/xbtex/gates2/SUMMARY.md`): sim, simhash, sweep, arena, leak, ordnance identical.
+

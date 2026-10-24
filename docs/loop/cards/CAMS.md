@@ -4,13 +4,13 @@ title: The soldier chase camera per class and game: the port frames every soldie
 milestone: M1
 value: 3
 phase: build
-status: todo
+status: blocked
 deps:
 files: engine/crates/game/src/walk.rs
 declares:
-needs:
+needs: Restore class camera data, map/mission and PS2 state/rows; retain landed per-game camera behavior and implement only remaining class/zoom/blend/collision scope after retake.
 branch:
-resume:
+resume: 2026-10-24 11:57 UTC: planner prerequisite hold; 7/7 exact named paths absent. Restore class camera data, map/mission and PS2 state/rows; retain landed per-game camera behavior and implement only remaining class/zoom/blend/collision scope after retake. All original acceptance retained. reports/20261024_1151_planner.md; inventory/continuation lead_tmp/planner_20261024_1151/.
 created: 2026-09-29
 alpha: yes
 ---
@@ -81,3 +81,4 @@ close standing and 0.5 m too close crouched.
   `lead_tmp/anima/ps2/mid_idle.json`). The port's pitch there was set by eye, so register the pitch first.
 - 2026-10-07 planner, from GRNP's report: **the PS2's chase camera looks 10.65 deg below the aim, the port's 10.0** (measured on BF2 Mos Eisley beside 15 grenade throws, `lead_tmp/grnp/ps2/out/`). Not carded on its own; check it with this card's stance tables.
 - 2026-10-07 (card ZOOM): two camera items for this card. (1) The zoom out: the PS2 eases the eye back by exp(-15 dt) (the stance section's MoveTension; BF1's tilt by AimTension 30), the port snaps (`analysis/re-zoom.md` section 5 [M]). (2) Camera collision differs at a wall: on BF1 NAB2 with the soldier at (-45.34, -50.04, -9.40), yaw 152.45 deg, the PS2 pulled its unzoomed camera in 1.19 m (eye 2.26 m back, 2.19 m up, against the ideal 3.457 / 2.348) and the port's stayed at the ideal place; zoomed, both stand at the ZOOM section. Frames: `engine/artifacts/lead_tmp/zoom/pair/zoom_pair_bf1_nab2.png` (left PS2, middle the port's walk replay), rows `lead_tmp/zoom/ps2/pair/ps2_bf1_nab2_rows.json`.
+

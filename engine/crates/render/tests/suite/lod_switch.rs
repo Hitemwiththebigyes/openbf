@@ -44,7 +44,7 @@ fn counts(r: &mut Renderer, draws: &[DrawCmd]) -> (u32, u32, u32) {
         .expect("frame");
     let (buf, _, _) = r.capture_rgba().expect("capture");
     let (mut red, mut blue, mut black) = (0, 0, 0);
-    for p in buf.chunks_exact(4) {
+    for p in buf.as_chunks::<4>().0 {
         match (p[0] > 128, p[2] > 128) {
             (true, false) => red += 1,
             (false, true) => blue += 1,

@@ -10,14 +10,14 @@
 //!
 //! - a hub is a position, a radius and up to eight arc slots; hub `y` is the
 //!   editor's PICK HEIGHT, not a floor (BF2 POL1's 189 hubs are all at y = 0
-//!   under floors 13–33 m up), so every test in this module is XZ only and the
-//!   follower takes its `y` from the ground under the unit;
+//!   under floors 13–33 m up). Goal locate uses the authored geometry below;
+//!   the follower resolves floors and uses the named XZ unit-locate deviation;
 //! - an arc joins two hubs, is walked in both directions, and carries the
 //!   `AISizeType` mask of the units allowed on it (bit 0 SOLDIER, 1 HOVER,
 //!   2 SMALL, 3 MEDIUM, 4 HUGE, 5 FLYER — the five tables cover bits 0..4);
 //! - "where am I on the graph" (`FUN_00266678` / `FUN_002eb918`) is the
-//!   containing hub with the SMALLEST radius, else the arc whose corridor
-//!   contains the point, else the nearest hub — see [`NavGraph::locate`];
+//!   containing hub with the SMALLEST radius (BF1 sphere, BF2 XZ disc), else
+//!   a containing 3-D arc corridor, else the nearest arc — see [`NavGraph::locate`];
 //! - the route table IS the router: one byte per alternative, `weight << 3 |
 //!   slot`, walked by the weighted chooser in [`NavGraph::next_hop`]. There is
 //!   no graph search anywhere in either ELF; [`NavGraph::route_bfs`] is the
@@ -48,18 +48,18 @@ pub const SOLDIER: usize = 0;
 /// PROVISIONAL bit — the PC tool's names, not the RE's): a leap only a jet
 /// class can make. Routing a jetless soldier over one hands it a waypoint it
 /// can never reach, which is one of the two shapes the A.1 sweep's deep stalls
-/// took (PLAN "PHASE A.2 DESIGN" decision 4). Nothing in the game builds a jet
-/// class today, so [`Mover::SOLDIER`] is the only mover there is.
+/// took (PLAN "PHASE A.2 DESIGN" decision 4). The follower selects the vehicle
+/// type or the infantry class's jet flag; this flag does not implement jet physics.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Mover {
     /// Index into the five route tables — [`SOLDIER`] and friends.
     pub ty: usize,
-    /// Does it wear a jet pack? `false` for every unit the game builds today.
+    /// Does its class wear a jet pack?
     pub jet: bool,
 }
 
 impl Mover {
-    /// Infantry, no jet pack: every unit in the game today.
+    /// Infantry without a jet pack.
     pub const SOLDIER: Mover = Mover {
         ty: SOLDIER,
         jet: false,
@@ -180,9 +180,9 @@ pub struct Barrier {
     pub mask: u32,
     /// Open or closed. Every barrier on the discs LOADS enabled (the BF1
     /// loader ignores the disc bit, BF2 ORs 0x20 in); BF2's mission Lua
-    /// opens and closes door/shield barriers at runtime, which nothing in the
-    /// port drives yet — so this is `true` everywhere today and is the hook
-    /// `EnableBarriers` / `DisableBarriers` will use.
+    /// opens and closes door/shield barriers at runtime. The port's mission
+    /// setup applies `EnableBarriers` / `DisableBarriers` through
+    /// [`NavGraph::set_barriers`].
     pub enabled: bool,
 }
 
@@ -223,32 +223,7 @@ impl Barrier {
     /// [`Self::crosses_r`], and WHERE along `a → b` (0..1) the segment first
     /// touches the grown rectangle: 0 from inside it.
     pub fn cross_t_r(&self, a: Vec2, b: Vec2, r: f32) -> Option<f32> {
-        let local = |p: Vec2| {
-            let d = p - self.centre;
-            Vec2::new(d.dot(self.axes[0]), d.dot(self.axes[1]))
-        };
-        let (p0, p1) = (local(a), local(b));
-        let d = p1 - p0;
-        let (mut t0, mut t1) = (0.0f32, 1.0f32);
-        for k in 0..2 {
-            let (p, q, h) = (d[k], p0[k], self.half[k] + r);
-            if p.abs() < 1e-9 {
-                if q.abs() > h {
-                    return None; // parallel and outside the slab
-                }
-                continue;
-            }
-            let (mut lo, mut hi) = ((-h - q) / p, (h - q) / p);
-            if lo > hi {
-                std::mem::swap(&mut lo, &mut hi);
-            }
-            t0 = t0.max(lo);
-            t1 = t1.min(hi);
-            if t0 > t1 {
-                return None;
-            }
-        }
-        Some(t0)
+        self.clip_t(a, b, self.half + Vec2::splat(r))
     }
 
     /// Where along the XZ segment `a → b` (0..1) it first touches the
@@ -257,6 +232,10 @@ impl Barrier {
         if self.contains(a) {
             return None;
         }
+        self.clip_t(a, b, self.half)
+    }
+
+    fn clip_t(&self, a: Vec2, b: Vec2, half: Vec2) -> Option<f32> {
         let local = |p: Vec2| {
             let d = p - self.centre;
             Vec2::new(d.dot(self.axes[0]), d.dot(self.axes[1]))
@@ -265,10 +244,10 @@ impl Barrier {
         let d = p1 - p0;
         let (mut t0, mut t1) = (0.0f32, 1.0f32);
         for k in 0..2 {
-            let (p, q, h) = (d[k], p0[k], self.half[k]);
+            let (p, q, h) = (d[k], p0[k], half[k]);
             if p.abs() < 1e-9 {
                 if q.abs() > h {
-                    return None;
+                    return None; // parallel and outside the slab
                 }
                 continue;
             }
@@ -349,8 +328,8 @@ impl Barrier {
     }
 }
 
-/// One `Hint` node, carried for later phases — Phase A consumes none of them
-/// (design decision 7: hints are the BF1 stance/snipe/patrol layer).
+/// One authored `Hint` node, consumed by the commander for defence spots
+/// and by `ai::tactic` for combat positions and stance masks.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Hint {
     pub name: String,
@@ -372,12 +351,10 @@ pub struct Hint {
     /// bake was written (`ManifestHint::primary_stance`), so no rebake is
     /// needed for either field.
     pub stance_mask: u8,
-    /// The same mask read out of the authored `SecondaryStance` (the Cover
-    /// behaviour's secondary hold), and the peek SIDES it carries
-    /// ([`crate::commander::peek_sides`]: bit 0 −right, bit 1 +right).
-    /// CARRIED, NO CONSUMER YET: the Cover peek state is Phase D work.
+    /// Authored `SecondaryStance` mask, read into combat positions by `ai::tactic`.
     pub secondary_stance_mask: u8,
-    /// See [`Hint::secondary_stance_mask`].
+    /// Authored peek sides ([`crate::commander::peek_sides`]: bit 0 −right,
+    /// bit 1 +right). Carried without a Cover peek-state consumer yet.
     pub peek_sides: u8,
     pub command_post: Option<String>,
 }
@@ -533,7 +510,7 @@ pub struct NavGraph {
     /// mission's `EnableBarriers` / `DisableBarriers` name
     /// ([`NavGraph::set_barriers`]). Empty on a graph built without names.
     pub barrier_names: Vec<u32>,
-    /// Carried for later phases; Phase A reads none of them.
+    /// Authored hints for defence spots, combat positions and stance selection.
     pub hints: Vec<Hint>,
     /// BF2: a hub contains a point by its XZ disc (`FUN_002ea878`); `false`,
     /// BF1: by its sphere (`FUN_00265d38`). Set by the loader from the
@@ -699,9 +676,8 @@ impl NavGraph {
     /// in hub order, so they are stable for a given bake.
     ///
     /// JETLESS connectivity: [`Arc::JET_JUMP`] arcs are left out, so
-    /// [`NavGraph::reachable`] answers for the only mover the game builds
-    /// (`Mover::SOLDIER`). PROVISIONAL — a jet class would need a second
-    /// array; there is none to need it yet.
+    /// [`NavGraph::reachable`] answers for jetless movers of each type.
+    /// PROVISIONAL: jet-only connections require a search, not this cache.
     fn components(&self, ty: usize) -> Vec<u32> {
         let n = self.hubs.len();
         let mut comp = vec![u32::MAX; n];
@@ -744,6 +720,13 @@ impl NavGraph {
             },
             None => false,
         }
+    }
+
+    /// Connectivity for this mover. Jetless connectivity uses the cache;
+    /// only a jet-only connection needs the deterministic BFS fallback.
+    pub(crate) fn reachable_by(&self, from: u16, to: u16, m: Mover) -> bool {
+        self.reachable(from, to, m.ty)
+            || (m.jet && self.route_bfs(from, to, m, &|_| true).is_some())
     }
 
     pub fn hub(&self, i: u16) -> Option<&Hub> {
@@ -805,47 +788,24 @@ impl NavGraph {
     /// stand. OURS (PLAN "PHASE A.2 DESIGN" decision 3); the PS2's is
     /// `&|_| true`. Steps 2 and 3 are untouched.
     pub fn locate_on(&self, pos: Vec3, m: Mover, on_floor: &dyn Fn(u16) -> bool) -> Option<Locus> {
-        // A hub with no arc for the mover is not a hub for it: at load the
-        // PS2 ORs each hub's arcs' type masks into the hub (BF1
-        // `FUN_002663a8`, BF2 `FUN_002eb2b0`) and its locate skips a hub
-        // whose mask lacks the mover's bit - no soldier exception (card
-        // HUBM). TAT1's 525 m dune-sea hub has no arc, BF2 Hoth's AT-AT
-        // stands inside a soldier hub laid over its own path.
-        let typed = self.arcs.iter().any(|a| a.allows(m));
-        let serves = |h: &Hub| {
-            !typed
-                || h.arcs
-                    .iter()
-                    .any(|&j| self.arcs.get(j as usize).is_some_and(|a| a.allows(m)))
-        };
         // The PS2 starts both "smallest" searches at 10000.
         const START: f32 = 10000.0;
-        let mut best_hub: Option<(f32, u16)> = None;
-        let mut best_level: Option<(f32, u16)> = None;
-        for (i, h) in self.hubs.iter().enumerate() {
-            let r = h.radius;
-            if r >= START || !serves(h) {
-                continue;
-            }
-            let d = h.pos - pos;
-            let d2 = if self.hub_discs {
-                d.x * d.x + d.z * d.z
-            } else {
-                d.length_squared()
-            };
-            // (A NaN is outside, as the PS2's compare has it.)
-            let inside = d2 < r * r;
-            if !inside {
-                continue;
-            }
-            if best_hub.is_none_or(|(br, _)| r < br) {
-                best_hub = Some((r, i as u16));
-            }
-            if best_level.is_none_or(|(br, _)| r < br) && on_floor(i as u16) {
-                best_level = Some((r, i as u16));
-            }
-        }
-        if let Some((_, i)) = best_level.or(best_hub) {
+        if let Some(i) = self.containing_hub(
+            m,
+            on_floor,
+            |r| r >= START,
+            |h| {
+                let d = h.pos - pos;
+                let d2 = if self.hub_discs {
+                    d.x * d.x + d.z * d.z
+                } else {
+                    d.length_squared()
+                };
+                // (A NaN is outside, as the PS2's compare has it.)
+                let inside = d2 < h.radius * h.radius;
+                !inside
+            },
+        ) {
             return Some(Locus::Hub(i));
         }
         let mut best: Option<(f32, u16, f32)> = None;
@@ -889,15 +849,7 @@ impl NavGraph {
             return Some(Locus::Nearest(i, t));
         }
         // OURS: a type with no arc it can be located on - the nearest hub.
-        let p = Vec2::new(pos.x, pos.z);
-        let mut hub: Option<(f32, u16)> = None;
-        for (i, h) in self.hubs.iter().enumerate() {
-            let d2 = (h.xz() - p).length_squared();
-            if hub.is_none_or(|(bd, _)| d2 < bd) {
-                hub = Some((d2, i as u16));
-            }
-        }
-        hub.map(|(_, i)| Locus::Hub(i))
+        self.nearest_hub(Vec2::new(pos.x, pos.z))
     }
 
     /// Where a UNIT stands - a route's start, a hunt's quarry, a vehicle to
@@ -922,32 +874,13 @@ impl NavGraph {
         m: Mover,
         on_floor: &dyn Fn(u16) -> bool,
     ) -> Option<Locus> {
-        let typed = self.arcs.iter().any(|a| a.allows(m));
-        let serves = |h: &Hub| {
-            !typed
-                || h.arcs
-                    .iter()
-                    .any(|&j| self.arcs.get(j as usize).is_some_and(|a| a.allows(m)))
-        };
         let p = Vec2::new(pos.x, pos.z);
-        let mut best_hub: Option<(f32, u16)> = None;
-        let mut best_level: Option<(f32, u16)> = None;
-        for (i, h) in self.hubs.iter().enumerate() {
-            let r = h.radius;
-            if r <= 0.0 || !serves(h) {
-                continue;
-            }
-            if (h.xz() - p).length_squared() >= r * r {
-                continue;
-            }
-            if best_hub.is_none_or(|(br, _)| r < br) {
-                best_hub = Some((r, i as u16));
-            }
-            if best_level.is_none_or(|(br, _)| r < br) && on_floor(i as u16) {
-                best_level = Some((r, i as u16));
-            }
-        }
-        if let Some((_, i)) = best_level.or(best_hub) {
+        if let Some(i) = self.containing_hub(
+            m,
+            on_floor,
+            |r| r <= 0.0,
+            |h| (h.xz() - p).length_squared() >= h.radius * h.radius,
+        ) {
             return Some(Locus::Hub(i));
         }
         let mut near: Option<(f32, u16, f32)> = None;
@@ -977,30 +910,13 @@ impl NavGraph {
         if let Some((_, i, t)) = near {
             return Some(Locus::Nearest(i, t));
         }
-        let mut hub: Option<(f32, u16)> = None;
-        for (i, h) in self.hubs.iter().enumerate() {
-            let d2 = (h.xz() - p).length_squared();
-            if hub.is_none_or(|(bd, _)| d2 < bd) {
-                hub = Some((d2, i as u16));
-            }
-        }
-        hub.map(|(_, i)| Locus::Hub(i))
+        self.nearest_hub(p)
     }
 
     /// The hub of a point where a unit stands: [`NavGraph::locate_unit_on`]'s
     /// hub, or the nearer end of its arc.
     pub fn unit_hub_on(&self, pos: Vec3, m: Mover, on_floor: &dyn Fn(u16) -> bool) -> Option<u16> {
-        Some(match self.locate_unit_on(pos, m, on_floor)? {
-            Locus::Hub(i) => i,
-            Locus::Arc(j, t) | Locus::Nearest(j, t) => {
-                let arc = self.arcs[j as usize];
-                if t < 0.5 {
-                    arc.a
-                } else {
-                    arc.b
-                }
-            }
-        })
+        Some(self.locus_hub(self.locate_unit_on(pos, m, on_floor)?))
     }
 
     /// ONE hub for `pos`: its own hub, else the NEARER end of its arc (its
@@ -1015,7 +931,59 @@ impl NavGraph {
     /// [`NavGraph::hub_for`] with the same-level preference — see
     /// [`NavGraph::locate_on`].
     pub fn hub_for_on(&self, pos: Vec3, m: Mover, on_floor: &dyn Fn(u16) -> bool) -> Option<u16> {
-        Some(match self.locate_on(pos, m, on_floor)? {
+        Some(self.locus_hub(self.locate_on(pos, m, on_floor)?))
+    }
+
+    fn containing_hub(
+        &self,
+        m: Mover,
+        on_floor: &dyn Fn(u16) -> bool,
+        skip_radius: impl Fn(f32) -> bool,
+        outside: impl Fn(&Hub) -> bool,
+    ) -> Option<u16> {
+        // A hub with no arc for the mover is not a hub for it: at load the
+        // PS2 ORs each hub's arcs' type masks into the hub (BF1
+        // `FUN_002663a8`, BF2 `FUN_002eb2b0`) and its locate skips a hub
+        // whose mask lacks the mover's bit - no soldier exception (card
+        // HUBM). TAT1's 525 m dune-sea hub has no arc, BF2 Hoth's AT-AT
+        // stands inside a soldier hub laid over its own path.
+        let typed = self.arcs.iter().any(|a| a.allows(m));
+        let serves = |h: &Hub| {
+            !typed
+                || h.arcs
+                    .iter()
+                    .any(|&j| self.arcs.get(j as usize).is_some_and(|a| a.allows(m)))
+        };
+        let mut best_hub: Option<(f32, u16)> = None;
+        let mut best_level: Option<(f32, u16)> = None;
+        for (i, h) in self.hubs.iter().enumerate() {
+            let r = h.radius;
+            if skip_radius(r) || !serves(h) || outside(h) {
+                continue;
+            }
+            if best_hub.is_none_or(|(br, _)| r < br) {
+                best_hub = Some((r, i as u16));
+            }
+            if best_level.is_none_or(|(br, _)| r < br) && on_floor(i as u16) {
+                best_level = Some((r, i as u16));
+            }
+        }
+        best_level.or(best_hub).map(|(_, i)| i)
+    }
+
+    fn nearest_hub(&self, p: Vec2) -> Option<Locus> {
+        let mut hub: Option<(f32, u16)> = None;
+        for (i, h) in self.hubs.iter().enumerate() {
+            let d2 = (h.xz() - p).length_squared();
+            if hub.is_none_or(|(bd, _)| d2 < bd) {
+                hub = Some((d2, i as u16));
+            }
+        }
+        hub.map(|(_, i)| Locus::Hub(i))
+    }
+
+    fn locus_hub(&self, locus: Locus) -> u16 {
+        match locus {
             Locus::Hub(i) => i,
             Locus::Arc(j, t) | Locus::Nearest(j, t) => {
                 let arc = self.arcs[j as usize];
@@ -1025,7 +993,7 @@ impl NavGraph {
                     arc.b
                 }
             }
-        })
+        }
     }
 
     /// The PS2 chooser (`FUN_00266150` / `FUN_002eb000`): pick the arc out of
@@ -1165,7 +1133,8 @@ impl NavGraph {
         if cur == dest || self.hub(cur).is_none() || self.hub(dest).is_none() {
             return None;
         }
-        if !self.reachable(cur, dest, m.ty) {
+        // The component cache excludes jet arcs; it cannot reject a jet mover.
+        if !m.jet && !self.reachable(cur, dest, m.ty) {
             return None;
         }
         let mut first: Vec<Option<Hop>> = vec![None; self.hubs.len()];
@@ -1460,7 +1429,6 @@ impl NavGraph {
     }
 }
 
-/// XZ distance from `p` to the segment `a → b`.
 /// `p` against the arc from hub `a` to hub `b`, in 3-D: `t` of its projection
 /// on the segment (unclamped) and the distance left OUTSIDE the corridor -
 /// within the ends, the distance to the segment less `rB·t + rA·(1−t)`;
@@ -1494,8 +1462,8 @@ fn dist_to_segment(p: Vec2, a: Vec2, b: Vec2) -> f32 {
     (p - (a + ab * t)).length()
 }
 
-/// XZ distance between two world points — the only distance this module and
-/// the follower use (hub `y` is a pick height, not a floor).
+/// XZ distance between two world points, used by the follower's horizontal
+/// geometry; goal locate separately uses 3-D arc reach.
 pub fn xz_dist(a: Vec3, b: Vec3) -> f32 {
     Vec2::new(a.x - b.x, a.z - b.z).length()
 }

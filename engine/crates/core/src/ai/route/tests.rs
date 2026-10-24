@@ -1069,3 +1069,28 @@ fn a_hovers_driver_reaches_a_corner_at_its_node_radius() {
     seat(&mut sim, VehicleKind::Walker);
     assert!(!passed(&sim, 8.0, 12.0), "a walker's driver: the metre");
 }
+
+/// A jet class's boarding destination may be joined only by a jet arc.
+/// Both the follower's outer guard and its empty-table BFS must allow it.
+#[test]
+fn a_jet_only_boarding_route_uses_the_units_mover() {
+    let (mut sim, me) = l_sim();
+    let g = sim.nav.take().expect("graph");
+    let mut arcs = g.arcs;
+    for arc in &mut arcs {
+        arc.flags = Arc::JET_JUMP;
+    }
+    sim.nav =
+        Some(NavGraph::new(g.hubs, arcs, RouteTable::empty(3), vec![], vec![]).expect("jet graph"));
+    let at = Vec3::new(40.0, 0.0, -40.0);
+    let mut st = AiState::default();
+    let mut nt = NavTick::default();
+    sim.unit_mut(me).expect("bot").spec.jet = true;
+    retarget_board(&sim, me, &mut st, at, &mut nt);
+    let r = st.route.expect("jet can reach the boarding hub");
+    assert_eq!((r.dest_hub, r.next_hub, r.via_arc), (2, 1, Some(0)));
+    assert_eq!(r.source, RouteSource::Bfs);
+    sim.unit_mut(me).expect("bot").spec.jet = false;
+    retarget_board(&sim, me, &mut st, at, &mut nt);
+    assert_eq!(st.route, None, "jetless unit cannot cross the same arc");
+}

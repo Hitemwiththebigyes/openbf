@@ -4,14 +4,14 @@ title: The head-to-head's per-team tier is refereed by no test past the spawn sk
 milestone: M3
 value: 4
 phase: build
-status: parked
+status: blocked
 deps: ARVS
 files: engine/crates/core/src/sim/state.rs, engine/crates/core/src/sim/spawn.rs, engine/crates/core/src/sim/step.rs, engine/crates/core/src/sim/combat.rs, engine/crates/core/src/ai/behave.rs, engine/crates/core/src/ai/gunner_foot.rs, engine/crates/core/src/ai/snipe.rs, engine/crates/core/src/ai/man.rs, engine/crates/game/examples/arena.rs
 declares:
-needs: maintainer - the RTX is lost (nvidia-smi / Vulkan see only Intel + llvmpipe); reboot, then the card lands as is
+needs: cloud prerequisites: branch arvsa, baked assets, missions and reference evidence absent
 effort:
 branch: arvsa
-resume: built + gated (gates2: every non-gpu gate PASS/identical, ci 1832->1844 = the 12 new tests); land with land.py ARVSA once the RTX is back (nvidia-smi -L) - the gpu gate refused ADAPTER LOST 2026-10-21 20:15; diff is tests + arena.rs refactor, no golden can move
+resume: (private workflow note omitted)
 created: 2026-10-20
 alpha: yes
 domain: tooling
@@ -31,3 +31,4 @@ And the acceptance's mutation as landed ("the higher tier plays the lower: 0.500
 ## Acceptance
 - Re-run the audit's list (`lead_tmp/audit-arvs/tools/chain_mut.sh` with `mk_mut.py` pointed at the branch): every one of the 18 non-equivalent survivors (R1 R3 R5 R6 R7 R8 R9 R10 R13 R14 R16 R22 R24 A1 A2 A5 A7 A8) fails at least one ci test; R0 still passes; paste the table.
 - The null unchanged: `arena 3000 42 flat all` / `arena 9000 42 tat2 all` byte-identical to the gate baseline; `vs all` 24-seed tables byte-identical to `lead_tmp/audit-arvs/runs/t24/land_*.txt` (tests only, no behaviour move).
+

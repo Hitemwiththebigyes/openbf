@@ -548,8 +548,9 @@ fn yaw_of(d: Vec2) -> f32 {
     core::fmath::atan2(-d.x, -d.y)
 }
 
-/// One chunk of a map: the samples whose index is `chunk` mod `chunks` (`LEAK_CHUNKS`). The runs do not depend on one
-/// another (each starts from the template unit), so the chunks are merged in [`merge_map`] into the same report.
+/// One chunk of a map: samples whose index is `chunk` mod `chunks`.
+/// See the `LEAK_CHUNKS` caveat in `main`: state dependence makes k>1
+/// reports differ from the k=1 gate. [`merge_map`] combines the chunks.
 struct Part {
     /// A failed load, or the build messages of the map (chunk 0's).
     out: String,
@@ -583,23 +584,13 @@ fn mission_for(key: &str) -> Option<game::mission::MissionDef> {
 /// Build the map's sim the way the round sweep does (mode layer, common
 /// props, the mission's death regions, the nav graph), with one player.
 fn build_sim(key: &str, path: &Path, out: &mut String) -> Option<game::walk::WalkSim> {
-    let mut scene = match game::assets::load_scene(path) {
+    let (scene, _) = match game::assets::load_battle_scene(path, "con") {
         Ok(s) => s,
         Err(e) => {
             outln!(out, "{key:10} LOAD FAILED {e:#}");
             return None;
         }
     };
-    scene.apply_mode_layer("con");
-    if let Some(cd) = path
-        .parent()
-        .map(|p| p.join(format!("common_{}", scene.manifest.source_game)))
-        .filter(|d| d.join("common.ron").exists())
-    {
-        if let Ok(c) = game::assets::load_common(&cd) {
-            scene.merge_common(c);
-        }
-    }
     let mission = mission_for(key);
     let mut layout = game::layout::MapLayout::from_manifest(&scene.manifest);
     let applied = mission.as_ref().map(|m| layout.apply_mission(m));
@@ -1144,19 +1135,19 @@ fn main() {
         }
     });
     let mut parts = parts.into_inner().unwrap();
-    let results: Vec<Option<MapReport>> = maps
+    let results: Vec<MapReport> = maps
         .iter()
         .enumerate()
         .map(|(m, (key, _, _))| {
             let ps: Vec<Part> = (0..chunks)
                 .filter_map(|c| parts[m * chunks + c].take())
                 .collect();
-            Some(merge_map(key, &accepted, ps))
+            merge_map(key, &accepted, ps)
         })
         .collect();
     let (mut samples, mut runs, mut sites, mut acc, mut new) = (0, 0, 0, 0, 0);
     let mut site_file = String::new();
-    for r in results.iter().flatten() {
+    for r in &results {
         print!("{}", r.text);
         site_file.push_str(&r.site_text);
         eprint!("{}", r.verbose);

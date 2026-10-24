@@ -123,15 +123,11 @@ pub struct HudModel {
     pub tickets: [u32; 2],
     /// Reinforcements lost per second to the post bleed, team 0 / team 1.
     pub bleed: [f32; 2],
-    pub posts: [usize; 2],
     pub hp: f32,
     pub hp_max: f32,
     /// Sprint stamina 0..energy_max.
     pub energy: f32,
     pub energy_max: f32,
-    pub clip: u32,
-    pub spare: u32,
-    pub reloading: bool,
     /// The weapon in hand; `None` hides the weapon group (dead, or riding).
     pub weapon: Option<HudWeapon>,
     /// The secondary channel's current weapon — the grenade row (card GREN);
@@ -621,14 +617,10 @@ mod tests {
             team_names: ["rep".into(), "cis".into()],
             tickets: [150, 143],
             bleed: [0.0; 2],
-            posts: [3, 2],
             hp: 320.0,
             hp_max: 400.0,
             energy: 55.0,
             energy_max: 100.0,
-            clip: 24,
-            spare: 96,
-            reloading: false,
             weapon: None,
             weapon2: None,
             reticle: Some(0),

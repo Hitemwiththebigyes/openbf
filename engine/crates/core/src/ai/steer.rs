@@ -1,79 +1,32 @@
-//! The steering's PROBES, the local layer under the route: what shuts a step
-//! ([`wall_ahead`] / [`way_ahead`]: the wall sweep ahead, asked again along
-//! the floor up a ramp — card OFFG, [`ramp_clear`]: a ramp is not a wall; a
-//! `BARR` barrier at an edge of the level — card BNDS, [`barrier_ahead`]; a
-//! parked vehicle's low parts — card STFAL, the hull probe; a floor too steep
-//! to climb — card STHOP, [`steep_ahead`]), the floor probe ([`floor_ahead`],
-//! card STFAL: no step over a drop) and [`rotate_xz`]. The heading picked
-//! from them is the avoidance's (`avoid::pick`, card OBST). `ai.rs`'s header
-//! says why the sweep is ours and carries the A.2 numbers. The tests of
-//! walking locally live here too, including the two halves `think` itself
-//! runs: the stuck window's side-step and the soldier frame the pad is built
-//! in.
+//! Local steering probes under the route: wall sweeps ([`wall_ahead`],
+//! [`way_ahead`]), edge `BARR` barriers ([`barrier_ahead`], BNDS), low
+//! vehicle hulls (STFAL), steep floors ([`steep_ahead`], STHOP), safe floor
+//! ([`floor_ahead`], STFAL) and [`rotate_xz`]. `avoid::pick` chooses the
+//! heading from these probes; the sweep mechanism is OURS (see `ai.rs`).
+//! Floor/hull evidence: `analysis/re-round-stalls.md` C1, C8.
 //!
-//! Card MOUTH2 — **a door that is opening is not a wall**
-//! ([`StopKind::Door`]). A BF2 `door` opens by itself while a soldier stands
-//! in its trigger (`crate::door`), and a bot at 7 m/s is at the leaf before
-//! it has slid clear: BF2 Kamino's pod room door has a 4 m trigger and two
-//! 3.75 m leaves that take 1.33 s. The sweep met the leaf, the avoidance
-//! committed to a side and the bot followed the wall away for up to 10 s —
-//! 121 stalls in 270 passes of that one door (main 5fbbbd4, 8 seeds x 3 min;
-//! a stall = 1.5 s of walking with under 1.5 m gained), 116 of them walking
-//! back out. The PS2's bots do not turn away: 44 passes sampled at 10 Hz,
-//! lanes up to 3.2 m off the centre, the outer ones walk up to the leaf,
-//! stand about half a second against it and go through (2 stalls in 51
-//! passes; `analysis/re-bf2-doors.md` 11). So when the body the sweep meets
-//! is a leaf of a door that is opening ([`Sim::door_opening`]: somebody in a
-//! trigger, the clip not at its end) and nothing else shuts the way, the
-//! avoidance walks on at its point and drops what it was going round; the
-//! wall pass holds the bot at the leaf until it clears — the clip's length
-//! at most, after which a leaf still in the way is a wall again. OURS in
-//! mechanism (the PS2 has no sweep to answer); the result is the PS2's.
-//! MEASURED with it: that door 0 stalls in 157 passes; stalls beginning
-//! within 6 m of any door on the five maps that have them 613 -> 401, bots
-//! walking back out 265 -> 105 (Kamino 101 -> 1, Death Star 61 -> 29, Polis
-//! Massa 38 -> 31, Mustafar 98 -> 83, Tantive IV 315 -> 257: what is left
-//! there is not a leaf).
+//! Opening doors (MOUTH2 / DOORS, `analysis/re-bf2-doors.md` 11): a leaf
+//! whose door is opening ([`Sim::door_opening`]) is [`StopKind::Door`]
+//! when nothing else blocks the way. Avoidance drops its obstacle commitment
+//! and walks toward its point; the wall pass holds it until the leaf clears.
+//! At the clip's end a leaf still in the way is a wall again. This is OURS
+//! in mechanism (the PS2 has no sweep), reproducing its bots' wait at leaves.
+//! A steep-floor ray can hit a rolled leaf: a steep face in an opening
+//! leaf's box ([`Sim::opening_leaf_over`]) is excluded too, so it cannot
+//! outrank the door answer. This exemption applies only while opening.
 //!
-//! Card DOORS — **and a leaf that is opening is no steep floor either.**
-//! The steep-floor probe's ray comes down [`PROBE_DIST`] ahead of the feet,
-//! and at a door it can come down ON the leaf. BF2 Death Star's blast doors
-//! (a 16 m trigger, 5 s to open) part on a diagonal: a leaf's boxes are
-//! rolled 43.9 degrees, so the edge that leaves the doorway last is a face
-//! at n.y 0.69 over the feet — under the game's control limit, a wall to
-//! the probe — and [`StopKind::Steep`] outranked the door's answer. Traced
-//! tick by tick on main 4dbb460: seed 62 unit 31 at the Empire's spawn (the
-//! door at (-63, -75), 39 % open: `Door` at tick 68, `Steep` at tick 71, a
-//! side committed, 22 m along the hangar wall) and seed 61 unit 24 at
-//! (-83, -107) (stood 0.4 s at the leaf, then `Steep`, 12 s away). So a
-//! steep face found in the box of a leaf of a door that is opening
-//! ([`Sim::opening_leaf_over`]) is not one: the sweep's answer stands while
-//! the leaf is in the way, and the toe it leaves in the lane last is walked
-//! at. MEASURED, main bc10b82 against this, the Death Star over 32 seeds x
-//! 3 min (`lead_tmp/doors/tools/waits.py`, `census.py`): of every meeting
-//! of a bot with a leaf, those that left it 2 m further from its point 18 of
-//! 364 -> 5 of 374 (4 of the 5 are one bot walking at a path corner beside
-//! the doorway); stalls beginning within 6 m of a door 72 -> 48, direction
-//! reversals there 102 -> 43; the longest wait at a leaf 2.0 s, no stuck
-//! event in it. 24 seeds x 32 maps: rounds 768 / 768, recycles 142 / 142, 29
-//! maps byte for byte; of the other four door maps Tantive IV's and
-//! Kamino's rows do not move, Polis Massa's on 6 seeds, Mustafar's on 1
-//! (and in one of 32 three-minute rounds of Kamino one bot aimed past a
-//! door's jamb took the other side and walked 17 m back: the cost seen).
+//! Ramps are tested along their floor ([`ramp_clear`], OFFG). A short steep
+//! band is passable when its own slope reaches a floor the stick can hold
+//! within `SHORT_BAND_RISE`, with standing clearance throughout
+//! ([`short_band`], SKIRT). This matches `Soldier::resolve_ground` carrying
+//! a run up Kamino's pod skirt (`analysis/re-soldier-ground.md` 7).
+//! TAT1's ramp and BF2 Geonosis's buttress cannot be stood on and stay walls.
 //!
-//! Card SKIRT — **a band the soldier's run carries him over is no steep
-//! floor.** BF2 Kamino's pod stands on a dais whose skirt is a band of 48
-//! degrees 1.0-1.5 m high; the PS2's soldier takes it on momentum and its
-//! bots walk up it and stand on it (re-soldier-ground.md §7), and with the
-//! body's rules ported (`Soldier::resolve_ground`) so does the port's. The
-//! probe called it a wall and the bots slid along its foot. So a steep face
-//! whose own slope reaches a floor the stick holds on within
-//! `SHORT_BAND_RISE`, standing all the way, is not one ([`short_band`]).
-//! MEASURED, main 6dc59d4 against this, Kamino 8 seeds x 3 min: stalls at
-//! the pod (hub 46, 20 m) 57 -> 15 per 100 passes (the PS2 5), `steep slide`
-//! there 66 -> 0, the map's stalls 509 -> 317; the maintainer's scene 8 -> 0 trails over
-//! 6 reversals. TAT1's ramp and BF2 Geonosis's buttress, what the probe was
-//! built for, cannot be stood on and stay walls.
+//! Measurements and remaining door/jamb cases are in the existing reports
+//! under `engine/artifacts/loop/reports/`: `20261012_1729_card_MOUTH2.md`,
+//! `20261012_2027_card_DOORS.md`, `20261015_1233_card_SKIRT.md`.
+//! The local walking tests also cover the stuck-window side-step and the
+//! soldier frame used to build the pad.
 
 use super::{
     BARRIER_MARGIN, EDGE_LOOK, HULL_PUSH_MIN, LEDGE_MARGIN, PROBE_DIST, RAMP_MIN_RISE, RAMP_SAMPLE,
@@ -1095,13 +1048,14 @@ mod tests {
         assert!(p.z > 0.0, "and it went on along the rail: {p}");
     }
 
+    /// A jammed unit re-routes and side-steps after its progress window.
     /// Phase A.4: the stuck window hands its side-step side to the
     /// WALL-FOLLOW too. `steer_dir` reads the side-step's `side` only to break
     /// a tie on a unit with no remembered slide, so before this the PS2's
     /// "side-step to the side we did not use last time" could never change
     /// the side of a unit that had been sliding for a whole window.
     #[test]
-    fn the_stuck_sidestep_resets_the_slide_side() {
+    fn no_progress_arms_the_sidestep_and_resets_the_slide_side() {
         let (mut sim, h) = l_sim();
         // A jam: four walls round the unit, the way round them a circle.
         sim.collision = closed_room();
@@ -1129,6 +1083,8 @@ mod tests {
             "the side-step's side won outright ({:?})",
             u.ai.steer
         );
+        assert!(r.stuck_run >= STUCK_WINDOW, "stuck run {}", r.stuck_run);
+        assert!(sim.nav_stats.stuck_max >= STUCK_WINDOW);
     }
 
     /// Four 12 m walls round the origin, 5 m out: no way out.
@@ -1145,33 +1101,6 @@ mod tests {
             ],
             Vec::new(),
         )
-    }
-
-    /// A unit jammed in a room stops making progress, and after a window it
-    /// re-routes and side-steps.
-    #[test]
-    fn no_progress_for_a_window_arms_the_sidestep() {
-        let (mut sim, h) = l_sim();
-        // A jam: four walls round the unit, the way round them a circle.
-        sim.collision = closed_room();
-        // (Card OBST: a bot going along the slab is not stuck while it moves
-        // on, for `avoid::ROUND_MAX` ticks; then the window fires.)
-        let mut armed = false;
-        for _ in 0..700 {
-            sim.step(&[PadState::default()]);
-            if sim
-                .unit(h)
-                .and_then(|u| u.ai.route)
-                .is_some_and(|r| r.sidestep != 0)
-            {
-                armed = true;
-                break;
-            }
-        }
-        assert!(armed, "the stuck window never fired");
-        let r = sim.unit(h).unwrap().ai.route.expect("route");
-        assert!(r.stuck_run >= STUCK_WINDOW, "stuck run {}", r.stuck_run);
-        assert!(sim.nav_stats.stuck_max >= STUCK_WINDOW);
     }
 
     /// The soldier frame the pad is built in, spelled out — the AI now turns a

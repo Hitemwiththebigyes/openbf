@@ -4,14 +4,14 @@ title: The ledge a jump mounts: on the PS2 a BF2 jump pressed against a face get
 milestone: M3
 value: 3
 phase: build
-status: todo
+status: blocked
 deps:
 files: engine/crates/core/src/collision.rs,engine/crates/core/src/sim/step.rs,engine/crates/core/src/sim/state.rs
 declares: sim; sweep; arena; leak
 needs:
 effort:
 branch:
-resume:
+resume: Restore audit-jarc PS2 kit/raw trials and PCSX2/disc inputs listed in lead_tmp/jledg_cloud/preflight.json; Acceptance 1 first: measure BF1/BF2 running jumps 1-3 m before face with rim_jump.py run --shifts. Then current-main pressed baseline, isolated build, committed table/M7 referee, JWAL/reach checks, 8-seed null leak census and Kamino rim totals, CI and all gates. Checkpoint reports/20261024_1146_card_JLEDG.md; no implementation or landing.
 created: 2026-10-03
 alpha: yes
 domain: physics

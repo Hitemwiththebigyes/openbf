@@ -714,8 +714,6 @@ fn turn_step(v: &mut Vehicle, p: &WalkerParams, p2: f32, p3: f32) {
     } else if hs < -thr {
         v.walker.turn_step = -fmath::atan2(hs, hc);
         start_action(v, p, ACT_TURNL);
-    } else if v.walker.anim != ANIM_IDLE {
-        start_action(v, p, ACT_STOP);
     }
 }
 

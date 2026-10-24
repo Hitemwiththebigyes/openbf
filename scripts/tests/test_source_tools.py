@@ -1,0 +1,302 @@
+"""Synthetic source-tool regressions; no discs, corpora, bakes or baselines."""
+import contextlib
+import csv
+import io
+import math
+from pathlib import Path
+import struct
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest import mock
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import bot_quality as bot
+import callgraph
+import extract_lua as lua
+import gen_missions as missions
+import pack
+import scan_tables
+
+
+def ins(op, a=0, b=0, c=0, bx=None):
+    return (missions.OPS50.index(op) | (a << 24) |
+            ((bx << 6) if bx is not None else ((b << 15) | (c << 6))))
+
+
+def proto_calls(calls):
+    """Build literal calls using real Lua 5 instruction fields."""
+    p = missions.Proto()
+    for name, args in calls:
+        p.k.append(name)
+        p.code.append(ins('GETGLOBAL', bx=len(p.k) - 1))
+        for register, value in enumerate(args, 1):
+            if isinstance(value, missions.Proto):
+                p.protos.append(value)
+                p.code.append(ins('CLOSURE', a=register, bx=len(p.protos) - 1))
+            else:
+                p.k.append(value)
+                p.code.append(ins('LOADK', a=register, bx=len(p.k) - 1))
+        p.code.append(ins('CALL', b=len(args) + 1, c=1))
+    return p
+
+
+def globals_proto(items):
+    p = missions.Proto()
+    for name, child in items:
+        p.k.append(name)
+        p.protos.append(child)
+        p.code += [ins('CLOSURE', bx=len(p.protos) - 1),
+                   ins('SETGLOBAL', bx=len(p.k) - 1)]
+    return p
+
+
+def original_startup(f, verbs):
+    """Reference discovery/walk: traversal order is a contract."""
+    top, reg = {}, {}
+    for instruction in f.code:
+        op = missions.OPS50[instruction & 0x3f]
+        a, bx = (instruction >> 24) & 0xff, (instruction >> 6) & 0x3ffff
+        if op == 'CLOSURE' and bx < len(f.protos):
+            reg[a] = f.protos[bx]
+        elif op == 'SETGLOBAL' and a in reg and isinstance(f.k[bx], str):
+            top[f.k[bx]] = reg.pop(a)
+    base, out = missions._rk_base(f), []
+
+    def run(name, depth):
+        p = top.get(name)
+        if p is None or depth > 4:
+            return
+        for call in missions.calls50(p, base=base, recurse=False):
+            if call.name in verbs:
+                for arg in call.args:
+                    if isinstance(arg, str):
+                        out.append((arg, call.name == verbs[0]))
+            elif call.name in top and not call.args:
+                run(call.name, depth + 1)
+    run('ScriptPostLoad', 0)
+    return out
+
+
+class MissionTests(unittest.TestCase):
+    def test_startup_walk_matches_original_and_expected_order(self):
+        for verbs, wrapper in ((missions.ARC_VERBS, missions.arc_calls50),
+                               (missions.BARRIER_VERBS, missions.barrier_calls50)):
+            with self.subTest(verbs=verbs):
+                positive, negative = verbs
+                callback = proto_calls([(positive, ['callback-must-not-run'])])
+                entry = proto_calls([(positive, ['first', 7.0, 'second']),
+                                     ('helper', []), ('helper', []),
+                                     ('helper', [1.0]),  # arguments forbid following
+                                     ('OnObjectKillName', [callback, 'name']),
+                                     ('chain1', []), (negative, ['last'])])
+                items = [('ScriptPostLoad', entry),
+                         ('helper', proto_calls([(negative, ['nested'])])),
+                         ('unused', callback)]
+                for depth in range(1, 6):
+                    items.append((f'chain{depth}', proto_calls([
+                        (positive, [f'depth{depth}']), (f'chain{depth + 1}', [])])))
+                f = globals_proto(items)
+                expected = [('first', True), ('second', True), ('nested', False),
+                            ('nested', False)] + [(f'depth{i}', True) for i in range(1, 5)] + [('last', False)]
+                self.assertEqual(wrapper(f), expected)
+                self.assertEqual(wrapper(f), original_startup(f, verbs))
+
+    def test_discovery_preserves_register_pop_and_overwrite(self):
+        first, second = missions.Proto(), missions.Proto()
+        f = globals_proto([('same', first), ('same', second)])
+        f.k += ['alias', 9.0]
+        f.code += [ins('SETGLOBAL', bx=2),  # register was consumed
+                   ins('CLOSURE', a=1, bx=0), ins('SETGLOBAL', a=1, bx=3),
+                   ins('SETGLOBAL', a=1, bx=2)]  # nonstring does not consume it
+        self.assertEqual(missions.global_functions50(f), {'same': second, 'alias': first})
+
+    def test_recursive_startup_stops_at_existing_depth(self):
+        entry = proto_calls([(missions.ARC_VERBS[0], ['loop']), ('ScriptPostLoad', [])])
+        f = globals_proto([('ScriptPostLoad', entry)])
+        self.assertEqual(missions.arc_calls50(f), [('loop', True)] * 5)
+        self.assertEqual(missions.arc_calls50(f), original_startup(f, missions.ARC_VERBS))
+
+    def test_death_drains_stay_direct_and_branch_free(self):
+        handler = proto_calls([('AddReinforcements', [2.0, -3.0])])
+        branchy = proto_calls([('AddReinforcements', [2.0, -4.0])])
+        branchy.code.append(ins('TEST'))
+        extra = proto_calls([('AddReinforcements', [2.0, -5.0]), ('Other', [])])
+        indirect = proto_calls([('OnCharacterDeathTeam', [handler, 8.0])])
+        entry = proto_calls([('OnCharacterDeathTeam', [handler, 1.0]),
+                             ('OnCharacterDeathTeam', [branchy, 1.0]),
+                             ('OnCharacterDeathTeam', [extra, 1.0]), ('helper', [])])
+        f = globals_proto([('ScriptPostLoad', entry), ('helper', indirect)])
+        self.assertEqual(missions.death_drains50(f), [(1, 2, 3)])
+        self.assertEqual(missions.death_drains50(globals_proto([])), [])
+
+    def arithmetic(self, op, x, y):
+        p = missions.Proto()
+        p.k = ['Result', x, y]
+        p.code = [ins('GETGLOBAL', bx=0), ins(op, a=1, b=129, c=130),
+                  ins('CALL', b=2, c=1)]
+        return missions.calls50(p, recurse=False)[0].args[0]
+
+    def test_only_selected_arithmetic_is_evaluated(self):
+        self.assertEqual(self.arithmetic('ADD', 1e20, 20.0), 1e20)
+        for op, expected in [('ADD', 10.0), ('SUB', 6.0), ('MUL', 16.0),
+                             ('DIV', 4.0), ('POW', 64.0)]:
+            with self.subTest(op=op):
+                self.assertEqual(self.arithmetic(op, 8.0, 2.0), expected)
+        self.assertEqual(self.arithmetic('DIV', 8.0, 0.0), 0.0)
+        self.assertIsInstance(self.arithmetic('POW', 1e20, 20.0), missions.Unknown)
+        self.assertIsInstance(self.arithmetic('ADD', 'unknown', 2.0), missions.Unknown)
+
+
+class LuaHeaderTests(unittest.TestCase):
+    @staticmethod
+    def header(version, width):
+        fields = [1, 4, 4, 4, 32, 9, 6] if version == 0x40 else [1, 4, 4, 4, 6, 8, 9, 9]
+        return b'\x1bLua' + bytes([version] + fields + [width]) + struct.pack('<f' if width == 4 else '<d', 123.5)
+
+    def test_all_truncated_prefixes_and_complete_widths(self):
+        for version in (0x40, 0x50):
+            for width in (4, 8):
+                body = self.header(version, width)
+                for length in range(4, len(body)):
+                    with self.subTest(version=version, width=width, length=length):
+                        self.assertEqual(lua.parse_lua_header(body[:length])['error'], 'truncated header')
+                self.assertEqual(lua.parse_lua_header(body), dict(
+                    version='4.0' if version == 0x40 else '5.0', endian=1,
+                    sizeof_int=4, sizeof_size_t=4, sizeof_instr=4,
+                    sizeof_number=width, test_number=123.5))
+        self.assertIsNone(lua.parse_lua_header(b'print("hello")'))
+
+    def test_cli_continues_after_malformed_script_and_keeps_bytecode_extension(self):
+        def chunk(tag, body):
+            return tag + struct.pack('<I', len(body)) + body + b'\0' * (-len(body) % 4)
+        def script(name, body):
+            return chunk(b'scr_', chunk(b'NAME', name + b'\0') + chunk(b'BODY', body))
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / 'fixture.lvl'
+            source.write_bytes(chunk(b'ucfb', script(b'bad', self.header(0x40, 4)[:14]) +
+                                     script(b'good', self.header(0x50, 8))))
+            result = subprocess.run([sys.executable, lua.__file__, str(source), '--out', str(root / 'out')],
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('malformed Lua 4.0 bytecode: truncated header', result.stdout)
+            self.assertIn('Lua 5.0 bytecode', result.stdout)
+            self.assertEqual((root / 'out/bad.luac').read_bytes(), self.header(0x40, 4)[:14])
+            self.assertTrue((root / 'out/good.luac').is_file())
+
+
+class BotTests(unittest.TestCase):
+    @staticmethod
+    def sample(t, **fields):
+        return dict(t=t, p=(t * 2, 0.0, 0.0), team=fields.get('team', 0),
+                    seated=fields.get('seated', False), fight=fields.get('fight', False),
+                    post=fields.get('post', 0), steer=fields.get('steer', 'walk'),
+                    slide=fields.get('slide', 0), beh=fields.get('beh', 'travel'))
+
+    def test_exact_observation_uses_all_categorical_fields(self):
+        fields = dict(team=1, seated=True, fight=True, post=1, steer='slide', slide=-1, beh='fight')
+        life = [self.sample(0), self.sample(.25, **fields), self.sample(.5, **fields)]
+        samples = dict(bot.resample(life, 0, 1)[0])
+        self.assertEqual(samples[1], life[1])
+        self.assertEqual(samples[2], life[2])
+        self.assertEqual(bot.measure([life])['seated_pct'], 200 / 3)
+
+    def test_between_observations_keeps_preceding_state(self):
+        life = [self.sample(0), self.sample(.25 + 1e-6, seated=True, post=3), self.sample(.5)]
+        samples = dict(bot.resample(life, 0, 1)[0])
+        self.assertFalse(samples[1]['seated'])
+        self.assertEqual(samples[1]['post'], 0)
+        self.assertEqual(samples[1]['p'], (.5, 0.0, 0.0))
+
+    def test_unused_hold_has_no_effect_on_measurements(self):
+        life = [self.sample(i / 4) for i in range(121)]
+        with_hold = [dict(sample, hold=i % 2) for i, sample in enumerate(life)]
+        a, b = bot.measure([life]), bot.measure([with_hold])
+        self.assertEqual(a.keys(), b.keys())
+        for key in a:
+            with self.subTest(key=key):
+                self.assertTrue(a[key] == b[key] or math.isnan(a[key]) and math.isnan(b[key]))
+
+    def test_port_csv_still_accepts_exported_hold_column(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'samples.csv'
+            row = dict(human='0', unit='1', gen='0', t='0', x='1', y='2', z='3', team='0',
+                       veh='-1', target='-1', cp='0', steer='walk', slide='0', hold='1', beh='travel')
+            with path.open('w', newline='') as out:
+                writer = csv.DictWriter(out, fieldnames=list(row))
+                writer.writeheader()
+                writer.writerow(row)
+            sample = bot.load_port(path)[0][0]
+            self.assertNotIn('hold', sample)
+            self.assertEqual(sample['p'], (1.0, 2.0, 3.0))
+
+
+class PackTests(unittest.TestCase):
+    def test_shipping_inputs_invalidate_hash_and_fold_line_endings(self):
+        added = ('engine/crates/bake/src/effect_names.txt', 'engine/Cargo.toml', 'engine/Cargo.lock')
+        with tempfile.TemporaryDirectory() as temp, mock.patch.object(pack, 'ROOT', temp):
+            root = Path(temp)
+            contents = dict.fromkeys(added, b'line one\nline two\n')
+            contents.update({'engine/crates/bake/src/main.rs': b'fn main() {}\n',
+                             'engine/crates/manifest/src/lib.rs': b'// manifest\n',
+                             'engine/crates/mungefs/src/lib.rs': b'// munge\n',
+                             'scripts/rebake.sh': b'# rebake\n'})
+            for name, data in contents.items():
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(data)
+            original = pack.inputs_hash(pack.BAKE_INPUTS)
+            self.assertEqual(original, pack.inputs_hash(pack.BAKE_INPUTS))
+            for name in added:
+                with self.subTest(input=name):
+                    path = root / name
+                    path.write_bytes(contents[name] + b'changed\n')
+                    self.assertNotEqual(original, pack.inputs_hash(pack.BAKE_INPUTS))
+                    path.write_bytes(contents[name].replace(b'\n', b'\r\n'))
+                    self.assertEqual(original, pack.inputs_hash(pack.BAKE_INPUTS))
+                    path.write_bytes(contents[name])
+            # Recreate files in reverse order; discovery must not depend on creation order.
+            for name in contents:
+                (root / name).unlink()
+            for name, data in reversed(list(contents.items())):
+                (root / name).write_bytes(data)
+            self.assertEqual(original, pack.inputs_hash(pack.BAKE_INPUTS))
+
+
+class ScannerProjectionTests(unittest.TestCase):
+    def test_callgraph_synthetic_markers(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'fixture.c'
+            path.write_text('/* ==== 00001000 Start ==== */\nFUN_00002000();\n'
+                            'use(FUN_00003000);\nuse(0x3000);\n'
+                            '/* ==== 00002000 FUN_00002000 ==== */\nreturn;\n')
+            funcs, calls, takes, literals = callgraph.parse_decomp(path, {}, {})
+            self.assertEqual(funcs, {'00001000': 3, '00002000': 1})
+            self.assertEqual(dict(calls), {'00001000': {'00002000'}})
+            self.assertEqual(dict(takes), {'00001000': {'00003000'}})
+            self.assertEqual(dict(literals), {})
+            self.assertEqual(callgraph.bfs({'00001000'}, calls, takes),
+                             {'00001000', '00002000', '00003000'})
+
+    def test_scanner_preserves_table_order_and_duplicate_filter(self):
+        names = b'Alpha\0Beta\0Gamma\0Delta\0'
+        pointers = [0x3000, 0x3006, 0x300b, 0x3011]
+        data = b''.join(struct.pack('<II', ptr, fun) for ptr, fun in
+                        zip(pointers, [0x1000, 0x1004, 0x1000, 0x100c]))
+        sections = {'.text': dict(addr=0x1000, size=16),
+                    '.data': dict(addr=0x2000, size=len(data)),
+                    '.rodata': dict(addr=0x3000, size=len(names))}
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch('builtins.open', mock.mock_open(read_data=b'')), \
+                mock.patch.object(scan_tables, 'sections', return_value=sections), \
+                mock.patch.object(scan_tables, 'load', side_effect=[data, names]), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            scan_tables.main('synthetic')
+        self.assertEqual(out.getvalue(), '00001000 Alpha\n00001004 Beta\n0000100c Delta\n')
+        self.assertEqual(err.getvalue(), '# tables: 4 entries, 3 unique functions\n')
+
+
+if __name__ == '__main__':
+    unittest.main()

@@ -34,7 +34,8 @@ S2="$E/bf2/sound/DATA/_LVL_PS2"
 OUT="$ROOT/engine/assets_baked"
 
 # Classic-plus tier 2: the maintainer's PC SWBF2 install. Any texture the PC ships
-# LARGER than the PS2 one replaces it (bake::tier; the maintainer's chain is
+# LARGER than the PS2 one adds an optional tier; the PS2 base is preserved
+# (bake::tier; the maintainer's chain is
 # Harrisonfog HD > PC stock where larger > our upscale > PS2 original).
 # BF1 is unaffected — there is no PC copy of BF1. The install is gitignored
 # and optional: without it every bake is PS2-only, which is a real difference
@@ -223,11 +224,8 @@ if want classes; then
   "$BAKE" classes "$B2/SIDE/REP.LVL"        "$OUT/classes/bf2_rep.ron"
   "$BAKE" classes "$B2/SIDE/CIS.LVL"        "$OUT/classes/bf2_cis.ron"
   "$BAKE" classes "$B2/INGAME.LVL"          "$OUT/classes/bf2_ingame.ron"
-  # The OTHER four sides. Nothing loads these yet — `game::roster::class_files`
-  # picks a db by GAME only, so a BF1 map's clone-wars mission and a BF2 map's
-  # GCW mission both resolve against the wrong side today and fall back to the
-  # default class list (engine/artifacts/roster/README.md, "the four missing
-  # class RONs"). Baking them is the cheap half of that fix.
+  # Bake all four factions per source game: game::roster::class_files loads
+  # the sides in play, including clone-wars on BF1 maps and GCW on BF2 maps.
   "$BAKE" classes "$B1/SIDE/REP.LVL"        "$OUT/classes/bf1_rep.ron"
   "$BAKE" classes "$B1/SIDE/CIS.LVL"        "$OUT/classes/bf1_cis.ron"
   "$BAKE" classes "$B2/SIDE/ALL.LVL"        "$OUT/classes/bf2_all.ron"

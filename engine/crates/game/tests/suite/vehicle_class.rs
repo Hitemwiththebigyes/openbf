@@ -49,51 +49,52 @@ fn tat1_skiff_hover_numbers_and_seats() {
     }
     let c = HoverClass::from_db(&db, "tat_hover_skiff").expect("skiff is a hover");
     eprintln!("{c:#?}");
-    assert_eq!(c.set_altitude, 1.0);
-    assert_eq!(c.gravity_scale, 4.0);
+    let p = c.params();
+    assert_eq!(p.set_altitude, 1.0);
+    assert_eq!(p.gravity_scale, 4.0);
     assert_eq!(c.lift_spring, 10.0);
-    assert_eq!(c.forward_speed, 16.0);
-    assert_eq!(c.traction, 30.0);
-    assert_eq!(c.strafe_speed, 4.0);
+    assert_eq!(p.forward_speed, 16.0);
+    assert_eq!(p.traction, 30.0);
+    assert_eq!(p.strafe_speed, 4.0);
     // BODY's own rates, not TURRET1's TurnRate 1.3 / PitchRate 0.8.
-    assert_eq!((c.turn_rate, c.pitch_rate, c.turn_filter), (1.0, 1.5, 2.0));
+    assert_eq!((p.turn_rate, p.pitch_rate, p.turn_filter), (1.0, 1.5, 2.0));
     // "3//low": the comment is not part of the number.
     assert_eq!(
-        (c.bank_filter, c.level_spring, c.level_damp),
+        (p.bank_filter, p.level_spring, c.level_damp),
         (3.0, 7.0, 1.0)
     );
     // BODY's PitchLimits "-12 8" in degrees → radians.
     assert!(close(c.pitch_limits[0], (-12.0f32).to_radians()));
     assert!(close(c.pitch_limits[1], 8.0f32.to_radians()));
     // "30.0" fills the first of three; the rest keep the ctor's 0, 0.
-    assert_eq!(c.collision_scale, [30.0, 0.0, 0.0]);
-    assert_eq!(c.collision_threshold, [7.5, 2.5, 0.0]);
+    assert_eq!(p.collision_scale, [30.0, 0.0, 0.0]);
+    assert_eq!(p.collision_threshold, [7.5, 2.5, 0.0]);
     assert_eq!(
         (
-            c.velocity_spring,
-            c.velocity_damp,
-            c.omega_x_spring,
-            c.omega_z_spring
+            p.velocity_spring,
+            p.velocity_damp,
+            p.omega_x_spring,
+            p.omega_z_spring
         ),
         (5.0, 2.5, 4.0, 6.0)
     );
-    assert!(c.random_spring);
+    assert!(p.random_spring);
     // Three spring points; the rear one's X factor authored (2), the
     // others the lever-arm defaults.
-    assert_eq!(c.springs.len(), 3);
-    assert_eq!(c.springs[0].pos, [-1.8, -0.7, 1.7]);
-    assert_eq!(c.springs[0].radius, 2.0);
-    assert!(c.springs.iter().all(|p| p.length == 1.0));
+    assert_eq!(c.springs().len(), 3);
+    assert_eq!(c.springs()[0].pos.to_array(), [-1.8, -0.7, 1.7]);
+    assert_eq!(c.springs()[0].radius, 2.0);
+    assert!(c.springs().iter().all(|p| p.length == 1.0));
     assert_eq!(
-        (c.springs[0].omega_x_spring, c.springs[0].omega_z_spring),
+        (c.springs()[0].omega_x_spring, c.springs()[0].omega_z_spring),
         (-1.0, -1.0)
     );
     assert_eq!(
-        (c.springs[1].omega_x_spring, c.springs[1].omega_z_spring),
+        (c.springs()[1].omega_x_spring, c.springs()[1].omega_z_spring),
         (-1.0, 1.0)
     );
     assert_eq!(
-        (c.springs[2].omega_x_spring, c.springs[2].omega_z_spring),
+        (c.springs()[2].omega_x_spring, c.springs()[2].omega_z_spring),
         (2.0, 0.0)
     );
 
@@ -150,20 +151,23 @@ fn bf1_speederbike_hover_numbers_and_seat() {
         return;
     }
     let c = HoverClass::from_db(&db, "imp_hover_speederbike").expect("bike is a hover");
-    assert_eq!(c.strafe_speed, 0.0);
-    assert_eq!(c.forward_speed, 40.0);
-    assert!(close(c.set_altitude, 0.85));
-    assert_eq!(c.collision_scale, [1.0, -0.5, 0.0]);
-    assert_eq!(c.springs.len(), 3);
+    let p = c.params();
+    assert_eq!(p.strafe_speed, 0.0);
+    assert_eq!(p.forward_speed, 40.0);
+    assert!(close(p.set_altitude, 0.85));
+    assert_eq!(p.collision_scale, [1.0, -0.5, 0.0]);
+    assert_eq!(c.springs().len(), 3);
     assert_eq!(
-        c.springs[0].omega_x_spring, -2.0,
+        c.springs()[0].omega_x_spring,
+        -2.0,
         "authored after the first point"
     );
     assert_eq!(
-        c.springs[1].omega_x_spring, 1.0,
+        c.springs()[1].omega_x_spring,
+        1.0,
         "z = -1.0: the lever-arm default"
     );
-    assert!(close(c.springs[1].length, 0.7));
+    assert!(close(c.springs()[1].length, 0.7));
     // No section lines past BODY: one pilot seat, carrying the cannon.
     let ring = seats(&db, "imp_hover_speederbike");
     assert_eq!(ring.len(), 1);
@@ -177,7 +181,6 @@ fn bf1_speederbike_hover_numbers_and_seat() {
     assert_eq!(ring[0].weapons[0].ammo, 0);
     assert_eq!(ring[0].eye_point_offset, Some([0.0, 1.0, 0.0]));
     // BF1 authors no boost, energy or jump: its bike neither boosts nor jumps.
-    let p = c.params();
     assert_eq!((p.boost_speed, p.boost_acceleration), (0.0, 0.0));
     assert_eq!(p.jump.force, 0.0);
     // Not a hover: a soldier and an unknown class.
@@ -397,7 +400,7 @@ fn hover_hull_names_follow_the_class_parse() {
                 continue;
             };
             n += 1;
-            let springs: Vec<String> = (1..=c.springs.len())
+            let springs: Vec<String> = (1..=c.springs().len())
                 .map(|i| format!("springbody{i}"))
                 .collect();
             assert!(!springs.is_empty(), "{game} {name}: no spring");

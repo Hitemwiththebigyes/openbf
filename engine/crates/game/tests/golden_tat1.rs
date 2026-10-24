@@ -1,9 +1,9 @@
 //! Tier-2 visual golden: headless-render baked TAT1 at the shared GOLDEN_CAM
 //! pose and perceptual-diff against the committed golden PNG.
 //!
-//! Ignored by default — needs a GPU adapter AND locally baked assets:
+//! Ignored by default — needs a GPU adapter AND locally baked TAT1 + common_bf1:
 //!   cargo run -p bake -- map ../extracted/.../TAT/TAT1.LVL assets_baked/tat1
-//!   cargo test -p game --test golden_tat1 -- --ignored
+//!   cargo test -p game --test golden_tat1 -- --ignored --nocapture
 //! Regenerate the golden deliberately (visual change reviewed first):
 //!   cargo run -p game -- --map assets_baked/tat1 --headless \
 //!     --capture-frame goldens/tat1_overview.png
@@ -22,7 +22,13 @@ fn tat1_overview_matches_golden() {
         panic!("bake TAT1 first (see test header) — golden test can't skip silently");
     }
 
-    let scene = game::assets::load_scene(&baked).expect("scene");
+    // Share the binary's loader: conquest layer plus the source game's
+    // COMMON models (posts, droids and turrets).
+    let (scene, load) = game::assets::load_battle_scene(&baked, "con").expect("scene");
+    let (_, common) = load
+        .common
+        .expect("bake common_bf1 before comparing the golden");
+    common.expect("common_bf1 must load; a partial scene cannot certify the golden");
     let mut r = render::Renderer::new_headless(1280, 720).expect("headless renderer");
     let gpu = upload_scene(&mut r, &scene).expect("upload");
     r.render(&camera_from(GOLDEN_CAM), &gpu.draws, gpu.clear)

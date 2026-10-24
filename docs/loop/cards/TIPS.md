@@ -4,14 +4,14 @@ title: BF2's tooltip bar (the bottom hint line: 'This CP is now controlled by yo
 milestone: M3
 value: 3
 phase: re
-status: todo
+status: blocked
 deps:
 files:
 declares:
-needs:
+needs: Restore both corpora, BF2 ELF, tooltip table resolver and captured bar; verify triggers/timers before a build split.
 effort:
 branch:
-resume:
+resume: 2026-10-24 13:06 UTC: planner restoration hold, 6 exact named inputs absent. Restore both corpora, BF2 ELF, tooltip table resolver and captured bar; verify triggers/timers before a build split. Original measurable acceptance unchanged. reports/20261024_1306_planner.md; lead_tmp/planner_20261024_1303/preflight.json.
 created: 2026-09-30
 alpha: 
 ---

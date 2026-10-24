@@ -65,6 +65,7 @@ One line per decision; the full text, with every number, is VERBATIM in `analysi
 
 **Modes & rules** (FEATURE_SET.md L119+)
 - Conquest: BF2 rules + BF1 no-overspawn invariant: live units on a team may never exceed remaining reinforcements — when a player respawns into the last slots, excess AI despawn (e.g., 3 … [L120]
+- BF1 command-walker post exception approved by the maintainer 2026-10-22: live walkers count for bleed/countdown; verify lifecycle and Hoth generator details against the PS2 (B1WP; FEATURE_SET.md, Modes & rules).
 - CTF: KEEP both variants, REWORK later — the maintainer barely played it (childhood reason: the clone commander says "damn" when the flag drops — optional VO filter noted); [L125]
 - Hunt & Hero Assault: KEEP + rule-mixing per Architecture #6. [L128]
 - BF1 Historical Campaigns: DROP (it is essentially curated conquest battles in movie order with narration stills/VO between; [L129]
@@ -114,8 +115,8 @@ One line per decision; the full text, with every number, is VERBATIM in `analysi
 
 **Dropped outright (never RE these binary regions)** (FEATURE_SET.md L299+)
 
-## DESIGN SPECS — decided, not yet built
-Verbatim in `analysis/plan/SPECS_AND_DEFERRED.md` (also holds "Deferred design work", 8 items): infantry-AI PHASE C design (perception / skill vector / four tiers), PHASE D design (squad commands), P7 vehicle entity shape (fields, hash order, AI dispatch on `Unit.mount`), the alpha MASK classifier. Cards such as VENT cite these.
+## DESIGN SPECS — historical designs and deferred work
+Preserved in `analysis/plan/SPECS_AND_DEFERRED.md` (also holds "Deferred design work", 8 items). These are dated designs, not a blanket list of unbuilt requirements; use `engine/CRATES.md` and the owning cards for current implementation and acceptance status: infantry-AI PHASE C design (perception / skill vector / four tiers), PHASE D design (squad commands), P7 vehicle entity shape (fields, hash order, AI dispatch on `Unit.mount`), the alpha MASK classifier. Cards such as VENT cite these.
 
 ## Milestones (the maintainer, 2026-09-25 — replaces §Phases and §Per-phase acceptance; their text is in `analysis/PLAN_LOG_2026.md`)
 DONE: P0 audits, P1 bake, P2 viewer, P3 soldier, P4 combat, P5 vertical slice, P6 shell, P6.5 infantry AI A–D, P9's two

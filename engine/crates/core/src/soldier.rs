@@ -53,7 +53,7 @@ pub const CONTROL_SPEED: [[f32; 3]; 8] = [
     [0.03, 0.03, 0.5], // jump/air (x Acceleration: an acceleration, not a speed)
     [0.02, 0.02, 0.6], // roll
     [0.3, 0.3, 1.0],   // jet (unused v0)
-    [0.0, 0.0, 0.1],   // tumble (unused v0)
+    [0.0, 0.0, 0.1],   // tumble / get-up / dead
 ];
 
 /// Soldier tuning, ODF-loadable (BF2 EntitySoldierClass ctor defaults; the
@@ -1291,6 +1291,12 @@ impl Soldier {
             self.kept_flat as u8,
             self.fire_lock as u8,
         ]);
+        // These latches carry history that energy and lock duration do not.
+        let latches = u8::from(self.energy_depleted) | (u8::from(self.lock_hard) << 1);
+        if latches != 0 {
+            eat(b"SOLDIER_LATCH");
+            eat(&[latches]);
+        }
     }
 }
 

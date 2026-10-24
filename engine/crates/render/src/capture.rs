@@ -31,14 +31,11 @@ impl Renderer {
         let unpadded = 4 * w;
         let padded = padded_bytes_per_row(w);
 
-        let buffer = crate::made::buffer(
+        let buffer = crate::resources::buffer(
             &self.device,
-            &wgpu::BufferDescriptor {
-                label: Some("capture readback"),
-                size: u64::from(padded) * u64::from(h),
-                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-                mapped_at_creation: false,
-            },
+            "capture readback",
+            u64::from(padded) * u64::from(h),
+            wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         );
         let mut encoder = self
             .device
@@ -94,8 +91,9 @@ impl Renderer {
 
 /// Encode tight RGBA8 rows (as returned by [`Renderer::capture_rgba`]) to PNG bytes.
 pub fn encode_png(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, RenderError> {
-    let img: image::RgbaImage = image::ImageBuffer::from_raw(width, height, rgba.to_vec())
-        .ok_or_else(|| RenderError::Png("buffer length does not match dimensions".into()))?;
+    let img: image::ImageBuffer<image::Rgba<u8>, _> =
+        image::ImageBuffer::from_raw(width, height, rgba)
+            .ok_or_else(|| RenderError::Png("buffer length does not match dimensions".into()))?;
     let mut out = std::io::Cursor::new(Vec::new());
     img.write_to(&mut out, image::ImageFormat::Png)
         .map_err(|e| RenderError::Png(e.to_string()))?;
@@ -113,7 +111,7 @@ pub fn encode_png(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, Rende
 /// exist to be LOOKED at still drop it, a third of the bytes.
 pub fn encode_png_rgb(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, RenderError> {
     let mut rgb = Vec::with_capacity(rgba.len() / 4 * 3);
-    for px in rgba.chunks_exact(4) {
+    for px in rgba.as_chunks::<4>().0 {
         rgb.extend_from_slice(&px[..3]);
     }
     let img: image::RgbImage = image::ImageBuffer::from_raw(width, height, rgb)

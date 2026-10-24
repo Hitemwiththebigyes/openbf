@@ -75,6 +75,16 @@ fn missions_dir() -> &'static Path {
     Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../missions"))
 }
 
+fn mission_files() -> Vec<std::path::PathBuf> {
+    let mut files: Vec<_> = std::fs::read_dir(missions_dir())
+        .expect("missions dir")
+        .map(|e| e.expect("dir entry").path())
+        .filter(|p| p.extension().is_some_and(|e| e == "ron"))
+        .collect();
+    files.sort();
+    files
+}
+
 /// Every faction, for the tests that want one disc's WHOLE class db rather
 /// than the two sides a particular round fields.
 const FOUR: [&str; 4] = ["all", "imp", "rep", "cis"];
@@ -318,8 +328,8 @@ fn kam1_clone_wars_rosters_carry_slot_order_min_and_max() {
     assert_eq!(cis.classes[4].class, "cis_inf_officer");
 }
 
-/// The droideka is rejected by the BASE-chain test, not by a name list, and
-/// the heroes go the same way if a mission ever names one.
+/// The droideka is rejected by its BASE chain. BF1 heroes are soldier
+/// chains, but the default conquest class lists exclude them.
 #[test]
 fn non_soldier_chains_are_rejected() {
     let Some(dir) = classes_dir() else { return };
@@ -509,12 +519,7 @@ fn pair_returns_its_warnings_rather_than_printing_them() {
 #[test]
 fn every_mission_mix_resolves_against_its_maps_own_disc() {
     let Some(dir) = classes_dir() else { return };
-    let mut files: Vec<_> = std::fs::read_dir(missions_dir())
-        .expect("missions dir")
-        .map(|e| e.expect("dir entry").path())
-        .filter(|p| p.extension().is_some_and(|e| e == "ron"))
-        .collect();
-    files.sort();
+    let files = mission_files();
     assert!(files.len() >= 32, "expected a mission per baked map");
 
     let mut dbs: Vec<(String, game::classdb::ClassDb)> = Vec::new();
@@ -593,12 +598,7 @@ fn every_mission_class_model_is_in_its_maps_own_side_bake() {
     let native = |faction: &str| game::roster::faction_game(faction).expect("known faction");
     let has = |g: &str, geom: &str| baked.join(format!("side_{g}/soldiers/{geom}.glb")).exists();
 
-    let mut files: Vec<_> = std::fs::read_dir(missions_dir())
-        .expect("missions dir")
-        .map(|e| e.expect("dir entry").path())
-        .filter(|p| p.extension().is_some_and(|e| e == "ron"))
-        .collect();
-    files.sort();
+    let files = mission_files();
     let mut dbs: Vec<(String, game::classdb::ClassDb)> = Vec::new();
     let (mut slots, mut on_map, mut on_native) = (0usize, 0usize, 0usize);
     let mut missing: Vec<String> = Vec::new();
@@ -649,12 +649,7 @@ fn every_mission_class_model_is_in_its_maps_own_side_bake() {
 #[test]
 fn battle_classes_hold_their_own_weapon_model() {
     let Some(dir) = classes_dir() else { return };
-    let mut files: Vec<_> = std::fs::read_dir(missions_dir())
-        .expect("missions dir")
-        .map(|e| e.expect("dir entry").path())
-        .filter(|p| p.extension().is_some_and(|e| e == "ron"))
-        .collect();
-    files.sort();
+    let files = mission_files();
     // Per game: (classes, drawn with another gun now, with another gun under
     // the per-body cache).
     let mut tally = [("bf1", 0usize, 0usize, 0usize), ("bf2", 0, 0, 0)];
@@ -762,12 +757,7 @@ fn every_held_slots_hand_model_is_baked() {
         eprintln!("SKIP: the side bake predates card WHELD (run scripts/rebake.sh side)");
         return;
     }
-    let mut files: Vec<_> = std::fs::read_dir(missions_dir())
-        .expect("missions dir")
-        .map(|e| e.expect("dir entry").path())
-        .filter(|p| p.extension().is_some_and(|e| e == "ron"))
-        .collect();
-    files.sort();
+    let files = mission_files();
     let mut fielded: Vec<(String, String)> = Vec::new();
     let mut add = |game: &str, class: &str| {
         let k = (game.to_owned(), class.to_ascii_lowercase());
@@ -1077,7 +1067,10 @@ fn flash_looks_are_the_census_rows() {
     ] {
         assert_eq!(h(name), hash, "{name}");
     }
-    let Some(dir) = classes_dir() else { return };
+    let Some(dir) = classes_dir() else {
+        eprintln!("SKIP: flash census: 0 games tested, 2 skipped (side LVLs absent)");
+        return;
+    };
     let bf1 = game::roster::load_classdb(&dir, "bf1", &FOUR).expect("bf1 db");
     let bf2 = game::roster::load_classdb(&dir, "bf2", &FOUR).expect("bf2 db");
     let row = |l: &MuzzleFlashLook| (l.radius, l.length, l.color, l.model.clone());
@@ -1119,10 +1112,17 @@ fn flash_looks_are_the_census_rows() {
         env!("CARGO_MANIFEST_DIR"),
         "/../../artifacts/lead_tmp/fxmf"
     ));
+    let (mut tested, mut skipped) = (0, 0);
     for (game, db) in [("bf1", &bf1), ("bf2", &bf2)] {
-        let Ok(text) = std::fs::read_to_string(census.join(format!("census_{game}.txt"))) else {
-            eprintln!("no census_{game}.txt: the per-row sweep skipped");
-            continue;
+        let path = census.join(format!("census_{game}.txt"));
+        let text = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                eprintln!("SKIP: {} not present", path.display());
+                skipped += 1;
+                continue;
+            }
+            Err(e) => panic!("read {}: {e}", path.display()),
         };
         let (mut matched, mut draws) = (0, 0);
         for line in text.lines().filter(|l| !l.starts_with("--")) {
@@ -1158,7 +1158,9 @@ fn flash_looks_are_the_census_rows() {
         }
         eprintln!("{game}: {matched} census rows matched, {draws} draw a flash");
         assert!(matched > 20, "{game}: only {matched} census rows in the db");
+        tested += 1;
     }
+    eprintln!("flash census: {tested} games tested, {skipped} skipped");
 }
 
 /// Card FXP3 (`analysis/re-fx.md` §7's census): what each ordnance's hits
@@ -1412,7 +1414,7 @@ fn thrown_weapons_come_out_of_the_class_db_as_the_ps2_holds_them() {
 }
 
 /// Card GREN: what each fielded class holds besides its primary — the
-/// channel-0 sidearm and the channel-1 grenades — over every mission RON.
+/// channel-0 sidearm and the channel-1 grenades — for four default faction pairs.
 #[test]
 fn fielded_classes_hold_their_sidearm_and_grenades() {
     let Some(dir) = classes_dir() else { return };

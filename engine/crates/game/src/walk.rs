@@ -263,6 +263,23 @@ impl Cries {
 pub const LOW_HEALTH_THRESHOLD: f32 = 0.3;
 
 impl ClassVisual {
+    /// Base roster projection. Callers add the held HUD/model entries they use.
+    pub fn from_roster(c: &crate::roster::ClassRoster) -> Self {
+        Self {
+            name: c.class.clone(),
+            label: c.label.clone(),
+            geometry: c.geometry.clone(),
+            weapon_geometry: c.weapon_geometry.clone(),
+            weapon_hud: c.weapon_hud.clone(),
+            held_hud: Vec::new(),
+            held_models: Vec::new(),
+            foley_class: c.foley_class,
+            cries: c.cries.clone(),
+            anim: c.anim.clone(),
+            skins: c.skins.clone(),
+        }
+    }
+
     /// What the HUD shows for the weapon of class slot `slot`: a held
     /// slot's own entry, else the primary's.
     pub fn hud_of(&self, slot: u8) -> &WeaponHud {
@@ -304,6 +321,31 @@ pub struct TeamTemplate {
 }
 
 impl TeamTemplate {
+    /// Project roster metadata and its already-registered first class.
+    /// Registration order and the visuals included remain the caller's policy.
+    pub fn from_roster(
+        roster: &crate::roster::FactionRoster,
+        registered_fill: &core::unit::UnitClass,
+        classes: Vec<ClassVisual>,
+    ) -> Self {
+        let c = roster.fill_class();
+        Self {
+            faction: roster.faction.clone(),
+            name: c.class.clone(),
+            consts: c.consts,
+            max_health: c.max_health,
+            health_type: c.health_type,
+            weapon_class: registered_fill.weapon_class,
+            weapon_slot: registered_fill.weapon_slot,
+            slots: registered_fill.slots.clone(),
+            drops: registered_fill.drops,
+            spare_clips: c.spare_clips,
+            geometry: c.geometry.clone(),
+            weapon_geometry: c.weapon_geometry.clone(),
+            classes,
+        }
+    }
+
     /// Built-in BF1 trooper with the BF1 rifle (Sim weapon class 0).
     pub fn default_trooper() -> Self {
         Self {

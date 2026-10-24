@@ -4,14 +4,14 @@ title: Primaries that are not bolts fly straight in the port: missile (the torpe
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: blocked
 deps: HVYW
 files: engine/crates/core/src/weapon.rs, engine/crates/core/src/sim/ordnance.rs, engine/crates/core/src/sim/combat.rs, engine/crates/core/src/sim/guns.rs, engine/crates/game/src/roster.rs, engine/crates/core/src/ai/arsenal.rs, engine/CRATES.md
 declares: sim; sweep; arena
-needs:
+needs: restore UORD replay rows, census tools, baked maps/classes/vehicles, missions and approved validation device
 effort:
 branch:
-resume: RE done 2026-10-22: analysis/re-ordnance-kinds.md (docs d8bf282); the build spec + acceptance are in this card's 'RE result' section. Build slice 1: missile + shell per-tick flight (full-mask sweep, no predictive ray) with ExplosionExpire, the missile law both games, homing on a locked target, the launcher dwell lock (human + bot); start with replay tests on lead_tmp/uord/ps2/*.json.
+resume: Cloud preflight 2026-10-24 08:53 UTC: blocked before implementation; 26/29 prerequisite paths missing. Restore four uord/ps2 replay JSONs, audit-uord mutations, hvcen census and real bakes/missions; verify current main then loopctl start UORD. Preserve RE result/build acceptance and BF2 waver PROVISIONAL. Report engine/artifacts/loop/reports/20261024_0853_card_UORD.md; inventory lead_tmp/uord_20261024_0852/inventory.json.
 created: 2026-09-29
 alpha: yes
 ---

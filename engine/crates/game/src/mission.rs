@@ -14,10 +14,11 @@
 //! implemented (core::sim::SpawnWaves) but seeded from
 //! SpawnWaves::mission_default() (10 s / 0.25 s) rather than from here and the member pool beyond the
 //! alive cap (units initially spawned = min(units, ai_alive_cap)) — and, of
-//! the second block of fields below, `era`, `attacking_team` and `locals`
+//! the second block of fields below, `attacking_team` and `locals`
 //! (HANDOFF HOLD 16). `cps` and `death_regions` ARE applied
 //! (`layout::apply_mission`, `main/battle.rs`'s walk setup), `voice` is the
-//! commander's lines (`crate::announce`) and `source` is printed by the sweep.
+//! commander's lines (`crate::announce`), `era` selects the mission-specific
+//! minimap orientation, and `source` is printed by the sweep.
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
@@ -56,8 +57,8 @@ pub struct MissionDef {
     pub spawn_interval: f32,
 
     // --- Extracted 2026-09-01 from the mission Lua. `cps` and
-    // `death_regions` are applied (`layout::apply_mission`); `era`,
-    // `attacking_team` and `locals` are carried but not consumed (HANDOFF
+    // `death_regions` are applied (`layout::apply_mission`); `era` selects
+    // minimap orientation. `attacking_team` and `locals` are not consumed (HANDOFF
     // HOLD 16). All default so that any RON written before they existed still
     // parses.
     /// `"cw"` | `"gcw"` — which era's mission script this came from.

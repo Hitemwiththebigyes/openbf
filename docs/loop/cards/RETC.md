@@ -4,14 +4,14 @@ title: The BF2 reticle's colours and place against PS2 frames: BHUD2 draws it (w
 milestone: M3
 value: 3
 phase: measure
-status: todo
+status: blocked
 deps:
 files:
 declares:
-needs:
+needs: Restore BF2 HUD bake, map/mission, live reticle reader and PS2 states; measure enemy/friend/none RGB and remaining texture/size checks.
 effort:
 branch:
-resume:
+resume: 2026-10-24 11:57 UTC: planner prerequisite hold; 6/6 exact named paths absent. Restore BF2 HUD bake, map/mission, live reticle reader and PS2 states; measure enemy/friend/none RGB and remaining texture/size checks. All original acceptance retained. reports/20261024_1151_planner.md; inventory/continuation lead_tmp/planner_20261024_1151/.
 created: 2026-09-28
 alpha: yes
 ---

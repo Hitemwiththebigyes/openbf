@@ -235,8 +235,8 @@ impl Vehicle {
         eat(&[
             self.alive as u8,
             self.kind as u8,
-            self.team.map_or(u8::MAX, |t| t),
-            self.home_team.map_or(u8::MAX, |t| t),
+            self.team.unwrap_or(u8::MAX),
+            self.home_team.unwrap_or(u8::MAX),
             self.neutral_when_empty as u8,
             self.health.health_type as u8,
         ]);

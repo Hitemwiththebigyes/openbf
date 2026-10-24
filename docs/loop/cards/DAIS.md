@@ -4,14 +4,14 @@ title: BF2 Kamino hub 46, after SKIRT: bots on the pod's dais walk at points thr
 milestone: M3
 value: 4
 phase: measure
-status: todo
+status: blocked
 deps: SKIRT
 files:
 declares: sim; sweep; arena
-needs:
+needs: (private workflow note omitted)
 effort: high
 branch:
-resume:
+resume: Restore local assets/missions and lead_tmp/skirt + mouth evidence (dais_ps2.py, site.py, scene.sh, PS2 CSVs, snapshots); verify current SKIRT source/base; clear needs and set todo phase measure only after input checks. Reproduce PS2 visits, measure fresh main visits/exits over seeds 60-67 x 3 min, then trace one present-main dais wall slide tick by tick before any remedy. See reports/20261024_0736_card_DAIS.md.
 created: 2026-10-12
 alpha: yes
 ---

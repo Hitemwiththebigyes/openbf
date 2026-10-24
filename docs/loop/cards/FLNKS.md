@@ -4,14 +4,14 @@ title: Flank share per attack: the board gives the Flank role to about 0.6 of th
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: blocked
 deps:
 files: engine/crates/core/src/ai/team.rs, engine/crates/core/src/ai/team/tests.rs, engine/crates/core/src/ai/route.rs, engine/crates/core/src/sim/state.rs
 declares: sim; sweep; arena
-needs:
+needs: (private workflow note omitted)
 effort:
 branch:
-resume:
+resume: 2026-10-24 07:45 UTC cloud preflight blocked before implementation. Restore engine/assets_baked maps/common/classes/vehicles, engine/missions and lead_tmp/audit-flnk tools/obs_patch.py, epi.py, mk_mut.py, mut_run_nolock.sh, raw sw/obs_b1/obs_b2 and wf/MJ1-3. Verify prerequisites before clearing needs/set todo. Reproduce current-main share/B11/recycle/stall baseline; start isolated FLNKS build, null-prove instrumentation, implement per-attack share and complete role-end accounting/Cover exclusion, mutation-check all listed rules. Require 32-map x 8-seed share within 2 points pooled and 5 on 28 maps, B11 <=15.96 percent, main-plus-noise flank stalls/recycles, Normal and Hard 256/256 and full landing gates. See reports/20261024_0745_card_FLNKS.md.
 created: 2026-10-20
 alpha: yes
 acceptance: 

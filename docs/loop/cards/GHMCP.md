@@ -4,14 +4,14 @@ title: Evaluate headless pyghidra-mcp (clearbluejar/pyghidra-mcp) on our ghidra-
 milestone: M0
 value: 3
 phase: re
-status: todo
+status: blocked
 deps:
 files:
 declares:
-needs:
+needs: Restore original Ghidra databases/toolchain, both ELFs and a retained state; copy/hash originals before the bounded six-part evaluation.
 effort:
 branch:
-resume:
+resume: 2026-10-24 13:06 UTC: planner restoration hold, 7 exact named inputs absent. Restore original Ghidra databases/toolchain, both ELFs and a retained state; copy/hash originals before the bounded six-part evaluation. Original measurable acceptance unchanged. reports/20261024_1306_planner.md; lead_tmp/planner_20261024_1303/preflight.json.
 created: 2026-10-08
 ---
 

@@ -14,7 +14,7 @@ branch:
 resume:
 created: 2026-10-03
 alpha: yes
-first: 8
+first: 13
 ---
 ## Why
 UAUD1 / UAUD2: `cis_inf_droideka` is in AddUnitClass on all 13 BF1 and 16 BF2 Clone Wars missions and alive in every CW save state; `ClassRoster::build` rejects it (BASE chain ends at walkerdroid). With DEKU / DEKS / DEKD landed this card puts it into the battle.

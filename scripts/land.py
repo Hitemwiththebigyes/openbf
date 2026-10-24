@@ -147,7 +147,6 @@ def moved_list(quant):
 # ---------- the state file: written after every step, so a dead landing resumes where it stopped (card LDET) ----------
 LAND_TMP = os.path.join(ROOT, "engine/artifacts/lead_tmp")
 STEPS1 = ["rebase", "gates_branch", "merge", "rebake", "gates_main"]
-STEPS2 = ["goldens", "toml", "gpu_after", "cleanup", "landed"]
 
 
 def paths(c):
@@ -173,15 +172,8 @@ def save(st):
 def take_main(pid, st):
     """Claim MAIN; a resume may also take it over from the claim this landing made itself (the lane pid that holds it
     is alive while the session that ran phase 1 is gone)."""
-    if loopctl.claim("MAIN", pid):
-        return True
-    h = loopctl.holder(os.path.join(loopctl.LOCKS, "MAIN"))
-    if h == str(pid):  # the lane already holds it (phase 1 keeps MAIN until phase 2 releases it)
-        return True
-    if st and st.get("main_holder") and h == str(st["main_holder"]):
-        open(os.path.join(loopctl.LOCKS, "MAIN", "pid"), "w").write(str(pid))
-        return True
-    return False
+    holders = (str(pid),) + ((str(st["main_holder"]),) if st and st.get("main_holder") else ())
+    return loopctl.claim("MAIN", pid, holders=holders)
 
 
 def running(st):
@@ -226,6 +218,62 @@ def journal(line):
     open(os.path.join(loopctl.LOOP, "JOURNAL.md"), "a").write(line.rstrip() + "\n")
 
 
+def phase2_problems(c, st, reject):
+    """Recheck phase 1 evidence before any phase 2 mutation, including on resume.
+
+    A group can emit several rows (and an enabled sweep also measures fidelity).
+    Main either ran its own smaller plan or reused the complete branch plan.
+    Rejected images may resolve golden movement, never a failed gate.
+    """
+    groups = st.get("groups")
+    if not isinstance(groups, list) or not {"ci", "gpu", "map"} <= set(groups) or any(g not in gates_mod.ALL for g in groups):
+        return ["missing phase 1 group plan"]
+    if any(step not in st.get("done", []) for step in STEPS1):
+        return ["missing phase 1 completed steps"]
+    dec = parse_declares(c.get("declares"))
+    moved = st.get("moved_goldens")
+    if not isinstance(moved, list):
+        return ["missing phase 1 golden inventory"]
+    # Include current paths as well as saved ones: a changed receipt must not conceal a new move.
+    current = [l[3:].strip() for l in git("status", "--porcelain", "--", "engine/goldens").splitlines() if l.strip()]
+    accepted = sorted((set(moved) | set(current)) - reject)
+    required_main = ["ci", "gpu"] + [g for g in ("sim", "sweep", "arena", "leak") if g in groups]
+    if dec["rebake"]:
+        required_main.append("bake")
+    main_groups = st.get("main_groups", required_main)
+    if not isinstance(main_groups, list) or not set(required_main) <= set(main_groups) or any(g not in gates_mod.ALL for g in main_groups):
+        return ["missing/malformed main gate plan"]
+    with open(GATES_TOML, "rb") as f:
+        cfg = tomllib.load(f).get("fidelity")
+    family = {"map": ["map", "protect"], "sim": ["sim", "simhash"],
+              "arena": ["arena_flat", "arena_tat2"], "leak": ["ordnance", "leak"]}
+    if cfg and cfg.get("enabled", True):
+        family["sweep"] = ["sweep", "fidelity"]
+    bad = []
+    if set(current) - set(moved):
+        bad.append("current golden moves missing from phase 1 inventory")
+    for name, plan in (("branch", groups), ("main", main_groups)):
+        rows = st.get("rows_" + name)
+        if not isinstance(rows, list) or not rows or any(not isinstance(r, dict) or
+                not {"gate", "verdict", "value"} <= r.keys() for r in rows):
+            bad.append(f"missing/malformed phase 1 {name} results")
+            continue
+        expected = {r for g in plan for r in family.get(g, [g])}
+        missing = expected - {r["gate"] for r in rows}
+        if missing:
+            bad.append(f"missing phase 1 {name} rows: {', '.join(sorted(missing))}")
+        bad += [f"{name}: {r['gate']} has unknown verdict {r['verdict']}" for r in rows
+                if r["verdict"] not in ("PASS", "MOVED", "FAIL", gates_mod.ADAPTER_LOST)]
+        bad += [f"{name}: {p}" for p in undeclared(rows, dec, accepted)]
+        if name == "main":
+            bad += [f"bake on main not reproducible: {r['value']}" for r in rows if r["gate"] == "bake" and r["verdict"] != "PASS"]
+            if not moved and any(r["gate"] == "gpu" and r["verdict"] == "MOVED" for r in rows):
+                bad.append("missing phase 1 moved golden paths")
+    # Check paths even if a stale saved gpu row incorrectly says PASS.
+    bad += undeclared([dict(gate="gpu", verdict="MOVED", value="golden inventory")], dec, accepted)
+    return bad
+
+
 def phase1(c, pid, dry=False, resume=False):
     br, wt, target, out = paths(c)
     os.makedirs(out, exist_ok=True)
@@ -268,7 +316,7 @@ def phase1(c, pid, dry=False, resume=False):
     def stop(msg, code, step=None):
         st.update(running=False, **({"step": step} if step else {}))
         save(st)
-        loopctl.release("MAIN")
+        loopctl.release("MAIN", pid)
         print(msg)
         sys.exit(code)
 
@@ -364,7 +412,7 @@ def phase1(c, pid, dry=False, resume=False):
         moved_m = moved_list(os.path.join(out, "main", "goldens", "QUANT.md"))
         bad = undeclared([r for r in rows_m if r["gate"] != "bake"], dec, moved_m)
         bad += [f"bake on main not reproducible: {r['value']}" for r in rows_m if r["gate"] == "bake" and r["verdict"] != "PASS"]
-        finish("gates_main", rows_main=rows_m, moved_goldens=moved_m, problems=bad)
+        finish("gates_main", rows_main=rows_m, main_groups=order if reuse else main_groups, moved_goldens=moved_m, problems=bad)
     st.update(step="done", running=False, time=datetime.datetime.now().isoformat(timespec="seconds"))
     save(st)
     before, after, bad, moved_m = st["before"], st["after"], st["problems"], st["moved_goldens"]
@@ -392,11 +440,15 @@ def phase2(c, reject, pid, resume=False):
             sys.exit(f"{c['id']}: a phase 2 started ({st['step']}) — `--resume` it")
         reject = st["reject"]
         print(f"{c['id']}: resuming phase 2 — finished: {' '.join(st['done2']) or 'nothing'}", flush=True)
-    else:
-        st.update(phase=2, step=None, done2=[], reject=reject)
-        st.pop("legacy", None)  # from here on it is a state this land.py writes
     if not take_main(pid, st):
         sys.exit("MAIN is held by a live session — commit later")
+    rej = {r if r.startswith("engine/goldens/") else "engine/goldens/" + r for r in reject}
+    bad = phase2_problems(c, st, rej)
+    if bad:
+        sys.exit("NOT LANDABLE — unresolved phase 1 results:\n  " + "\n  ".join(bad))
+    if st.get("phase") != 2:
+        st.update(phase=2, step=None, done2=[], reject=reject)
+        st.pop("legacy", None)  # from here on it is a state this land.py writes
     st.update(pid=os.getpid(), running=True, main_holder=str(pid))
     st.pop("refused", None)
     done, was = st["done2"], st.get("step")
@@ -420,7 +472,6 @@ def phase2(c, reject, pid, resume=False):
             st.update(running=False); save(st)
             sys.exit("main moved since phase 1 — re-run phase 1")
     # goldens: commit the accepted moves, restore the rejected ones
-    rej = {r if r.startswith("engine/goldens/") else "engine/goldens/" + r for r in reject}
     keep = [m for m in st["moved_goldens"] if m not in rej]
     if "goldens" not in done:
         begin("goldens")
@@ -473,7 +524,7 @@ def phase2(c, reject, pid, resume=False):
         f"Goldens committed: {', '.join(keep) or 'none'}; rejected: {', '.join(sorted(rej)) or 'none'}; re-baselined: {', '.join(moved) or 'nothing'}\n")
     journal(f"- LANDED {c['id']} as {st['after'][:8]} (+{', '.join(commits) or 'no golden commit'}): gates {out}/GATES_FOR_REPORT.md; "
             f"goldens {len(keep)}; re-baselined {', '.join(moved) or 'nothing'}; target {'removed' if st.get('target_freed') else 'kept (absent or busy)'}")
-    loopctl.release("MAIN"); loopctl.release(c["id"])
+    loopctl.release("MAIN", pid); loopctl.release(c["id"])
     done.append("landed")
     st.update(running=False, closed="landed", time=datetime.datetime.now().isoformat(timespec="seconds"))
     save(st)
@@ -592,7 +643,7 @@ def abort(c, pid):
     save(st)
     mh = loopctl.holder(os.path.join(loopctl.LOCKS, "MAIN"))
     if mh in (str(pid), str(st.get("main_holder")), str(os.getpid())) or not loopctl.held(mh):  # never another lane's MAIN
-        loopctl.release("MAIN")
+        loopctl.release("MAIN", mh)
     print(f"aborted: {what} (history kept); card blocked")
 
 
@@ -722,8 +773,8 @@ def resume_self_test():
                   rebake=lambda gr, log: calls.append("rebake") or 0, gates=fake_gates,
                   ff_merge=lambda br: (fake_git("merge", "--ff-only"), (0, ""))[1],
                   auto_groups=lambda wt, base: (["ci", "gpu", "map"], []))
-        loopctl.claim = lambda n, p: True
-        loopctl.release = lambda n: None
+        loopctl.claim = lambda n, p, **kw: True
+        loopctl.release = lambda n, p=None: None
         loopctl.holder = lambda d: "0"
         loopctl.seed_target = lambda p: None
         with tempfile.TemporaryDirectory() as tmp:
@@ -806,7 +857,7 @@ def resume_self_test():
             ok = code == 6 and "MAIN is held" in line
             bad += not ok
             print(f"{'ok  ' if ok else 'FAIL'} a refusal reaches --status: {line}")
-            loopctl.claim, loopctl.holder = (lambda n, p: False), (lambda d: "6991")
+            loopctl.claim = lambda n, p, holders=(): "6991" in holders
             ok = take_main(6991, {}) and not take_main(4242, {})
             bad += not ok
             print(f"{'ok  ' if ok else 'FAIL'} MAIN held by the asking lane pid is taken; held by another live pid is refused")

@@ -6,12 +6,12 @@ value: 2
 phase: cleanup
 status: todo
 deps:
-files: engine/crates/core/src/sim/step.rs, engine/crates/core/src/sim/spawn.rs
+files: engine/crates/core/src/sim/spawn.rs
 declares:
 needs:
 effort:
 branch:
-resume:
+resume: 2026-10-24 14:22 UTC: Current source: step.rs 1011 with external step/tests.rs 1231 already extracted on main. Active split is spawn.rs 2947 only. Do not re-extract step tests. Preserve strict/map/current counts and unchanged sim/test acceptance; complete runtime gates after restore. reports/20261024_1422_planner.md; lead_tmp/planner_20261024_1417/next_prompt.md.
 created: 2026-10-09
 ---
 ## Why

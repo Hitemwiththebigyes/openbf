@@ -283,8 +283,6 @@ check("bake_verdict: nothing declared, a DIFF -> MOVED", gates.bake_verdict(CMP,
 check("bake_verdict: a bake that wrote nothing -> FAIL",
       gates.bake_verdict("SAME=0 DIFF=0 ONLY_IN_A=0 ONLY_IN_B=22690\n", MAPS, False, 22690)[0] == "FAIL")
 
-import land  # noqa: E402
-
 
 def bake_gate(branch, path, declares, cmp_txt):
     """g_bake on a throwaway branch that changes `path`, with the build / scratch bake / cmp faked: (the scratch_bake
@@ -470,7 +468,8 @@ check("adapter_check: OPENBF_GOLDEN_ADAPTER overrides the name", not gates.adapt
 os.environ["OPENBF_GOLDEN_ADAPTER"] = "rpl-s"
 check("adapter_check: the match is case-insensitive", gates.adapter_check(DEVS)[0])
 os.environ.pop("OPENBF_GOLDEN_ADAPTER", None)
-check("adapter_check: vulkaninfo cannot tell -> not checked (present)", gates.adapter_check([])[0] or True)
+check("adapter_check: known empty device list -> ADAPTER LOST",
+      not gates.adapter_check([])[0] and gates.adapter_check([])[1].startswith("ADAPTER LOST"))
 real_vd = gates.vulkan_devices
 gates.vulkan_devices = lambda: None
 check("adapter_check: vulkan_devices None -> present, 'not checked'",
@@ -519,6 +518,8 @@ dec = land.parse_declares("goldens=any")
 bad_ = land.undeclared([{"gate": "gpu", "verdict": "ADAPTER LOST", "value": "ADAPTER LOST: no Vulkan device"}], dec, [])
 check("land.undeclared: an ADAPTER LOST row reads as such (not a move, even with goldens=any)",
       bad_ == ["gpu ADAPTER LOST: no Vulkan device"], f"{bad_}")
+
+check("RE arithmetic fixture referee", subprocess.run(["bash", os.path.join(HERE, "re_calc_selftest.sh")]).returncode == 0)
 
 print("gates_selftest:", "PASS" if not bad else f"{bad} FAILED")
 sys.exit(1 if bad else 0)

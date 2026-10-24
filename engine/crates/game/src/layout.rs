@@ -28,9 +28,9 @@ pub const PROP_AI_SPAWN_WEIGHT: u32 = 0xE072_82C2;
 
 /// Per-faction attack / defend post values, in FACTION ORDER `[Alliance,
 /// Empire, Republic, CIS, Locals]`. These ten are RAW PROP HASHES read off the
-/// disc (analysis/re-cp-capture.md §176-177), NOT `fnv1a_lowercase` of the key
-/// names — a naive lookup by name finds nothing, which is why the values sat
-/// unread in the bake until Phase B.
+/// disc (analysis/re-cp-capture.md §176-177), retained as provenance. They
+/// equal `classdb::fnv1a_lowercase` of the key names: the game hashes each
+/// byte ORed with 0x20, which differs from ordinary ASCII lowercasing.
 pub const PROP_VALUE_ATK: [u32; 5] = [
     0xA340_D6B5,
     0x4DB4_4670,

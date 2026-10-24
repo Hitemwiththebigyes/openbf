@@ -4,14 +4,14 @@ title: Hover contact sidedness: at TAT1 cp4 yaw 0 the skiff wedges under the com
 milestone: M2
 value: 3
 phase: re
-status: todo
+status: blocked
 deps: HOVR,GSKIP
 files: engine/crates/core/src/collision/walls.rs,engine/crates/core/src/vehicle/hover.rs
 declares:
-needs:
+needs: Restore TAT1 skiff bake/mission and both primary corpora/ELFs; reproduce current-main contact and independently verify sidedness before building or declaring faithful.
 effort:
 branch:
-resume:
+resume: 2026-10-24 11:57 UTC: planner prerequisite hold; 8/8 exact named paths absent. Restore TAT1 skiff bake/mission and both primary corpora/ELFs; reproduce current-main contact and independently verify sidedness before building or declaring faithful. All original acceptance retained. reports/20261024_1151_planner.md; inventory/continuation lead_tmp/planner_20261024_1151/.
 created: 2026-09-28
 alpha: yes
 ---

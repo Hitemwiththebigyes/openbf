@@ -276,7 +276,7 @@ fn no_wave_ever_exceeds_the_bound() {
     let b = o.bound();
     let mut worst = 0.0f32;
     for i in 0..400 {
-        let t = i as f32 * 0.731;
+        let t = i as f64 * 0.731;
         worst = o.heights(t).iter().fold(worst, |w, v| w.max(v.abs()));
     }
     assert!(
@@ -329,7 +329,7 @@ fn kam1s_sea_is_metres_not_centimetres() {
     let o = kam1();
     let (mut rms, mut range) = (Vec::new(), Vec::new());
     for i in 0..200 {
-        let t = i as f32 * 1.37;
+        let t = i as f64 * 1.37;
         let h = o.heights(t);
         let lo = h.iter().copied().fold(f32::MAX, f32::min);
         let hi = h.iter().copied().fold(f32::MIN, f32::max);
@@ -457,7 +457,7 @@ fn the_foam_wraps_like_the_patch() {
     let n = o.n();
     let mut f = Foam::new(n);
     for s in 0..300 {
-        f.step(&o.heights(s as f32 / FOAM_RATE));
+        f.step(&o.heights(s as f64 / f64::from(FOAM_RATE)));
         let b = f.bytes();
         for i in 0..=n {
             assert_eq!(
@@ -527,7 +527,7 @@ fn the_foam_is_the_same_at_any_frame_rate() {
     let run = |hz: u32| {
         let mut f = Foam::new(o.n());
         let steps: u32 = (0..=2 * hz)
-            .map(|i| f.advance(&o, i as f32 / hz as f32))
+            .map(|i| f.advance(&o, i as f64 / hz as f64))
             .sum();
         (f, steps)
     };
@@ -545,9 +545,9 @@ fn the_foam_is_the_same_at_any_frame_rate() {
     assert_eq!(f.advance(&o, 1.0), 0, "the same t again");
     assert_eq!(f.advance(&o, 1.5), 15, "half a second");
     assert_eq!(f.advance(&o, 1.0), FOAM_WARMUP, "backwards restarts");
-    assert_eq!(f.advance(&o, f32::NAN), 0);
-    assert_eq!(f.advance(&o, f32::INFINITY), 0);
-    let past = 2.0 + FOAM_WARMUP as f32 / FOAM_RATE;
+    assert_eq!(f.advance(&o, f64::NAN), 0);
+    assert_eq!(f.advance(&o, f64::INFINITY), 0);
+    let past = 2.0 + FOAM_WARMUP as f64 / f64::from(FOAM_RATE);
     assert_eq!(
         f.advance(&o, past),
         FOAM_WARMUP,
@@ -562,7 +562,7 @@ fn the_foam_is_the_same_at_any_frame_rate() {
 #[test]
 fn the_warmup_forgets_its_zero_start() {
     let o = kam1();
-    let heights = |s: i64| o.heights(s as f32 / FOAM_RATE);
+    let heights = |s: i64| o.heights(s as f64 / f64::from(FOAM_RATE));
     let mut long = Foam::new(o.n());
     for s in -800..=900i64 {
         long.step(&heights(s));
@@ -589,7 +589,7 @@ fn the_crest_test_fires_on_about_an_eighth_of_kam1s_points() {
     let (mut fired, mut covered) = (Vec::new(), Vec::new());
     for s in -200..600i64 {
         let before = f.clone();
-        f.step(&o.heights(s as f32 / FOAM_RATE));
+        f.step(&o.heights(s as f64 / f64::from(FOAM_RATE)));
         if s >= 0 {
             // A byte that rose fired, and so did one that held at 255.
             let up = (f.bytes().iter().zip(before.bytes()))
@@ -616,4 +616,56 @@ fn the_crest_test_fires_on_about_an_eighth_of_kam1s_points() {
         (0.1..0.6).contains(&cover),
         "the foam covers {cover} of the sea"
     );
+}
+
+#[test]
+fn every_ocean_cell_routes_foam_to_its_own_mesh() {
+    use glam::Mat4;
+    use render::{DrawCmd, MeshHandle};
+    let base = DrawCmd::flat(MeshHandle::default(), [0.2, 0.4, 0.6, 1.0], Mat4::IDENTITY)
+        .with_cull(Some(640.0));
+    let foam = DrawCmd {
+        color: [1.0, 1.0, 1.0, 0.5],
+        ..base
+    };
+    let cells = [[-160.0, 0.0], [0.0, 160.0]];
+    let draws = game::water_anim::cell_draws(
+        cells,
+        -8.0,
+        &[base, foam],
+        &[false, true],
+        ["base", "foam"],
+        |mesh, draw| (mesh, draw),
+    );
+    assert_eq!(draws.len(), 4);
+    for (cell, pair) in cells.iter().zip(draws.as_chunks::<2>().0) {
+        assert_eq!((pair[0].0, pair[1].0), ("base", "foam"));
+        for ((_, draw), template) in pair.iter().zip([base, foam]) {
+            assert_eq!(
+                draw.model,
+                Mat4::from_translation(Vec3::new(cell[0], -8.0, cell[1]))
+            );
+            assert_eq!(draw.color, template.color);
+            assert_eq!(draw.cull, None);
+        }
+    }
+}
+
+#[test]
+fn ocean_and_foam_continue_across_the_material_clock_wrap() {
+    let o = kam1();
+    let wrap = f64::from(render::TIME_WRAP);
+    for t in [wrap, 2.0 * wrap, 1_000_000.0, 100_000_000.0] {
+        let before = o.heights(t - 1.0 / 30.0);
+        let after = o.heights(t);
+        let delta = before
+            .iter()
+            .zip(&after)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0, f32::max);
+        assert!(delta > 0.0 && delta < 1.0, "wave step at {t}: {delta} m");
+        let mut foam = Foam::new(o.n());
+        foam.advance(&o, t - 0.02);
+        assert_eq!(foam.advance(&o, t + 0.02), 1, "foam restarted at {t}");
+    }
 }

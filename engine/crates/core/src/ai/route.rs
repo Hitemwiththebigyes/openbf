@@ -300,21 +300,9 @@ pub(crate) fn level_hub(sim: &Sim, g: &NavGraph, h: u16, pos: Vec3) -> u16 {
     if (f - pos.y).abs() <= LEVEL_HUB_NEAR || sim.floor_reaches_hub(pos, h, LEVEL_HUB_REACH) {
         return untrapped(sim, g, h, pos);
     }
-    let p = Vec2::new(pos.x, pos.z);
-    let mut near = [(f32::INFINITY, u16::MAX); LEVEL_HUB_TRIES];
-    for (i, hub) in g.hubs.iter().enumerate() {
-        let Some(f) = sim.nav_floor(i as u16).filter(|_| i as u16 != h) else {
-            continue;
-        };
-        let d = ((Vec2::new(hub.pos.x, hub.pos.z) - p).length() - hub.radius).max(0.0)
-            + crate::sim::LEVEL_RISE * (f - pos.y).abs();
-        let mut cand = (d, i as u16);
-        for slot in near.iter_mut() {
-            if cand.0 < slot.0 {
-                std::mem::swap(slot, &mut cand);
-            }
-        }
-    }
+    let near = sim.nearest_floor_hubs::<LEVEL_HUB_TRIES>(g, pos, |i| {
+        sim.nav_floor(i as u16).filter(|_| i as u16 != h)
+    });
     let h = near
         .iter()
         .filter(|c| c.1 != u16::MAX)
@@ -338,23 +326,10 @@ fn untrapped(sim: &Sim, g: &NavGraph, h: u16, pos: Vec3) -> u16 {
     if inside || !sim.hub_trapped(h) {
         return h;
     }
-    let mut near = [(f32::INFINITY, u16::MAX); LEVEL_HUB_TRIES];
-    for (i, hub) in g.hubs.iter().enumerate() {
-        let Some(f) = sim
-            .nav_floor(i as u16)
+    let near = sim.nearest_floor_hubs::<LEVEL_HUB_TRIES>(g, pos, |i| {
+        sim.nav_floor(i as u16)
             .filter(|_| !sim.hub_trapped(i as u16))
-        else {
-            continue;
-        };
-        let d = ((hub.xz() - p).length() - hub.radius).max(0.0)
-            + crate::sim::LEVEL_RISE * (f - pos.y).abs();
-        let mut cand = (d, i as u16);
-        for slot in near.iter_mut() {
-            if cand.0 < slot.0 {
-                std::mem::swap(slot, &mut cand);
-            }
-        }
-    }
+    });
     near.iter()
         .filter(|c| c.1 != u16::MAX)
         .find(|c| sim.floor_reaches_hub(pos, c.1, LEVEL_HUB_REACH))
@@ -822,13 +797,8 @@ pub(super) fn approach_leg(sim: &Sim, g: &NavGraph, cur: u16, dest: u16, pos: Ve
         waypoint,
         ref_dist: nav::xz_dist(pos, waypoint),
         from: Vec2::new(pos.x, pos.z),
-        stuck_ticks: 0,
-        stuck_run: 0,
-        sidestep: 0,
         source: RouteSource::Table,
-        detour: [Vec2::ZERO; DETOUR_MAX],
-        detour_len: 0,
-        detour_at: 0,
+        ..Route::default()
     }
 }
 
@@ -855,13 +825,8 @@ pub(crate) fn plan_leg(
         waypoint: goal_pos(sim, g, st, dest, pos.y),
         ref_dist: 0.0,
         from: Vec2::new(pos.x, pos.z),
-        stuck_ticks: 0,
-        stuck_run: 0,
-        sidestep: 0,
         source,
-        detour: [Vec2::ZERO; DETOUR_MAX],
-        detour_len: 0,
-        detour_at: 0,
+        ..Route::default()
     };
     if cur == dest {
         let mut r = last(RouteSource::Table);
@@ -975,13 +940,8 @@ pub(crate) fn plan_leg(
         // first ([`leg_point`]). A leg planned on arrival starts at the
         // waypoint just reached ([`advance_route`]).
         from: g.hub(cur).map_or(Vec2::new(pos.x, pos.z), |h| h.xz()),
-        stuck_ticks: 0,
-        stuck_run: 0,
-        sidestep: 0,
         source,
-        detour: [Vec2::ZERO; DETOUR_MAX],
-        detour_len: 0,
-        detour_at: 0,
+        ..Route::default()
     };
     fill_detour(g, m.ty, pos, &mut r, nt);
     r.ref_dist = nav::xz_dist(pos, sub_point(&r, pos));
@@ -998,8 +958,8 @@ pub(crate) fn plan_leg(
 ///   storey changed) leaves the ASSIGNMENT alone and drops only the route:
 ///   the commander sees the same unreachability next period and re-assigns.
 ///   [`NavTick::unroutable`] counts it.
-/// - `Defend(cp)`: the same route, and once the unit is inside the post's
-///   capture volume the last leg's waypoint becomes the unit's own spot
+/// - `Defend(cp)`: the same route, with the unit's own spot selected from
+///   assignment time as the last leg's waypoint
 ///   ([`crate::commander::TeamPlan::spot`], card DEFS) — an authored
 ///   Cover/Snipe hint within 25 m of the post no other defender has, else a
 ///   point of its region as an attacker's. D13: a hint's
@@ -1060,8 +1020,8 @@ pub(super) fn retarget(
 }
 
 /// Route to command post `cp` because the commander said so. `defend` swaps
-/// the last leg's aim point for the defence spot once the unit is inside the
-/// capture volume. Answers whether the unit has such a spot.
+/// the last leg's aim point for the defence spot from objective assignment.
+/// Intermediate arc legs are kept. Answers whether the unit has such a spot.
 fn retarget_to_post(
     sim: &Sim,
     me: UnitHandle,
@@ -1109,7 +1069,7 @@ fn retarget_to_post(
     // think would also re-roll the chooser every ten ticks) — unless the
     // defence spot has to be written into it.
     // A driver's destination is its vehicle's ([`post_hub`], card WAI).
-    let ty = mover(sim, u).ty;
+    let m = mover(sim, u);
     let cur = start_hub(sim, g, me);
     use crate::vehicle::VehicleKind::{Hover, Walker};
     let rides = u
@@ -1117,7 +1077,7 @@ fn retarget_to_post(
         .and_then(|m| sim.vehicle(m.vehicle))
         .is_some_and(|v| v.kind == Walker || (v.kind == Hover && super::HOVER_NEAREST));
     let want = if rides {
-        cur.and_then(|c| post_hub(g, ty, c, post, true))
+        cur.and_then(|c| post_hub(g, m.ty, c, post, true))
     } else {
         post.nav_hub
     };
@@ -1140,7 +1100,7 @@ fn retarget_to_post(
         nt.unroutable = 1;
         return false;
     };
-    match cur.filter(|&c| g.reachable(c, dest, ty)) {
+    match cur.filter(|&c| g.reachable_by(c, dest, m)) {
         Some(c) => {
             // Card FLNK: the hub an attack on foot is planned from (a flanker
             // re-planned on its way keeps its start).
@@ -1195,7 +1155,7 @@ pub(super) fn retarget_board(
         .unit_hub_on(at, m, &|h| hub_on_level(sim, g, h, at.y))
         .map(|h| level_hub(sim, g, h, at));
     match (start_hub(sim, g, me), dest) {
-        (Some(c), Some(d)) if g.reachable(c, d, m.ty) => {
+        (Some(c), Some(d)) if g.reachable_by(c, d, m) => {
             if !st.route.is_some_and(|r| r.dest_hub == d) {
                 st.route = plan_leg(sim, st, me, c, d, None, nt);
             }
@@ -1241,7 +1201,7 @@ fn retarget_hunt(
     let g = sim.nav.as_ref();
     let cur = g.and_then(|g| start_hub(sim, g, me));
     match (g, cur, dest) {
-        (Some(g), Some(c), Some(d)) if g.reachable(c, d, mover(sim, u).ty) => {
+        (Some(g), Some(c), Some(d)) if g.reachable_by(c, d, mover(sim, u)) => {
             st.target_cp = None;
             if !st.route.is_some_and(|r| r.dest_hub == d) {
                 st.route = plan_leg(sim, st, me, c, d, None, nt);
@@ -1334,7 +1294,7 @@ fn retarget_phase_a(
             let Some(dest) = sim.cps[i as usize].nav_hub else {
                 continue;
             };
-            if !g.reachable(cur, dest, m.ty) {
+            if !g.reachable_by(cur, dest, m) {
                 continue;
             }
             st.target_cp = Some(i);
@@ -1345,7 +1305,7 @@ fn retarget_phase_a(
         // hub (design decision 6 — the RHN1 "camp on the citadel" fix).
         if let Some(e) = nearest_enemy {
             if let Some(dest) = g.unit_hub_on(e, m, &|h| hub_on_level(sim, g, h, e.y)) {
-                if g.reachable(cur, dest, m.ty) {
+                if g.reachable_by(cur, dest, m) {
                     st.target_cp = None;
                     st.route = plan_leg(sim, st, me, cur, dest, None, nt);
                     return;

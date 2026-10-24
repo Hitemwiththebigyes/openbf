@@ -4,14 +4,14 @@ title: The stall at a leg's mouth as a standing number: card MOUTH's detector ov
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: blocked
 deps: MOUTH
 files: scripts/bot_quality.py, engine/crates/game/examples/round_to_outcome.rs, engine/crates/game/src/unit_probe.rs
 declares:
-needs:
+needs: environment — restore MOUTH detector/raw evidence, scene script and baked maps/missions for unchanged-stdout, instrument and mutation checks
 effort:
 branch:
-resume:
+resume: 2026-10-24 cloud preflight: no implementation; reports/20261024_0844_card_STLG.md and lead_tmp/stlg_20261024_0844/prerequisites.json. Probe already has from/next/wp/walk; BOT_SAMPLES omits them. Restore pstall.py and same-seed captures plus scene_seeds.sh/bakes; then isolated build, 32-map stdout cmp, 8-seed Kamino agreement within 15 percent and rule-1 mutation at least 1.5x; planner owns metric baseline wiring.
 created: 2026-10-12
 alpha: yes
 ---

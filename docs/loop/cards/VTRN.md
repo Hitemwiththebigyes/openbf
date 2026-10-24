@@ -4,14 +4,14 @@ title: Vehicles turn too slowly with the controller (the maintainer 10-21): the 
 milestone: M2
 value: 4
 phase: measure
-status: todo
+status: blocked
 deps: PAD
 files:
 declares:
-needs:
+needs: environment — Restore both side vehicle bakes/missions, PS2 toolkit/discs and full/half-stick reference trials.
 effort:
 branch:
-resume:
+resume: 2026-10-24 10:33 UTC: planner prerequisite hold; no new implementation/acceptance. Measure real input-path before/after LOOKR on current main, per family/class; preserve 5 percent and one-second turn bars. No LOOKR dependency added: baseline measurement can precede its build. Exact missing paths: lead_tmp/planner_20261024_1026/preflight.json. Restore or regenerate verified equivalent inputs before clearing hold. reports/20261024_1026_planner.md
 created: 2026-10-21
 alpha: yes
 ---

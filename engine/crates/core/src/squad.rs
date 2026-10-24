@@ -25,8 +25,8 @@
 //! so it is 10 s either way; a holder does not look around; the approach also
 //! ends [`APPROACH_BODY`] from the leader himself; beyond [`ROUTE_DIST`] a
 //! follower routes over the hub graph. NOT built: the orders from a vehicle
-//! seat, a follower boarding its leader's vehicle, orders to bots in
-//! vehicles, the AI's own orders' effect - card UTALK speaks them (a
+//! seat, orders to bots in vehicles, the AI's own orders' effect - card UTALK
+//! speaks them (a
 //! trooper's "follow me" / "move out" order nobody on the PS2 either; a new
 //! pilot's need-gunner call, `Sim::need_gunner_call`, is answered "yes" but
 //! nobody boards). `Disperse` is the earlier port's own order and no pad
@@ -431,6 +431,22 @@ impl crate::sim::Sim {
     }
 }
 
+/// SQVEH: the vehicle a follower's living leader currently occupies (RE §4.3).
+/// Kept separate from autonomous seat search: following an order does not
+/// consult the bot's own-search cooldown. Only unmounted followers may board.
+pub(crate) fn follow_vehicle(
+    sim: &crate::sim::Sim,
+    u: &crate::unit::Unit,
+) -> Option<crate::vehicle::VehicleHandle> {
+    if u.mount.is_some() {
+        return None;
+    }
+    let CommandKind::Follow(leader) = u.command?.kind else {
+        return None;
+    };
+    Some(sim.unit(leader)?.mount?.vehicle)
+}
+
 /// [`crate::ai::CmdState::roll`] of a follower: where it is in the PS2's
 /// follow agent (RE §4.3 states 2, 3, 4). `u64::MAX` is an order not thought
 /// about yet.
@@ -481,6 +497,24 @@ pub fn steer(
     let d = (pos - lp).length();
     match cmd.kind {
         CommandKind::Follow(_) => {
+            // SQVEH, RE §4.3: walk to the leader's vehicle, rather than
+            // taking a formation point beside it. Step 1c takes a free seat
+            // through CanEnter, including an unarmed passenger seat.
+            if let Some(vh) = follow_vehicle(sim, u) {
+                // Abandon an older autonomous boarding request, preserving
+                // its search cooldown. This order walks to the leader alone.
+                if let Some(r) = st.ride.as_mut() {
+                    r.board = None;
+                    r.use_req = false;
+                }
+                if sim.enter_seat(me, vh).is_none() {
+                    nt.released = 1;
+                    st.cmd = Some(c);
+                    return;
+                }
+                c.roll = FOLLOW;
+                c.goal = lp;
+            }
             if c.roll == u64::MAX {
                 c.roll = APPROACH;
                 c.goal = lp;
@@ -494,7 +528,7 @@ pub fn steer(
                 c.roll = FOLLOW;
             }
             if c.roll == FOLLOW {
-                if d < FOLLOW_NEAR {
+                if d < FOLLOW_NEAR && l.mount.is_none() {
                     // The standing point is drawn in the LEADER's frame, once.
                     c.roll = STAND;
                     c.goal = lp + stand_offset(me.index, me.gen, sim.tick, l.soldier.yaw);

@@ -7,7 +7,7 @@
 //! Tick order (one `step`): 0a the spawn screen's class choice → 0 respawns
 //! (member timer, spawn wave, alive-AI cap) → 0b squad commands (Phase D) →
 //! 1 the commander (Phase B) → 1b controllers → per-unit pads → 1c the use
-//! input (enter / exit, VSEAT) → 2 player aim assist → 3 soldier movement (a human's zoom press first, card ZOOM; a
+//! input (enter / exit, VSEAT) → 2 player aim assist → doors → 3 soldier movement (a human's zoom press first, card ZOOM; a
 //! rider's pad drives its vehicle instead; + 3a wall pass; 3a' the floor
 //! contact under the new feet; then the hovers and their riders; 3b unit
 //! separation; 3c environmental death: the kill floor, the death regions) → 4
@@ -21,25 +21,20 @@
 //!
 //! ## Where the code lives
 //!
-//! Split by queue SPL5 (2026-09-24, a pure move) into six parts, each
-//! re-exported here so every `crate::sim::X` path is unchanged: `state` (the
-//! `Sim` struct, its output types, the queries and `Sim::hash`), `input` (the
-//! pad, the input log, `Sim::run_log` and the aim assist), `spawn` (spawns,
-//! the class tables, the spawn screen, respawns and the spawn waves), `combat`
-//! (a bolt's impact and the environmental deaths), `round` (the command
-//! posts, the bleed and the outcome) and `step` (`Sim::step` and the unit
-//! separation); VENT added `vehicles` (the vehicle slots and the seat
-//! bookkeeping, `crate::vehicle`, and VPAD's pad tick) and VSEAT `seats`
-//! (the use input, the exit placement, the driver's pad). VDTH added `blast`
-//! (an explosion's area damage, `Sim::explode`); KFLR `bounds` (the playable
-//! level: the hub floors, the level test, the kill floor); GREN `ordnance` (the
-//! weapon channels, the throw and the grenades' tick); PWUP `pickups` (a death's
-//! drop, the item, the pickup); PWST `stations` (the droids' passes). This file keeps only the test fixtures the parts' tests
-//! share.
+//! `state` owns the world, queries and hash; `input` owns pads, logs and aim
+//! assist; `spawn` owns class selection, spawns and waves; `step` orders each
+//! tick and separates units. `combat` resolves bolt impacts and deaths;
+//! `round` updates posts and outcome; `guns` handles mounted weapons;
+//! `vehicles` owns vehicle slots and pads; `doors` advances door bodies and events; `seats` handles entry, exit and
+//! drivers; `blast` applies area damage; `bounds` defines the playable level;
+//! `ordnance` handles weapon channels, throws and grenade flight; `pickups`
+//! owns dropped items; `trace` writes the optional observational state stream; `stations` runs health/ammo droids. Public types are
+//! re-exported here; shared test fixtures stay in this facade.
 
 mod blast;
 mod bounds;
 mod combat;
+mod doors;
 mod guns;
 mod input;
 mod ordnance;
@@ -50,6 +45,7 @@ mod spawn;
 mod state;
 mod stations;
 mod step;
+pub mod trace;
 mod vehicles;
 
 pub use blast::{soldier_blast_sphere, BLAST_GATHER_MAX};

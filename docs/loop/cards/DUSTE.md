@@ -4,13 +4,13 @@ title: The dusteffect class — volumes of big drifting alpha sprites (mist, dus
 milestone: M1
 value: 3
 phase: re
-status: todo
+status: blocked
 deps:
 files:
 declares:
-needs:
+needs: Restore both primary corpora/discs, mist class data and POL1 picture pairs; RE DustEffect setters/draw rules with independent verification before a build split.
 branch:
-resume:
+resume: 2026-10-24 11:57 UTC: planner prerequisite hold; 7/7 exact named paths absent. Restore both primary corpora/discs, mist class data and POL1 picture pairs; RE DustEffect setters/draw rules with independent verification before a build split. All original acceptance retained. reports/20261024_1151_planner.md; inventory/continuation lead_tmp/planner_20261024_1151/.
 created: 2026-09-29
 alpha: yes
 ---

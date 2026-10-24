@@ -269,8 +269,5 @@ pub fn skinned_to_glb(m: &SkinnedModel, clips: &[Clip]) -> Result<Vec<u8>> {
             doc.as_object_mut().map(|o| o.remove(k));
         }
     }
-    Ok(crate::glb::pack_glb_public(
-        &serde_json::to_vec(&doc)?,
-        &bin.bytes,
-    ))
+    Ok(crate::glb::pack_glb(&serde_json::to_vec(&doc)?, &bin.bytes))
 }

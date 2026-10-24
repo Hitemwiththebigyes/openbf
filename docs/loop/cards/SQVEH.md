@@ -4,15 +4,16 @@ title: Vehicle-seat squad orders the BF1 way: PILE IN / HOP IN (AI on foot withi
 milestone: M2
 value: 3
 phase: build
-status: todo
+status: blocked
 deps: SQACK
-files: engine/crates/core/src/squad.rs,engine/crates/core/src/ai/ride.rs,engine/crates/core/src/sim/seats.rs
+files: engine/crates/core/src/squad.rs, engine/crates/core/src/ai/ride.rs, engine/crates/core/src/sim/seats.rs, engine/crates/core/src/sim/seats/tests.rs
 declares: sim
-needs:
+needs: build of the remaining seated orders (PILE IN / EVERYONE OUT / gunner orders, 20 s own-search timer, voice + HUD); follower slice validated locally 2026-10-24
 effort:
 branch:
-resume: PS2 check DONE (card's PS2 log; lead_tmp/sqveh). FIRST apply lead_tmp/sqveh/docs.patch's text to analysis/re-squad-orders.md 4.4/6.1/11/12 + RE_LOG with the Edit tool and loopctl commit-docs IF git log shows no 'SQVEH [RE]' commit (MAIN was held by KSEA's landing). Then build after SQACK lands: loopctl start SQVEH; order types 4/5 from a seated issuer in squad.rs, the seat claim + the now+20 own-search timer in ai/ride.rs + sim/seats.rs, the follower's board goal; the four acceptance tests in core.
+resume: (private workflow note omitted)
 created: 2026-09-30
+tries: 1
 ---
 
 ## Why
@@ -77,3 +78,4 @@ press; logs `lead_tmp/sqveh/scenes/{O1,OP4,OP5,L15,P3,FB}/events.csv`, sampler `
   `steer`'s Follow branch (the leader's mount is where the board goal goes). Receivers today are AI on foot only; a
   bot in a vehicle takes no order (the PS2's do, with x3 reach). The scene test to extend:
   `game/tests/squad_orders_ps2.rs`.
+

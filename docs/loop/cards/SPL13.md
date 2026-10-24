@@ -4,14 +4,14 @@ title: Split: core/src/ai/behave.rs is 2,314 lines (over the 2,000 strict cap, n
 milestone: M0
 value: 3
 phase: cleanup
-status: todo
+status: blocked
 deps:
-files: engine/crates/core/src/ai/behave.rs,engine/crates/core/src/ai/gunner_foot.rs,engine/crates/core/src/sim/state.rs,engine/crates/core/src/sim/vehicles.rs
+files: engine/crates/core/src/ai/behave.rs, engine/crates/core/src/ai/behave/brain.rs, engine/crates/core/src/ai/behave/position.rs, engine/crates/core/src/ai/behave/position/tests.rs, engine/crates/core/src/sim/vehicles.rs
 declares:
-needs:
+needs: planner — accept the 9 rustfmt-reflow lines in place of the literal PURE MOVE receipt (whitespace-identical; sweep/arena neutral) or order a re-split; sim/vehicles.rs (1752 lines) split or waiver in its own session
 effort:
 branch:
-resume:
+resume: (private workflow note omitted)
 created: 2026-10-13
 ---
 
@@ -28,3 +28,6 @@ Cleanse 15 (2026-10-13): `scripts/size_report.sh --strict` exits 1 on main 04878
 
 ## Notes
 Bot cards land in behave.rs all the time (RLOOP, FLNK, TEAM are queued): take this between two of them, on a quiet tree.
+
+## GitHub checkpoint recovery (2026-10-24)
+

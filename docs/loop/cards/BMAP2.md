@@ -4,14 +4,14 @@ title: The minimap's other views and missing icons: Select toggles Small / Large
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: blocked
 deps: BMAP
 files: engine/crates/ui/src/hud_map.rs,engine/crates/game/src/minimap.rs,engine/crates/ui/src/hud.rs,engine/crates/game/src/main/battle.rs,engine/crates/game/src/main/windowed.rs
 declares:
-needs:
+needs: maintainer — restore local baked maps/HUD/art, missions, extracted BF2 corpus, BMAP 16-map RAM evidence and PS2 captures, approved GPU/golden environment
 effort:
 branch:
-resume:
+resume: Cloud preflight blocked; see reports/20261024_0720_card_BMAP2.md. Restore BMAP 16-map mapbounds RAM/bake comparison inputs and lead_tmp/re/bmap/cap/{hot1_large,nab2_large}.p2s, SSELB spawn evidence, assets_baked, missions, extracted BF2/ELF corpus and approved GPU/golden environment. Clear needs and set todo only after restoration. First re-run all 16 bounds comparisons, correct re-hud-map 2.3 with dated evidence and commit exact doc under MAIN; then loopctl start BMAP2. Reconcile existing Spawn view/test, implement remaining Large/objective/direction/marker scope; reproduce all 3px bars, CI and required gates, view declared goldens, land under MAIN. No source implementation or acceptance this run.
 created: 2026-10-03
 alpha: yes
 ---

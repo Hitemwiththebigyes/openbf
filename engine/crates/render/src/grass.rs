@@ -336,14 +336,11 @@ pub(crate) fn ensure(
     }
     let size = bytes.next_power_of_two().max(256);
     *slot = Some((
-        crate::made::buffer(
+        crate::resources::buffer(
             device,
-            &wgpu::BufferDescriptor {
-                label: Some(label),
-                size: size as u64,
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            },
+            label,
+            size as u64,
+            wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         ),
         size,
     ));

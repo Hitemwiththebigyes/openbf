@@ -397,10 +397,12 @@ fn mission_for(key: &str) -> Option<game::mission::MissionDef> {
         .flatten()
 }
 
-/// The map field. This is `round_to_outcome::run_map`'s setup, copied (an
-/// example cannot import another example): mode sublevel, shared props, the
-/// mission's tickets/factions/class mix, the nav graph, model collision, then
-/// `setup_conquest` at 16 v 16 with the idle player.
+/// The map field retains the arena's historical referee setup: mode sublevel,
+/// shared props, mission tickets/factions/class mix, nav graph, model collision,
+/// then `setup_conquest` at 16 v 16 with the idle player. Unlike the sweep it
+/// omits mission death drains, arc blocks and barrier toggles; unlike runtime
+/// it also omits mission unit counts and alive-AI caps. Changing these inputs
+/// needs a separate review of the protected arena baselines.
 fn run_map(key: &str, path: &Path, ticks: u64, seed: u32, tiers: [Difficulty; 2]) -> Option<Row> {
     let started = std::time::Instant::now();
     let mut scene = match game::assets::load_scene(path) {
@@ -468,39 +470,15 @@ fn run_map(key: &str, path: &Path, ticks: u64, seed: u32, tiers: [Difficulty; 2]
                     let uc = c.register(&mut sim, &mut names);
                     tables[t].push(uc);
                 }
-                let f = r.fill_class();
                 t += 1;
-                game::walk::TeamTemplate {
-                    faction: r.faction.clone(),
-                    name: f.class.clone(),
-                    consts: f.consts,
-                    max_health: f.max_health,
-                    health_type: f.health_type,
-                    weapon_class: tables[t - 1][0].weapon_class,
-                    weapon_slot: tables[t - 1][0].weapon_slot,
-                    slots: tables[t - 1][0].slots.clone(),
-                    drops: tables[t - 1][0].drops,
-                    spare_clips: f.spare_clips,
-                    geometry: f.geometry.clone(),
-                    weapon_geometry: f.weapon_geometry.clone(),
-                    classes: r
-                        .classes
+                game::walk::TeamTemplate::from_roster(
+                    r,
+                    &tables[t - 1][0],
+                    r.classes
                         .iter()
-                        .map(|c| game::walk::ClassVisual {
-                            name: c.class.clone(),
-                            label: c.label.clone(),
-                            geometry: c.geometry.clone(),
-                            weapon_geometry: c.weapon_geometry.clone(),
-                            weapon_hud: c.weapon_hud.clone(),
-                            held_hud: Vec::new(),
-                            held_models: Vec::new(),
-                            foley_class: c.foley_class,
-                            cries: c.cries.clone(),
-                            anim: c.anim.clone(),
-                            skins: c.skins.clone(),
-                        })
+                        .map(game::walk::ClassVisual::from_roster)
                         .collect(),
-                }
+                )
             })
         }
         Err(e) => {

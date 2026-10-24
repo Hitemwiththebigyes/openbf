@@ -4,14 +4,14 @@ title: A BF1 speeder bike that starts a leg within its 20 m node radius of the l
 milestone: M3
 value: 4
 phase: build
-status: parked
+status: blocked
 deps: HJAM
 files: engine/crates/core/src/ai/route.rs, engine/crates/core/src/ai/hover_drive.rs, engine/crates/core/src/ai/hover_drive/tests.rs
 declares: sim; sweep
-needs: maintainer - the RTX is lost (nvidia-smi Unknown Error; gates gpu ADAPTER LOST). After a reboot: land.py HCORN
+needs: cloud prerequisites: branch hcorn, baked assets, missions and reference evidence absent
 effort:
 branch: hcorn
-resume: land: python3 scripts/land.py HCORN (branch hcorn 350860a; ci + every GPU-free gate PASS in lead_tmp/hcorn/gates2, sweep moved only the 13 hover maps as declared; the build is hash-identical to the prototype's HCX=2, so its bars stand: lead_tmp/hcorn/built/ vs ab/). Part 2 = card HCRAD
+resume: (private workflow note omitted)
 created: 2026-10-16
 alpha: yes
 ---
@@ -83,3 +83,4 @@ turns the bike off this rock - the port's probe did not; (d) the PS2's own BF1 E
 - BF1 Endor near-corner driving share stays <= 1 % (HJC census) and crash a ride inside the PS2's 0.28 +- 0.06.
 - A test that drives `hover_drive::drive` past a corner inside the node radius and fails under M5 / M6 (the radius the
   driver hands in zeroed / halved).
+

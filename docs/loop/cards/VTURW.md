@@ -4,14 +4,14 @@ title: A vehicle's gunner seat turns by the PS2's MountedTurret law (card VTURL 
 milestone: M2
 value: 3
 phase: re
-status: todo
+status: blocked
 deps: VTURL
 files: engine/crates/core/src/vehicle/gun.rs,engine/crates/core/src/sim/guns.rs,engine/crates/game/src/vehicle_pads.rs,engine/crates/game/src/vehicle_class.rs
 declares: sim; sweep; arena
-needs:
+needs: Restore both corpora and vturd tools, side bakes and live vehicle-gunner state; verify aimer-chain frames and 0x844 clamp before rate/limit implementation.
 effort:
 branch:
-resume:
+resume: 2026-10-24 14:22 UTC: planner restoration hold; Restore both corpora and vturd tools, side bakes and live vehicle-gunner state; verify aimer-chain frames and 0x844 clamp before rate/limit implementation. Original measurable acceptance retained. reports/20261024_1422_planner.md; lead_tmp/planner_20261024_1417/preflight.json.
 created: 2026-10-15
 ---
 ## Why

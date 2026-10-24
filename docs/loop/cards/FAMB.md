@@ -4,14 +4,14 @@ title: BF1 Naboo Plains always has the Gungan fambaa and its shield (the maintai
 milestone: M1
 value: 4
 phase: build
-status: todo
+status: blocked
 deps:
-files: engine/crates/bake/src/map.rs, engine/crates/game/src/vehicle_pads.rs, engine/crates/core/src/sim/vehicles.rs, engine/crates/core/src/shield.rs, engine/crates/core/src/projectile.rs, engine/crates/core/src/sim/combat.rs, engine/crates/core/src/sim/ordnance.rs
+files: engine/crates/bake/src/map.rs, engine/crates/game/src/vehicle_pads.rs, engine/crates/core/src/sim/vehicles.rs, engine/crates/core/src/shield.rs (new), engine/crates/core/src/projectile.rs, engine/crates/core/src/sim/combat.rs, engine/crates/core/src/sim/ordnance.rs
 declares: rebake=maps; sim; sweep; arena
-needs:
+needs: environment restoration: restore NAB1_H.LVL/NAB1.LVL, both-era NAB1 bakes/missions and famb PS2 shield rows/frames
 effort:
 branch:
-resume: build per '## Build spec': bake NAB1_H's fambaa into bf1_nab1 first (classes + model + clips), then the pads, the building, the shield; acceptance list in the card
+resume: 2026-10-24 09:20 UTC: planner prerequisite census; no implementation. Restore this card's inputs in lead_tmp/planner_20261024_0913/queue_preflight.json, recheck original acceptance/current-main baseline, then loopctl start for isolated build. Full CI and required gates remain; reports/20261024_0913_planner.md.
 created: 2026-09-28
 alpha: yes
 ---
@@ -24,7 +24,6 @@ fambaa and covering part of the map. The Instant Action NAB1 the port bakes cann
 ## Evidence (the maintainer's notes; [H] until checked)
 - The classes (`nab_bldg_fambaa_shield` / `_generator`, `nab_weap_bldg_fambaa_shield`, `fambaa_shield`,
   `nab_walk_fambaa`, beside `gun_inf_basic` / `gun_walk_kaadu`) are defined only in
-  `extracted/bf1/lvl/DATA/_LVL_PS2/NAB/NAB1_H.LVL` (exists — planner checked) and referenced by `lua/mission/nab1c_h.luac`.
   The regular NAB1 world names them only in the `perma_spawn10` pad props. Not in the IA PCSX2 pairs.
 - VPAD's census note says kaadu is absent — likely the same cause.
 
@@ -101,3 +100,4 @@ ellipsoid only ordnance from OUTSIDE meets; the generator's repair pulse feeds t
 - Mutations killed: drop the one-way rule (the inside bolt is stopped); drop the feed (the 15 s case fails); let
   soldiers collide (the walk fails).
 - Gates: bf1_nab1's rounds still finish (8 seeds, outcome count unchanged); sweep / fidelity moves on bf1_nab1 only.
+

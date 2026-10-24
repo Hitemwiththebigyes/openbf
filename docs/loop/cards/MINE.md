@@ -4,14 +4,14 @@ title: Mines, time bombs and detpacks: the dispenser weapon (per-unit MaxItems),
 milestone: M3
 value: 3
 phase: build
-status: todo
+status: blocked
 deps: GREN
 files: engine/crates/core/src/weapon.rs,engine/crates/core/src/projectile.rs,engine/crates/core/src/sim/step.rs,engine/crates/core/src/sim/combat.rs,engine/crates/game/src/roster.rs
 declares: sim
-needs:
+needs: environment — restore baked classes/maps/missions and approved GPU gates; see reports/20261024_1243_card_MINE.md
 effort:
 branch:
-resume:
+resume: 2026-10-24 cloud preflight blocked: 22 exact inputs absent. Restore mine_cloud/preflight.json inputs; implement dispenser/mine with original Acceptance, census both games and run CI plus sim/sweep/arena gates. No source candidate or landing.
 created: 2026-09-30
 ---
 ## Why

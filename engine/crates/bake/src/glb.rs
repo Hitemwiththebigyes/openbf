@@ -198,19 +198,7 @@ fn write_model(
     if vertex_light {
         mesh["extras"] = json!({ "sphere": model_sphere(m) });
     }
-    let doc = json!({
-        "asset": {"version": "2.0", "generator": "openbf bake"},
-        "buffers": [{"byteLength": bin.bytes.len()}],
-        "bufferViews": bin.views,
-        "accessors": bin.accessors,
-        "materials": materials,
-        "meshes": [mesh],
-        "nodes": [{"mesh": 0, "name": m.name}],
-        "scenes": [{"nodes": [0]}],
-        "scene": 0
-    });
-
-    Ok(pack_glb(&serde_json::to_vec(&doc)?, &bin.bytes))
+    crate::gltf_bin::rigid_glb(bin, mesh, &m.name, Some(json!(materials)))
 }
 
 /// The model's sphere `[x, y, z, r]` in model space: its `SPHR` chunk, else
@@ -354,11 +342,7 @@ pub fn glow_vertex_alpha(a: u8) -> f32 {
 pub fn col0_linear(c: [u8; 4]) -> [f32; 4] {
     let lin = |b: u8| {
         let u = (f32::from(b) / 128.0).min(1.0);
-        if u <= 0.040_45 {
-            u / 12.92
-        } else {
-            ((u + 0.055) / 1.055).powf(2.4)
-        }
+        crate::lighting::srgb_to_linear(u)
     };
     [lin(c[0]), lin(c[1]), lin(c[2]), 1.0]
 }
@@ -381,54 +365,68 @@ pub fn triangles_to_glb(
     let pos_acc = bin.f32s(&flat3(positions), "VEC3", json!({"min": min, "max": max}));
     let idx: Vec<u32> = triangles.iter().flatten().copied().collect();
     let idx_acc = bin.u32s(&idx, json!({}));
-    let doc = json!({
-        "asset": {"version": "2.0", "generator": "openbf bake"},
-        "buffers": [{"byteLength": bin.bytes.len()}],
-        "bufferViews": bin.views,
-        "accessors": bin.accessors,
-        "meshes": [{"name": name, "primitives": [
+    crate::gltf_bin::rigid_glb(
+        bin,
+        json!({"name": name, "primitives": [
             {"attributes": {"POSITION": pos_acc}, "indices": idx_acc, "mode": 4}
-        ]}],
-        "nodes": [{"mesh": 0, "name": name}],
-        "scenes": [{"nodes": [0]}],
-        "scene": 0
-    });
-    Ok(pack_glb(&serde_json::to_vec(&doc)?, &bin.bytes))
+        ]}),
+        name,
+        None,
+    )
 }
 
-/// Public wrapper so other emitters (terrain) can pack GLB containers.
-pub fn pack_glb_public(json: &[u8], bin: &[u8]) -> Vec<u8> {
-    pack_glb(json, bin)
-}
-
-fn pack_glb(json: &[u8], bin: &[u8]) -> Vec<u8> {
-    let pad4 = |v: &mut Vec<u8>, fill: u8| {
-        while !v.len().is_multiple_of(4) {
-            v.push(fill);
-        }
-    };
-    let mut jchunk = json.to_vec();
-    pad4(&mut jchunk, b' ');
-    let mut bchunk = bin.to_vec();
-    pad4(&mut bchunk, 0);
-
-    let total = 12 + 8 + jchunk.len() + 8 + bchunk.len();
+/// Pack the JSON and BIN chunks, padding with spaces and zeroes respectively.
+pub fn pack_glb(json: &[u8], bin: &[u8]) -> Vec<u8> {
+    let jlen = json.len().next_multiple_of(4);
+    let blen = bin.len().next_multiple_of(4);
+    let total = 12 + 8 + jlen + 8 + blen;
     let mut out = Vec::with_capacity(total);
     out.extend_from_slice(b"glTF");
     out.extend_from_slice(&2u32.to_le_bytes());
     out.extend_from_slice(&(total as u32).to_le_bytes());
-    out.extend_from_slice(&(jchunk.len() as u32).to_le_bytes());
+    out.extend_from_slice(&(jlen as u32).to_le_bytes());
     out.extend_from_slice(b"JSON");
-    out.extend_from_slice(&jchunk);
-    out.extend_from_slice(&(bchunk.len() as u32).to_le_bytes());
+    out.extend_from_slice(json);
+    out.resize(20 + jlen, b' ');
+    out.extend_from_slice(&(blen as u32).to_le_bytes());
     out.extend_from_slice(b"BIN\0");
-    out.extend_from_slice(&bchunk);
+    out.extend_from_slice(bin);
+    out.resize(total, 0);
     out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn container_headers_and_padding_cover_every_alignment() {
+        for j in 0..=7 {
+            for b in 0..=7 {
+                let json = vec![b'j'; j];
+                let bin = vec![0xab; b];
+                let out = pack_glb(&json, &bin);
+                let word = |at| u32::from_le_bytes(out[at..at + 4].try_into().unwrap()) as usize;
+                assert_eq!(&out[..4], b"glTF");
+                assert_eq!(word(4), 2);
+                assert_eq!(word(8), out.len());
+                let jlen = word(12);
+                assert_eq!(jlen % 4, 0);
+                assert!((j..j + 4).contains(&jlen));
+                assert_eq!(&out[16..20], b"JSON");
+                assert_eq!(&out[20..20 + j], json);
+                assert!(out[20 + j..20 + jlen].iter().all(|&v| v == b' '));
+                let bstart = 28 + jlen;
+                let blen = word(20 + jlen);
+                assert_eq!(blen % 4, 0);
+                assert!((b..b + 4).contains(&blen));
+                assert_eq!(&out[24 + jlen..bstart], b"BIN\0");
+                assert_eq!(&out[bstart..bstart + b], bin);
+                assert!(out[bstart + b..].iter().all(|&v| v == 0));
+                assert_eq!(out.len(), bstart + blen);
+            }
+        }
+    }
 
     use crate::alpha::{AlphaMode, AlphaStats, Rule, SegmentAlpha};
     use mungefs::model::{Aabb, RenderType, Segment};

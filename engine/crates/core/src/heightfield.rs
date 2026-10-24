@@ -4,8 +4,8 @@
 //! The game does NOT bilinear-filter: each grid cell is split into two
 //! triangles and the point is lerped on the triangle plane, with the split
 //! diagonal ALTERNATING by z-row parity (`iz & 1`):
-//! - even row: diagonal from (ix,iz+1) to (ix+1,iz)-side (xfrac vs zfrac);
-//! - odd row: diagonal from (ix,iz) to (ix+1,iz+1) (xfrac vs 1-zfrac).
+//! - even row: diagonal from (ix,iz) to (ix+1,iz+1) (xfrac vs zfrac);
+//! - odd row: diagonal from (ix+1,iz) to (ix,iz+1) (xfrac vs 1-zfrac).
 //!
 //! Globals in the original: DAT_00564698/9c = world->grid offsets,
 //! DAT_00564690 = gridSize, DAT_00564694 = unit, DAT_005647bc = 1/unit,

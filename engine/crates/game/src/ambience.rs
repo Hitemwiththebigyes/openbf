@@ -119,17 +119,6 @@ fn label(db: &ClassDb, class: &str) -> Option<String> {
     db.chain(class).last().map(|d| d.base.to_ascii_lowercase())
 }
 
-/// The first of `class`'s chain (child first) that sets `key`.
-fn class_prop<'a>(db: &'a ClassDb, class: &str, key: &str) -> Option<&'a str> {
-    let h = fnv1a_lowercase(key);
-    db.chain(class).into_iter().find_map(|d| {
-        d.props
-            .iter()
-            .find(|(k, _)| *k == h)
-            .map(|(_, v)| v.as_str())
-    })
-}
-
 fn inst_prop<'a>(i: &'a ManifestInstance, key: &str) -> Option<&'a str> {
     let h = fnv1a_lowercase(key);
     i.props
@@ -143,7 +132,7 @@ pub fn instance_emitter(i: &ManifestInstance, db: &ClassDb, bf2: bool) -> Option
     let label = label(db, &i.class)?;
     let num = |s: Option<&str>| s.and_then(|v| v.trim().parse::<f32>().ok());
     if OBJECT_LABELS.contains(&label.as_str()) {
-        let key = |k: &str| inst_prop(i, k).or_else(|| class_prop(db, &i.class, k));
+        let key = |k: &str| inst_prop(i, k).or_else(|| db.prop(&i.class, k));
         let sound = key(SOUND).or_else(|| key(SOUND_STREAM))?.to_owned();
         let min = num(key(MIN_DISTANCE)).unwrap_or(DEFAULT_MIN);
         let max = num(key(MAX_DISTANCE)).unwrap_or(DEFAULT_MAX);
@@ -160,13 +149,13 @@ pub fn instance_emitter(i: &ManifestInstance, db: &ClassDb, bf2: bool) -> Option
     if !PROP_LABELS.contains(&label.as_str()) {
         return None;
     }
-    let sound = class_prop(db, &i.class, SOUND_PROPERTY)?.trim().to_owned();
+    let sound = db.prop(&i.class, SOUND_PROPERTY)?.trim().to_owned();
     if sound.is_empty() {
         return None;
     }
     let mut pos = Vec3::from(i.translation);
     if bf2 {
-        let off = class_prop(db, &i.class, SOUND_OFFSET).and_then(|s| {
+        let off = db.prop(&i.class, SOUND_OFFSET).and_then(|s| {
             let v: Vec<f32> = s
                 .split_whitespace()
                 .filter_map(|w| w.parse().ok())

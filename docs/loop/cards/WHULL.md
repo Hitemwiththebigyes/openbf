@@ -4,14 +4,14 @@ title: A walker's hull follows its drawn pose: the PS2 hangs every collision pri
 milestone: M2
 value: 4
 phase: build
-status: todo
+status: blocked
 deps:
 files: engine/crates/core/src/sim/vehicles.rs, engine/crates/core/src/vehicle/walker.rs, engine/crates/bake/src/walker.rs, engine/crates/manifest/src/lib.rs, engine/crates/game/src/vehicle_pads.rs
 declares: rebake=side; sim; sweep
-needs:
+needs: environment — Restore both side vehicle and GEO1 bakes/missions, extracted discs and audit-rkhul readers/raw drawn-shot evidence.
 effort:
 branch:
-resume: filed by AUDIT RKHUL 2026-10-22: PS2 rule read (analysis/re-walker.md 17), port gap measured; build from the card's Build notes; acceptance harness in lead_tmp/audit-rkhul/tools
+resume: 2026-10-24 10:33 UTC: planner prerequisite hold; no new implementation/acceptance. Retake current-main drawn-point/bind-point shots and live-pose coverage before implementing hull posing. Retain 42/42,46/46,95 percent,spider4730,walk7/8,RKEX and full rebake/sim/sweep bars. Exact missing paths: lead_tmp/planner_20261024_1026/preflight.json. Restore or regenerate verified equivalent inputs before clearing hold. reports/20261024_1026_planner.md
 created: 2026-10-22
 alpha: yes
 ---

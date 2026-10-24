@@ -16,6 +16,7 @@
 //! linearises each fragment, so colours are right and only the blend is the
 //! renderer's linear one.
 
+use crate::bindings;
 use bytemuck::{Pod, Zeroable};
 
 /// Window pixels (x right, y down), depth 0 near … 1 far; display (sRGB
@@ -127,14 +128,8 @@ fn texture_bind_group(
             label: Some("hud sheet bg"),
             layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(sampler),
-                },
+                bindings::texture_view(0, &view),
+                bindings::sampler(1, sampler),
             ],
         },
     ))
@@ -152,36 +147,18 @@ impl HudPass {
         let format = display.unwrap_or(format);
         let screen_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("hud screen bgl"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
+            entries: &[bindings::uniform_layout(
+                0,
+                wgpu::ShaderStages::VERTEX_FRAGMENT,
+                false,
+                None,
+            )],
         });
         let texture_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("hud sheet bgl"),
             entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
+                bindings::texture_layout(0, true),
+                bindings::sampler_layout(1),
             ],
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -210,72 +187,43 @@ impl HudPass {
                 },
                 alpha: wgpu::BlendComponent::OVER,
             };
-            crate::made::render_pipeline(
-                device,
-                &wgpu::RenderPipelineDescriptor {
-                    label: Some("hud pipeline"),
-                    layout: Some(&layout),
-                    vertex: wgpu::VertexState {
-                        module: &shader,
-                        entry_point: Some("vs_hud"),
-                        buffers: &[wgpu::VertexBufferLayout {
-                            array_stride: std::mem::size_of::<HudVertex>() as u64,
-                            step_mode: wgpu::VertexStepMode::Vertex,
-                            attributes: &attributes,
-                        }],
-                        compilation_options: Default::default(),
-                    },
-                    fragment: Some(wgpu::FragmentState {
-                        module: &shader,
-                        entry_point: Some("fs_hud"),
-                        targets: &[Some(wgpu::ColorTargetState {
-                            format,
-                            blend: Some(blend),
-                            write_mask: crate::pipelines::FRAME_WRITES,
-                        })],
-                        compilation_options: Default::default(),
-                    }),
-                    // HUD meshes are mirrored and turned freely: no culling.
-                    primitive: wgpu::PrimitiveState::default(),
-                    depth_stencil: Some(wgpu::DepthStencilState {
-                        format: wgpu::TextureFormat::Depth32Float,
-                        depth_write_enabled: depth,
-                        depth_compare: if depth {
-                            wgpu::CompareFunction::LessEqual
-                        } else {
-                            wgpu::CompareFunction::Always
-                        },
-                        stencil: wgpu::StencilState::default(),
-                        bias: wgpu::DepthBiasState::default(),
-                    }),
-                    multisample: wgpu::MultisampleState::default(),
-                    multiview: None,
-                    cache: None,
-                },
-            )
+            // HUD meshes are mirrored and turned freely: no culling.
+            crate::pipelines::PipelineDesc {
+                label: "hud pipeline",
+                layout: &layout,
+                vs: "vs_hud",
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<HudVertex>() as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &attributes,
+                }],
+                fs: "fs_hud",
+                blend: Some(blend),
+                depth_write: depth,
+                depth_compare: Some(if depth {
+                    wgpu::CompareFunction::LessEqual
+                } else {
+                    wgpu::CompareFunction::Always
+                }),
+            }
+            .build(device, &shader, format)
         };
         let pipelines = [
             [pipeline(false, false), pipeline(false, true)],
             [pipeline(true, false), pipeline(true, true)],
         ];
-        let screen_buf = crate::made::buffer(
+        let screen_buf = crate::resources::buffer(
             device,
-            &wgpu::BufferDescriptor {
-                label: Some("hud screen"),
-                size: 16,
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            },
+            "hud screen",
+            16,
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         );
         let screen_bg = crate::made::bind_group(
             device,
             &wgpu::BindGroupDescriptor {
                 label: Some("hud screen bg"),
                 layout: &screen_bgl,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: screen_buf.as_entire_binding(),
-                }],
+                entries: &[bindings::entire_buffer(0, &screen_buf)],
             },
         );
         // The HUD's sheets are drawn near their own size: bilinear, clamped,
@@ -339,22 +287,13 @@ impl HudPass {
         width: u32,
         height: u32,
     ) -> Option<HudTexture> {
-        let texture = crate::made::texture(
+        let texture = crate::resources::texture_2d(
             device,
-            &wgpu::TextureDescriptor {
-                label: Some("hud stream"),
-                size: wgpu::Extent3d {
-                    width,
-                    height,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8Unorm,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                view_formats: &[],
-            },
+            "hud stream",
+            [width, height],
+            wgpu::TextureFormat::Rgba8Unorm,
+            wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            &[],
         );
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let bg = crate::made::bind_group(
@@ -363,14 +302,8 @@ impl HudPass {
                 label: Some("hud stream bg"),
                 layout: &self.texture_bgl,
                 entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler),
-                    },
+                    bindings::texture_view(0, &view),
+                    bindings::sampler(1, &self.sampler),
                 ],
             },
         );
@@ -442,14 +375,11 @@ impl HudPass {
             if !matches!(slot, Some((_, cap)) if *cap >= need) {
                 let cap = need.next_power_of_two().max(4096);
                 *slot = Some((
-                    crate::made::buffer(
+                    crate::resources::buffer(
                         device,
-                        &wgpu::BufferDescriptor {
-                            label: Some("hud geometry"),
-                            size: cap,
-                            usage: usage | wgpu::BufferUsages::COPY_DST,
-                            mapped_at_creation: false,
-                        },
+                        "hud geometry",
+                        cap,
+                        usage | wgpu::BufferUsages::COPY_DST,
                     ),
                     cap,
                 ));

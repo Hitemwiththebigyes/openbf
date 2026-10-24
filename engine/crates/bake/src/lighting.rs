@@ -69,7 +69,7 @@ pub const DEFAULT_AMBIENT: [f32; 3] = [0.25, 0.25, 0.28];
 /// sRGB electro-optical transfer function, IEC 61966-2-1. Used rather than a
 /// plain 2.2 power because the textures these colours multiply are sampled
 /// through an sRGB view, which uses exactly this curve.
-fn srgb_to_linear(u: f32) -> f32 {
+pub(crate) fn srgb_to_linear(u: f32) -> f32 {
     let u = u.clamp(0.0, 1.0);
     if u <= 0.040_45 {
         u / 12.92

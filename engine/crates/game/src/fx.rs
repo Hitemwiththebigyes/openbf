@@ -470,8 +470,8 @@ impl Fx {
                 ((rng.float() * n as f32) as usize).min(n - 1)
             }
         };
-        let name = look.effects[pick].clone();
-        if !self.spawn(&name, Frame::at(pos)) {
+        let name = &look.effects[pick];
+        if !self.spawn(name, Frame::at(pos)) {
             return false;
         }
         // The effect's own sound (`"<name> defer"`, re-weapon-sounds.md §3.1,
@@ -610,24 +610,24 @@ impl Fx {
                     let look = sim
                         .weapon_classes
                         .get(*weapon_class as usize)
-                        .and_then(|w| w.ordnance.impact.clone());
+                        .and_then(|w| w.ordnance.impact.as_ref());
                     // No look: a fixture weapon built without the class db
                     // — the showcase rifle's impact on every surface.
-                    let name = match &look {
-                        Some(l) => l.effect(*surface).map(str::to_owned),
-                        None => Some(self.impact_name().to_owned()),
+                    let name = match look {
+                        Some(l) => l.effect(*surface),
+                        None => Some(self.impact_name()),
                     };
                     if let Some(name) = name {
                         match vehicle {
                             Some(h) if *surface == Surface::Vehicle => {
-                                self.spawn_riding(&name, *pos, *h, sim);
+                                self.spawn_riding(name, *pos, *h, sim);
                             }
                             _ => {
-                                self.spawn(&name, Frame::at(*pos));
+                                self.spawn(name, Frame::at(*pos));
                             }
                         }
                     }
-                    if let Some(x) = look.as_ref().and_then(|l| l.explosion.as_ref()) {
+                    if let Some(x) = look.and_then(|l| l.explosion.as_ref()) {
                         self.explode(x, *pos - *dir * EXPLOSION_OFFSET);
                     }
                 }
@@ -662,10 +662,10 @@ impl Fx {
                         .get(*weapon_class as usize)
                         .and_then(|w| w.ordnance.sticky.as_ref())
                         .and_then(|s| s.explosion.as_ref())
-                        .map(|x| x.look.clone());
+                        .map(|x| &x.look);
                     match look {
                         Some(look) if baked => {
-                            self.explode(&look, *pos);
+                            self.explode(look, *pos);
                         }
                         _ => self.puffs.push(Puff {
                             pos: *pos + Vec3::Y * 0.5,

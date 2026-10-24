@@ -4,14 +4,14 @@ title: Hash-annotated decompiles: every FNV constant in both PS2 decomps followe
 milestone: M0
 value: 3
 phase: build
-status: todo
+status: done
 deps:
-files: scripts/annotate_hashes.py (new), scripts/re_check.py
+files: scripts/annotate_hashes.py (new), scripts/re_check.py, scripts/tests/test_annotate_hashes.py (new)
 declares:
 needs:
 effort:
-branch:
-resume:
+branch: hashn
+resume: (private workflow note omitted)
 created: 2026-10-19
 ---
 ## Why
@@ -27,3 +27,8 @@ The decomps `analysis/SWBFRONT.ELF-decomp.c` / `SWBFRNT2.ELF-decomp.c`; name sou
 
 ## Notes
 Tooling only (no game code); value 3.
+## Planner checkpoint (2026-10-24 13:06 UTC)
+Fixture-first development is possible, but both full corpora, original name sources and the five real-property reader controls must be restored before acceptance. Keep annotation/name-query work separate from RECHK search normalization; no existing receipt is rewritten.
+
+## GitHub checkpoint recovery (2026-10-24)
+

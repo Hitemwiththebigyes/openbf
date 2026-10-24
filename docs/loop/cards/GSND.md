@@ -4,14 +4,14 @@ title: Game audio findings of cleanse 16: a hit plays the shooter's CURRENT weap
 milestone: M1
 value: 3
 phase: build
-status: todo
+status: blocked
 deps:
 files: engine/crates/game/src/event_sounds.rs,engine/crates/game/src/sounds.rs,engine/crates/game/src/engine_sound.rs,engine/crates/game/src/foley.rs,engine/crates/core/src/sim/state.rs
 declares:
 needs:
 effort:
 branch:
-resume:
+resume: 2026-10-24 13:28 UTC BLOCKED: restore 25 missing inputs in lead_tmp/gsnd_cloud/preflight.json; verify hover lifecycle and merged SPWS spawn rule; baseline Kamino 16/team seed 60; isolated fixes and original Acceptance plus all gates. Report reports/20261024_1328_card_GSND.md; next prompt lead_tmp/gsnd_cloud/next_prompt.md.
 created: 2026-10-15
 ---
 

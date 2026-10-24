@@ -1,20 +1,47 @@
 ---
 id: SPST
-title: A bot draws a POST, then a point of it: the PS2's AI picks its spawn post uniformly (BF1 FUN_00261e80) or by AISpawnWeight (BF2 FUN_002e7240, default 100) once per death and keeps it; the port draws one node from the pooled list, so a post with more nodes takes more spawns
+title: Verify post-then-node spawns after BSPN and OPNW: exact respawn shares, opening walker shares, all-map outcomes and walker post light
 milestone: M3
 value: 4
-phase: build
-status: todo
-deps: CWSP
-files: engine/crates/core/src/sim/spawn.rs,engine/crates/core/src/cp.rs,engine/crates/game/src/walk.rs,engine/crates/game/examples/round_to_outcome.rs
+phase: measure
+status: blocked
+deps: CWSP,BSPN,OPNW
+files: engine/crates/core/src/sim/spawn.rs, engine/crates/game/examples/round_to_outcome.rs
 declares: sweep; sim; arena
-needs:
+needs: restore baked maps/missions, local PS2 spawn evidence and approved GPU checks; OPNW opening implementation must land before final census
 effort:
 branch:
-resume:
+resume: 2026-10-24 08:25 UTC: planner reconciled BSPN/OPNW overlap; measure remaining SPST acceptance after OPNW, do not rebuild their production rules. Restore reports/20261024_0817_card_SPST.json inputs, verify current source/refs, reproduce exact 4/12-node 2000-respawn referee and mutation, opening/240s shares and walker counts, paired 8x32 outcomes and HOT1 light census. No acceptance run or closure. See engine/artifacts/loop/reports/20261024_0825_planner.md.
 created: 2026-10-02
 alpha: yes
 ---
+
+## Current scope (planner 2026-10-24 08:25 UTC)
+This is now a measurement and referee follow-up. Current source already has
+`spawn_posts`, `draw_spawn_post`, `keep_or_draw_spawn_post` and the weighted
+respawn path (`core/src/sim/spawn.rs:590-672`, `respawn_slot`), including BSPN's
+1/2/6-node, weight and retained-choice tests. These tests were inspected, not run
+here. The flat opening in `game/src/walk.rs:710-749` belongs to OPNW; SPST waits
+for that real implementation before its final opening census. The OPNW dependency
+is a measurement prerequisite, not a file-order hold.
+
+Keep all numbered acceptance below and the CWSP opening-walker bars. Reproduce
+the exact 4/12-node, 2000-respawn referee and flat-node mutation; the existing
+1/2/6-node test is related evidence, not its receipt. Add test/census code only
+in an isolated worktree if the required referee is missing. Do not implement
+another post-draw mechanism or opening wave. Report shares against the restored
+reference's actual weights (equal weights use uniform shares). Recheck the audited
+corrections in `analysis/re-command-walker-post.md` section 6.1 before interpreting
+the historical counts below. The HOT1 walker-light note first needs a diagnostic:
+measure it in battle. If the light is absent, transfer the original remedy to an
+explicit build follow-up with the live walker position/owner-colour check, add it
+as a dependency here and keep SPST blocked until that remedy lands and the HOT1
+check passes. File that follow-up before closing SPST; the original request to
+add a missing light is retained.
+
+The original premise and measurements below are historical. Missing maps,
+missions, raw PS2/tools evidence and approved GPU checks still block acceptance;
+neither BSPN's metadata nor this reconciliation closes SPST.
 
 ## Why
 Found by card CWSP's RE (2026-10-02, `analysis/re-command-walker-post.md` section 6, verifier-checked). On the PS2 an
@@ -37,8 +64,8 @@ them evenly over posts. Player-visible on every map (where each side appears), s
   half); on a map with one 13-node and one 4-node post it is 76 % / 24 % against the PS2's 50 / 50.
 
 ## Acceptance
-1. Referee first: a `core` test — two posts of 4 and 12 nodes, 2000 respawns: each post takes 50 % +- 3 % (today
-   25 / 75; keep that as the mutation check); a post with weight 1000 beside two of 100 takes 1000 / 1200.
+1. Referee first: a `core` test — two posts of 4 and 12 nodes, 2000 respawns: each post takes 50 % +- 3 % (the historical
+   flat-node rule gives 25 / 75; keep that as the mutation check); a post with weight 1000 beside two of 100 takes 1000 / 1200.
 2. `round_to_outcome`'s per-post spawn census (CWSP adds it) on BF1 HOT1, BF2 HOT1 and one map with unequal node
    counts: the opening wave and the first 240 s within the PS2's shares above (chi-square p > 0.05 against uniform).
 3. 8 seeds x 32 maps beside a null variant: finish counts and win splits reported per map; a map whose finish count

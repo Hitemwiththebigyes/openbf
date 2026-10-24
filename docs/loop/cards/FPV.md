@@ -4,14 +4,14 @@ title: The PS2's first-person view on foot: the class's FPM arms (FPM/<side>/<cl
 milestone: M1
 value: 3
 phase: re
-status: todo
+status: blocked
 deps:
 files:
 declares:
-needs:
+needs: Restore both corpora/discs and live first-person state/toolkit; settle view entry, camera and arm model/animation rules first.
 effort:
 branch:
-resume:
+resume: 2026-10-24 13:06 UTC: planner restoration hold, 6 exact named inputs absent. Restore both corpora/discs and live first-person state/toolkit; settle view entry, camera and arm model/animation rules first. Original measurable acceptance unchanged. reports/20261024_1306_planner.md; lead_tmp/planner_20261024_1303/preflight.json.
 created: 2026-10-22
 ---
 ## Why

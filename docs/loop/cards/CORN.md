@@ -4,14 +4,14 @@ title: Aim points in walls: the corner search walks a leg THROUGH a barrier it i
 milestone: M3
 value: 4
 phase: build
-status: parked
+status: blocked
 deps: DOORS
 files: engine/crates/core/src/nav.rs, engine/crates/core/src/nav/tests.rs
 declares: sim; sweep; arena
-needs: maintainer - the RTX is lost (gates gpu ADAPTER LOST); after the reboot clear this and a land job takes the branch
+needs: cloud prerequisites: branch corn, baked assets, missions and reference evidence absent
 effort: high
 branch: corn
-resume: branch corn fd24062 built + ci green; gates2 (GPU-free) ran ci/sim/sweep/fidelity/arena_flat, NOT arena maps + leak (STOP 08:33) - run gates.py --auto on the branch once the RTX is back, then land.py CORN
+resume: (private workflow note omitted)
 created: 2026-10-12
 alpha: yes
 ---
@@ -113,3 +113,4 @@ values, 1 better), arena_flat PASS; arena maps + leak NOT run (STOP at 08:33, st
   firefight (`hold` 2 / `fight` within a second) - count them out before reading a door's stall number.
 - `core/src/nav.rs` is also OBSV2's / TGAP's / FLNK's neighbourhood (`route.rs` calls the search): check what is in
   flight before building.
+

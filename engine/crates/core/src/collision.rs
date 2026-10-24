@@ -41,9 +41,10 @@
 //!
 //! STILL NOT DONE: the VEHICLE subset ([`Layers::VEHICLE`] is reserved and
 //! never set — P7; vehicles meet no hull, [`HullFilter::Static`]), the building/terrain subsets (nothing queries them), and
-//! the aim-assist acquisition ray, which passes flag 0 and therefore tests
-//! ALL bodies (RE §4, `FUN_00223850`) — when it is built it passes
-//! [`Layers::ALL`].
+//! the acquisition mask discrepancy: the PS2 aim-assist acquisition ray
+//! passes flag 0 and tests ALL bodies (RE §4, `FUN_00223850`), while
+//! `Sim::acquire_magnet` currently uses `perception::los_seat`, which queries
+//! [`Layers::ORDNANCE`] for both acquisition and the reticle pick.
 //!
 //! Formats and conventions of the baked data: `mungefs::coll` /
 //! `mungefs::terrain` (measured by the lead — RE_LOG 2026-09-01 coll/prim/CUTR

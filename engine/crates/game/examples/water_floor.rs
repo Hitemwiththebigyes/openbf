@@ -122,15 +122,18 @@ impl Row {
 /// The wet footprint of a baked water plane: one XZ box per drawn triangle.
 ///
 /// The bake emits two triangles per wet cell over a shared axis-aligned
-/// lattice, so a triangle's XZ bounding box is exactly the half-cell it
-/// covers and a point is wet iff some box contains it. Only INDEXED vertices
+/// lattice. Each triangle's XZ bounding box covers the full wet square, so
+/// each square contributes two equal footprints. A point is wet iff some
+/// box contains it. Only INDEXED vertices
 /// count — the lattice itself spans the whole map whether or not a cell is wet.
 fn wet_boxes(glb: &Path) -> Vec<[f32; 4]> {
     let Ok(mesh) = game::assets::load_glb(glb) else {
         return Vec::new();
     };
     mesh.indices
-        .chunks_exact(3)
+        .as_chunks::<3>()
+        .0
+        .iter()
         .filter_map(|t| {
             let p: Vec<[f32; 3]> = t
                 .iter()
@@ -241,28 +244,15 @@ fn print_rows<R: std::borrow::Borrow<Row>>(rows: &[R]) {
 
 /// One map's table. Returns (rows printed, rows flagged).
 fn run_map(key: &str, dir: &Path) -> (usize, usize) {
-    let mut scene = match game::assets::load_scene(dir) {
+    let (scene, load) = match game::assets::load_battle_scene(dir, "con") {
         Ok(s) => s,
         Err(e) => {
             println!("{key}: LOAD FAILED {e:#}");
             return (0, 0);
         }
     };
-    // BF2 keeps its command posts in a mode sublevel (as the sweep does).
-    scene.apply_mode_layer("con");
-    // Beside the map directories, not inside one — as the game and the sweep
-    // join it.
-    let common_dir = dir
-        .parent()
-        .unwrap_or(dir)
-        .join(format!("common_{}", scene.manifest.source_game));
-    if common_dir.join("common.ron").exists() {
-        match game::assets::load_common(&common_dir) {
-            Ok(c) => {
-                scene.merge_common(c);
-            }
-            Err(e) => println!("{key}: common assets unreadable: {e:#}"),
-        }
+    if let Some((_, Err(e))) = load.common {
+        println!("{key}: common assets unreadable: {e:#}");
     }
     let Some(water) = scene.manifest.water.clone() else {
         println!("{key}: no water plane");
@@ -314,6 +304,7 @@ fn run_map(key: &str, dir: &Path) -> (usize, usize) {
                 a[3].max(b[3]),
             ]
         });
+    // Legacy stdout calls these "drawn quads"; boxes.len() counts triangle footprints.
     println!(
         "\n{key}: water {:+.2} m ({}), {} drawn quads of {cell:.0} m over x {:.0}..{:.0} z {:.0}..{:.0}, \
          {wet_instances} instances in a wet cell of {}; probe [auth+{PROBE_UP}, auth−{PROBE_DOWN}], \

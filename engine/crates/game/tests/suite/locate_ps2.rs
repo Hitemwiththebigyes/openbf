@@ -154,14 +154,33 @@ fn locate_gives_what_the_ps2_stored_for_every_live_goal() {
             Err(e) => bad.push(e),
         }
     }
+    report_results(ok, skipped, rows.len(), &bad);
+}
+
+fn report_results(ok: usize, skipped: usize, total: usize, bad: &[String]) {
     println!(
         "locate vs the PS2's stored goals: {ok} of {} agree, {skipped} skipped (no graph), {} differ",
-        rows.len() - skipped,
+        total - skipped,
         bad.len()
     );
-    if ok == 0 {
+    if ok == 0 && bad.is_empty() {
         eprintln!("SKIP: no baked maps");
         return;
     }
     assert!(bad.is_empty(), "{} differ:\n{}", bad.len(), bad.join("\n"));
+}
+
+#[test]
+fn locate_reporting_skips_only_when_no_rows_were_compared() {
+    report_results(0, 1004, 1004, &[]);
+    report_results(1, 1003, 1004, &[]);
+    let all_bad = vec!["synthetic mismatch".to_owned(); 1004];
+    assert!(std::panic::catch_unwind(|| report_results(0, 0, 1004, &all_bad)).is_err());
+    let bad = vec!["synthetic mismatch".to_owned()];
+    for (ok, skipped) in [(0, 1003), (1, 1002)] {
+        assert!(
+            std::panic::catch_unwind(|| report_results(ok, skipped, 1004, &bad)).is_err(),
+            "available failing rows must fail even when none agree"
+        );
+    }
 }

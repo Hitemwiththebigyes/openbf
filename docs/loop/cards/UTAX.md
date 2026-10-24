@@ -4,16 +4,18 @@ title: BF2 Utapau (showcase): the Rebels are trapped at their own base - bots at
 milestone: M3
 value: 5
 phase: build
-status: parked
+status: blocked
 deps:
 files: engine/crates/core/src/sim/bounds.rs, engine/crates/game/tests/suite/nav_walls.rs, engine/CRATES.md
 declares: sweep; arena; sim
-needs: maintainer - the RTX (ADAPTER LOST): reboot, then clear needs; a land job takes it
+needs: cloud prerequisites: branch utax, baked assets, missions and reference evidence absent
 effort:
 branch: utax
-resume: land: python3 scripts/land.py UTAX once nvidia-smi sees the RTX; GPU-free gates PASS (lead_tmp/utax/gates2)
+resume: (private workflow note omitted)
 created: 2026-10-22
 alpha: yes
+first: 1
+defer:
 ---
 ## Why
 Card WINS (2026-10-22): on main 3ae13d3 the Imperials win BF2 Utapau (a showcase map) 16 of 16 seeds in the fidelity
@@ -64,3 +66,4 @@ maps (nav_walls' pinned table: uta1 8 -> 7, the rest unchanged); 64 -> 61 stays 
 - Gates GPU-free (`lead_tmp/utax/gates2/SUMMARY.md`): sim, simhash, arena, leak, ordnance, protect, map PASS; fidelity PASS
   (better: recycled all maps 46 -> 33); sweep MOVED on bf2_uta1 only (declared); ci 1833/0/53 (+1 test). `--auto`
   (`gates/`) refuses: gpu ADAPTER LOST.
+

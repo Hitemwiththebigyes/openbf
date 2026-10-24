@@ -1,7 +1,6 @@
 //! An explosion's area damage (card VDTH, `analysis/re-vehicle-death.md`
-//! [O]): the ONE function every blast goes through — today a destroyed
-//! vehicle's `ExplosionName` ([`Sim::destroy_vehicle`]), later any ordnance
-//! that explodes. B1 FUN_002701a0 / B2 FUN_0030c8f8 (§2): gather at most 20
+//! [O]): the ONE function every blast goes through — destroyed vehicles
+//! ([`Sim::destroy_vehicle`]), exploding bolts and grenades. B1 FUN_002701a0 / B2 FUN_0030c8f8 (§2): gather at most 20
 //! objects in an axis-aligned box, keep those a ray from the blast reaches
 //! past buildings and terrain, and hand each the class's damage times the
 //! falloff on its sphere (§3) through the bolt's TakeDamage (§4). A soldier
@@ -89,7 +88,7 @@ impl Sim {
             let d = (c - pos).abs();
             d.x <= r + w && d.y <= r + w && d.z <= r + w
         };
-        let mut gathered: Vec<(Victim, Vec3, f32)> = Vec::new();
+        let mut gathered: Vec<(Victim, Vec3, f32)> = Vec::with_capacity(BLAST_GATHER_MAX);
         for (i, u) in self.units.iter().enumerate() {
             // A corpse's body is in the world too (card KNOCK, §3).
             if !(u.alive || u.body)
@@ -101,9 +100,15 @@ impl Sim {
             let c = u.soldier.pos + Vec3::Y * lift;
             if overlaps(c, w) {
                 gathered.push((Victim::Unit(self.handle(i)), c, w));
+                if gathered.len() == BLAST_GATHER_MAX {
+                    break;
+                }
             }
         }
         for (h, v) in self.alive_vehicles() {
+            if gathered.len() == BLAST_GATHER_MAX {
+                break;
+            }
             if source == Some(h) {
                 continue;
             }
@@ -115,7 +120,6 @@ impl Sim {
                 gathered.push((Victim::Vehicle(h), c, w));
             }
         }
-        gathered.truncate(BLAST_GATHER_MAX);
         let attacker_is_player = attacker
             .and_then(|a| self.units.get(a.index as usize).filter(|u| u.gen == a.gen))
             .is_some_and(|u| u.is_player);

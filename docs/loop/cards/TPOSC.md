@@ -4,14 +4,14 @@ title: Positions at posts: Capture and Guard take a reserved position of TPOS's 
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: blocked
 deps: TPOS
 files: engine/crates/core/src/ai/route.rs, engine/crates/core/src/ai/tactic.rs, engine/crates/core/src/ai/behave.rs, engine/crates/core/src/commander.rs
 declares: sim; sweep; arena
-needs:
+needs: environment restoration: real baked assets/missions and named TPOS/BOTD raw census inputs for current-main capture/guard baseline and acceptance
 effort:
 branch:
-resume:
+resume: 2026-10-24 09:18 UTC: planner encoded restoration hold; restore lead_tmp/tposc_20261024_0846/inventory.json inputs, reproduce both 8-seed blocks x32 maps on current main and trace one capture/guard case before isolated build. Keep Fight B12 unchanged. reports/20261024_0913_planner.md.
 created: 2026-10-16
 alpha: yes
 ---

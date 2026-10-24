@@ -4,14 +4,14 @@ title: BF2's unit voice at the post: the PS2 lets an AI speak only at detail lev
 milestone: M3
 value: 4
 phase: re
-status: todo
+status: blocked
 deps: UVO2
 files: engine/crates/game/src/vo.rs, engine/crates/game/src/announce.rs
 declares:
-needs:
+needs: cloud BF2 primary RE inputs and original voice census/captures unavailable
 effort:
 branch:
-resume:
+resume: Cloud RE checkpoint 2026-10-24 09:01 UTC: reports/20261024_0901_card_UVO3.md; inventory lead_tmp/uvo3_20261024_0858/. Later AITHK already documents FUN_002b7b00 B2:239522-239661 and ctor FUN_002b6c20 B2:238841 (re-ai-think-rate.md sections 3/6/9; re-soldier-ai.md 1.3). Restore BF2 ELF/decomp, aithk/sair captures+verdicts and UVO2/usnd census inputs; rerun writer/default/constant/caller checks and independent verifier before updating re-unit-chatter.md 3.3 step 4. Keep phase re until that passes; then measure current-main post/fight baselines, isolated gate plus merged UVO4 measured pieces, original acceptance and gates. No source change or new PS2 verification this run.
 created: 2026-10-16
 alpha: yes
 ---
@@ -40,3 +40,18 @@ Card UVO2's census beside a front-line team-mate (`lead_tmp/uvo2/census/tab_figh
 
 ### UVO4 acceptance (added to the above)
 - The fight census (UVO2's run.sh + tab.py with `VO_FOLLOW=20` and `vo_follow.patch`): VO lines a minute within 30 % of the PS2's on UTA1 and MYG1 (at least 5.8 / 7.7), or each remaining gap named with its own number.
+
+## Cloud RE checkpoint (2026-10-24)
+- Later research already names the setter: `analysis/re-ai-think-rate.md` 3 and
+  `analysis/re-soldier-ai.md` 1.3 cite `FUN_002b7b00` (B2:239522-239661); the
+  constructor's level 3 is cited at B2:238841. These are existing research claims,
+  not a new primary verification by this worker. Start there rather than repeating
+  the original offset-only search. AITHK's section 9 lists its checks and verifier.
+- Both BF2 primary inputs, AITHK/SAIR's raw captures and verdicts, and UVO2/USND's
+  original census helpers/rows are missing here; `re_check.py fn` and `word` each
+  exit 1 on their missing input. Inventory: `lead_tmp/uvo3_20261024_0858/inventory.json`.
+  Keep phase `re` until the writer/default/constant checks and independent verifier
+  can run. No new [V]/[O] claim, distance approximation, source edit or rate measured.
+- AITHK's shared sim detail-level implementation is also blocked. Coordinate reuse
+  when available; UVO3 does not require its whole scheduling/performance change.
+  All original UVO3 and merged UVO4 acceptance bars remain in force.

@@ -4,14 +4,14 @@ title: The far fire that is left after CLSE4's two rules: snipers deal a third o
 milestone: M3
 value: 4
 phase: measure
-status: todo
-deps: CLSE4
+status: blocked
+deps: CLSE4,SNPR
 files: engine/crates/core/src/ai/gunner_foot.rs,engine/crates/core/src/ai/behave.rs
 declares: sweep; arena; sim
-needs:
+needs: environment — restore baked maps/missions, PS2 corpus and CLSE/CLSE4/audit/SNPR tools and captures; PCSX2 capture environment unavailable
 effort:
 branch:
-resume:
+resume: Cloud preflight 2026-10-24: blocked before measurement on 3d487d9; restore assets_baked, missions, extracted/discs and ELF corpus, lead_tmp/clse, clse4, audit-clse4, audit-clse2 and snpr plus PCSX2 tools/reference states. Then re-take current-main post-SNPR tables/budgets and two extra PS2 captures/map, run null-controlled candidate 17 BF2 maps x 8 seeds paired tables and 256-round completion; measure PS2 stand only, preserve the maintainer SNPR design. See reports/20261024_0731_card_CLSE5.md.
 created: 2026-10-12
 alpha: yes
 domain: ai

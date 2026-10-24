@@ -4,14 +4,14 @@ title: A flyer's posed nodes are drawn: the snowspeeder's FinAnimation flaps (tu
 milestone: M2
 value: 3
 phase: re
-status: todo
+status: blocked
 deps:
 files: engine/crates/game/src/viewer/vehicles.rs
 declares:
-needs:
+needs: Restore vposw flyer tables/replay, BF2 flyer states and side bakes; recheck the corrected flyer-table offsets and measure the port speed setpoint before build.
 effort:
 branch:
-resume:
+resume: 2026-10-24 14:22 UTC: planner restoration hold; Restore vposw flyer tables/replay, BF2 flyer states and side bakes; recheck the corrected flyer-table offsets and measure the port speed setpoint before build. Original measurable acceptance retained. reports/20261024_1422_planner.md; lead_tmp/planner_20261024_1417/preflight.json.
 created: 2026-10-22
 ---
 ## Why

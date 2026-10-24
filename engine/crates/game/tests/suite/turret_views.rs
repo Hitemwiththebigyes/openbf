@@ -13,12 +13,13 @@
 //!    rows (`lead_tmp/vturd/ps2/{nab1_gty,myg1_zoom}_rows.bin`, the turret's
 //!    yaw / pitch and the camera matrix; `lead_tmp/vturz/mk_zoom_pairs.py`).
 //!
-//! All data-gated on the bake (the second also on a GPU, for the scene's
-//! draws), as `tests/suite/turret_pose.rs`.
+//! The real-scene cases require bakes (the draw-list case also a GPU), as
+//! `tests/suite/turret_pose.rs`. Synthetic input and class-parser controls
+//! below run without either prerequisite (VTZT M2/M3).
 
 use core::sim::{buttons, PadState};
 use core::vehicle::VehicleHandle;
-use glam::Vec3;
+use glam::{Mat4, Vec3};
 
 struct World {
     scene: game::assets::Scene,
@@ -85,7 +86,7 @@ const CASES: [(&str, [&str; 2], &str); 2] = [
 ];
 
 /// Acceptance 1. The player seated in a turret holds the stick right and up
-/// for half a second: the camera's yaw and pitch move by what the seat's
+/// for one second: the camera's yaw and pitch move by what the seat's
 /// look moved (the building does not turn), and both moved.
 /// Mutation: the seat camera fed no look -> it fails.
 #[test]
@@ -202,18 +203,24 @@ fn the_zoomed_gunner_does_not_see_his_own_turret() {
 
         let mut r = render::Renderer::new_headless(64, 64).expect("headless renderer");
         let mut gpu = game::viewer::upload_scene(&mut r, &w.scene).expect("upload");
-        gpu.pose_turrets(&w.walk.sim, &w.build.seats);
         let at = |h: VehicleHandle, w: &World| w.walk.sim.vehicle(h).unwrap().pos;
-        let whole = |gpu: &game::viewer::SceneGpu, p: Vec3| {
-            gpu.turrets
+        // Identify the building before posing, from its manifest placement.
+        // Do not take the expected range from TurretDraw::whole: that is
+        // the field under test (VTZT M1 drops its first draw).
+        let building = |p: Vec3| {
+            let inst = w
+                .scene
+                .manifest
+                .instances
                 .iter()
-                .find(|t| t.pos == p)
-                .expect("the building is drawn with a rig")
-                .whole
-                .clone()
+                .find(|i| i.class.eq_ignore_ascii_case(class) && Vec3::from(i.translation) == p)
+                .expect("the sim turret's manifest instance");
+            let model = game::viewer::instance_matrix(inst.rotation, inst.translation);
+            building_draws(&gpu.draws, model)
         };
-        let mine = whole(&gpu, at(hs[0], &w));
-        let theirs = whole(&gpu, at(hs[1], &w));
+        let mine = building(at(hs[0], &w));
+        let theirs = building(at(hs[1], &w));
+        gpu.pose_turrets(&w.walk.sim, &w.build.seats);
         assert!(!mine.is_empty() && !theirs.is_empty());
         let all = gpu.draws.len();
         // Does `viewer`'s view hold the draws of `range`? (the view's list
@@ -221,7 +228,9 @@ fn the_zoomed_gunner_does_not_see_his_own_turret() {
         let sees =
             |gpu: &game::viewer::SceneGpu, w: &World, viewer, range: &std::ops::Range<usize>| {
                 let d = gpu.view_draws(&w.walk.sim, viewer);
-                match gpu.hidden_for(&w.walk.sim, viewer) {
+                let hidden = gpu.hidden_for(&w.walk.sim, viewer);
+                assert_view_draws(&d, &gpu.draws, hidden.clone());
+                match hidden {
                     None => {
                         assert_eq!(d.len(), all);
                         true
@@ -235,7 +244,18 @@ fn the_zoomed_gunner_does_not_see_his_own_turret() {
         let fov_plain = w.walk.camera().fov_y;
         assert!(sees(&gpu, &w, player, &mine) && sees(&gpu, &w, bot, &mine));
 
-        tap(&mut w, buttons::ZOOM);
+        // Hold R3 across multiple updates: one press must toggle once.
+        for _ in 0..4 {
+            w.walk.step_tick(&[PadState {
+                buttons: buttons::ZOOM,
+                ..Default::default()
+            }]);
+            assert_eq!(
+                w.walk.sim.seat_zoom(player).map(|z| z.value),
+                Some(wc.zoom_min)
+            );
+        }
+        w.walk.step_tick(&[PadState::default()]);
         let z = w.walk.sim.seat_zoom(player).expect("R3 zooms the turret");
         assert_eq!((z.step, z.value), (0, wc.zoom_min));
         assert!(z.value > 1.0);
@@ -268,9 +288,12 @@ fn the_zoomed_gunner_does_not_see_his_own_turret() {
         // the class's FirstPersonFOV or the Controllable's 48 (re-zoom 5).
         let first = w.build.seats[w.walk.sim.vehicle(hs[0]).unwrap().class as usize]
             [usize::from(seat)]
-        .first_person_fov
-        .unwrap_or(48.0);
-        let want = 2.0 * ((first.to_radians() / 2.0).tan() * 0.7666 / z.value).atan();
+        .first_person_fov;
+        assert_eq!(
+            first, None,
+            "this real-class case checks the 48 degree default"
+        );
+        let want = 2.0 * ((48.0f32.to_radians() / 2.0).tan() * 0.7666 / z.value).atan();
         assert!(
             (cam.fov_y - want).abs() < 0.05f32.to_radians(),
             "{map}: zoomed fov {:.2} deg, the PS2's {:.2}",
@@ -488,4 +511,244 @@ fn the_zoomed_eye_is_where_the_ps2s_camera_stood() {
         worst.0,
         worst.1
     );
+}
+
+/// Check the returned commands, including the transforms that distinguish
+/// two buildings sharing a mesh, against the scene with only `hidden` removed.
+fn assert_view_draws(
+    actual: &[render::DrawCmd],
+    scene: &[render::DrawCmd],
+    hidden: Option<std::ops::Range<usize>>,
+) {
+    let expected: Vec<_> = scene
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !hidden.as_ref().is_some_and(|r| r.contains(i)))
+        .map(|(_, d)| d)
+        .collect();
+    assert_eq!(actual.len(), expected.len(), "view draw count");
+    for (i, (got, want)) in actual.iter().zip(expected).enumerate() {
+        assert_eq!(
+            (
+                got.mesh,
+                got.texture,
+                got.model,
+                got.color,
+                got.layer,
+                got.light,
+                got.cull,
+                got.cull_near,
+                got.lod,
+                got.fade,
+                got.lit
+            ),
+            (
+                want.mesh,
+                want.texture,
+                want.model,
+                want.color,
+                want.layer,
+                want.light,
+                want.cull,
+                want.cull_near,
+                want.lod,
+                want.fade,
+                want.lit
+            ),
+            "view draw {i} identity, transform and appearance"
+        );
+    }
+}
+
+#[test]
+fn own_view_draw_check_rejects_removing_a_different_equal_length_range() {
+    let scene: Vec<_> = (0..4)
+        .map(|i| {
+            render::DrawCmd::flat(
+                render::MeshHandle::default(),
+                [1.0; 4],
+                Mat4::from_translation(Vec3::new(i as f32, 0.0, 0.0)),
+            )
+        })
+        .collect();
+    assert_view_draws(&scene, &scene, None);
+    let correct = vec![scene[0], scene[3]];
+    assert_view_draws(&correct, &scene, Some(1..3));
+    for wrong in [&scene[..2], &scene[2..]] {
+        assert!(
+            std::panic::catch_unwind(|| assert_view_draws(wrong, &scene, Some(1..3))).is_err(),
+            "a view with the right count but the wrong buildings must fail"
+        );
+    }
+}
+
+/// All bind-pose draws at one manifest placement, independently of the
+/// turret's recorded hidden range. Equal meshes at other placements differ.
+fn building_draws(draws: &[render::DrawCmd], model: Mat4) -> std::ops::Range<usize> {
+    let indices: Vec<_> = draws
+        .iter()
+        .enumerate()
+        .filter_map(|(i, d)| {
+            (d.model == model
+                && d.cull_near.is_none()
+                && !matches!(d.lod, Some(l) if l.side == render::LodSide::Lowd))
+            .then_some(i)
+        })
+        .collect();
+    let start = *indices.first().expect("the placed building has draws");
+    let end = indices.last().unwrap() + 1;
+    assert_eq!(
+        indices,
+        (start..end).collect::<Vec<_>>(),
+        "building draws are contiguous"
+    );
+    start..end
+}
+
+/// Synthetic setter and input fixture: its authored 72 degrees deliberately
+/// differs from the 48 degree default. It makes no disc-census claim.
+fn fixture_walk(first: Option<f32>) -> game::walk::WalkSim {
+    use core::vehicle::gun::{Aimer, GunSetup, GunWeapon, Slew, Turn};
+    use core::vehicle::{SeatKind, VehicleKind, VehicleSpec};
+    use game::classdb::{fnv1a_lowercase as hash, ClassDb, ClassDef};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static SERIAL: AtomicUsize = AtomicUsize::new(0);
+    let mut props = vec![
+        (hash("BuildingSection"), "TURRET1".into()),
+        (hash("WeaponName"), "fixture_weapon".into()),
+    ];
+    if let Some(fov) = first {
+        props.push((hash("FirstPersonFOV"), fov.to_string()));
+    }
+    let defs = vec![ClassDef {
+        name: "fixture_turret".into(),
+        kind: "entc".into(),
+        base: "armedbuilding".into(),
+        props,
+    }];
+    let path = std::env::temp_dir().join(format!(
+        "openbf-vtzt-{}-{}.ron",
+        std::process::id(),
+        SERIAL.fetch_add(1, Ordering::Relaxed)
+    ));
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .unwrap();
+    std::io::Write::write_all(&mut file, ron::to_string(&defs).unwrap().as_bytes()).unwrap();
+    let mut db = ClassDb::default();
+    let loaded = db.load(&path);
+    std::fs::remove_file(&path).unwrap();
+    loaded.unwrap();
+    let ring = game::vehicle_class::seats(&db, "fixture_turret");
+    assert_eq!(ring.len(), 1);
+    assert_eq!(
+        ring[0].first_person_fov, first,
+        "authored key survives parsing"
+    );
+    let mut sim = core::sim::Sim::empty(1);
+    // Sim::empty defaults to BF2 ground rules (65 deg third-person FOV);
+    // WalkSim's fov_y_ps2 defaults to BF1's. Pick BF1 for both, as world()
+    // does from the manifest, so the zoom eases from 48 deg (VTZT).
+    sim.ground_rules = core::soldier::GroundRules::Bf1;
+    let mut weapon = core::weapon::WeaponClass::bf1_rifle();
+    weapon.zoom_min = 3.0;
+    weapon.zoom_max = 3.0;
+    weapon.zoom_rate = 0.0;
+    let weapon_class = sim.add_weapon_class(weapon);
+    let mut setup = game::vehicle_pads::seat_setup(&db, "fixture_turret", &ring, "bf1");
+    setup.guns = vec![Some(GunSetup {
+        weapons: vec![GunWeapon {
+            class: weapon_class,
+            infinite: true,
+            spare_clips: 0,
+        }],
+        fire_point: Vec3::Z,
+        pivot: Vec3::ZERO,
+        eye: Vec3::Y,
+        aimer: Aimer::default(),
+        pilot: false,
+        framed: false,
+        turn: Some(Turn::from_class(
+            None,
+            None,
+            (2.0, 0.5),
+            (10.0, 10.0),
+            Slew::Exp,
+        )),
+    })];
+    sim.seat_setup = vec![Some(setup)];
+    let h = sim.spawn_vehicle(&VehicleSpec {
+        kind: VehicleKind::Turret,
+        class: 0,
+        home_team: None,
+        neutral_when_empty: true,
+        spawn_pad: None,
+        pos: Vec3::ZERO,
+        yaw: 0.0,
+        max_health: 1000.0,
+        health_type: core::weapon::HealthType::Building,
+        seats: vec![SeatKind::Gunner(0)],
+    });
+    let t = game::walk::TeamTemplate::default_trooper();
+    let mut walk = game::walk::WalkSim::with_teams(sim, None, Vec3::ZERO, [t.clone(), t], None);
+    walk.vehicle_seats = vec![ring];
+    walk.fov_y_ps2 = game::walk::ps2_fov_y("bf1");
+    assert!(walk.sim.seat_unit(walk.player, h, 0));
+    walk.step_tick(&[PadState::default()]);
+    walk
+}
+
+#[test]
+fn held_r3_toggles_once_until_released() {
+    let mut walk = fixture_walk(None);
+    let held = PadState {
+        buttons: buttons::ZOOM,
+        ..Default::default()
+    };
+    for expected in [Some(3.0), None, Some(3.0)] {
+        for tick in 0..4 {
+            walk.step_tick(&[held]);
+            assert_eq!(
+                walk.sim.seat_zoom(walk.player).map(|z| z.value),
+                expected,
+                "held tick {tick}"
+            );
+        }
+        walk.step_tick(&[PadState::default()]);
+        assert_eq!(
+            walk.sim.seat_zoom(walk.player).map(|z| z.value),
+            expected,
+            "release preserves zoom"
+        );
+    }
+}
+
+#[test]
+fn authored_and_default_first_person_fovs_reach_the_zoomed_camera() {
+    for (authored, degrees) in [(None, 48.0f32), (Some(72.0), 72.0)] {
+        let mut walk = fixture_walk(authored);
+        walk.step_tick(&[PadState {
+            buttons: buttons::ZOOM,
+            ..Default::default()
+        }]);
+        for _ in 0..60 {
+            walk.step_tick(&[PadState::default()]);
+        }
+        assert_eq!(walk.sim.seat_zoom(walk.player).unwrap().value, 3.0);
+        let want = 2.0 * ((degrees.to_radians() / 2.0).tan() * 0.7666 / 3.0).atan();
+        let got = walk.camera().fov_y;
+        eprintln!(
+            "{authored:?}: zoomed camera FOV {:.3} deg, want {:.3} deg",
+            got.to_degrees(),
+            want.to_degrees()
+        );
+        assert!(
+            (got - want).abs() < 0.05f32.to_radians(),
+            "{authored:?}: camera FOV {:.3} deg, want {:.3} deg",
+            got.to_degrees(),
+            want.to_degrees()
+        );
+    }
 }

@@ -1,4 +1,5 @@
-//! The playtest black box (card BLKB) — DEV SCAFFOLDING, one module: delete
+//! The playtest black box (card BLKB) — DEV SCAFFOLDING: delete this module
+//! and its `blackbox/` helpers
 //! it (and its three call sites: `main/windowed.rs`, `examples/blackbox_read.rs`,
 //! `examples/round_to_outcome.rs`) when the game is playable for real.
 //!
@@ -53,6 +54,9 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Weak};
 
+mod rotating;
+pub use rotating::PREVIOUS;
+
 /// The file's schema version. 2 (card BLKF): the stop is asked along the
 /// steering's own direction (`walk*`), the hold / boarding fields, the build's
 /// commit, each trail's last tick. 3 (card SNDB): the sound rows. 4 (card
@@ -92,9 +96,6 @@ pub const ALARM_PUSH_SHARE: f32 = 0.6;
 pub const ALARM_EVERY: u64 = 120 * core::TICK_HZ as u64;
 /// Frame times kept for the header's frame-rate line.
 const FRAME_TIMES: usize = 240;
-/// Older snapshots kept beside `last.json`.
-pub const PREVIOUS: usize = 5;
-
 /// Is the black box on? Dev mode (on by default, `OPENBF_DEV=0` is off), and not `OPENBF_BLACKBOX=0`.
 pub fn switch(dev: Option<&str>, blackbox: Option<&str>) -> bool {
     crate::dev::flag(dev) && blackbox != Some("0")
@@ -693,15 +694,17 @@ impl Ring {
     }
 
     fn event(&mut self, row: EventRow) {
-        if self.events.len() == EVENTS_MAX {
-            self.events.pop_front();
-        }
-        self.events.push_back(row);
+        Self::push_event(&mut self.events, row);
     }
 
-    /// The one-shots the mixer was handed at `tick`, `loops` engine layers
-    /// looping; `handed` is left empty.
-    fn sounds_of(&mut self, tick: u64, handed: &mut Vec<Handed>, loops: usize) {
+    fn push_event(events: &mut VecDeque<EventRow>, row: EventRow) {
+        if events.len() == EVENTS_MAX {
+            events.pop_front();
+        }
+        events.push_back(row);
+    }
+
+    fn expire_sounds(&mut self, tick: u64) {
         while self
             .sounds
             .front()
@@ -709,6 +712,12 @@ impl Ring {
         {
             self.sounds.pop_front();
         }
+    }
+
+    /// The one-shots the mixer was handed at `tick`, `loops` engine layers
+    /// looping; `handed` is left empty.
+    fn sounds_of(&mut self, tick: u64, handed: &mut Vec<Handed>, loops: usize) {
+        self.expire_sounds(tick);
         self.sounding.retain(|end| *end > tick);
         for h in handed.drain(..) {
             let take = match self.take_ix.get(&h.path) {
@@ -862,6 +871,7 @@ impl Ring {
         let sim = &walk.sim;
         let t = sim.tick;
         self.tick = t;
+        self.expire_sounds(t);
         self.events_of(sim);
         let human = sim
             .units
@@ -897,30 +907,27 @@ impl Ring {
         if self.prev_stuck.len() < sim.units.len() {
             self.prev_stuck.resize(sim.units.len(), 0);
         }
-        let mut stuck: [Option<(i32, i32, [f32; 3])>; 8] = [None; 8];
-        let mut n = 0;
         let f = self.frames.next();
         f.tick = t;
         f.units.clear();
         for (h, u) in sim.alive_units() {
             let p = tidy(Probe::of(sim, h, u, t, true));
             let was = std::mem::replace(&mut self.prev_stuck[h.index as usize], p.stuck);
-            if was < STUCK_EVENT_TICKS && p.stuck >= STUCK_EVENT_TICKS && n < stuck.len() {
-                stuck[n] = Some((p.id as i32, p.body, p.pos));
-                n += 1;
+            if was < STUCK_EVENT_TICKS && p.stuck >= STUCK_EVENT_TICKS {
+                Self::push_event(
+                    &mut self.events,
+                    EventRow {
+                        tick: t,
+                        kind: Ev::Stuck,
+                        a: p.id as i32,
+                        b: p.body,
+                        c: -1,
+                        pos: p.pos,
+                        text: String::new(),
+                    },
+                );
             }
             f.units.push(p);
-        }
-        for (a, b, pos) in stuck.into_iter().flatten() {
-            self.event(EventRow {
-                tick: t,
-                kind: Ev::Stuck,
-                a,
-                b,
-                c: -1,
-                pos,
-                text: String::new(),
-            });
         }
     }
 
@@ -972,27 +979,21 @@ impl Ring {
             }
         }));
         w.vehicles.clear();
-        w.vehicles.extend(
-            sim.vehicles
-                .iter()
-                .enumerate()
-                .filter(|(_, v)| v.alive)
-                .map(|(i, v)| {
-                    let mut riders = [-1; 6];
-                    for (r, s) in riders.iter_mut().zip(&v.seats) {
-                        *r = s.occupant.map_or(-1, |o| o.index as i32);
-                    }
-                    VehicleRow {
-                        id: i as u32,
-                        class: v.class,
-                        kind: v.kind as u8,
-                        team: v.team.map_or(-1, |t| t as i8),
-                        pos: r2v(v.pos.to_array()),
-                        hp: r2(v.health.cur),
-                        riders,
-                    }
-                }),
-        );
+        w.vehicles.extend(sim.alive_vehicles().map(|(h, v)| {
+            let mut riders = [-1; 6];
+            for (r, s) in riders.iter_mut().zip(&v.seats) {
+                *r = s.occupant.map_or(-1, |o| o.index as i32);
+            }
+            VehicleRow {
+                id: h.index,
+                class: v.class,
+                kind: v.kind as u8,
+                team: v.team.map_or(-1, |t| t as i8),
+                pos: r2v(v.pos.to_array()),
+                hp: r2(v.health.cur),
+                riders,
+            }
+        }));
         w.doors.clear();
         w.doors.extend(sim.doors.iter().map(|d| r2(d.open)));
     }
@@ -1566,7 +1567,8 @@ impl BlackBox {
     pub fn write(&mut self, reason: &str, walk: Option<&WalkSim>, wait: bool) -> PathBuf {
         let snap = self.snapshot(reason, walk, None);
         let dir = self.dir.clone();
-        // One writer at a time: the rotation is not for two.
+        // Bound the hotkey to one worker. The rotation also serializes with
+        // the panic hook, which does not pass through this join.
         if let Some(h) = self.writer.take() {
             let _ = h.join();
         }
@@ -1612,23 +1614,8 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 /// Write `snap` as `<dir>/last.json`, the file that was there becoming
 /// `prev1.json`, that one `prev2.json`, up to [`PREVIOUS`].
 pub fn write_rotating(dir: &Path, snap: &Snapshot) -> std::io::Result<PathBuf> {
-    std::fs::create_dir_all(dir)?;
     let bytes = serde_json::to_vec(snap).map_err(std::io::Error::other)?;
-    let prev = |k: usize| dir.join(format!("prev{k}.json"));
-    let last = dir.join("last.json");
-    // The new file is whole before anything moves.
-    let tmp = dir.join("last.tmp");
-    std::fs::write(&tmp, &bytes)?;
-    for k in (1..PREVIOUS).rev() {
-        if prev(k).exists() {
-            std::fs::rename(prev(k), prev(k + 1))?;
-        }
-    }
-    if last.exists() {
-        std::fs::rename(&last, prev(1))?;
-    }
-    std::fs::rename(&tmp, &last)?;
-    Ok(last)
+    rotating::write(dir, &bytes)
 }
 
 /// Write `snap` as `path`, no rotation (a headless run's own file).
@@ -1689,6 +1676,50 @@ mod tests {
         let mut w = WalkSim::new(7, glam::Vec3::ZERO, None);
         w.spawn_dummy_targets();
         w
+    }
+
+    #[test]
+    fn every_stuck_crossing_in_a_frame_is_recorded_once() {
+        let mut w = walk();
+        let mut ids = Vec::new();
+        for i in 0..12 {
+            let h = w
+                .sim
+                .spawn(&core::unit::UnitSpec::trooper(
+                    1,
+                    glam::Vec3::new(i as f32, 0.0, 0.0),
+                ))
+                .expect("spawn");
+            w.sim.units[h.index as usize].ai.route = Some(core::ai::Route {
+                stuck_run: STUCK_EVENT_TICKS,
+                ..core::ai::Route::default()
+            });
+            ids.push(h.index as i32);
+        }
+        let mut ring = Ring::new(meta(), Names::default(), Vec::new());
+        ring.unit_frame(&w.sim, 1);
+        let stuck = |ring: &Ring| {
+            ring.events
+                .iter()
+                .filter(|e| e.kind == Ev::Stuck)
+                .map(|e| e.a)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(stuck(&ring), ids, "all twelve crossings survive");
+        ring.unit_frame(&w.sim, 2);
+        assert_eq!(stuck(&ring), ids, "a continuing stall is not another edge");
+        let route = &mut w.sim.units[ids[0] as usize].ai.route;
+        route.as_mut().unwrap().stuck_run = 0;
+        ring.unit_frame(&w.sim, 3);
+        w.sim.units[ids[0] as usize]
+            .ai
+            .route
+            .as_mut()
+            .unwrap()
+            .stuck_run = STUCK_EVENT_TICKS;
+        ring.unit_frame(&w.sim, 4);
+        ids.push(ids[0]);
+        assert_eq!(stuck(&ring), ids, "a new stall gets its own event");
     }
 
     /// Dev mode off, or `OPENBF_BLACKBOX=0` in it: no recorder — no ring, no
@@ -2009,6 +2040,51 @@ mod tests {
         // The lone start is listed (by its hash: no name known), not as an overload.
         assert!(d.contains(&format!("{step:08x}  gain 0.90")), "{d}");
         assert!(d.contains("m/sounds/1/a.wav"), "{d}");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn silence_expires_sound_rows_at_the_window_boundary() {
+        let mut w = walk();
+        let dir = scratch("sound-silence");
+        let mut bb = BlackBox::start(true, meta(), &w, Vec::new(), dir.clone()).unwrap();
+        bb.sound_names(
+            HashMap::from([(1, "old".into()), (2, "recent".into())]),
+            PathBuf::from("/baked"),
+        );
+        let handed = |hash, path: &str| Handed {
+            hash,
+            path: PathBuf::from("/baked").join(path),
+            gain: 0.7,
+            ears: (0.35, 0.35),
+            pitch: 1.0,
+            dist: 0.0,
+            secs: 1.0,
+        };
+        bb.sounds(
+            100,
+            &mut vec![handed(1, "old.wav"), handed(1, "old.wav")],
+            0,
+        );
+        bb.sounds(101, &mut vec![handed(2, "recent.wav")], 0);
+        for (tick, rows) in [
+            (100 + SOUND_TICKS - 1, 3),
+            (100 + SOUND_TICKS, 1),
+            (101 + SOUND_TICKS, 0),
+        ] {
+            w.sim.tick = tick;
+            bb.tick(&w, None);
+            bb.sounds(tick, &mut Vec::new(), 0);
+            let snap = bb.snapshot("manual", Some(&w), None);
+            assert_eq!(snap.sounds.len(), rows, "tick {tick}");
+            if rows == 1 {
+                assert_eq!(snap.names.takes, ["recent.wav"]);
+                assert_eq!(snap.sounds[0].take, 0);
+                let digest = sound_digest(&snap, None);
+                assert!(digest.contains("recent"), "{digest}");
+                assert!(!digest.contains("OVERLOAD"), "{digest}");
+            }
+        }
         let _ = std::fs::remove_dir_all(dir);
     }
 

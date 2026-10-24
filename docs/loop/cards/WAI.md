@@ -96,7 +96,6 @@ walker-vehicle contact); the 20 % bail-out (card VBAIL, hover and walker togethe
   If the RE session cannot get the PS2 numbers in 1, the card is `todo` with `resume:` naming what blocked it - not
   `parked` (the picker reads `parked` as a branch waiting to land; card LRES).
 
-
 ## Result (2026-10-02, landed bbdd58c; report `reports/20261002_0335_card_WAI.md`)
 - Acceptance 1 PASS (145 / 145 rows, worst 3.45e-6). 2 PASS (AT-ST and BF1 class 0.000 deg at 5.000 m/s; spider median
   4.84 deg, 3.76 m/s). 3: BF2 HOT1 1 of the PS2's 2 at 60 s, BF1 NAB1 kaadus 0-2 against 1-2, BF2 GEO1 spiders 2/2;

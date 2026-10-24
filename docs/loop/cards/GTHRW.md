@@ -4,14 +4,14 @@ title: The grenade throw is shown: the PS2's throw clip per class and game, play
 milestone: M1
 value: 4
 phase: build
-status: todo
+status: blocked
 deps:
 files: engine/crates/game/src/animator.rs,engine/crates/game/src/soldier_vis.rs,engine/crates/game/src/animator/tests.rs,engine/crates/game/src/animator/census.rs,engine/crates/core/src/weapon.rs
 declares:
-needs:
+needs: environment restoration: restore audit-gthrw 22-throw raw/replay inputs, gthrw strips, real class/animation bakes and missions
 effort:
 branch:
-resume: build from analysis/re-grenade-throw-anim.md section 7 (items 1-5 and 7) AS CORRECTED by its AUDIT section 10 (4ae6a77): BF1 legs per update (rejoin on stop), BF2 legs only from a still first update with movement id 0 (crouched over 1 s keeps the kneel), BF1's held-L1 reload clip ported or named a deviation, the release phase 0.300 / 0.533; PS2 rows to replay: engine/artifacts/lead_tmp/audit-gthrw/ps2/decoded.json (22 throws; replays wf/M1-bf1-replay/replay.py, wf/M2-bf2-replay/replay.py) and lead_tmp/gthrw/ps2 strips. Fill declares from the branch gates (expected: no golden shows a throw; no sim / sweep move - the change is visual, plus a parsed OffhandWeapon flag)
+resume: 2026-10-24 09:20 UTC: planner prerequisite census; no implementation. Restore this card's inputs in lead_tmp/planner_20261024_0913/queue_preflight.json, recheck original acceptance/current-main baseline, then loopctl start for isolated build. Full CI and required gates remain; reports/20261024_0913_planner.md.
 created: 2026-10-21
 alpha: yes
 ---
@@ -60,3 +60,4 @@ not have: card FPV.
 - RE: the clip the PS2 picks for a throw per weapon / class (both games), the layer and the time the grenade leaves the
   hand; then built: a picture strip per game of a throw (third person, and first person), the PS2's beside it; a test
   that a throw sets the throw clip on the upper layer for its duration.
+

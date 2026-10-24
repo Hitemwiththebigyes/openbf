@@ -969,3 +969,34 @@ fn thrown_states_take_the_thrown_clips() {
         assert!(bf2::simple_pair(sp.name()).is_some(), "{}", sp.name());
     }
 }
+
+/// The census measures feet in world units, using the animator's actual clock.
+#[test]
+fn census_slide_accounts_for_root_scale_and_matches_playback() {
+    for scale in [1.0, 1.15, 2.0, 0.0, -1.0] {
+        let effective = if scale > 0.0 { scale } else { 1.0 };
+        let speed = 3.0 * effective;
+        let mut rig = rig_bf1();
+        rig.root[WALK] = Some([3.0, 3.0]);
+        let mut run = Run::new(rig);
+        let i = AnimInput {
+            root_scale: scale,
+            ..input(speed)
+        };
+        run.steps(&i, 30);
+        assert_eq!(run.a.lower_clip(), Some(WALK));
+        let before = run.a.lower.t;
+        run.steps(&i, 1);
+        let rate = (run.a.lower.t - before).rem_euclid(1.0) / (DT * 30.0 / 19.0);
+        assert!((rate * 3.0 * effective - speed).abs() < 1e-4);
+        let mut census = super::census::Census::default();
+        census.note(&run.rig, &run.clips, &run.a, &i);
+        let report = census.report("scale");
+        assert!(
+            report.contains(
+                "feet off his speed mean 0.0 % with the rate (0.0 % over 5 %), 0.0 % plain"
+            ),
+            "{report}"
+        );
+    }
+}

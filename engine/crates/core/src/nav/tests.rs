@@ -346,6 +346,12 @@ fn a_jet_jump_arc_is_off_a_jetless_soldiers_graph() {
         NavGraph::new(g2.hubs.clone(), arcs, RouteTable::empty(4), vec![], vec![]).expect("graph");
     assert!(!g3.reachable(0, 2, SOLDIER), "only the jet leap is left");
     assert_eq!(g3.route_bfs(0, 2, Mover::SOLDIER, &|_| true), None);
+    assert_eq!(g3.route_bfs(0, 2, jet, &|_| true), Some((0, 1)));
+    assert!(!g3.reachable_by(0, 2, Mover::SOLDIER));
+    assert!(g3.reachable_by(0, 2, jet));
+    // The intermediate floor filter still applies; the destination is exempt.
+    assert_eq!(g3.route_bfs(0, 2, jet, &|h| h != 1), None);
+    assert_eq!(g3.route_bfs(0, 2, jet, &|h| h != 2), Some((0, 1)));
 }
 
 /// The two Phase A.2 filters the follower drives `next_hop` and
@@ -808,4 +814,145 @@ fn a_unit_is_located_in_xz_and_a_goal_in_3d() {
     // At the arc's own height both agree.
     let on = Vec3::new(13.0, 6.0, 1.0);
     assert!(matches!(g.locate(on, s), Some(Locus::Arc(0, _))));
+}
+
+mod regressions {
+    // Synthetic regression coverage for ordering and clipping seams.
+    use super::super::*;
+    use crate::sim::Sim;
+
+    // Frozen pre-extraction entry query: compare Option and f32 bits, including
+    // public signed-zero extents, rather than substituting approximate geometry.
+    fn original_entry(br: &Barrier, a: Vec2, b: Vec2) -> Option<f32> {
+        if br.contains(a) {
+            return None;
+        }
+        let local = |p: Vec2| {
+            let d = p - br.centre;
+            Vec2::new(d.dot(br.axes[0]), d.dot(br.axes[1]))
+        };
+        let (p0, p1) = (local(a), local(b));
+        let d = p1 - p0;
+        let (mut t0, mut t1) = (0.0f32, 1.0f32);
+        for k in 0..2 {
+            let (p, q, h) = (d[k], p0[k], br.half[k]);
+            if p.abs() < 1e-9 {
+                if q.abs() > h {
+                    return None;
+                }
+                continue;
+            }
+            let (mut lo, mut hi) = ((-h - q) / p, (h - q) / p);
+            if lo > hi {
+                std::mem::swap(&mut lo, &mut hi);
+            }
+            t0 = t0.max(lo);
+            t1 = t1.min(hi);
+            if t0 > t1 {
+                return None;
+            }
+        }
+        Some(t0)
+    }
+
+    #[test]
+    fn entry_clip_preserves_original_bits_and_inside_policy() {
+        let points = [
+            Vec2::ZERO,
+            Vec2::new(-3.0, 0.0),
+            Vec2::new(3.0, 0.0),
+            Vec2::new(0.0, -3.0),
+            Vec2::new(0.0, 3.0),
+            Vec2::new(-1.0, 1.0),
+            Vec2::new(1.0, 1.0),
+            Vec2::new(-3.0, 1.0),
+            Vec2::new(3.0, 1.0),
+            Vec2::new(1e-10, -3.0),
+            Vec2::new(1e-10, 3.0),
+        ];
+        for axes in [
+            [Vec2::X, Vec2::Y],
+            [Vec2::new(0.6, 0.8), Vec2::new(-0.8, 0.6)],
+        ] {
+            for half in [
+                Vec2::ONE,
+                Vec2::ZERO,
+                Vec2::new(-0.0, 0.0),
+                Vec2::new(0.0, -0.0),
+            ] {
+                let br = Barrier {
+                    centre: Vec2::ZERO,
+                    axes,
+                    half,
+                    mask: 1,
+                    enabled: true,
+                };
+                for a in points {
+                    for b in points {
+                        assert_eq!(
+                            br.entry_t(a, b).map(f32::to_bits),
+                            original_entry(&br, a, b).map(f32::to_bits),
+                            "{axes:?}, {half:?}, {a:?} -> {b:?}"
+                        );
+                        if br.contains(a) {
+                            assert_eq!(br.entry_t(a, b), None);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn floor_graph() -> NavGraph {
+        NavGraph {
+            hubs: [0.0, 1.0, -1.0, 2.0, -2.0, f32::INFINITY]
+                .into_iter()
+                .map(|x| Hub {
+                    pos: Vec3::new(x, 0.0, 0.0),
+                    radius: 0.0,
+                    arcs: vec![],
+                })
+                .collect(),
+            ..NavGraph::default()
+        }
+    }
+
+    #[test]
+    fn floor_gather_preserves_ties_capacity_filters_and_sentinels() {
+        let sim = Sim::empty(1);
+        let g = floor_graph(); // Explicit graph works even when sim.nav is None.
+        let floors = [f32::NAN, 0.0, 0.0, 1.0, 0.0, 0.0];
+        let floor = |i: usize| floors.get(i).copied().filter(|f| !f.is_nan());
+        let near = sim.nearest_floor_hubs::<3>(&g, Vec3::ZERO, floor);
+        assert_eq!(near, [(1.0, 1), (1.0, 2), (2.0, 4)]);
+        let near = sim.nearest_floor_hubs::<3>(&g, Vec3::ZERO, |i| floor(i).filter(|_| i != 1));
+        assert_eq!(near[0], (1.0, 2));
+        assert_eq!(near[1], (2.0, 4));
+        assert_eq!(near[2], (2.0 + crate::sim::LEVEL_RISE, 3));
+        let absent = sim.nearest_floor_hubs::<2>(&g, Vec3::ZERO, |i| floor(i).filter(|_| i >= 5));
+        assert_eq!(absent, [(f32::INFINITY, u16::MAX); 2]);
+        assert_eq!(
+            sim.nearest_floor_hubs::<2>(&NavGraph::default(), Vec3::ZERO, |_| Some(0.0)),
+            absent
+        );
+        assert_eq!(sim.nearest_floor_hubs::<0>(&g, Vec3::ZERO, floor), []);
+        // NaN and infinite floor distances never displace the sentinel slots.
+        assert_eq!(
+            sim.nearest_floor_hubs::<2>(&g, Vec3::ZERO, |_| Some(f32::NAN)),
+            absent
+        );
+        assert_eq!(
+            sim.nearest_floor_hubs::<2>(&g, Vec3::ZERO, |_| Some(f32::INFINITY)),
+            absent
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn level_at_keeps_direct_indexed_short_floor_behavior() {
+        let mut sim = Sim::empty(1);
+        sim.nav = Some(floor_graph());
+        sim.nav_floors = vec![0.0];
+        sim.level_at(Vec3::ZERO);
+    }
 }

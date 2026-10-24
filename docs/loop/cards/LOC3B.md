@@ -4,14 +4,14 @@ title: Units located as the PS2 locates them (3-D, no level rule), a route from 
 milestone: M3
 value: 3
 phase: measure
-status: todo
+status: blocked
 deps: LOC3,MOVR,OBST,LLEG
 files: engine/crates/core/src/nav.rs,engine/crates/core/src/ai/route.rs
 declares: sim; sweep; arena
-needs:
+needs: restoration - 32 baked maps/classes and conquest missions; LOC3 variant/AQD kit; DAGS raw PS2 and Utapau trace
 effort:
 branch:
-resume:
+resume: Restore 80 preflight paths in lead_tmp/loc3b_cloud/preflight.json; follow next_prompt.md; trace UTA pen before implementing; A/C/start-only 32x32 paired measurement still owed
 created: 2026-10-06
 ---
 ## Why

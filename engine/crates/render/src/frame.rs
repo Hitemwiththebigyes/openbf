@@ -184,10 +184,10 @@ impl Renderer {
 
         let (width, height) = self.size();
         let guard = crate::affine::guard(width as f32 / height as f32);
+        let view_proj = camera.view_proj(width as f32 / height as f32);
+        let frustum = frustum::Frustum::from_view_proj(&view_proj);
         let globals = Globals {
-            view_proj: camera
-                .view_proj(width as f32 / height as f32)
-                .to_cols_array_2d(),
+            view_proj: view_proj.to_cols_array_2d(),
             camera_pos: camera.position.to_array(),
             guard_x: guard[0],
             sun_dir: self.lighting.sun_dir.normalize_or_zero().to_array(),
@@ -242,13 +242,9 @@ impl Renderer {
             .write_buffer(&self.globals_buf, 0, bytemuck::bytes_of(&globals));
         // BF2's local lights (`point_light.rs`): the view's list, uploaded
         // as the shader's table; each lit draw gathers from it below.
-        let filed = {
-            let f =
-                frustum::Frustum::from_view_proj(&camera.view_proj(width as f32 / height as f32));
-            crate::point_light::file(&self.point_lights, camera.position, |p, r| {
-                f.intersects_aabb(p - glam::Vec3::splat(r), p + glam::Vec3::splat(r))
-            })
-        };
+        let filed = crate::point_light::file(&self.point_lights, camera.position, |p, r| {
+            frustum.intersects_aabb(p - glam::Vec3::splat(r), p + glam::Vec3::splat(r))
+        });
         if !(filed.is_empty() && self.point_table_clear) {
             self.queue.write_buffer(
                 &self.points_buf,
@@ -303,12 +299,10 @@ impl Renderer {
             f.intersects_aabb(lo, hi) && !crate::draw::all_discarded(cull, cull_near, near, far)
         };
         let keep: Vec<bool> = if self.cull {
-            let f =
-                frustum::Frustum::from_view_proj(&camera.view_proj(width as f32 / height as f32));
             draws
                 .iter()
                 .map(|d| {
-                    let v = visible(d, &f, &self.meshes);
+                    let v = visible(d, &frustum, &self.meshes);
                     if !v {
                         culled += 1;
                     }
@@ -519,21 +513,13 @@ impl Renderer {
         // the frame's copy, before the frame is acquired.
         let terrain_light = self.terrain_light_wanted();
         if terrain_light {
-            let (w, h) = match &self.target {
-                Target::Window { config, .. } => (config.width, config.height),
-                Target::Headless { width, height, .. } => (*width, *height),
-            };
-            self.prepare_terrain_light(w, h);
+            self.prepare_terrain_light(width, height);
         }
 
         // The DomeInfo frame filter (`filter.rs`): its parameters and copy.
         let filter = self.filter_wanted();
         if filter {
-            let (w, h) = match &self.target {
-                Target::Window { config, .. } => (config.width, config.height),
-                Target::Headless { width, height, .. } => (*width, *height),
-            };
-            self.prepare_filter(w, h);
+            self.prepare_filter(width, height);
         }
 
         // Acquire the frame's color view.
@@ -925,14 +911,11 @@ impl Renderer {
 }
 
 pub(super) fn create_instance_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
-    crate::made::buffer(
+    crate::resources::buffer(
         device,
-        &wgpu::BufferDescriptor {
-            label: Some("instances"),
-            size: (capacity * std::mem::size_of::<Instance>()) as u64,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        },
+        "instances",
+        (capacity * std::mem::size_of::<Instance>()) as u64,
+        wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
     )
 }
 
@@ -964,14 +947,11 @@ pub(super) fn create_palette_buffer(
     bgl: &wgpu::BindGroupLayout,
     capacity: usize,
 ) -> (wgpu::Buffer, wgpu::BindGroup) {
-    let buffer = crate::made::buffer(
+    let buffer = crate::resources::buffer(
         device,
-        &wgpu::BufferDescriptor {
-            label: Some("palettes"),
-            size: (capacity * PALETTE_STRIDE) as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        },
+        "palettes",
+        (capacity * PALETTE_STRIDE) as u64,
+        wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
     );
     let bg = crate::made::bind_group(
         device,

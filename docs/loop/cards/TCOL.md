@@ -4,17 +4,17 @@ title: Building turrets and Laik cannons are whole bodies: bolts, rockets, blast
 milestone: M2
 value: 5
 phase: build
-status: todo
-deps:
+status: blocked
+deps: XBTEX
 files: engine/crates/game/src/assets.rs, engine/crates/core/src/collision/world.rs, engine/crates/core/src/sim/vehicles.rs, engine/crates/core/src/sim/ordnance.rs, engine/crates/core/src/sim/blast.rs, engine/crates/core/src/sim/seats.rs, engine/crates/game/src/viewer/turret_pose.rs
 declares: sim; sweep
-needs:
+needs: cloud prerequisites: restore PS2 extracted/ and engine/assets_baked/ plus TCOL reference scratch; XBTEX must land first
 effort:
 branch:
-resume: RE done 2026-10-21 (analysis/re-turret-collision.md, docs 2198036). HELD: assets.rs is also XBTEX's (parked, waiting on the RTX reboot) - eligible once XBTEX lands. Build part 1 (Build plan 1): posed-node prims as movers placed by the turret / aimer / barrel node each tick, every body of a turret's instance owned by the turret (via Body.instance -> the turret whose Vehicle::instance matches, so vehicle_pads.rs - NODMG's, parked - stays untouched), blast LOS ignores the victim's own bodies; then part 2 (the gunner at his seat). Write the repro scratch first (Acceptance 1).
+resume: Cloud preflight 2026-10-24: no implementation started. Missing assets_baked/, extracted/, iso/, lead_tmp/tcol/, and RKHUL repro; xbtex ref and de77a64 unavailable. See reports/20261024_0700_card_TCOL.md. Restore assets and evidence, verify/land XBTEX, clear needs and set todo; then start TCOL in an isolated worktree and write Acceptance 1 turret repro before source changes. Preserve TBLD scope and leave vehicle_pads.rs untouched.
 created: 2026-10-21
 alpha: yes
-first: 4
+first: 9
 ---
 ## Why
 The maintainer (INBOX 2026-10-21 18:40 item 2, BF2 Geonosis?): rockets, bullets and grenades pass through the UPPER half of a Laik

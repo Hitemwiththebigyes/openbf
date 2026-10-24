@@ -4,14 +4,14 @@ title: The fight's scout rule by the soldier's CLASS, from audit FGHTA: the PS2 
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: blocked
 deps: FGHTA
 files: engine/crates/core/src/ai/behave.rs,engine/crates/core/src/ai.rs,engine/crates/game/src/roster.rs
 declares: sweep; arena; sim
-needs:
+needs: (private workflow note omitted)
 effort:
 branch:
-resume:
+resume: Restore baked data for both games, mission RONs and audit-fghta/audit-fght scratch (census_bf1/2.txt, mk_mut.py, session_mut.py, scene_run.sh, c20.py). Clear needs/set todo phase build only after prerequisite verification. Reproduce current-main symptom; start isolated FGHTB worktree, build one switch binary with null hash equality, measure scout/rifle key and Snipe hints, then six subtle plus 14 original mutations and BF1 range rule. Require census 7+28 pairs, 256/256 rounds, paired contact/teamkill bars, Kamino engage bars and full gates. See reports/20261024_0747_card_FGHTB.md.
 created: 2026-10-09
 alpha: yes
 ---
@@ -87,3 +87,6 @@ Measured for whoever weighs them (main 296fa0c, 32 seeds x 32 maps, per-seed pai
   kills not over main's 1.82 % by the same test.
 - The maintainer's Kamino scene (`lead_tmp/audit-fghta/tools/scene_run.sh <binary> <out>`), row `engage`: a teammate within
   3 m <= 33.5 % and still <= 51.4 % (the bars card FGHTA met).
+
+## Cloud checkpoint 2026-10-24
+Blocked before implementation: baked class databases/maps and missions plus the audit census/mutation/contact/scene instruments are absent. Current-main reproduction and every asset-dependent acceptance bar remain unrun; no source changes or landing. See `../reports/20261024_0747_card_FGHTB.md` and its JSON path checks. Restore prerequisites before starting the switch binary; historical FGHTA measurements are not a current-main baseline.

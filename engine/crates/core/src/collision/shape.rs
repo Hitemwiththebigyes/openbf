@@ -401,7 +401,9 @@ pub fn trimesh(positions: &[[f32; 3]], indices: &[u32]) -> Option<Arc<TriMesh>> 
         .map(|p| parry3d::na::Point3::new(p[0], p[1], p[2]))
         .collect();
     let tris: Vec<[u32; 3]> = indices
-        .chunks_exact(3)
+        .as_chunks::<3>()
+        .0
+        .iter()
         .filter(|t| t.iter().all(|&i| (i as usize) < positions.len()))
         .map(|t| [t[0], t[1], t[2]])
         .collect();
@@ -431,8 +433,9 @@ impl Layers {
     pub const ORDNANCE: Layers = Layers(2);
     /// RESERVED for the vehicle subset (P7). Never set by anything today.
     pub const VEHICLE: Layers = Layers(4);
-    /// The two layers that exist. What `Body::new` gives a body, and what the
-    /// aim-assist ray (flag 0, RE §4) will ask for when it is built.
+    /// The two layers that exist, and what `Body::new` gives a body. The PS2
+    /// acquisition ray tests both (flag 0, RE §4); the port currently uses
+    /// ORDNANCE through `perception::los_seat` (module header discrepancy).
     pub const ALL: Layers = Layers(1 | 2);
 
     /// Does this body answer a query for `q`? Any bit in common is enough.

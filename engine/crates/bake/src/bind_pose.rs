@@ -36,10 +36,12 @@
 //!   panes at y 0..3.24 and its shield at y 1.18..4.34, and through their
 //!   bones all three lie in one slanted plane, y 1.40..4.47.
 //!
+//! Map-local vehicles use the side vehicle bake's collision rule too (RKHULT;
+//! `analysis/re-walker.md` §17): `XFRM · bind`, including their LOD prims.
+//!
 //! A bone whose bind matrix is exactly the identity moves nothing, so a model
 //! bound only to such bones is written byte for byte as stored.
 
-use mungefs::entity::GeomModel;
 use mungefs::model::Model;
 use mungefs::skel::{xform_dir, xform_point, RowMat4, Skeleton};
 use std::collections::HashSet;
@@ -51,77 +53,42 @@ const IDENTITY: RowMat4 = [
     [0.0, 0.0, 0.0, 1.0],
 ];
 
-/// An LVL's skeletons, geometry LOD lists and door geometries, from the map
+/// An LVL's skeletons, geometry LOD lists and door/vehicle geometries, from the map
 /// bake's flattened walk (top level first; first of a name wins).
 pub struct BindPose {
-    skels: Vec<Skeleton>,
-    gmods: Vec<GeomModel>,
-    /// Lower-cased names of every `door` class's geometry and its LOD models.
-    doors: HashSet<String>,
+    skels: crate::hardpoints::Skeletons,
+    /// Lower-cased geometry/LOD names whose prims use the bind pose.
+    prim_geoms: HashSet<String>,
 }
 
 impl BindPose {
     pub fn of(chunks: &[mungefs::Chunk<'_>]) -> BindPose {
-        let mut skels: Vec<Skeleton> = Vec::new();
-        let mut gmods: Vec<GeomModel> = Vec::new();
-        let mut door_geoms: Vec<String> = Vec::new();
+        let skels = crate::hardpoints::Skeletons::of(chunks);
+        let mut rest_geoms: Vec<String> = Vec::new();
         for c in chunks {
-            match &c.tag {
-                b"skel" => {
-                    if let Ok(s) = mungefs::skel::parse_skel(c) {
-                        if !skels.iter().any(|k| k.name.eq_ignore_ascii_case(&s.name)) {
-                            skels.push(s);
-                        }
+            if &c.tag == b"entc" {
+                if let Ok(e) = mungefs::entity::EntityClass::parse(c) {
+                    if crate::door::DoorSpec::from_entc(&e).is_some()
+                        || crate::vehicle::is_vehicle_base(&e.base)
+                    {
+                        rest_geoms.extend(e.geometry_name().map(str::to_ascii_lowercase));
                     }
                 }
-                b"gmod" => {
-                    if let Ok(g) = GeomModel::parse(c) {
-                        if !gmods.iter().any(|k| k.name.eq_ignore_ascii_case(&g.name)) {
-                            gmods.push(g);
-                        }
-                    }
-                }
-                b"entc" => {
-                    if let Ok(e) = mungefs::entity::EntityClass::parse(c) {
-                        if crate::door::DoorSpec::from_entc(&e).is_some() {
-                            door_geoms.extend(e.geometry_name().map(str::to_ascii_lowercase));
-                        }
-                    }
-                }
-                _ => {}
             }
         }
-        let mut doors: HashSet<String> = door_geoms.iter().cloned().collect();
-        for g in &gmods {
-            if door_geoms.iter().any(|d| d.eq_ignore_ascii_case(&g.name)) {
-                doors.extend(g.lods.iter().map(|l| l.model.to_ascii_lowercase()));
+        let mut prim_geoms: HashSet<String> = rest_geoms.iter().cloned().collect();
+        for g in skels.geometries() {
+            if rest_geoms.iter().any(|d| d.eq_ignore_ascii_case(&g.name)) {
+                prim_geoms.extend(g.lods.iter().map(|l| l.model.to_ascii_lowercase()));
             }
         }
-        BindPose {
-            skels,
-            gmods,
-            doors,
-        }
-    }
-
-    /// The skeleton a model is posed by: named as the model, else the one of
-    /// a geometry that lists the model as a LOD (named as the geometry, else
-    /// as its best LOD) — `crate::hardpoints::Skeletons::find`'s rule, reached
-    /// from a LOD model's name as well as from the geometry's.
-    fn skel_of(&self, model: &str) -> Option<&Skeleton> {
-        let named = |n: &str| self.skels.iter().find(|s| s.name.eq_ignore_ascii_case(n));
-        named(model).or_else(|| {
-            self.gmods
-                .iter()
-                .find(|g| g.lods.iter().any(|l| l.model.eq_ignore_ascii_case(model)))
-                .and_then(|g| named(&g.name).or_else(|| g.best_model().and_then(named)))
-        })
+        BindPose { skels, prim_geoms }
     }
 
     /// The model in its bind pose, or `None` when that moves nothing (no
     /// skeleton, every bound bone at the identity).
     pub fn pose(&self, m: &Model) -> Result<Option<Model>, String> {
-        let Some(skel) = self.skel_of(&m.name) else {
+        let Some(skel) = self.skels.find_model(&m.name, false) else {
             return Ok(None);
         };
         if m.bone_space {
@@ -138,25 +105,15 @@ impl BindPose {
         pose_bnam(m, skel)
     }
 
-    /// A door geometry's collision prims in model space at the bind pose:
-    /// each prim's `XFRM` through its `PRNT` bone's bind matrix (the module
-    /// doc's door rule). A prim on a bone bound at the identity, and every
-    /// prim of a geometry that is not a door's, is left as stored
-    /// (PROVISIONAL: `mungefs::coll` reads those as model space; a prim on a
-    /// non-identity bone of a non-door geometry, read in RAM, would settle it).
+    /// A door or vehicle geometry's collision prims in model space at bind:
+    /// each `XFRM` through its `PRNT` bone's bind matrix (STDOR / RKHUL).
+    /// This includes map-local vehicles (RKHULT), using the side bake's rule
+    /// (`analysis/re-walker.md` §17). Other class types stay as stored.
     pub fn rest_prims(&self, geometry: &str, prims: &mut [manifest::ManifestPrim]) {
-        if !self.doors.contains(&geometry.to_ascii_lowercase()) {
+        if !self.prim_geoms.contains(&geometry.to_ascii_lowercase()) {
             return;
         }
-        let named = |n: &str| self.skels.iter().find(|s| s.name.eq_ignore_ascii_case(n));
-        let skel = named(geometry).or_else(|| {
-            let g = self
-                .gmods
-                .iter()
-                .find(|g| g.name.eq_ignore_ascii_case(geometry))?;
-            g.best_model().and_then(named)
-        });
-        if let Some(skel) = skel {
+        if let Some(skel) = self.skels.find_model(geometry, true) {
             prims_at_bind(skel, prims);
         }
     }
@@ -219,6 +176,110 @@ pub fn pose_bnam(m: &Model, skel: &Skeleton) -> Result<Option<Model>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// RKHULT: run class/LOD selection from serialized chunks without disc data.
+    #[test]
+    fn map_vehicle_prims_use_bind_for_geometry_and_lod() {
+        fn build_chunk(tag: &[u8; 4], payload: &[u8]) -> Vec<u8> {
+            let mut out = tag.to_vec();
+            out.extend((payload.len() as u32).to_le_bytes());
+            out.extend(payload);
+            out.resize((out.len() + 3) & !3, 0);
+            out
+        }
+        let mut entc = build_chunk(b"BASE", b"HoVeR\0");
+        entc.extend(build_chunk(b"TYPE", b"local_vehicle\0"));
+        let mut prop = mungefs::entity::PROP_GEOMETRYNAME.to_le_bytes().to_vec();
+        prop.extend(b"vehicle\0");
+        entc.extend(build_chunk(b"PROP", &prop));
+        let mut buf = build_chunk(b"entc", &entc);
+        let mut gmod = build_chunk(b"NAME", b"vehicle\0");
+        let mut lod = b"vehicle_lod0\0".to_vec();
+        lod.extend(0u32.to_le_bytes());
+        gmod.extend(build_chunk(b"LOD0", &lod));
+        buf.extend(build_chunk(b"gmod", &gmod));
+        let mut info = b"vehicle\0".to_vec();
+        info.extend(1u32.to_le_bytes());
+        let mut skel = build_chunk(b"INFO", &info);
+        skel.extend(build_chunk(b"NAME", b"rudder\0"));
+        skel.extend(build_chunk(b"PRNT", b"\0"));
+        let rows: [f32; 12] = [
+            -1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, -1.0, 10.0, 2.0, -4.0,
+        ];
+        let xfrm: Vec<u8> = rows.iter().flat_map(|x| x.to_le_bytes()).collect();
+        skel.extend(build_chunk(b"XFRM", &xfrm));
+        buf.extend(build_chunk(b"skel", &skel));
+        let chunks: Vec<_> = mungefs::chunks(&buf).map(Result::unwrap).collect();
+        let bp = BindPose::of(&chunks);
+        let p = manifest::ManifestPrim {
+            name: "p_fin".into(),
+            parent: "rudder".into(),
+            kind: "box".into(),
+            dims: [1.0, 2.0, 3.0],
+            rotation: [[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, -1.0, 0.0]],
+            translation: [1.0, 2.0, 3.0],
+            mask: 0x15,
+            mask_own: true,
+        };
+        for geometry in ["vehicle", "VEHICLE_LOD0"] {
+            let mut prims = vec![p.clone()];
+            bp.rest_prims(geometry, &mut prims);
+            let mut expected = p.clone();
+            expected.translation = [9.0, 4.0, -7.0];
+            expected.rotation = [[-1.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, -1.0, 0.0]];
+            assert_eq!(prims, vec![expected], "{geometry}");
+        }
+        // An ordinary building using this skeleton keeps the prior rule.
+        let mut building_buf = buf[build_chunk(b"entc", &entc).len()..].to_vec();
+        let mut ordinary = build_chunk(b"BASE", b"building\0");
+        ordinary.extend(build_chunk(b"TYPE", b"ordinary\0"));
+        ordinary.extend(build_chunk(b"PROP", &prop));
+        building_buf.extend(build_chunk(b"entc", &ordinary));
+        let chunks: Vec<_> = mungefs::chunks(&building_buf).map(Result::unwrap).collect();
+        let mut prims = vec![p.clone()];
+        BindPose::of(&chunks).rest_prims("vehicle", &mut prims);
+        assert_eq!(prims, vec![p]);
+    }
+
+    /// RKHULT's real-map acceptance; synthetic fixtures above do not replace it.
+    #[test]
+    fn tat1_skiff_fins_rest_at_bind() {
+        let path = format!(
+            "{}/../../../extracted/bf1/lvl/DATA/_LVL_PS2/TAT/TAT1.LVL",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let Ok(buf) = std::fs::read(path) else {
+            eprintln!("SKIP: BF1 TAT1.LVL not present; skiff acceptance unverified");
+            return;
+        };
+        let chunks = mungefs::content_chunks(mungefs::open(&buf).unwrap()).unwrap();
+        // The class `tat_hover_skiff` draws geometry `all_hover_skiff`; prims
+        // and the bake's `rest_prims` key on the geometry (map.rs `p.model`).
+        let mut prims = prims_of(&chunks, "all_hover_skiff");
+        let stored = prims.clone();
+        BindPose::of(&chunks).rest_prims("all_hover_skiff", &mut prims);
+        assert_ne!(prims, stored, "the skiff's bone prims must move");
+        for (name, x) in [("p_fin1", -1.77), ("p_fin2", 1.77)] {
+            let p = prims.iter().find(|p| p.name == name).unwrap();
+            assert!(
+                (p.translation[0] - x).abs() < 0.02,
+                "{name}: {:?}",
+                p.translation
+            );
+            assert!(
+                (p.translation[2] + 4.10).abs() < 0.02,
+                "{name}: {:?}",
+                p.translation
+            );
+        }
+        for (p, raw) in prims
+            .iter()
+            .zip(&stored)
+            .filter(|(_, raw)| raw.parent == "dummyroot")
+        {
+            assert_eq!(p, raw, "identity hull {}", p.name);
+        }
+    }
 
     fn lvl(rel: &str) -> Option<Vec<u8>> {
         let p = format!(

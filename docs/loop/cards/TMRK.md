@@ -4,13 +4,13 @@ title: World markers, part 2 — the feed: which entities the PS2 marks as attac
 milestone: M3
 value: 3
 phase: re
-status: todo
+status: blocked
 deps:
 files:
 declares:
-needs:
+needs: Restore BF2 corpus/ELF, tracker RAM reader and live battle state; measure record lifetimes and one marker picture.
 branch:
-resume:
+resume: 2026-10-24 13:06 UTC: planner restoration hold, 5 exact named inputs absent. Restore BF2 corpus/ELF, tracker RAM reader and live battle state; measure record lifetimes and one marker picture. Original measurable acceptance unchanged. reports/20261024_1306_planner.md; lead_tmp/planner_20261024_1303/preflight.json.
 created: 2026-09-30
 ---
 

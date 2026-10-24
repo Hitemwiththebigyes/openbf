@@ -4,13 +4,13 @@ title: Blended draws blend in LINEAR space in the port's sRGB target; the GS ble
 milestone: M1
 value: 3
 phase: measure
-status: todo
+status: blocked
 deps:
 files:
 declares:
-needs:
+needs: Restore NAB1 effects/map, PS2 spark crop, port control and approved rendering support; measure G/R and 32-map parity before build or close.
 branch:
-resume:
+resume: 2026-10-24 13:06 UTC: planner restoration hold, 6 exact named inputs absent. Restore NAB1 effects/map, PS2 spark crop, port control and approved rendering support; measure G/R and 32-map parity before build or close. Original measurable acceptance unchanged. reports/20261024_1306_planner.md; lead_tmp/planner_20261024_1303/preflight.json.
 created: 2026-09-30
 ---
 ## Why

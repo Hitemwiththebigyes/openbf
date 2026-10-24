@@ -4,14 +4,14 @@ title: BF2's AI auto-balance: in a single-player or co-op round the PS2 shifts t
 milestone: M3
 value: 3
 phase: build
-status: todo
+status: blocked
 deps: CLSE2
 files:
 declares: sweep; arena; sim
-needs:
+needs: Restore CLSE2 Polis Massa score trace, baked map/mission and both primary corpora/ELFs; check the BF1 twin and per-skill consumers before implementing the delta.
 effort:
 branch:
-resume:
+resume: 2026-10-24 11:57 UTC: planner prerequisite hold; 7/7 exact named paths absent. Restore CLSE2 Polis Massa score trace, baked map/mission and both primary corpora/ELFs; check the BF1 twin and per-skill consumers before implementing the delta. All original acceptance retained. reports/20261024_1151_planner.md; inventory/continuation lead_tmp/planner_20261024_1151/.
 created: 2026-10-12
 ---
 ## Why

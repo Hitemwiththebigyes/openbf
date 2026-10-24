@@ -21,18 +21,16 @@ use game::vehicle_class::HoverClass;
 use glam::Vec3;
 use std::path::{Path, PathBuf};
 
+#[path = "support/replay_check.rs"]
+mod replay_check;
+
 const DT: f32 = 1.0 / 30.0;
 const DRIVE_M: f32 = 200.0;
 
 fn world(dir: &Path, class: &str, yaw: f32) -> anyhow::Result<(Sim, UnitHandle, VehicleHandle)> {
-    let mut scene = game::assets::load_scene(dir)?;
-    scene.apply_mode_layer("con");
-    let common = dir
-        .parent()
-        .expect("map dir has a parent")
-        .join(format!("common_{}", scene.manifest.source_game));
-    if common.join("common.ron").exists() {
-        scene.merge_common(game::assets::load_common(&common)?);
+    let (scene, load) = game::assets::load_battle_scene(dir, "con")?;
+    if let Some((_, common)) = load.common {
+        common?;
     }
     let mut sim = Sim::empty(1);
     sim.heightfield = scene.heightfield();
@@ -327,5 +325,6 @@ fn main() -> anyhow::Result<()> {
             "DIFFER"
         }
     );
+    replay_check::check(hash, again.hash())?;
     Ok(())
 }

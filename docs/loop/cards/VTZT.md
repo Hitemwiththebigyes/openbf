@@ -4,14 +4,14 @@ title: VTURZ's tests miss four mutations (audit VTURZ): the building's hidden ra
 milestone: M0
 value: 3
 phase: cleanup
-status: todo
+status: blocked
 deps:
 files: engine/crates/game/tests/suite/turret_views.rs,analysis/re-turret-draw.md,engine/crates/core/src/sim/guns.rs
 declares:
-needs:
+needs: an M4 frame-path test (no test drives the frame draw list); re-kill the 5 unrecorded historical VTURZ mutations; 3 doc corrections (re-turret-draw.md:327-328, guns.rs:140-141)
 effort:
-branch:
-resume:
+branch: vtzt
+resume: (private workflow note omitted)
 created: 2026-10-16
 ---
 ## Why
@@ -24,3 +24,5 @@ Doc numbers: `analysis/re-turret-draw.md:327` and the commit say the yaw-only ey
 
 ## Acceptance
 Each of M1-M4 (the exact edits above) fails at least one test; the 6 named mutations stay killed; behaviour-neutral (every gate PASS); the three doc lines corrected.
+## GitHub checkpoint recovery (2026-10-24)
+

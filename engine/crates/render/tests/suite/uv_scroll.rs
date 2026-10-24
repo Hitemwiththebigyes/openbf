@@ -11,7 +11,7 @@
 //!     which is what says this change cannot move the committed goldens.
 //!
 //! Ignored by default — needs a real adapter.
-//!   cargo test -p render --test uv_scroll -- --ignored --test-threads=1
+//!   scripts/gpu_tests.sh --render
 
 use glam::Mat4;
 use render::{Camera, DrawCmd, Renderer};

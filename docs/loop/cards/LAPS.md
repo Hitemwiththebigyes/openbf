@@ -4,17 +4,18 @@ title: The places the wider recycle watch now shows: bots lapping at BF1 Bespin 
 milestone: M3
 value: 4
 phase: measure
-status: todo
+status: blocked
 deps: OBSR
 files:
 declares:
-needs:
+needs: cloud prerequisites: baked maps, missions and OBSR/WINS samples and snapshots absent
 effort:
 branch:
-resume:
+resume: the maintainer promoted this work 2026-10-22: start BF2 GEO1 (-84,264), then other laps; restore OBSR/WINS raw evidence, re-trace current main with a separate headless snapshot directory, then 32-seed cause census and 16-seed win-share referee. See reports/20261024_0713_planner.md.
 created: 2026-10-07
-alpha: 
-defer: post-alpha
+alpha: yes
+defer:
+first: 4
 ---
 ## Why
 From card OBSR (2026-10-07, landed d9db73c). The last resort now gives up a bot that walks two minutes without
@@ -59,3 +60,9 @@ Also decide the endgame's rule on Polis Massa: new ground against the box of the
   (0, -160): team 0 slides there 403 unit-s a round, team 1 ~0 (team 0 slide 13.4 % of rows, recover 14.4 %; team 1 0.3 /
   0.1) - team 0 still wins 6-2, but it is the largest one-team trap of the 14 maps measured. BF2 GEO1 (-80, 270): the
   Republic 121 unit-s a round, the CIS 40, and the CIS win 14 of 16 (1-14 + 1 no outcome). Value this card with that.
+
+## The maintainer's 2026-10-22 override
+No longer deferred: BF2 Geonosis (-84,264) first, then the other lap sites. Keep the
+existing 32-seed per-site and all-map bars; add 16-seed winner/margin/post tables on each
+affected map. No side over 12/16 unless PS2 bots-only trials show the same lean. Trace
+all no-outcome rounds. Historical aggregate thresholds do not replace a fresh baseline.

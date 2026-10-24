@@ -4,14 +4,14 @@ title: Fidelity gate counts RLOOP's standing loops: a new metric loop20 (spells 
 milestone: M0
 value: 4
 phase: build
-status: todo
+status: blocked
 deps:
 files: scripts/gates.py,scripts/loop_spells.py
-declares:
-needs:
+declares: oracle=guards
+needs: planner — write [fidelity.metrics.loop20] (dir=down, tol_agg_abs=9, tol_map_abs=6, agg/maps = main seeds 1-8, agg 23) via --fidelity-both + --rebaseline-fidelity --only loop20; choose a mutation that measurably raises loop20 on main (PIN_FAILS=200 lowers it: 23->19, 19->14)
 effort:
-branch:
-resume:
+branch: fidsp
+resume: (private workflow note omitted)
 created: 2026-10-15
 alpha: yes
 ---
@@ -26,3 +26,13 @@ RLOOP (landed 70bfa91 + a059815 + 70b9c47) took the standing loops from 117 to 2
 - On main (today's): `gates.py --groups fidelity` lists `loop20` per map and agg, equal to `loop_spells.py` run by hand on the same botq dir (paste both).
 - A mutation: RLOOP's `PIN_FAILS` set to 200 on a scratch tree -> the gate reports `loop20@agg` worse (paste the line).
 - The six block totals and the tolerance chosen in the report.
+## Cloud checkpoint 2026-10-24 (FIDSP build)
+Uncommitted source and permanent fixture checks in branch fidsp at
+`engine/artifacts/lead_tmp/worktrees/fidsp`; recovery patch/receipts/next prompt in `lead_tmp/fidsp/`.
+Python fidelity/gate self-tests, seven boundary tests, hand-CLI fixture parity and sum mutation pass.
+CI exit 101: missing common-bake gamefont_large and suitable graphics adapter.
+Real current-main parity, PIN_FAILS=200 mutation, six block totals and measured tolerances remain owed;
+no baseline rows proposed, no gates.toml changes, no commit/landing. See `reports/20261024_0946_card_FIDSP.md`.
+
+## GitHub checkpoint recovery (2026-10-24)
+

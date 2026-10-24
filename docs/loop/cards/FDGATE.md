@@ -4,14 +4,14 @@ title: Wire the differ in as a graded metric: bisect mode (which of two commits 
 milestone: M0
 value: 2
 phase: build
-status: todo
+status: blocked
 deps: FDIFF
 files: scripts/fdiff.py,scripts/gates.py,engine/artifacts/loop/gates.toml
 declares: gates
-needs:
+needs: maintainer — approve [approvals.FDGATE] oracle = "guards" before gates.py edits; FDIFF dependency and real trace/baseline inputs remain required
 effort:
 branch:
-resume:
+resume: 2026-10-24 07:50 UTC: planner guard preflight found no FDGATE approval. Keep FDIFF dependency; obtain guards approval before gate edits and use only restored real traces for original graded-row/bisect acceptance. Coordinate baseline writes through authorized planner/landing path. No change to approved thresholds. engine/artifacts/loop/reports/20261024_0750_planner.md
 created: 2026-10-08
 ---
 

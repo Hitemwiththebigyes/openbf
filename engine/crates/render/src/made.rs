@@ -137,10 +137,10 @@ pub fn shader_module(
     device: &wgpu::Device,
     d: wgpu::ShaderModuleDescriptor<'_>,
 ) -> wgpu::ShaderModule {
-    let label = d.label.map(str::to_owned);
+    let label = d.label;
     let t0 = std::time::Instant::now();
     let made = device.create_shader_module(d);
-    note("shader", label.as_deref(), 0, since(t0));
+    note("shader", label, 0, since(t0));
     made
 }
 
@@ -150,16 +150,6 @@ pub fn render_pipeline(
 ) -> wgpu::RenderPipeline {
     let t0 = std::time::Instant::now();
     let made = device.create_render_pipeline(d);
-    note("pipeline", d.label, 0, since(t0));
-    made
-}
-
-pub fn compute_pipeline(
-    device: &wgpu::Device,
-    d: &wgpu::ComputePipelineDescriptor<'_>,
-) -> wgpu::ComputePipeline {
-    let t0 = std::time::Instant::now();
-    let made = device.create_compute_pipeline(d);
     note("pipeline", d.label, 0, since(t0));
     made
 }

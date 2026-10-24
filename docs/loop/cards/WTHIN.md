@@ -4,13 +4,13 @@ title: Soldiers through thin and narrow geometry (the LEAK census's tunnel resid
 milestone: M3
 value: 3
 phase: re
-status: todo
+status: blocked
 deps: WTUN
 files:
 declares: leak; sweep; arena; sim
-needs:
+needs: Restore NAB2/POL1/MYG1 bakes/missions, tunnel sites/probe and audit band data; classify current-main mechanisms and retain float/closed controls.
 branch:
-resume:
+resume: 2026-10-24 11:57 UTC: planner prerequisite hold; 7/7 exact named paths absent. Restore NAB2/POL1/MYG1 bakes/missions, tunnel sites/probe and audit band data; classify current-main mechanisms and retain float/closed controls. All original acceptance retained. reports/20261024_1151_planner.md; inventory/continuation lead_tmp/planner_20261024_1151/.
 created: 2026-09-29
 alpha: yes
 ---

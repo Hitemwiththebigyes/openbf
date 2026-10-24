@@ -1,7 +1,7 @@
 //! Card WTHR's referees: the precipitation rules against PS2 numbers
 //! (`analysis/re-weather.md`).
 //!
-//! `data/weather/*.json` are two views exported out of PCSX2 save states by
+//! `data/weather/*.json` are three views exported out of PCSX2 save states by
 //! `lead_tmp/wthr/tools/predict.py --export`: the camera, the Precipitation
 //! object's fields, its particle array, the wind and the rain-shadow regions
 //! as PS2 RAM held them, and the cells / alphas / streak the RE's model draws
@@ -146,7 +146,7 @@ fn compare(v: &Vector, tile_scale: f32, shadows: &[Shadow]) -> (usize, usize, f3
 /// draws the same cells with the same alphas, the same far / fade start /
 /// dpx and the same streak.
 #[test]
-fn the_cell_walk_is_the_ps2_models_on_both_vectors() {
+fn the_cell_walk_is_the_ps2_models_on_all_three_vectors() {
     for (name, cells) in [
         ("bf2_kam1_cp1_cp6_b000", 27),
         ("bf2_mus1_cp0_cp5_b000", 28),

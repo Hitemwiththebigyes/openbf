@@ -2,7 +2,7 @@
 //! on one adapter) and [`run_headless`] (`--headless`: one captured frame, a
 //! `--walk-replay` with its PNG series, `motion.csv` and events CSV — the sim
 //! gates run this — a `--capture-orbit` flythrough, or the `--scene-report`
-//! census).
+//! census). `--aim-replay` runs the scripted acquisition referee without a device.
 
 use super::battle::{
     hud_model, load_and_upload, load_hud_view, make_walk, spawn_model, squad_icons, walk_draws,
@@ -72,6 +72,93 @@ fn render_headless_hud(
         }),
     )
     .map_err(|e| anyhow!("render: {e}"))
+}
+
+/// Resources shared by series captures and the always-rendered final replay frame.
+struct ReplayFrame {
+    cube: render::MeshHandle,
+    models: [bool; 2],
+    quad: render::MeshHandle,
+    sprite: Option<render::TextureHandle>,
+    icons: (Option<render::TextureHandle>, Option<render::TextureHandle>),
+    vis: game::soldier_vis::SoldierVisuals,
+    vehicle_vis: game::viewer::VehicleVisuals,
+    fx: game::fx::Fx,
+    bolts: game::bolt_vis::BoltVis,
+    weather: Option<game::weather::Weather>,
+    holos: game::holo::Holos,
+    overlay: Option<ui::overlay::EguiOverlay>,
+    hud_view: Option<game::hud_feed::HudView>,
+    feed: game::event_feed::EventFeed,
+}
+
+impl ReplayFrame {
+    fn render(
+        &mut self,
+        r: &mut Renderer,
+        gpu: &mut SceneGpu,
+        walk: &WalkSim,
+        v: &ViewerArgs,
+        dt: f32,
+    ) -> Result<()> {
+        let cam = if v.cam_set {
+            camera_from(v.cam)
+        } else {
+            walk.camera()
+        };
+        // Replay presentation uses elapsed sim time, independent of capture cadence.
+        r.time = (walk.sim.tick as f32 * core::TICK_DT) % render::TIME_WRAP;
+        r.water_time = walk.sim.tick as f64 / f64::from(core::TICK_HZ);
+        let clock = game::water_anim::clock(r.water_time);
+        gpu.animate_water(r, clock, cam.position)?;
+        gpu.pose_doors(&walk.sim.doors);
+        gpu.pose_turrets(&walk.sim, &walk.vehicle_seats);
+        gpu.pose_stations(&walk.sim);
+        let mut draws = gpu.view_draws(&walk.sim, walk.player);
+        walk_draws(self.cube, walk, &mut draws, self.models);
+        draws.extend(self.vehicle_vis.draws(r, &walk.sim));
+        let skinned = self.vis.draws(walk);
+        draws.extend(self.vis.weapon_draws(walk));
+        draws.extend(self.fx.draws(self.quad, self.sprite, &cam));
+        self.holos.advance(walk);
+        game::point_light::submit(r, gpu, walk, &mut self.bolts, cam.position, &self.holos);
+        let mut particles = self.vis.flash_draws(walk);
+        particles.extend(self.holos.draws(&gpu.holo, walk, &cam));
+        if let Some(w) = self.weather.as_mut() {
+            particles.extend(w.frame_draws(r, &cam, glam::Vec3::ZERO));
+        }
+        self.fx.submit_with(r, &cam, particles);
+        draws.extend(game::squad_vis::squad_draws(
+            &walk.sim,
+            0,
+            self.quad,
+            self.icons.0,
+            self.icons.1,
+            &cam,
+        ));
+        match &mut self.overlay {
+            Some(o) => {
+                let model = hud_model(walk, &mut self.feed);
+                let spawn = spawn_model(walk, &self.feed);
+                render_headless_hud(
+                    r,
+                    o,
+                    &mut self.hud_view,
+                    dt,
+                    &cam,
+                    &draws,
+                    &skinned,
+                    &model,
+                    spawn.as_ref(),
+                    gpu.clear,
+                )?
+            }
+            None => r
+                .render_frame(&cam, &draws, &skinned, gpu.clear, None)
+                .map_err(|e| anyhow!("render: {e}"))?,
+        }
+        Ok(())
+    }
 }
 
 /// One CSV line per sim event (tick,kind,a,b,value).
@@ -236,27 +323,18 @@ pub(super) fn run_bench(v: &ViewerArgs) -> Result<()> {
         .parent()
         .map(std::path::Path::to_path_buf)
         .unwrap_or_default();
-    let mut vis = game::soldier_vis::SoldierVisuals::load(
-        &mut r,
-        &assets_dir,
-        &scene.manifest.source_game,
-        &walk.teams,
-    );
-    vis.set_turrets(game::viewer::turret_pose::rigged_turrets(&scene));
-    vis.set_walker_rigs(game::viewer::walker_rigs(
-        &scene.manifest,
-        &assets_dir,
-        &walk.vehicle_geometry,
-    ));
+    let mut vis = game::soldier_vis::SoldierVisuals::for_walk(&mut r, &assets_dir, &scene, &walk);
     let models = [vis.has_model(0), vis.has_model(1)];
     let mut vehicle_vis =
         game::viewer::VehicleVisuals::load(&mut r, &scene, &assets_dir, &walk.vehicle_geometry);
     let cube = upload_unit_cube(&mut r)?;
     let mut tick = game::bench::Samples::default();
     let pad = [core::sim::PadState::default()];
+    gpu.step_stations(&walk.sim);
     for _ in 0..v.bench_ticks {
         let t = Instant::now();
         walk.step_tick(&pad);
+        gpu.step_stations(&walk.sim);
         vis.update(&walk, core::TICK_DT);
         tick.push(t.elapsed());
     }
@@ -290,7 +368,7 @@ pub(super) fn run_bench(v: &ViewerArgs) -> Result<()> {
         r.wait_idle().map_err(|e| anyhow!("wait: {e}"))?;
         for k in 0..v.bench_frames {
             let t = Instant::now();
-            let clock = game::water_anim::clock(k as f32 / 60.0);
+            let clock = game::water_anim::clock(k as f64 / 60.0);
             gpu.animate_water(&mut r, clock, cam.position)?;
             // A fixed eye keeps the same cells, so only the water's own
             // draws change: copy them over rather than re-cloning the list.
@@ -381,43 +459,32 @@ pub(super) fn run_headless(v: &ViewerArgs) -> Result<()> {
             .parent()
             .map(std::path::Path::to_path_buf)
             .unwrap_or_default();
-        let mut vis = game::soldier_vis::SoldierVisuals::load(
-            &mut r,
-            &assets_dir,
-            &scene.manifest.source_game,
-            &walk.teams,
-        );
-        vis.set_turrets(game::viewer::turret_pose::rigged_turrets(&scene));
-        vis.set_walker_rigs(game::viewer::walker_rigs(
-            &scene.manifest,
-            &assets_dir,
-            &walk.vehicle_geometry,
-        ));
+        let vis = game::soldier_vis::SoldierVisuals::for_walk(&mut r, &assets_dir, &scene, &walk);
         let models = [vis.has_model(0), vis.has_model(1)];
-        let mut vehicle_vis =
+        let vehicle_vis =
             game::viewer::VehicleVisuals::load(&mut r, &scene, &assets_dir, &walk.vehicle_geometry);
         let quad = game::viewer::upload_billboard_quad(&mut r)?;
         let sprite = game::viewer::upload_fx_sprite(&mut r).ok();
         let icons = squad_icons(&mut r, &assets_dir);
-        let mut fx =
+        let fx =
             game::fx::Fx::for_walk(&assets_dir, &scene.dir, &scene.manifest.source_game, &walk);
-        let mut bolts = game::bolt_vis::BoltVis::new(&assets_dir, &scene.manifest.source_game);
+        let bolts = game::bolt_vis::BoltVis::new(&assets_dir, &scene.manifest.source_game);
         // The map's precipitation (card WTHR), on the sim's tick here.
-        let mut weather = game::weather::Weather::load(
+        let weather = game::weather::Weather::load(
             &scene.manifest,
             &assets_dir,
             &scene.dir,
             game::weather::STILL_SEED,
         );
-        let mut holos = game::holo::Holos::default();
-        let mut overlay = v
+        let holos = game::holo::Holos::default();
+        let overlay = v
             .hud
             .then(|| ui::overlay::EguiOverlay::headless(r.device(), render::HEADLESS_FORMAT));
-        let mut hud_view = v.hud.then(|| load_hud_view(&assets_dir, &r)).flatten();
+        let hud_view = v.hud.then(|| load_hud_view(&assets_dir, &r)).flatten();
         // Sim tick of the last HUD frame: the fades run on the sim's clock.
         let mut hud_tick: Option<u64> = None;
         // The event lines and statistics, as the window keeps them.
-        let mut feed =
+        let feed =
             game::event_feed::EventFeed::for_walk(&assets_dir, &scene.manifest.source_game, &walk);
         let mut csv = String::from(
             "tick,x,y,z,speed,stance,energy,yaw,magnet,shots,hits,kills,health,bolts,enemies,tickets0,tickets1,alive0,alive1,cps0,cps1,outcome\n",
@@ -438,22 +505,40 @@ pub(super) fn run_headless(v: &ViewerArgs) -> Result<()> {
             );
             sl
         });
+        let mut frame = ReplayFrame {
+            cube,
+            models,
+            quad,
+            sprite,
+            icons,
+            vis,
+            vehicle_vis,
+            fx,
+            bolts,
+            weather,
+            holos,
+            overlay,
+            hud_view,
+            feed,
+        };
+        gpu.step_stations(&walk.sim);
         for (tick, pads) in log.frames().enumerate() {
             walk.step_tick(pads);
-            fx.ingest(&walk);
-            let effect_sounds = fx.take_sounds();
+            gpu.step_stations(&walk.sim);
+            frame.fx.ingest(&walk);
+            let effect_sounds = frame.fx.take_sounds();
             if let Some(sl) = sound_log.as_mut() {
                 sl.tick(tick, &walk, &effect_sounds);
                 sl.voice(tick, &mut walk);
             }
-            vis.update(&walk, core::TICK_DT);
-            fx.update(core::TICK_DT);
-            if let Some(w) = weather.as_mut() {
+            frame.vis.update(&walk, core::TICK_DT);
+            frame.fx.update(core::TICK_DT);
+            if let Some(w) = frame.weather.as_mut() {
                 w.update(core::TICK_DT);
             }
-            bolts.set_fire_points(vis.fire_points(&walk));
-            bolts.update(&walk, core::TICK_DT);
-            feed.tick(&walk.sim, walk.player);
+            frame.bolts.set_fire_points(frame.vis.fire_points(&walk));
+            frame.bolts.update(&walk, core::TICK_DT);
+            frame.feed.tick(&walk.sim, walk.player);
             if v.events.is_some() {
                 append_events(&mut events_csv, tick, &walk.sim.events);
             }
@@ -527,62 +612,12 @@ pub(super) fn run_headless(v: &ViewerArgs) -> Result<()> {
             if let Some((every, dir)) = &v.capture_series {
                 if (tick as u64).is_multiple_of(*every) {
                     std::fs::create_dir_all(dir)?;
-                    gpu.pose_doors(&walk.sim.doors);
-                    gpu.pose_turrets(&walk.sim, &walk.vehicle_seats);
-                    gpu.pose_stations(&walk.sim);
-                    let mut draws = gpu.view_draws(&walk.sim, walk.player);
-                    walk_draws(cube, &walk, &mut draws, models);
-                    draws.extend(vehicle_vis.draws(&mut r, &walk.sim));
-                    let skinned = vis.draws(&walk);
-                    draws.extend(vis.weapon_draws(&walk));
-                    let cam = if v.cam_set {
-                        camera_from(v.cam)
-                    } else {
-                        walk.camera()
-                    };
-                    draws.extend(fx.draws(quad, sprite, &cam));
-                    holos.advance(&walk);
-                    game::point_light::submit(
-                        &mut r,
-                        &gpu,
-                        &walk,
-                        &mut bolts,
-                        cam.position,
-                        &holos,
-                    );
-                    let mut particles = vis.flash_draws(&walk);
-                    particles.extend(holos.draws(&gpu.holo, &walk, &cam));
-                    if let Some(w) = weather.as_mut() {
-                        particles.extend(w.frame_draws(&mut r, &cam, glam::Vec3::ZERO));
-                    }
-                    fx.submit_with(&mut r, &cam, particles);
-                    draws.extend(game::squad_vis::squad_draws(
-                        &walk.sim, 0, quad, icons.0, icons.1, &cam,
-                    ));
-                    match &mut overlay {
-                        Some(o) => {
-                            let model = hud_model(&walk, &mut feed);
-                            let spawn = spawn_model(&walk, &feed);
-                            let dt = hud_tick.map_or(0.0, |t| {
-                                walk.sim.tick.saturating_sub(t) as f32 * core::TICK_DT
-                            });
-                            hud_tick = Some(walk.sim.tick);
-                            render_headless_hud(
-                                &mut r,
-                                o,
-                                &mut hud_view,
-                                dt,
-                                &cam,
-                                &draws,
-                                &skinned,
-                                &model,
-                                spawn.as_ref(),
-                                gpu.clear,
-                            )?
-                        }
-                        None => r
-                            .render_frame(&cam, &draws, &skinned, gpu.clear, None)
-                            .map_err(|e| anyhow!("render: {e}"))?,
+                    let dt = hud_tick.map_or(0.0, |t| {
+                        walk.sim.tick.saturating_sub(t) as f32 * core::TICK_DT
+                    });
+                    frame.render(&mut r, &mut gpu, &walk, v, dt)?;
+                    if frame.overlay.is_some() {
+                        hud_tick = Some(walk.sim.tick);
                     }
                     let (rgba, w, h) = r.capture_rgba().map_err(|e| anyhow!("capture: {e}"))?;
                     let png = render::encode_png(&rgba, w, h).map_err(|e| anyhow!("png: {e}"))?;
@@ -633,58 +668,13 @@ pub(super) fn run_headless(v: &ViewerArgs) -> Result<()> {
                 dir.display()
             );
         }
-        // Leave the final frame rendered for --capture-frame below.
-        gpu.pose_doors(&walk.sim.doors);
-        gpu.pose_turrets(&walk.sim, &walk.vehicle_seats);
-        gpu.pose_stations(&walk.sim);
-        let mut draws = gpu.view_draws(&walk.sim, walk.player);
-        walk_draws(cube, &walk, &mut draws, models);
-        draws.extend(vehicle_vis.draws(&mut r, &walk.sim));
-        let skinned = vis.draws(&walk);
-        draws.extend(vis.weapon_draws(&walk));
-        let cam = if v.cam_set {
-            camera_from(v.cam)
-        } else {
-            walk.camera()
-        };
-        draws.extend(fx.draws(quad, sprite, &cam));
-        holos.advance(&walk);
-        game::point_light::submit(&mut r, &gpu, &walk, &mut bolts, cam.position, &holos);
-        let mut particles = vis.flash_draws(&walk);
-        particles.extend(holos.draws(&gpu.holo, &walk, &cam));
-        if let Some(w) = weather.as_mut() {
-            particles.extend(w.frame_draws(&mut r, &cam, glam::Vec3::ZERO));
-        }
-        fx.submit_with(&mut r, &cam, particles);
-        draws.extend(game::squad_vis::squad_draws(
-            &walk.sim, 0, quad, icons.0, icons.1, &cam,
-        ));
-        match &mut overlay {
-            Some(o) => {
-                let model = hud_model(&walk, &mut feed);
-                let spawn = spawn_model(&walk, &feed);
-                let dt = hud_tick.map_or(0.0, |t| {
-                    walk.sim.tick.saturating_sub(t) as f32 * core::TICK_DT
-                });
-                render_headless_hud(
-                    &mut r,
-                    o,
-                    &mut hud_view,
-                    dt,
-                    &cam,
-                    &draws,
-                    &skinned,
-                    &model,
-                    spawn.as_ref(),
-                    gpu.clear,
-                )?
-            }
-            None => r
-                .render_frame(&cam, &draws, &skinned, gpu.clear, None)
-                .map_err(|e| anyhow!("render: {e}"))?,
-        }
+        // Leave the final frame rendered, even if the series just captured this tick.
+        let dt = hud_tick.map_or(0.0, |t| {
+            walk.sim.tick.saturating_sub(t) as f32 * core::TICK_DT
+        });
+        frame.render(&mut r, &mut gpu, &walk, v, dt)?;
     } else if let Some((frames, dir)) = &v.capture_orbit {
-        return capture_orbit(&mut r, &scene, &gpu, *frames, dir);
+        return capture_orbit(&mut r, &scene, &mut gpu, *frames, dir);
     } else {
         let cam = if v.cam_overview {
             game::viewer::overview_camera(&scene)
@@ -693,7 +683,7 @@ pub(super) fn run_headless(v: &ViewerArgs) -> Result<()> {
         };
         // The water at the renderer's clock (0 here) unless
         // OPENBF_WATER_TIME pins it (queue OC).
-        let clock = game::water_anim::clock(r.time);
+        let clock = game::water_anim::clock(r.water_time);
         gpu.animate_water(&mut r, clock, cam.position)?;
         // The map's precipitation at its still state (card WTHR).
         let map = std::path::Path::new(&v.map);
@@ -763,13 +753,13 @@ fn scene_report(scene: &game::assets::Scene, gpu: &SceneGpu, map: &std::path::Pa
 /// same shot the golden gallery frames, swung around it: no hand-authored
 /// poses to keep in step with the bake.
 ///
-/// The renderer's clock advances a frame at a time, so a map's water scrolls
-/// through the shot (`Renderer::time`). Everything else is static — this
+/// The renderer's clock advances at 30 fps; water geometry and speckles step
+/// at that clock (or OPENBF_WATER_TIME). Everything else is static — this
 /// renders the SCENE, not a battle.
 fn capture_orbit(
     r: &mut Renderer,
     scene: &game::assets::Scene,
-    gpu: &SceneGpu,
+    gpu: &mut SceneGpu,
     frames: u32,
     dir: &std::path::Path,
 ) -> Result<()> {
@@ -788,6 +778,9 @@ fn capture_orbit(
         let lift = 0.34 + 0.12 * core::fmath::sin_cos(a).0;
         let cam = look_at(orbit_eye(o, a, lift), o.center);
         r.time = (k as f32 / 30.0) % render::TIME_WRAP;
+        r.water_time = k as f64 / 30.0;
+        let clock = game::water_anim::clock(r.water_time);
+        gpu.animate_water(r, clock, cam.position)?;
         r.render(&cam, &gpu.draws, gpu.clear)
             .map_err(|e| anyhow!("render: {e}"))?;
         let (rgba, w, h) = r.capture_rgba().map_err(|e| anyhow!("capture: {e}"))?;
@@ -826,4 +819,120 @@ fn ride_script(
     std::fs::write(out, ron::to_string(&ride.log)?)?;
     anyhow::ensure!(ride.exited.is_some(), "the ride did not complete");
     Ok(out.to_path_buf())
+}
+
+/// AIMG's scripted, asset-free acquisition replay. Geometry follows the
+/// existing AIMF fixtures (analysis/re-aim-assist.md §3.3); only Sim::step
+/// acquires the target. No renderer, baked map or private acquisition call.
+pub(super) fn run_aim_replay(args: &[String]) -> Result<()> {
+    use core::collision::{Body, CollisionWorld, Shape};
+    use core::heightfield::Heightfield;
+    use core::sim::{buttons, AimTarget, PadState, Sim};
+    use core::unit::UnitSpec;
+    use glam::{Mat4, Vec3};
+    use std::fmt::Write;
+
+    anyhow::ensure!(args.len() == 1, "--aim-replay <output-directory>");
+    let out = std::path::Path::new(&args[0]);
+    std::fs::create_dir_all(out)?;
+    let mut sim = Sim::empty(5);
+    sim.heightfield = Some(Heightfield {
+        size: 2,
+        unit: 4000.0,
+        offset_x: 2000.0,
+        offset_z: 2000.0,
+        heights: vec![0.0; 4],
+    });
+    let player = sim
+        .spawn(&UnitSpec::player(0, Vec3::ZERO))
+        .context("player")?;
+    let enemy = sim
+        .spawn(&UnitSpec::trooper(1, Vec3::new(1.0, 0.0, -20.0)))
+        .context("enemy")?;
+    let friend = sim
+        .spawn(&UnitSpec::trooper(0, Vec3::new(20.0, 0.0, 20.0)))
+        .context("friend")?;
+    let mut csv = String::from("tick,phase,magnet,reticle,relation,yaw,pitch,enemy_x,enemy_z,friend_x,friend_z,wall,hash\n");
+    // The same enemy leaves and re-enters the cone; the held target must
+    // release on the next tick. FIRE is released in rejection phases so
+    // its deliberately wider sticky cone does not mask the cone boundary.
+    for (phase, x, z, friendly, wall, acquired) in [
+        ("off_ray", 1.0, -20.0, false, false, true),
+        ("outside_cone", 8.0, -20.0, false, false, false),
+        ("friend_crosshair", 8.0, -20.0, true, false, false),
+        ("past_range", 0.0, -70.0, false, false, false),
+        ("wall", 1.0, -20.0, false, true, false),
+        ("reacquire", 1.0, -20.0, false, false, true),
+    ] {
+        sim.units[player.index as usize].soldier.yaw = 0.0;
+        sim.units[player.index as usize].soldier.pitch = 0.0;
+        sim.units[enemy.index as usize].soldier.pos = Vec3::new(x, 0.0, z);
+        let f = if friendly {
+            Vec3::new(0.0, 0.0, -10.0)
+        } else {
+            Vec3::new(20.0, 0.0, 20.0)
+        };
+        sim.units[friend.index as usize].soldier.pos = f;
+        sim.collision = CollisionWorld::default();
+        if wall {
+            sim.collision.push_body(Body::new(
+                Mat4::from_translation(Vec3::new(0.0, 5.0, -10.0)),
+                Shape::Box {
+                    half: Vec3::new(5.0, 5.0, 0.5),
+                },
+            ));
+        }
+        for _ in 0..12 {
+            sim.step(&[PadState {
+                buttons: if acquired { buttons::FIRE } else { 0 },
+                ..Default::default()
+            }]);
+            let magnet = sim.magnet_at(0);
+            anyhow::ensure!(
+                magnet == acquired.then_some(AimTarget::Unit(enemy)),
+                "{phase} tick {}: magnet {magnet:?}",
+                sim.tick
+            );
+            let pick = sim.reticle_pick[0];
+            if friendly {
+                anyhow::ensure!(
+                    pick == Some((AimTarget::Unit(friend), 1)),
+                    "friend not picked: {pick:?}"
+                );
+            }
+            if phase == "past_range" {
+                anyhow::ensure!(
+                    pick == Some((AimTarget::Unit(enemy), -1)),
+                    "distant enemy not picked: {pick:?}"
+                );
+            }
+            if wall {
+                anyhow::ensure!(pick.is_none(), "wall did not block reticle: {pick:?}");
+            }
+            let (pick_index, relation) = match pick {
+                Some((AimTarget::Unit(h), relation)) => (i64::from(h.index), relation),
+                _ => (-1, 0),
+            };
+            let p = &sim.units[player.index as usize].soldier;
+            writeln!(
+                csv,
+                "{},{phase},{},{pick_index},{relation},{:.6},{:.6},{x},{z},{},{},{},{:016x}",
+                sim.tick,
+                if magnet.is_some() {
+                    i64::from(enemy.index)
+                } else {
+                    -1
+                },
+                p.yaw,
+                p.pitch,
+                f.x,
+                f.z,
+                u8::from(wall),
+                sim.hash()
+            )?;
+        }
+    }
+    std::fs::write(out.join("motion.csv"), csv)?;
+    println!("sim hash after {} ticks: {:016x}", sim.tick, sim.hash());
+    Ok(())
 }

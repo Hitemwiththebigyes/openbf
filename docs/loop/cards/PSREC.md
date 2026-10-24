@@ -4,14 +4,14 @@ title: Frame-exact, repeatable PS2 runs: record pad input into PCSX2 so a save s
 milestone: M0
 value: 3
 phase: capture
-status: todo
+status: blocked
 deps:
 files:
 declares:
-needs:
+needs: Restore emulator session/live kit and a retained state; prove bit-equal positions at frames 60/300/600 before converter or oracle claims.
 effort:
 branch:
-resume:
+resume: 2026-10-24 13:06 UTC: planner restoration hold, 4 exact named inputs absent. Restore emulator session/live kit and a retained state; prove bit-equal positions at frames 60/300/600 before converter or oracle claims. Original measurable acceptance unchanged. reports/20261024_1306_planner.md; lead_tmp/planner_20261024_1303/preflight.json.
 created: 2026-10-08
 ---
 

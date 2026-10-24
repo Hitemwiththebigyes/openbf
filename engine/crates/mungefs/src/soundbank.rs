@@ -47,21 +47,32 @@ pub fn find_banks<'a>(inner: &'a [u8]) -> Vec<SampleBank<'a>> {
     let bank_tag = fnv1a_lowercase("SampleBank");
     let mut banks = Vec::new();
     for c in chunks(inner).flatten() {
-        if c.tag_u32() == bank_tag {
-            if let Ok(b) = parse_bank(&c) {
-                banks.push(b);
-            }
-        } else if c.tag_u32() == list_tag {
-            for cc in c.children().flatten() {
-                if cc.tag_u32() == bank_tag {
-                    if let Ok(b) = parse_bank(&cc) {
-                        banks.push(b);
-                    }
-                }
-            }
-        }
+        collect_list(&c, list_tag, bank_tag, parse_bank, &mut banks);
     }
     banks
+}
+
+/// Consume a direct sound item or the immediate matching children of its list.
+pub(crate) fn collect_list<'a, T>(
+    c: &Chunk<'a>,
+    list_tag: u32,
+    item_tag: u32,
+    parse: impl Fn(&Chunk<'a>) -> Result<T, UcfbError>,
+    out: &mut Vec<T>,
+) -> bool {
+    let t = c.tag_u32();
+    if t == item_tag {
+        out.extend(parse(c));
+    } else if t == list_tag {
+        for child in c.children().flatten() {
+            if child.tag_u32() == item_tag {
+                out.extend(parse(&child));
+            }
+        }
+    } else {
+        return false;
+    }
+    true
 }
 
 /// True for chunks worth descending into when hunting sound content: `lvl_`
@@ -140,26 +151,67 @@ pub fn find_banks_deep<'a>(inner: &'a [u8]) -> Vec<SampleBank<'a>> {
     let bank_tag = fnv1a_lowercase("SampleBank");
     let mut banks = Vec::new();
     walk_sound_wrappers(inner, 3, &mut |c: &Chunk<'a>| {
-        let t = c.tag_u32();
-        if t == bank_tag {
-            if let Ok(b) = parse_bank(c) {
-                banks.push(b);
-            }
-            return true;
-        }
-        if t == list_tag {
-            for cc in c.children().flatten() {
-                if cc.tag_u32() == bank_tag {
-                    if let Ok(b) = parse_bank(&cc) {
-                        banks.push(b);
-                    }
-                }
-            }
-            return true;
-        }
-        false
+        collect_list(c, list_tag, bank_tag, parse_bank, &mut banks)
     });
     banks
+}
+
+pub(crate) fn info_pairs(info: &[u8]) -> Vec<(u32, u32)> {
+    info.as_chunks::<8>()
+        .0
+        .iter()
+        .map(|p| {
+            (
+                u32::from_le_bytes(p[0..4].try_into().unwrap()),
+                u32::from_le_bytes(p[4..8].try_into().unwrap()),
+            )
+        })
+        .collect()
+}
+
+pub(crate) struct SampleRecord {
+    pub id: u32,
+    pub frequency: u32,
+    pub size: u32,
+    pub frames: Option<u32>,
+    pub padding: u32,
+    pub alias_of: Option<u32>,
+}
+
+/// INFO records end at the next sample marker (including invalid records),
+/// and contain at most seven field pairs. Markers match the value, not the key.
+pub(crate) fn sample_records(pairs: &[(u32, u32)]) -> impl Iterator<Item = SampleRecord> + '_ {
+    let h_sample = fnv1a_lowercase("sample");
+    let h_id = fnv1a_lowercase("id");
+    let h_freq = fnv1a_lowercase("frequency");
+    let h_size = fnv1a_lowercase("size");
+    let h_pad = fnv1a_lowercase("padding");
+    let h_alias = fnv1a_lowercase("alias");
+    let mut markers = pairs
+        .iter()
+        .enumerate()
+        .filter(move |(_, (_, v))| *v == h_sample)
+        .peekable();
+    std::iter::from_fn(move || {
+        let (start, _) = markers.next()?;
+        let end = markers
+            .peek()
+            .map(|(i, _)| *i)
+            .unwrap_or(pairs.len())
+            .min(start + 8);
+        Some(&pairs[start + 1..end])
+    })
+    .filter_map(move |rec| {
+        let get = |h: u32| rec.iter().find(|(k, _)| *k == h).map(|(_, v)| *v);
+        Some(SampleRecord {
+            id: get(h_id)?,
+            frequency: get(h_freq)?,
+            size: get(h_size)?,
+            frames: get(0x1D48_FEEF), // field name unknown; decoded frame count
+            padding: get(h_pad).unwrap_or(0),
+            alias_of: get(h_alias),
+        })
+    })
 }
 
 fn parse_bank<'a>(bank: &Chunk<'a>) -> Result<SampleBank<'a>, UcfbError> {
@@ -177,23 +229,8 @@ fn parse_bank<'a>(bank: &Chunk<'a>) -> Result<SampleBank<'a>, UcfbError> {
     }
     let (info, data) = (info.ok_or_else(bad)?, data.ok_or_else(bad)?);
 
-    let pairs: Vec<(u32, u32)> = info
-        .chunks_exact(8)
-        .map(|p| {
-            (
-                u32::from_le_bytes(p[0..4].try_into().unwrap()),
-                u32::from_le_bytes(p[4..8].try_into().unwrap()),
-            )
-        })
-        .collect();
-
+    let pairs = info_pairs(info);
     let h_name = fnv1a_lowercase("name");
-    let h_id = fnv1a_lowercase("id");
-    let h_freq = fnv1a_lowercase("frequency");
-    let h_size = fnv1a_lowercase("size");
-    let h_pad = fnv1a_lowercase("padding");
-    let h_sample = fnv1a_lowercase("sample");
-    let h_frames = 0x1D48_FEEF; // field name unknown; value == size/16*28
 
     let name_hash = pairs
         .iter()
@@ -204,38 +241,21 @@ fn parse_bank<'a>(bank: &Chunk<'a>) -> Result<SampleBank<'a>, UcfbError> {
     // Records are delimited by marker pairs whose VALUE is hash("sample").
     // Alias records (an `alias` field naming another sample id) own no data:
     // offsets accumulate over real records only; aliases resolve afterwards.
-    let h_alias = fnv1a_lowercase("alias");
     let mut samples = Vec::new();
     let mut offset = 0usize;
-    let marker_idxs: Vec<usize> = pairs
-        .iter()
-        .enumerate()
-        .filter(|(_, (_, v))| *v == h_sample)
-        .map(|(i, _)| i)
-        .collect();
-    for (mi, &start) in marker_idxs.iter().enumerate() {
-        let end = marker_idxs
-            .get(mi + 1)
-            .copied()
-            .unwrap_or(pairs.len())
-            .min(start + 8);
-        let rec = &pairs[start + 1..end];
-        let get = |h: u32| rec.iter().find(|(k, _)| *k == h).map(|(_, v)| *v);
-        let (Some(id), Some(freq), Some(size)) = (get(h_id), get(h_freq), get(h_size)) else {
-            continue;
-        };
-        let frames = get(h_frames).unwrap_or((size / 16).saturating_mul(28));
-        let padding = get(h_pad).unwrap_or(0) as usize;
-        let alias_of = get(h_alias);
+    for rec in sample_records(&pairs) {
+        let size = rec.size;
+        let padding = rec.padding as usize;
+        let frames = rec.frames.unwrap_or((size / 16).saturating_mul(28));
         samples.push(Sample {
-            id_hash: id,
-            frequency: freq,
+            id_hash: rec.id,
+            frequency: rec.frequency,
             offset,
             size: size as usize,
             frames,
-            alias_of,
+            alias_of: rec.alias_of,
         });
-        if alias_of.is_none() {
+        if rec.alias_of.is_none() {
             offset += size as usize + padding;
         }
     }

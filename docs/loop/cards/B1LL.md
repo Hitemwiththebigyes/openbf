@@ -4,14 +4,14 @@ title: BF1's local lights: on the PS2 every BF1 model draw takes up to 4 omnis -
 milestone: M1
 value: 4
 phase: build
-status: parked
+status: blocked
 deps: B1DK
 files: engine/crates/game/src/point_light.rs,engine/crates/game/src/viewer/scene.rs,engine/crates/bake/src/map.rs,engine/crates/bake/src/entity_light.rs,engine/crates/bake/src/hardpoints.rs,engine/crates/manifest/src/lib.rs,engine/crates/render/src/shader.wgsl,engine/crates/render/src/point_light.rs
 declares: ci (+2 tests: bake a_bf1_light_class_scales_by_its_alpha, game a_bf1_post_lights_green_for_a_friend_at_its_bone; +1 ignored GPU test light_path::an_edge_on_light_takes_a_quarter_on_bf2_and_a_sixteenth_on_bf1); goldens=maps/bf1_bes1.png,maps/bf1_bes2.png,maps/bf1_end1.png,maps/bf1_geo1.png,maps/bf1_hot1.png,maps/bf1_kam1.png,maps/bf1_kas1.png,maps/bf1_kas2.png,maps/bf1_nab1.png,maps/bf1_nab2.png,maps/bf1_rhn1.png,maps/bf1_rhn2.png,maps/bf1_yav1.png,maps/bf1_yav2.png,maps/tat1.png,tat1_spawn.png,tat1_overview.png,tat1_hud.png,walkabout_stats.ron; rebake=maps,tat1 (8 manifests: bf1_bes2 end1 geo1 hot1 kas1 kas2 rhn2, tat1); parity=bf1_*,tat1 (all fall or within 0.1)
-needs: maintainer — reboot for the RTX (nvidia-smi: Unknown Error since 10-21 19:45); the branch is ci-green and gated without the GPU
+needs: cloud prerequisites: branch b1ll, baked assets, missions and reference evidence absent
 effort:
 branch: b1ll
-resume: land: branch b1ll 4b12c8d, ci + GPU-free gates PASS with declared moves only (lead_tmp/b1ll/gates2/SUMMARY.md). Needs the RTX for the goldens; then land.py B1LL and view every BF1 sheet (posts washed in their relation colour, HOT1/KAS1 lamps). With the landing: add a 'Built by card B1LL' paragraph to analysis/re-kamino-decks.md section 9 item 3 (numbers in reports/20261022_0530_card_B1LL.md). If a BF2 golden moves: the large-post light now stands at 1.363 m (still_lights via holo::bone_height) - declare it if it is that.
+resume: (private workflow note omitted)
 created: 2026-10-05
 alpha: yes
 ---
@@ -80,3 +80,4 @@ Re-take that table in this card's acceptance (`reports/20261005_1535_card_B1DK.m
   13.103 -> 12.853, geo1 -2.60, kas1 -1.72, rhn2 -1.70, tat1 -2.08, hot1 +0.09 (worst), BF2 0.000.
   cp1_cp10_post2_v1 14.51 -> 9.52; walk/cp3_cp12 x4 mean 18.40 -> 18.94 (+0.54, bar 0.5: main's floor there is
   already ~10 levels over the PS2 at three bearings, the enemy light adds R+6 G+3 B+3; a droideka covers the PS2 frame).
+

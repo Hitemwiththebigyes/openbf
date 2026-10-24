@@ -209,6 +209,8 @@ pub struct Sticky {
     pub anchor: Option<Anchor>,
     /// The tick of its first contact (s+0x12c): the AI warning's clock.
     pub touched: Option<u64>,
+    /// Stable identity of this grenade's AI warning, independent of contact tick.
+    pub warning_id: Option<u64>,
     pub owner: UnitHandle,
     pub team: u8,
     /// Index into `Sim::weapon_classes` of the weapon that threw it.
@@ -235,6 +237,7 @@ impl Sticky {
             moving: true,
             anchor: None,
             touched: None,
+            warning_id: None,
             owner,
             team,
             weapon_class,
@@ -339,6 +342,36 @@ impl Sticky {
         }
         eat(&[self.armed as u8, self.bounces, self.moving as u8]);
         eat(&self.owner.index.to_le_bytes());
+        // The launch identity survives switches, deaths and slot reuse.
+        eat(b"STICKY_IDENTITY");
+        eat(&(self.weapon_class as u64).to_le_bytes());
+        eat(&[self.team]);
+        eat(&self.owner.index.to_le_bytes());
+        eat(&self.owner.gen.to_le_bytes());
+        eat(&[u8::from(self.touched.is_some())]);
+        if let Some(tick) = self.touched {
+            eat(&tick.to_le_bytes());
+        }
+        // None/World are inert; a dynamic frame determines the next position.
+        let dynamic = match self.anchor {
+            Some(Anchor::Unit { handle, local }) => Some((1, handle.index, handle.gen, local)),
+            Some(Anchor::Vehicle { handle, local }) => Some((2, handle.index, handle.gen, local)),
+            _ => None,
+        };
+        if let Some((kind, index, generation, local)) = dynamic {
+            eat(b"STICKY_ANCHOR");
+            eat(&[kind]);
+            eat(&index.to_le_bytes());
+            eat(&generation.to_le_bytes());
+            for v in [local.x, local.y, local.z] {
+                eat(&v.to_bits().to_le_bytes());
+            }
+        }
+        if let Some(id) = self.warning_id {
+            eat(b"STICKY_WARNING");
+            eat(&id.to_le_bytes());
+        }
+        // Moving gravity is class-derived; a stopped grenade never reads it.
     }
 }
 

@@ -63,46 +63,28 @@ pub use core::vehicle::gun::MAX_SEAT_WEAPONS;
 /// both damp factors 1, and the two omega SPRING factors a lever-arm sign —
 /// −sign(z) for X (pitch) and sign(x) for Z (roll), 0 inside ±0.1. BF2's
 /// entry init FUN_00224368 (B2:138140-138183) is the same (re-hover §10 [O]).
-#[derive(Clone, Debug, PartialEq)]
-pub struct SpringPoint {
-    /// Sphere centre in the vehicle's frame, and its radius.
-    pub pos: [f32; 3],
-    pub radius: f32,
-    /// BodySpringLength (entry +0x04).
-    pub length: f32,
-    /// BodyVelocitySpringFactor / BodyVelocityDampFactor (+0x08 / +0x0c).
-    pub velocity_spring: f32,
-    pub velocity_damp: f32,
-    /// BodyOmegaXSpringFactor / BodyOmegaXDampFactor (+0x10 / +0x14).
-    pub omega_x_spring: f32,
-    pub omega_x_damp: f32,
-    /// BodyOmegaZSpringFactor / BodyOmegaZDampFactor (+0x18 / +0x1c).
-    pub omega_z_spring: f32,
-    pub omega_z_damp: f32,
-}
+pub use core::vehicle::hover::Spring as SpringPoint;
 
-impl SpringPoint {
-    fn new(pos: [f32; 3], radius: f32) -> Self {
-        let sign = |v: f32| {
-            if v > 0.1 {
-                1.0
-            } else if v < -0.1 {
-                -1.0
-            } else {
-                0.0
-            }
-        };
-        Self {
-            pos,
-            radius,
-            length: radius * 0.5,
-            velocity_spring: 1.0,
-            velocity_damp: 1.0,
-            omega_x_spring: -sign(pos[2]),
-            omega_x_damp: 1.0,
-            omega_z_spring: sign(pos[0]),
-            omega_z_damp: 1.0,
+fn spring_point(pos: [f32; 3], radius: f32) -> Spring {
+    let sign = |v: f32| {
+        if v > 0.1 {
+            1.0
+        } else if v < -0.1 {
+            -1.0
+        } else {
+            0.0
         }
+    };
+    Spring {
+        pos: pos.into(),
+        radius,
+        length: radius * 0.5,
+        velocity_spring: 1.0,
+        velocity_damp: 1.0,
+        omega_x_spring: -sign(pos[2]),
+        omega_x_damp: 1.0,
+        omega_z_spring: sign(pos[0]),
+        omega_z_damp: 1.0,
     }
 }
 
@@ -115,60 +97,12 @@ impl SpringPoint {
 /// authors none, so its classes neither boost nor jump.
 #[derive(Clone, Debug, PartialEq)]
 pub struct HoverClass {
-    pub set_altitude: f32,
-    pub gravity_scale: f32,
+    motion: HoverParams,
     pub lift_spring: f32,
     pub lift_damp: f32,
-    pub acceleration: f32,
-    pub deceleration: f32,
-    pub traction: f32,
-    pub forward_speed: f32,
-    pub reverse_speed: f32,
-    pub strafe_speed: f32,
-    pub spin_rate: f32,
-    pub turn_rate: f32,
-    pub pitch_rate: f32,
-    pub turn_filter: f32,
+    pub level_damp: f32,
     /// Radians, [min, max].
     pub pitch_limits: [f32; 2],
-    pub thrust_pitch_angle: f32,
-    pub strafe_roll_angle: f32,
-    pub bank_angle: f32,
-    pub bank_filter: f32,
-    pub level_spring: f32,
-    pub level_damp: f32,
-    pub collision_threshold: [f32; 3],
-    pub collision_scale: [f32; 3],
-    pub velocity_spring: f32,
-    pub velocity_damp: f32,
-    pub omega_x_spring: f32,
-    pub omega_x_damp: f32,
-    pub omega_z_spring: f32,
-    pub omega_z_damp: f32,
-    /// BF2's BoostSpeed (+0xf6c, ctor 0; setter hash 0xa5900707
-    /// B2:137850-137851). Every BF2 hover authors 17-40; BF1 has no such prop.
-    pub boost_speed: f32,
-    /// BF2's `BoostTurnMultiplier` (+0xf78, ctor 0.5 B2:136648; setter hash
-    /// 0x2c358e68 B2:137255-137256 — the name is our fnv match, [D]): the
-    /// yaw target's scale at BoostSpeed.
-    pub boost_turn_multiplier: f32,
-    /// BF2's `BoostAcceleration` (+0xf70, ctor 0; hash 0x7b001920
-    /// B2:137763).
-    pub boost_acceleration: f32,
-    /// BF2's `EnergyAutoRestore` (+0xf64, ctor 0; B2:137338) and
-    /// `EnergyBoostDrain` (+0xf68, ctor 0; hash 0x645f56f6 B2:137593 — the
-    /// name is our fnv match, [D]); every BF2 hover authors a drain of 20.
-    pub energy_auto_restore: f32,
-    pub energy_boost_drain: f32,
-    /// BF2's jump fields (+0xf88..+0xf98, B2:137483-137949): `JumpTimeMin`
-    /// 0xbff09d80, `JumpTimeMax` 0xd5dd386a (fnv matches, [D]), `JumpForce`
-    /// 0x4aaefdcc, and two unnamed hashes, 0x534dfe50 (the start speed
-    /// fraction, ctor 0.3) and 0x391e36a1 (the jump's drain).
-    pub jump: JumpParams,
-    /// The ×(0.9 + 0.1·rand) spring jitter; `NoRandomSpring` clears it
-    /// (default on: B1 +0x2804 = 1 B1:101328, B2 +0xe90 = 1).
-    pub random_spring: bool,
-    pub springs: Vec<SpringPoint>,
     /// The bodies in the class model's TERRAIN and BUILDING subsets, by
     /// lowercase name in the order named (re-hover §13.2 [O]): `GeometryName`
     /// empties both; a `TerrainCollision` / `BuildingCollision` line adds its
@@ -198,43 +132,47 @@ fn name_body(list: &mut Vec<String>, v: &str) {
 impl Default for HoverClass {
     fn default() -> Self {
         Self {
-            set_altitude: 1.0,
-            gravity_scale: 1.0,
+            motion: HoverParams {
+                set_altitude: 1.0,
+                gravity_scale: 1.0,
+                acceleration: 10.0,
+                deceleration: 5.0,
+                traction: 10.0,
+                forward_speed: 20.0,
+                reverse_speed: 10.0,
+                strafe_speed: 15.0,
+                spin_rate: 3.0,
+                turn_rate: 2.0,
+                pitch_rate: 0.5,
+                turn_filter: 10.0,
+                thrust_pitch_angle: 0.0,
+                strafe_roll_angle: 0.0,
+                bank_angle: 0.0,
+                bank_filter: 2.0,
+                level_spring: 10.0,
+                collision_threshold: [7.5, 2.5, 0.0],
+                collision_scale: [1.0, 0.0, 0.0],
+                velocity_spring: 15.0,
+                velocity_damp: 5.0,
+                omega_x_spring: 3.0,
+                omega_x_damp: 1.0,
+                omega_z_spring: 3.0,
+                omega_z_damp: 1.0,
+                boost_speed: 0.0,
+                boost_turn_multiplier: 0.5,
+                boost_acceleration: 0.0,
+                energy_auto_restore: 0.0,
+                energy_boost_drain: 0.0,
+                jump: JumpParams::default(),
+                random_spring: true,
+                springs: Vec::new(),
+                bf1_ai: false,
+                hull: Vec::new(),
+            },
             lift_spring: 5.0,
             lift_damp: 2.0,
-            acceleration: 10.0,
-            deceleration: 5.0,
-            traction: 10.0,
-            forward_speed: 20.0,
-            reverse_speed: 10.0,
-            strafe_speed: 15.0,
-            spin_rate: 3.0,
-            turn_rate: 2.0,
-            pitch_rate: 0.5,
-            turn_filter: 10.0,
             pitch_limits: [-0.5, 0.5],
-            thrust_pitch_angle: 0.0,
-            strafe_roll_angle: 0.0,
-            bank_angle: 0.0,
-            bank_filter: 2.0,
-            level_spring: 10.0,
             level_damp: 3.0,
-            collision_threshold: [7.5, 2.5, 0.0],
-            collision_scale: [1.0, 0.0, 0.0],
-            velocity_spring: 15.0,
-            velocity_damp: 5.0,
-            omega_x_spring: 3.0,
-            omega_x_damp: 1.0,
-            omega_z_spring: 3.0,
-            omega_z_damp: 1.0,
-            boost_speed: 0.0,
-            boost_turn_multiplier: 0.5,
-            boost_acceleration: 0.0,
-            energy_auto_restore: 0.0,
-            energy_boost_drain: 0.0,
-            jump: JumpParams::default(),
-            random_spring: true,
-            springs: Vec::new(),
             terrain_bodies: Vec::new(),
             building_bodies: Vec::new(),
         }
@@ -345,15 +283,15 @@ impl HoverClass {
         for def in db.chain(class).into_iter().rev() {
             // The derive copy (FUN_001f00e0): springs reset per class.
             let d = Self::default();
-            c.springs.clear();
+            c.motion.springs.clear();
             c.terrain_bodies.clear();
             c.building_bodies.clear();
-            c.velocity_spring = d.velocity_spring;
-            c.velocity_damp = d.velocity_damp;
-            c.omega_x_spring = d.omega_x_spring;
-            c.omega_x_damp = d.omega_x_damp;
-            c.omega_z_spring = d.omega_z_spring;
-            c.omega_z_damp = d.omega_z_damp;
+            c.motion.velocity_spring = d.motion.velocity_spring;
+            c.motion.velocity_damp = d.motion.velocity_damp;
+            c.motion.omega_x_spring = d.motion.omega_x_spring;
+            c.motion.omega_x_damp = d.motion.omega_x_damp;
+            c.motion.omega_z_spring = d.motion.omega_z_spring;
+            c.motion.omega_z_damp = d.motion.omega_z_damp;
             for (scope, k, v) in scoped(def) {
                 if scope == Scope::Body {
                     c.set(k, v);
@@ -367,9 +305,9 @@ impl HoverClass {
     /// each name in [`Self::terrain_bodies`] / [`Self::building_bodies`] that
     /// is no spring, resolved against the class geometry's baked primitives
     /// `prims` (the model's body list starts with them, in bake order; the
-    /// first of a name wins) at its `XFRM` — PROVISIONAL: its `PRNT` bone
-    /// taken as identity, as for the hull (`assets::hull_parts`; `p_cube1`'s
-    /// `bone_root` sits at the origin). A name no primitive has is dropped:
+    /// first of a name wins) at its baked model-space transform: the bake
+    /// composes `XFRM` with the `PRNT` bone's bind matrix (card RKHUL,
+    /// `analysis/re-walker.md` §17). A name no primitive has is dropped:
     /// the PS2 writes nothing for it, and `CollisionMesh` never collides as
     /// the mover (§13.1). On the discs: `p_cube1`, buildings only, on the two
     /// BF2 fighter tanks. PROVISIONAL: a `SetSpringBody` primitive (no
@@ -439,104 +377,62 @@ impl HoverClass {
     /// bodies: [`Self::hull`] needs the geometry's primitives
     /// (`vehicle_pads::install` fills them in).
     pub fn params(&self) -> HoverParams {
-        HoverParams {
-            set_altitude: self.set_altitude,
-            gravity_scale: self.gravity_scale,
-            acceleration: self.acceleration,
-            deceleration: self.deceleration,
-            traction: self.traction,
-            forward_speed: self.forward_speed,
-            reverse_speed: self.reverse_speed,
-            strafe_speed: self.strafe_speed,
-            spin_rate: self.spin_rate,
-            turn_rate: self.turn_rate,
-            pitch_rate: self.pitch_rate,
-            turn_filter: self.turn_filter,
-            thrust_pitch_angle: self.thrust_pitch_angle,
-            strafe_roll_angle: self.strafe_roll_angle,
-            bank_angle: self.bank_angle,
-            bank_filter: self.bank_filter,
-            level_spring: self.level_spring,
-            velocity_spring: self.velocity_spring,
-            velocity_damp: self.velocity_damp,
-            omega_x_spring: self.omega_x_spring,
-            omega_x_damp: self.omega_x_damp,
-            omega_z_spring: self.omega_z_spring,
-            omega_z_damp: self.omega_z_damp,
-            boost_speed: self.boost_speed,
-            boost_turn_multiplier: self.boost_turn_multiplier,
-            boost_acceleration: self.boost_acceleration,
-            energy_auto_restore: self.energy_auto_restore,
-            energy_boost_drain: self.energy_boost_drain,
-            jump: self.jump,
-            collision_threshold: self.collision_threshold,
-            collision_scale: self.collision_scale,
-            bf1_ai: false,
-            random_spring: self.random_spring,
-            springs: self
-                .springs
-                .iter()
-                .map(|p| Spring {
-                    pos: p.pos.into(),
-                    radius: p.radius,
-                    length: p.length,
-                    velocity_spring: p.velocity_spring,
-                    velocity_damp: p.velocity_damp,
-                    omega_x_spring: p.omega_x_spring,
-                    omega_x_damp: p.omega_x_damp,
-                    omega_z_spring: p.omega_z_spring,
-                    omega_z_damp: p.omega_z_damp,
-                })
-                .collect(),
-            hull: Vec::new(),
-        }
+        self.motion.clone()
+    }
+
+    /// The authored spring points in property order.
+    pub fn springs(&self) -> &[SpringPoint] {
+        &self.motion.springs
     }
 
     fn set(&mut self, k: u32, v: &str) {
         if k == h("NoRandomSpring") {
-            self.random_spring = false;
+            self.motion.random_spring = false;
             return;
         }
         let scalars: [(&str, &mut f32); 34] = [
-            ("SetAltitude", &mut self.set_altitude),
-            ("GravityScale", &mut self.gravity_scale),
+            ("SetAltitude", &mut self.motion.set_altitude),
+            ("GravityScale", &mut self.motion.gravity_scale),
             ("LiftSpring", &mut self.lift_spring),
             ("LiftDamp", &mut self.lift_damp),
-            ("Acceleration", &mut self.acceleration),
-            ("Deceleration", &mut self.deceleration),
-            ("Traction", &mut self.traction),
-            ("ForwardSpeed", &mut self.forward_speed),
-            ("ReverseSpeed", &mut self.reverse_speed),
-            ("StrafeSpeed", &mut self.strafe_speed),
-            ("SpinRate", &mut self.spin_rate),
-            ("TurnRate", &mut self.turn_rate),
-            ("PitchRate", &mut self.pitch_rate),
-            ("TurnFilter", &mut self.turn_filter),
-            ("ThrustPitchAngle", &mut self.thrust_pitch_angle),
-            ("StrafeRollAngle", &mut self.strafe_roll_angle),
-            ("BankAngle", &mut self.bank_angle),
-            ("BankFilter", &mut self.bank_filter),
-            ("LevelSpring", &mut self.level_spring),
+            ("Acceleration", &mut self.motion.acceleration),
+            ("Deceleration", &mut self.motion.deceleration),
+            ("Traction", &mut self.motion.traction),
+            ("ForwardSpeed", &mut self.motion.forward_speed),
+            ("ReverseSpeed", &mut self.motion.reverse_speed),
+            ("StrafeSpeed", &mut self.motion.strafe_speed),
+            ("SpinRate", &mut self.motion.spin_rate),
+            ("TurnRate", &mut self.motion.turn_rate),
+            ("PitchRate", &mut self.motion.pitch_rate),
+            ("TurnFilter", &mut self.motion.turn_filter),
+            ("ThrustPitchAngle", &mut self.motion.thrust_pitch_angle),
+            ("StrafeRollAngle", &mut self.motion.strafe_roll_angle),
+            ("BankAngle", &mut self.motion.bank_angle),
+            ("BankFilter", &mut self.motion.bank_filter),
+            ("LevelSpring", &mut self.motion.level_spring),
             ("LevelDamp", &mut self.level_damp),
-            ("VelocitySpring", &mut self.velocity_spring),
-            ("VelocityDamp", &mut self.velocity_damp),
-            ("OmegaXSpring", &mut self.omega_x_spring),
-            ("OmegaXDamp", &mut self.omega_x_damp),
-            ("OmegaZSpring", &mut self.omega_z_spring),
-            ("OmegaZDamp", &mut self.omega_z_damp),
-            ("BoostSpeed", &mut self.boost_speed),
-            ("BoostTurnMultiplier", &mut self.boost_turn_multiplier),
-            ("BoostAcceleration", &mut self.boost_acceleration),
-            ("EnergyAutoRestore", &mut self.energy_auto_restore),
-            ("EnergyBoostDrain", &mut self.energy_boost_drain),
-            ("JumpTimeMin", &mut self.jump.time_min),
-            ("JumpTimeMax", &mut self.jump.time_max),
-            ("JumpForce", &mut self.jump.force),
+            ("VelocitySpring", &mut self.motion.velocity_spring),
+            ("VelocityDamp", &mut self.motion.velocity_damp),
+            ("OmegaXSpring", &mut self.motion.omega_x_spring),
+            ("OmegaXDamp", &mut self.motion.omega_x_damp),
+            ("OmegaZSpring", &mut self.motion.omega_z_spring),
+            ("OmegaZDamp", &mut self.motion.omega_z_damp),
+            ("BoostSpeed", &mut self.motion.boost_speed),
+            (
+                "BoostTurnMultiplier",
+                &mut self.motion.boost_turn_multiplier,
+            ),
+            ("BoostAcceleration", &mut self.motion.boost_acceleration),
+            ("EnergyAutoRestore", &mut self.motion.energy_auto_restore),
+            ("EnergyBoostDrain", &mut self.motion.energy_boost_drain),
+            ("JumpTimeMin", &mut self.motion.jump.time_min),
+            ("JumpTimeMax", &mut self.motion.jump.time_max),
+            ("JumpForce", &mut self.motion.jump.force),
         ];
         // The two jump props whose names are not known, by hash.
         let unnamed: [(u32, &mut f32); 2] = [
-            (0x534d_fe50, &mut self.jump.speed_factor),
-            (0x391e_36a1, &mut self.jump.energy_drain),
+            (0x534d_fe50, &mut self.motion.jump.speed_factor),
+            (0x391e_36a1, &mut self.motion.jump.energy_drain),
         ];
         let named = scalars.into_iter().map(|(name, slot)| (h(name), slot));
         for (key, slot) in named.chain(unnamed) {
@@ -552,9 +448,9 @@ impl HoverClass {
                 self.pitch_limits = [lo.to_radians(), hi.to_radians()];
             }
         } else if k == h("CollisionThreshold") {
-            fill(&mut self.collision_threshold, v);
+            fill(&mut self.motion.collision_threshold, v);
         } else if k == h("CollisionScale") {
-            fill(&mut self.collision_scale, v);
+            fill(&mut self.motion.collision_scale, v);
         } else if k == h("GeometryName") {
             // The generic parser resets the layer accumulators (§13.2 step 1).
             self.terrain_bodies.clear();
@@ -567,16 +463,16 @@ impl HoverClass {
             name_body(&mut self.building_bodies, v);
             name_body(&mut self.terrain_bodies, v);
         } else if k == h("AddSpringBody") {
-            if self.springs.len() < MAX_SPRING_POINTS {
+            if self.motion.springs.len() < MAX_SPRING_POINTS {
                 if let Some([x, y, z, r]) = floats::<4>(v) {
-                    self.springs.push(SpringPoint::new([x, y, z], r));
+                    self.motion.springs.push(spring_point([x, y, z], r));
                     // The sphere names itself on both lines (B2:137561-137564).
-                    let name = format!("{SPRING_BODY}{}", self.springs.len());
+                    let name = format!("{SPRING_BODY}{}", self.motion.springs.len());
                     name_body(&mut self.building_bodies, &name);
                     name_body(&mut self.terrain_bodies, &name);
                 }
             }
-        } else if let Some(p) = self.springs.last_mut() {
+        } else if let Some(p) = self.motion.springs.last_mut() {
             // The per-point modifiers write the LAST point (B1:102272).
             let slot = match k {
                 _ if k == h("BodySpringLength") => &mut p.length,
@@ -1063,8 +959,10 @@ pub const HASH_COLLISION_PRIMITIVE: u32 = 0x8cf2_9543;
 /// ([D]: the AT-ST's aacylinder reproduces its RAM w to 3e-5).
 pub fn blast_sphere(db: &ClassDb, class: &str, sphr: Option<[f32; 4]>) -> ([f32; 3], f32) {
     let [cx, cy, cz, r0] = sphr.unwrap_or([0.0; 4]);
-    let dist =
-        |p: [f32; 3]| ((p[0] - cx).powi(2) + (p[1] - cy).powi(2) + (p[2] - cz).powi(2)).sqrt();
+    let dist = |p: [f32; 3]| {
+        let (x, y, z) = (p[0] - cx, p[1] - cy, p[2] - cz);
+        (x * x + y * y + z * z).sqrt()
+    };
     let mut w = r0;
     for line in db.props_all_hash(class, HASH_COLLISION_PRIMITIVE) {
         let t: Vec<&str> = line.split_whitespace().collect();
@@ -1088,8 +986,8 @@ pub fn blast_sphere(db: &ClassDb, class: &str, sphr: Option<[f32; 4]>) -> ([f32;
         w = w.max(dist([n[0], n[1], n[2]]) + e);
     }
     if let Some(h) = HoverClass::from_db(db, class) {
-        for s in &h.springs {
-            w = w.max(dist(s.pos) + s.radius);
+        for s in h.springs() {
+            w = w.max(dist(s.pos.to_array()) + s.radius);
         }
     }
     ([cx, cy, cz], w)
@@ -1232,6 +1130,65 @@ pub fn seats(db: &ClassDb, class: &str) -> Vec<SeatSpec> {
 mod tests {
     use super::*;
 
+    // WSEAT preparation: synthetic parser contract, not PS2/class-census evidence.
+    // After the BF1 setter twin is verified, include WalkerSection here too.
+    #[test]
+    fn wseat_explicit_sections_keep_independent_seat_values() {
+        for section in ["FLYERSECTION", "BuildingSection"] {
+            let mut props = Vec::new();
+            for (scope, pilot, n) in [
+                ("BODY", "vehicle", 1),
+                ("TURRET1", "remote", 2),
+                ("TURRET8", "none", 8),
+            ] {
+                for (key, value) in [
+                    (section, scope.to_string()),
+                    ("PilotType", pilot.to_string()),
+                    ("EyePointOffset", format!("{n} 2 3")),
+                    ("TrackCenter", format!("4 {n} 6")),
+                    ("TrackOffset", format!("7 8 {n}")),
+                    ("TiltValue", n.to_string()),
+                    ("ThirdPersonFOV", (40 + n).to_string()),
+                    ("FirstPersonFOV", (60 + n).to_string()),
+                ] {
+                    props.push((h(key), value));
+                }
+            }
+            let def = ClassDef {
+                name: "wseat_fixture".into(),
+                kind: "entc".into(),
+                base: "hover".into(),
+                props,
+            };
+            let path = std::env::temp_dir()
+                .join(format!("openbf-wseat-{}-{section}.ron", std::process::id()));
+            std::fs::write(&path, ron::to_string(&vec![def]).unwrap()).unwrap();
+            let mut db = ClassDb::default();
+            db.load(&path).unwrap();
+            std::fs::remove_file(path).unwrap();
+            let ring = seats(&db, "wseat_fixture");
+            assert_eq!(
+                ring.len(),
+                3,
+                "{section}: sparse sections must not create empty seats"
+            );
+            for (seat, kind, pilot, n) in [
+                (&ring[0], SeatKind::Pilot, PilotType::Vehicle, 1.0),
+                (&ring[1], SeatKind::Gunner(0), PilotType::Remote, 2.0),
+                (&ring[2], SeatKind::Gunner(7), PilotType::None, 8.0),
+            ] {
+                assert_eq!(seat.kind, kind, "{section}");
+                assert_eq!(seat.pilot_type, pilot, "{section} {kind:?}");
+                assert_eq!(seat.eye_point_offset, Some([n, 2.0, 3.0]));
+                assert_eq!(seat.track_center, Some([4.0, n, 6.0]));
+                assert_eq!(seat.track_offset, Some([7.0, 8.0, n]));
+                assert_eq!(seat.tilt_value, Some(n));
+                assert_eq!(seat.third_person_fov, Some(40.0 + n));
+                assert_eq!(seat.first_person_fov, Some(60.0 + n));
+            }
+        }
+    }
+
     /// Card VRIDE: the seat setter's pose keys by the hashes it compares
     /// (B2 `FUN_002f6eb8`, re-vehicle-riders 2.1).
     #[test]
@@ -1313,10 +1270,10 @@ mod tests {
 
     #[test]
     fn spring_point_defaults_follow_the_lever_arm() {
-        let p = SpringPoint::new([-1.8, -0.7, 1.7], 2.0);
+        let p = spring_point([-1.8, -0.7, 1.7], 2.0);
         assert_eq!(p.length, 1.0);
         assert_eq!((p.omega_x_spring, p.omega_z_spring), (-1.0, -1.0));
-        let p = SpringPoint::new([0.0, 0.3, -2.0], 3.0);
+        let p = spring_point([0.0, 0.3, -2.0], 3.0);
         assert_eq!((p.omega_x_spring, p.omega_z_spring), (1.0, 0.0));
         assert_eq!(
             (

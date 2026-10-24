@@ -175,17 +175,7 @@ impl Ctx<'_> {
                     boxed: false,
                 },
             );
-            let b = self.out.verts[first..].iter().fold(
-                [f32::MAX, f32::MAX, f32::MIN, f32::MIN],
-                |b, v| {
-                    [
-                        b[0].min(v.pos[0]),
-                        b[1].min(v.pos[1]),
-                        b[2].max(v.pos[0]),
-                        b[3].max(v.pos[1]),
-                    ]
-                },
-            );
+            let b = crate::hud_draw::vertex_bounds(&self.out.verts[first..]);
             self.out.ambush.push((e, b, alpha));
         }
     }

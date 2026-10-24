@@ -4,15 +4,16 @@ title: Two ride rules, one session and one gates run (VBAIL + HNEAR): (1) bot pi
 milestone: M2
 value: 3
 phase: build
-status: todo
+status: blocked
 deps: WAI,VDROP
-files: engine/crates/core/src/ai/ride.rs,engine/crates/core/src/ai/route.rs,engine/crates/core/src/ai/hover_drive.rs
+files: engine/crates/core/src/ai.rs, engine/crates/core/src/ai/ride.rs, engine/crates/core/src/ai/state.rs, engine/crates/core/src/ai/hover_drive.rs, engine/crates/core/src/ai/walker_drive.rs, engine/crates/core/src/sim/seats.rs, engine/crates/core/src/sim/state.rs, engine/crates/core/src/sim/vehicles.rs, engine/crates/game/examples/round_to_outcome.rs
 declares: sim; sweep
-needs:
+needs: Part 2 (HOVER_NEAREST flip) in its own commit with full gates; PS2 draw lifetime still provisional
 effort:
 branch:
-resume:
+resume: (private workflow note omitted)
 created: 2026-10-01
+tries: 1
 ---
 ## Why
 On the PS2 an AI driver whose vehicle falls under 20 % health may abandon it: the walker AI FUN_00262248 (B2:181508-181515)
@@ -65,3 +66,25 @@ Acceptance, part 2:
 If part 2's bars are not met in the session, land part 1 alone and leave the const off with `resume:` naming the bar.
 Reverse the merge: `loopctl.py set HNEAR status=todo resume=` and restore this card from
 `lead_tmp/planner_0715/VBAIL.md`.
+
+## Cloud source checkpoint — 2026-10-24
+
+Part 1 is implemented pending local validation, independently controlled by
+`ai::VEHICLE_BAIL`. It draws once per successful AI hover/walker boarding using
+SimRng; a passing pilot under 20% orders every AI seat out through the existing
+exit path. Humans are excluded. The card's per-boarding lifetime differs from
+the analysis's PS2 controller-construction lifetime and is labelled PROVISIONAL;
+no new RE claim is made. The blended port uses this BF2 rule for both games.
+
+Five synthetic fixtures pass, including both kinds, 19/20/21%, failing draws,
+reversed seat/unit order, human controls, think timing, RNG/ride/hash lifecycle
+and autonomous boarding state retention. Eight synthetic seeds give 210/808
+passing draws (25.99%); this does not satisfy the actual-driver map-sweep bar.
+Part 2 remains unchanged/off (`HOVER_NEAREST=false`); no floor-safety claim.
+
+restore evidence/bakes/GPU, paired parent/null/Part1 8-seed all-map sweeps,
+controlled 90-tick hover-exit/floor-death observer, then Part 2 POL1/tat1 fix and
+its separate sweep bars plus full unchanged gates. The historical split backup
+is absent; no earned Part 1 landing or historical split restoration is claimed.
+Report: reports/20261024_1601_card_VBAIL.md; logs: lead_tmp/vbail_cloud/.
+

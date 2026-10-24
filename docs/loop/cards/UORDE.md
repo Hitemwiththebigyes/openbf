@@ -4,14 +4,14 @@ title: Emitter weapons (BF1 clone pilot's arc caster; BF2 dark trooper / Jawa ar
 milestone: M3
 value: 3
 phase: build
-status: todo
+status: blocked
 deps:
 files: engine/crates/core/src/weapon.rs, engine/crates/core/src/sim/guns.rs, engine/crates/game/src/roster.rs
 declares: sim; sweep; arena
-needs:
+needs: environment restoration — emitter H2/checks, runtime bakes/missions and approved graphics gates
 effort:
 branch:
-resume:
+resume: 2026-10-24 13:16 UTC prerequisite checkpoint; incomplete, no implementation. Restore H2 emitter reading/checks, real bakes/missions and gate device; verify inventory then follow lead_tmp/uorde_cloud/next_prompt.md. Report reports/20261024_1316_card_UORDE.md.
 created: 2026-10-22
 ---
 ## Why

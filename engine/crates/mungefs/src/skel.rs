@@ -107,6 +107,14 @@ impl Skeleton {
                 }
                 chain.push(c);
                 cur = self.bones[c].parent;
+                if let Some(p) = cur {
+                    if p >= n {
+                        return Err(UcfbError::Malformed(format!(
+                            "skel {}: bone {c} parent {p} out of range",
+                            self.name
+                        )));
+                    }
+                }
             }
             for &c in chain.iter().rev() {
                 let local = self.bones[c].local();
@@ -354,6 +362,19 @@ mod tests {
         let s = parse_bytes(&skel_chunk(&["a", "b"], &["b", "a"]));
         let e = s.bind_matrices().unwrap_err();
         assert!(matches!(e, UcfbError::Malformed(_)), "{e}");
+    }
+
+    #[test]
+    fn out_of_range_parent_errors_before_traversal() {
+        let mut s = parse_bytes(&skel_chunk(&["a"], &[""]));
+        for parent in [1, usize::MAX] {
+            s.bones[0].parent = Some(parent);
+            let e = s.bind_matrices().unwrap_err();
+            assert!(matches!(e, UcfbError::Malformed(_)), "{e}");
+            assert!(e
+                .to_string()
+                .contains(&format!("bone 0 parent {parent} out of range")));
+        }
     }
 
     /// A long but valid parent chain: `bind_matrices` used to recurse once per

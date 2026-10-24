@@ -160,7 +160,11 @@ impl RoutePatches {
 impl NavGraph {
     /// Attach a `plnp` patch set, validated against this graph's table. The
     /// mask starts at 0 (the PS2 constructor's), so the table is unchanged.
+    /// Unblock an existing set before replacing it; refusal leaves it intact.
     pub fn attach_patches(&mut self, patches: RoutePatches) -> Result<(), String> {
+        if self.blocked_groups() != 0 {
+            return Err("unblock the current planning patches before replacing them".into());
+        }
         patches.validate(&self.routes)?;
         self.patches = Some(RoutePatches { mask: 0, ..patches });
         Ok(())
@@ -271,6 +275,30 @@ mod tests {
         assert_eq!(g.routes, authored, "unblocking restores the authored table");
         g.set_blocked_groups(0xFF); // clamped to the one group
         assert_eq!(g.blocked_groups(), 1);
+    }
+
+    #[test]
+    fn replacing_active_patches_is_transactionally_refused() {
+        let mut g = graph();
+        let authored = g.routes.clone();
+        g.attach_patches(patches()).unwrap();
+        g.set_blocked_groups(1);
+        let blocked = g.routes.clone();
+        let short =
+            RoutePatches::parse(vec![vec![1]], &sidecar(&[vec![0, 0], vec![1, 1]])).unwrap();
+        for replacement in [patches(), short] {
+            assert!(g.attach_patches(replacement).is_err());
+            assert_eq!(g.blocked_groups(), 1);
+            assert_eq!(g.routes, blocked);
+        }
+        g.set_blocked_groups(0);
+        assert_eq!(g.routes, authored);
+        g.attach_patches(patches()).unwrap();
+        assert_eq!(g.routes, authored);
+        g.set_blocked_groups(1);
+        assert_eq!(g.routes, blocked);
+        g.set_blocked_groups(0);
+        assert_eq!(g.routes, authored);
     }
 
     #[test]

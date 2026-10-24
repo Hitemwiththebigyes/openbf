@@ -4,17 +4,26 @@ title: The weapon heat gauge on the HUD: a weapon that heats (the pistol, the se
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: blocked
 deps:
 files: engine/crates/ui/src/hud.rs, engine/crates/ui/src/hud_tree.rs, engine/crates/ui/src/hud_draw.rs, engine/crates/game/src/hud_feed.rs, engine/crates/game/src/main/battle.rs
 declares:
-needs:
+needs: cloud prerequisites: OVHT captures/layout dump/tools, baked HUD/maps/missions and approved GPU unavailable
 effort:
 branch:
-resume: BUILD the on-foot slice from analysis/re-heat-hud.md section 7 (Do 1-4 below). battle.rs is shared with ANNC3 (parked on the RTX): the picker holds this card until ANNC3 lands. The seat half is card VSHUD's build (VSHUD deps OVHT; analysis/re-seat-hud.md: a seat runs the same publisher, so feed the events from the seat gun's WeaponState there).
+resume: 2026-10-24 08:25 UTC: planner removed ANNC3 order-only dependency while its branch is absent/blocked; OVHT heat and ANNC3 bleed use distinct hud_model fields. Restore 27 inputs in reports/20261024_0814_card_OVHT.json; recheck live overlap, isolate build, implement on-foot re-heat-hud section 7 with repeated-send/caller mutations, both-game strips and full gates. Rebase/review battle.rs after either lands. No implementation or acceptance. See engine/artifacts/loop/reports/20261024_0825_planner.md.
 created: 2026-10-21
 alpha: yes
 ---
+## Planner reconciliation (2026-10-24 08:25 UTC)
+Removed the ANNC3 dependency added during cloud preflight. Its only shared source
+is `main/battle.rs`: ANNC3 changes `HudModel.bleed`; OVHT fills the weapon models
+from heat. The card's on-foot heat rule does not require ANNC3's music, announcer
+or script-bleed implementation. RULES removes order-only dependencies on blocked
+work. Keep this card blocked on its own missing inputs; recheck live claims and
+file overlap before starting, and rebase/review both assignments after either
+card lands. This does not restore ANNC3's absent branch or approve its landing.
+
 ## Why
 The maintainer (INBOX 2026-10-21 18:40 item 3): on the PS2 a weapon with a cooldown shows its heat on the centre HUD icon.
 RE done 2026-10-22 (`analysis/re-heat-hud.md`, [O], workflow-verified; live PS2 runs both games in

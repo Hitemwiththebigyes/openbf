@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
-# The three deterministic sim referees, in one place (PLAN §B0). Every branch
+# The deterministic sim referees, in one place (PLAN §B0). Every branch
 # that touches core/game has to show these unchanged (or changed for a stated,
 # designed reason) before it lands.
 #
-# What it measures — all headless, all fixed-seed, no GPU:
+# What it measures — fixed-seed; walk/aim also require a capture adapter:
 #   1. walk_demo   407 ticks of a recorded input log on TAT1 -> sim hash
 #   2. aim_demo    120 ticks of the same rig                 -> sim hash
-#   3. --sim-hash 600   600 ticks of the built-in fixture    -> sim hash
+#   3. --aim-replay 72 scripted ticks (targets, friend, range, wall)
+#   4. --sim-hash 600   600 ticks of the built-in fixture    -> sim hash
 # With BASE set it also byte-compares the per-tick `motion.csv` each replay
-# writes. The hash is the whole sim state and its FORMAT changes when state is
+# writes. The scripted aim_targets replay also records each tick's sim hash.
+# The hash is the whole sim state and its FORMAT changes when state is
 # added; motion.csv is the trajectory only, so "hash moved, motion.csv did
-# not" is the signature of a format change with no behaviour change.
+# not" in walk/aim is the signature of a format change with no behaviour change.
 #
 # Expected values as of 2026-09-08 evening (main fc077bb and later — the s15
 # baselines, engine/artifacts/lead_tmp/s15/baselines/SUMMARY.txt):
@@ -26,12 +28,13 @@
 #
 # Usage:  scripts/sim_gates.sh            # this repo, engine/target/release
 #         ROOT=<worktree> TARGET=<cargo target dir> OUT=<dir> scripts/sim_gates.sh
-#         BASE=<dir with walk/motion.csv + aim/motion.csv> scripts/sim_gates.sh
+#         BASE=<dir with walk, aim, aim_targets motion.csv files> scripts/sim_gates.sh
 # Env:  ROOT   repo or worktree root      (default: this script's ..)
 #       TARGET cargo target dir           (default: $ROOT/engine/target)
 #       OUT    where to write the outputs (default: $TARGET/sim_gates)
 #       BASE   motion.csv tree to compare (default: unset — no compare)
-# Exit: 0 all three ran and (with BASE) every motion.csv matched; 1 otherwise.
+# Exit: 0 all four ran and (with BASE) every motion.csv matched; 1 otherwise.
+#       TRACE=1 also checks byte-identical 600-tick fixture traces (SHASH).
 # It builds nothing: `cargo build --release -p game` first.
 set -u
 
@@ -49,7 +52,7 @@ BASE="${BASE:-}"
 GAME="$TARGET/release/game"
 
 [ -x "$GAME" ] || { echo "sim_gates: no game binary at $GAME (cargo build --release -p game)" >&2; exit 1; }
-mkdir -p "$OUT/motion/walk" "$OUT/motion/aim" || exit 1
+mkdir -p "$OUT/motion/aim_targets" "$OUT/motion/walk" "$OUT/motion/aim" || exit 1
 cd "$ROOT/engine" || exit 1
 rc=0
 
@@ -69,6 +72,16 @@ replay() {  # <name> <input log>
   cat "$OUT/$name.txt"
 }
 
+# AIMG runs even when the map/GPU referees below are unavailable. The
+# replay rejects an incorrect per-tick magnet before reporting its state hash.
+if "$GAME" --aim-replay "$OUT/motion/aim_targets" > "$OUT/aim_targets_raw.txt" 2>&1; then
+  grep -E '^sim hash after' "$OUT/aim_targets_raw.txt" > "$OUT/aim_targets.txt" || rc=1
+  cat "$OUT/aim_targets.txt"
+else
+  echo "aim_targets: FAILED — see $OUT/aim_targets_raw.txt" >&2
+  rc=1
+fi
+
 replay walk walk_demo.ron
 replay aim  aim_demo.ron
 
@@ -80,7 +93,7 @@ else
 fi
 
 if [ -n "$BASE" ]; then
-  for m in walk aim; do
+  for m in walk aim aim_targets; do
     if [ ! -f "$BASE/$m/motion.csv" ]; then
       echo "$m/motion.csv: NO BASE at $BASE/$m/motion.csv" >&2
       rc=1
@@ -91,6 +104,18 @@ if [ -n "$BASE" ]; then
       rc=1
     fi
   done
+fi
+
+# Opt-in: keep the ordinary, tracing-off referee workload unchanged.
+if [ "${TRACE:-0}" = 1 ]; then
+  if "$GAME" --sim-trace "$OUT/trace_a.txt" 600 &&
+     "$GAME" --sim-trace "$OUT/trace_b.txt" 600 &&
+     cmp "$OUT/trace_a.txt" "$OUT/trace_b.txt"; then
+    echo "600-tick trace byte-identical"
+  else
+    echo "600-tick trace FAILED" >&2
+    rc=1
+  fi
 fi
 
 [ $rc -eq 0 ] && echo "sim gates: all green ($OUT)"

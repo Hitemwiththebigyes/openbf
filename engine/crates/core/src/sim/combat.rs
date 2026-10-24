@@ -71,6 +71,7 @@ impl Sim {
                 if self
                     .units
                     .get(b.owner.index as usize)
+                    .filter(|s| s.gen == b.owner.gen)
                     .is_some_and(|s| s.controller == Controller::Ai)
                 {
                     self.nav_stats.ai_hits += 1;
@@ -159,7 +160,8 @@ impl Sim {
     /// Damage 400 over DamageRadius 4). After the direct hit [D]: the bolt
     /// handler (B1 FUN_00276810, B2 FUN_00313c40) builds its damage at
     /// B1:197920 and calls the base last (B1:198103), so a victim the direct
-    /// hit killed is no longer gathered. A bolt whose target died in flight
+    /// hit killed takes no more damage; its corpse still consumes a gather
+    /// slot and can receive the blast's kick/push. A bolt whose target died in flight
     /// dies with no impact and no blast, as before. The drawn explosion and
     /// its sound ride [`Event::Impact`].
     fn bolt_explodes(&mut self, b: &Bolt) {
@@ -233,7 +235,11 @@ impl Sim {
         self.unseat_unit(h);
         match killer {
             Some(k) => {
-                let killer_team = self.units.get(k.index as usize).map(|s| s.team);
+                let killer_team = self
+                    .units
+                    .get(k.index as usize)
+                    .filter(|s| s.gen == k.gen)
+                    .map(|s| s.team);
                 self.nav_stats.unit_kills += 1;
                 if k == h {
                     self.nav_stats.self_kills += 1;
@@ -335,6 +341,60 @@ mod tests {
     use crate::unit::UnitSpec;
     use crate::TICK_DT;
     use glam::Vec3;
+
+    /// Late projectiles cannot attribute the replacement occupant's identity
+    /// to a prior life; matching-generation dead shooters still count.
+    #[test]
+    fn diagnostic_counters_check_the_shooters_generation() {
+        let mut s = Sim::empty(3);
+        let old = s
+            .spawn(&UnitSpec {
+                controller: Controller::Idle,
+                ..UnitSpec::trooper(1, Vec3::X * 30.0)
+            })
+            .unwrap();
+        let victim = s.spawn(&UnitSpec::trooper(0, Vec3::ZERO)).unwrap();
+        s.kill_environment(old, DeathCause::KillFloor);
+        let replacement = s
+            .spawn(&UnitSpec {
+                controller: Controller::Ai,
+                ..UnitSpec::trooper(0, Vec3::X * 30.0)
+            })
+            .unwrap();
+        assert_eq!(replacement.index, old.index);
+        assert_ne!(replacement.gen, old.gen);
+        let bolt = |owner| Bolt {
+            pos: Vec3::X,
+            vel: -Vec3::X,
+            remaining: 0.0,
+            age: 0.0,
+            owner,
+            team: 1,
+            weapon_class: 0,
+            hit: Hit::Target(Target::Unit(victim)),
+            end: Vec3::ZERO,
+            shooter_is_player: false,
+        };
+        s.resolve_bolt(&bolt(old));
+        assert_eq!(s.nav_stats.ai_hits, 0, "new AI is not the old idle shooter");
+        s.kill_environment(replacement, DeathCause::KillFloor);
+        s.resolve_bolt(&bolt(replacement));
+        assert_eq!(s.nav_stats.ai_hits, 1, "matching dead AI still recognized");
+        s.unit_killed(victim, Some(old));
+        assert_eq!(
+            s.nav_stats.team_kills, 0,
+            "replacement team is not old owner team"
+        );
+        assert_eq!(s.units[replacement.index as usize].kills, 0);
+        let friend = s.spawn(&UnitSpec::trooper(0, Vec3::ZERO)).unwrap();
+        // Spawn may reuse the dead shooter's slot; keep this separate control
+        // on a freshly killed attacker whose generation still occupies it.
+        let control = s.spawn(&UnitSpec::trooper(0, Vec3::X * 30.0)).unwrap();
+        s.kill_environment(control, DeathCause::KillFloor);
+        s.unit_killed(friend, Some(control));
+        assert_eq!(s.nav_stats.team_kills, 1);
+        assert_eq!(s.units[control.index as usize].kills, 1);
+    }
 
     /// A mission death region kills like anything else: the unit dies, the
     /// team pays a ticket, the respawn timer and wave slot are set, and the

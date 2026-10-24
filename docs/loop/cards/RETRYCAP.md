@@ -4,19 +4,27 @@ title: Cap attempts per card and route a stuck one elsewhere: a `tries` counter 
 milestone: M0
 value: 4
 phase: build
-status: todo
+status: done
 deps:
 files: scripts/loopctl.py,engine/artifacts/briefs/LOOP_PROMPT.md
 declares:
 needs:
 effort:
-branch:
-resume:
+branch: retrycap
+resume: (private workflow note omitted)
 created: 2026-10-08
+tries: 1
 ---
 
 ## Why
-Research rec. 9 ("agents grind past payoff": Gambi's finding that the chance of success falls to about 25 % after the third attempt; freeqaz). The loop has time caps per SESSION (300 turns / 3.5 h; LOOP_PROMPT 'Budget and wrap-up'; land-it-now at ~90 min) but NOTHING bounds how many sessions a card gets. No rule exists: `grep -in 'attempt\|retry\|tries\|give up'` over LOOP_PROMPT.md, loopctl.py and the card headers finds none (checked 2026-10-08), and `postmortem` writes a DIED journal line without counting it. RE cards cost about (cost omitted) per session; a card that keeps being re-taken is the cost concentration the audit measured (52 % of spend in RE).
+Current source has a consecutive unchanged-card guard: `MAX_NO_PROGRESS = 3`
+and `pick()`'s `attempts` entry count matching card fingerprints, resetting the
+count when the card changes. That does not bound cumulative unfinished sessions
+across resume edits or implement the requested two-session RE cap. Build only
+that missing scope. The session time limit remains in LOOP_PROMPT's budget rule.
+Planner 2026-10-24 corrected the old no-attempt-guard premise; acceptance below
+still applies. AUDPRE separately owns missing-input holds for incomplete audits,
+which have no assigned card and must remain unaudited.
 
 ## Evidence
 - `scripts/loopctl.py`: `pick()` takes the top eligible card; `postmortem()` (autoloop.sh after each session) detects "a claim left or a card in-progress with no report" and writes the DIED line; `resume:` and `status=parked` already exist, and a parked card with no `branch:` becomes an ordinary card again once its deps are done (card LRES), so `parked` alone does NOT stop re-picking - the rule needs its own field the picker honours.
@@ -37,3 +45,14 @@ Research rec. 9 ("agents grind past payoff": Gambi's finding that the chance of 
 
 ## Notes
 Smallest version first: if the planner routing (item 2) is too much, ship the counter, the cap in `pick()` and the orient line, and file the routing as a follow-up. Touches `scripts/loopctl.py` (the picker); the self-test is the safety net, so run it before and after. The loop is stopped (STOP file) at filing time.
+
+## GitHub checkpoint recovery (2026-10-24)
+
+## Planner follow-up (2026-10-24 17:51 UTC)
+
+Keep the current duration-independent failed-attempt rule, including short launcher
+deaths and failed stand-downs. Successful in-session slice landings and finished
+RE phases stay exempt as locally validated. A short duration alone does not prove
+a failed attempt should be ignored; preserve the cap against repeated failed starts.
+This is a reversible planner default, not a new policy/code change. Supervisor
+loads loopctl once; restart it through its normal controls to consume newer code.

@@ -4,14 +4,14 @@ title: Bots in turrets and tanks hold the trigger on 4.4 % of their seated time 
 milestone: M2
 value: 4
 phase: measure
-status: todo
+status: blocked
 deps: BRSTU
 files:
 declares:
-needs:
+needs: environment restoration — audit-clse4 PS2 captures/readers; audit-brstu sfire tools/raw rows; PS2 corpora/ELFs; baked maps/classes/vehicles and missions (inventory lead_tmp/mtrig_20261024_0954/inventory.json)
 effort:
 branch:
-resume:
+resume: 2026-10-24 cloud checkpoint: restore and verify inventory in lead_tmp/mtrig_20261024_0954/inventory.json; then measure six BF2 captures (BF1 mounted if present), post-FUN_002bb900 trigger and AI+0xa8 want shares/runs/drop rates against current-main sfire and aim/ready/range splits; trace >2x gaps and judge kept-n/redraw. Original acceptance unchanged. Report reports/20261024_0955_card_MTRIG.md.
 created: 2026-10-21
 alpha: yes
 domain: vehicle

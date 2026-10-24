@@ -359,8 +359,9 @@ pub struct CollisionWorld {
 impl CollisionWorld {
     /// The world, with its broad phase built — what
     /// `game::assets::Scene::collision_world` returns and what every query
-    /// wants. The struct literal still works and is still correct; it just
-    /// leaves every query scanning every body.
+    /// wants. Callers can also start with [`Self::default`] and add bodies
+    /// through [`Self::push_body`]; those queries scan every body until
+    /// [`Self::rebuild_broadphase`] is called.
     pub fn new(bodies: Vec<Body>, cutters: Vec<Cutter>) -> CollisionWorld {
         CollisionWorld::with_movers(bodies, cutters, Vec::new())
     }

@@ -1,17 +1,17 @@
 ---
 id: STHOP2
-title: STHOP's leftovers (cleanse CLNC): a soldier at rest on an open steep face stands (the wedge rule), a sprint cannot start on a ramp (the gate reads XZ speed), the steep-face contact removes the whole normal velocity, crouch's airtime — measure each on the PS2, then match
+title: Measure STHOP's remaining open-face grounding, steep-contact velocity and crouch airtime; compare from-rest ramp trials while preserving SPUP's approved uphill sprint
 milestone: M3
 value: 4
 phase: measure
-status: todo
+status: blocked
 deps:
 files:
 declares:
-needs:
+needs: environment restoration: PCSX2 toolkit/emulator, local discs/reference corpus and raw STHOP/SPUP trials
 effort:
 branch:
-resume:
+resume: 2026-10-24 09:18 UTC: planner reconciled active acceptance with SPUP: retain its 1 s sprint-start bar and approved uphill rule, BF2 from-rest trials still required; no BF1 PS2 sprint. Restore lead_tmp/sthop2_20261024_0840/prerequisites.json then measure remaining cases; see current Acceptance and reports/20261024_0913_planner.md.
 created: 2026-09-30
 alpha: yes
 ---
@@ -24,8 +24,40 @@ Found by cleanse CLNC's review of STHOP (81aae53 / de3b9c1 / eb90b56), each repr
 3. **Steep-face contact.** The port removes the whole into-face velocity on a face of n.y <= 0.6; the PS2's wall contact flattens the velocity's copy of the normal (only horizontal velocity removed) and lifts by the true normal (re-soldier-ground.md 1.3). With BF2's full air control the port turns stick speed into climb speed up the face [inferred, not measured].
 4. **Crouch airborne** stands up at 0.3 s and then falls at air_time > 1.0 s in total; BF2's Stand case may zero its timer on its first airborne update (1.3 s total) — the latch after crouch is unread [H].
 
-## Acceptance
+## Historical acceptance (2026-09-30; sprint scope corrected below)
 - PS2 numbers for each (BF2: `lead_tmp/sthop/ramp_bf2.py` sampler + the RAM hold of `pcsx2/walk_bf2.py`; BF1: `ps2live.py`): (1) the player released at rest on an open face of n.y < 0.6 — grounded bit and speed after 1 s; (2) forward + sprint from rest up and down KAM1's ramp (n.y 0.826) and one ~18 deg ramp — the tick the sprint stance starts, or never; (3) stick held into a ~55 deg face for 2 s — height gained; (4) step off an edge crouched — time to the Fall stance.
 - Then build: the same four scratch runs on the port match the PS2 (grounded yes/no; sprint tick within 3; height within 0.3 m; fall time within 2 ticks), as unit tests in soldier.rs; sweep_seeds.py finishes not below main's; the leak census read per class (float / floor / push) before the gates.
 
 - Planner 2026-10-02 14:45: `files:` emptied while the phase is `measure` (the PS2 numbers come first; the list held `sim/step.rs`). Restore when you set phase=build: `engine/crates/core/src/soldier.rs,engine/crates/core/src/sim/step.rs` (JARC and BF1BK edit `soldier.rs` too: one at a time).
+
+## Acceptance (current; planner reconciliation 2026-10-24)
+- Cases 1, 3 and 4 above remain required in both games: raw PS2 per-update rows for
+  grounded bit/speed after 1 s released on an open face below n.y=0.6, height after
+  2 s into a roughly 55-degree face, and crouched edge-to-Fall time. Port scratch
+  runs must match grounded yes/no, height within 0.3 m and Fall time within 2 ticks.
+- Case 2 still requires BF2 from-rest forward + sprint uphill/downhill trials on
+  KAM1's n.y=0.826 ramp and an approximately 18-degree ramp, with the sprint-entry
+  tick or never printed. Also retain a flat-floor control (entry within 3 ticks of
+  the PS2) and the 3-tick tolerance wherever no approved SPUP deviation applies,
+  including downhill trials. SPUP's historical L3-during-run rows do not replace
+  these trials.
+- On runnable slopes the port intentionally permits uphill sprint (SPUP,
+  `re-stance-roll.md` 4.2b and `FEEL_NOTES.md`). Print the PS2/port difference;
+  preserve SPUP's sprint-start limit of 1 s on its 10/20/30-degree runnable
+  slopes under both port GroundRules, and retain
+  `a_sprint_starts_while_running_uphill` and
+  `the_uphill_run_is_the_ps2s`. A mutation restoring the old horizontal-speed
+  threshold must fail the uphill referee. Do not undo the approved deviation
+  to match a PS2 never-sprints row. The historical 120-tick run is an observation
+  window, not a relaxed sprint-start limit.
+- Authentic BF1 trials use walk/run for the slope comparison; BF1 has no PS2
+  sprint. The port's BF1-content sprint is checked as its modern movement rule,
+  separately from authentic BF1 parity. No BF1 sprint tick may be invented.
+- Before a build, record the remaining measured changes and restore file
+  ownership as above. Keep the original sweep-not-below-main requirement,
+  float/floor/push leak census, full CI and required gates. No check ran here.
+
+## Cloud prerequisite checkpoint (2026-10-24 08:41 UTC)
+- No PS2 trial or port acceptance run performed. Exact 30-path inventory: `lead_tmp/sthop2_20261024_0840/prerequisites.json` (25 missing); report `reports/20261024_0841_card_STHOP2.md`. Phase remains measure; original acceptance retained pending evidence reconciliation.
+- Item 2 describes September code. SPUP (done, historical c1ae263) subsequently measured the BF2 forward-row velocity test and implemented the approved uphill sprint deviation. Current `Soldier::sprint_start_speed`, `soldier/tests.rs` (`a_sprint_starts_while_running_uphill`, `the_uphill_run_is_the_ps2s`), `re-stance-roll.md` 4.2b and `FEEL_NOTES.md` record it. Preserve that deviation; do not restore the obsolete XZ gate to satisfy literal parity. Historical SPUP rows use L3 pressed during a run, so they do not supply this card's requested from-rest uphill/downhill sprint ticks on n.y=0.826. BF1 PS2 has no sprint; distinguish the authentic BF1 trial from port BF1-content rules when reconciling acceptance.
+- Remaining open-face/contact/crouch claims stay unmeasured here. Restore PCSX2 README/session tools, BF2 ramp sampler and RAM hold, BF1 ps2live, original local disc/reference data and raw trial rows before continuing. Missing bakes and GPU also prevent later sweep/leak/golden checks. No source change or current passing receipt.

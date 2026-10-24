@@ -259,8 +259,8 @@ pub const COVER_CLEAR: f32 = 3.0;
 /// lowest-index one with no role. Up to [`COVER_CAP`] of the others counting
 /// there - AI soldiers on foot in the commander's pool, no sniper's spot -
 /// take the role, each with a guard position ([`guard_spot`]): inside the
-/// region first, covered toward the approach (the nearest post not the
-/// team's, else the nearest enemy), clear of the capturer and of the
+/// region first, covered toward the approach (the nearest of other posts
+/// not the team's and live enemies), clear of the capturer and of the
 /// positions held. Inside the region they still count for the capture (the
 /// PS2's presence weight). A role ends when P is the team's, when its bot
 /// dies, rides or takes an order or a sniper's spot, and - once
@@ -486,8 +486,8 @@ pub fn guard_spot(sim: &Sim, i: usize, c: usize, capturer: usize) -> Option<(u32
     let post = cp.def.pos;
     let flat = |v: Vec3| Vec2::new(v.x, v.z);
     let near = |a: Vec3, b: Vec3| flat(a).distance(flat(b));
-    // The approach: the nearest other post not the team's, else the
-    // nearest enemy.
+    // The approach: nearest to this post among other posts not the team's
+    // and live enemies.
     let from = sim
         .cps
         .iter()

@@ -4,14 +4,14 @@ title: A building turret's hull pool is hit through its building: the turret ins
 milestone: M2
 value: 4
 phase: build
-status: todo
-deps: VHULL
+status: blocked
+deps: VHULL,TCOL
 files: engine/crates/game/src/assets.rs,engine/crates/game/src/vehicle_pads.rs,engine/crates/core/src/collision/world.rs,engine/crates/core/src/sim/seats.rs
 declares:
-needs:
+needs: environment — TCOL part 1 must land and be independently checked against this card; HOT1 bake/mission and TCOL/HTGT repro inputs absent.
 effort:
 branch:
-resume:
+resume: 2026-10-24 10:33 UTC: planner prerequisite hold; no new implementation/acceptance. TCOL owns this acceptance. Do not build a duplicate ownership implementation. After TCOL part 1, run every original ownership/damage/own-fire/exit/death bar before closing VTHUL. Exact missing paths: lead_tmp/planner_20261024_1026/preflight.json. Restore or regenerate verified equivalent inputs before clearing hold. reports/20261024_1026_planner.md
 created: 2026-09-29
 defer: 
 value_pre_alpha: 4
@@ -44,3 +44,6 @@ Planner 2026-10-21 20:50: TCOL (first 4, the maintainer's playtest: Laik cannons
   the posed-node prims that turn with the gun (`analysis/re-turret-collision.md` 1, 6). TCOL keeps `vehicle_pads.rs`
   out of its files (NODMG, parked, holds it): the owner is resolved in core from `Body.instance` -> the turret whose
   `Vehicle::instance` matches. Planner: close this card when TCOL part 1 lands, or merge it now.
+
+## Scope ownership (2026-10-24 10:33 UTC)
+TCOL part 1 explicitly carries this card's complete ownership/damage/own-fire scope; deps now encodes that accepted relationship. Keep this card blocked until the TCOL part-1 landing is verified against every original acceptance item, including death clearing and exit. Then close it with that evidence; no standalone duplicate build or completion is recorded now.

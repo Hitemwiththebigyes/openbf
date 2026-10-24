@@ -3,8 +3,9 @@
 //! what the frame clears to, the fog
 //! density scale, the far-scene cull and the `LOWR` sheet's range (both behind
 //! their env flags), BF2's fade into the sky, and [`apply_lighting`], which
-//! pushes the result into the renderer. Everything but `apply_lighting` is
-//! pure, so the rules are unit-tested without a GPU.
+//! pushes the result into the renderer. Manifest-to-look calculations are pure
+//! and unit-tested without a GPU; env-gate helpers and `frame_filter_from`
+//! also read process environment.
 
 use crate::assets::Scene;
 use glam::Vec3;
@@ -658,6 +659,7 @@ pub fn render_lighting_from(
     // layer the disc draws no fog colour at all, so painting both would paint
     // the very wall the fade exists to remove ([`far_fade_from`]).
     let far_fade = far_fade_from(source_game, l);
+    let water_look = water.map(|w| water_look(source_game, l, w));
     render::Lighting {
         sun_dir: Vec3::from(l.sun_dir).normalize_or_zero(),
         sun_color: l.sun_color,
@@ -692,9 +694,9 @@ pub fn render_lighting_from(
         // The water's fog gate is NOT the world's: see [`water_look`]. A map
         // with no water leaves it `None`, which is what every non-water draw
         // already ignores.
-        water_fog_begin: water.and_then(|w| water_look(source_game, l, w).fog_begin),
-        water_lit: water.map_or(0.0, |w| water_look(source_game, l, w).sun),
-        water_dim: water.and_then(|w| water_look(source_game, l, w).dim),
+        water_fog_begin: water_look.as_ref().and_then(|w| w.fog_begin),
+        water_lit: water_look.as_ref().map_or(0.0, |w| w.sun),
+        water_dim: water_look.as_ref().and_then(|w| w.dim),
         water: water_shading(l, water),
     }
 }

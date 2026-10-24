@@ -107,9 +107,7 @@ driven missions, no Lua VM in v1" — converting mission Lua to RON instead.
 
 The consequence is worth stating plainly: **the entire existing SWBF2 mod
 ecosystem is Lua + ODF. Phoenix can run those mods; we currently cannot.**
-PLAN notes "mlua mod shim possible later" as a footnote. After seeing Phoenix
-that deserves to be a real decision rather than a footnote — it is a product
-call for the maintainer, not an engineering one.
+**Resolved 2026-08-30 (the maintainer):** [PLAN Architecture #3](../PLAN.md#architecture-locked) records that the Lua mod ecosystem is not a goal and closes the mlua-shim/Phoenix question. A worthwhile specific mod may instead be ported to native Rust as a first-class feature.
 
 **License: AGPL-3.0.** Viral. Copying code from it would force this project to
 AGPL. Read for understanding; never copy.

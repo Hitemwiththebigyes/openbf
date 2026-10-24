@@ -4,14 +4,14 @@ title: Foley, the rest: the surface from the prop under a soldier's feet (metal 
 milestone: M1
 value: 3
 phase: build
-status: todo
+status: blocked
 deps:
 files: engine/crates/game/src/foley.rs,engine/crates/core/src/collision/rays.rs,engine/crates/game/src/assets.rs,engine/crates/game/src/main/windowed.rs
 declares:
-needs:
+needs: Restore foley replay/referee, UTA1/NAB1 maps/missions and primary animator evidence; retake surface/105-second counts before any animator allocation change.
 effort:
 branch:
-resume:
+resume: 2026-10-24 11:57 UTC: planner prerequisite hold; 7/7 exact named paths absent. Restore foley replay/referee, UTA1/NAB1 maps/missions and primary animator evidence; retake surface/105-second counts before any animator allocation change. All original acceptance retained. reports/20261024_1151_planner.md; inventory/continuation lead_tmp/planner_20261024_1151/.
 created: 2026-10-02
 alpha: yes
 ---

@@ -356,7 +356,6 @@ impl Sim {
             {
                 continue;
             }
-            let c = c.clone();
             let classes = &self.weapon_classes;
             let u = &mut self.units[ui];
             let health = c.health != 0.0 && u.health.cur < u.health.max;

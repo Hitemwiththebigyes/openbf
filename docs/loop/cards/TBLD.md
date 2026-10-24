@@ -4,14 +4,14 @@ title: Buildable turrets get built: an unbuilt pad (state 2, health 0 of MaxHeal
 milestone: M2
 value: 4
 phase: build
-status: todo
-deps:
+status: blocked
+deps: TCOL
 files: engine/crates/core/src/vehicle.rs,engine/crates/core/src/sim/vehicles.rs,engine/crates/core/src/sim/seats.rs,engine/crates/game/src/vehicle_pads.rs,engine/crates/game/src/vehicle_class.rs,engine/crates/game/src/assets.rs,engine/crates/game/src/viewer/vehicles.rs,engine/crates/game/tests/suite/vehicle_pads.rs
 declares: sim; sweep
-needs:
+needs: cloud prerequisites: restore baked turret maps/classes, missions and PS2 evidence; land TCOL body prerequisite; GPU battle-frame and full gates required
 effort:
 branch:
-resume: RE done 2026-10-03 (analysis/re-build-zones.md, commit 4e51e84). Build = the turret's three states in the sim (the card's Build plan); the cutter is card FCUT, the bots card BLDR
+resume: Cloud preflight 2026-10-24: no source implementation. 20/20 named inputs absent; scoped alternate search found none. TCOL body prerequisite is unlanded (now explicit deps). See reports/20261024_1016_card_TBLD.md and lead_tmp/tbld_cloud/. Restore inputs and verify TCOL part 1 landed, clear needs/set todo, start isolated checkout, write mutation-checked three-state referee, then implement and run pad census, battle pixels, sweep/CI/gates. Preserve BF1 built start and rider-death rule.
 created: 2026-09-30
 alpha: yes
 domain: vehicle

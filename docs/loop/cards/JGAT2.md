@@ -4,14 +4,14 @@ title: The jump's gate counts and the energy bar as the PS2 has them (AUDIT JGAT
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: blocked
 deps:
 files: engine/crates/core/src/soldier.rs,engine/crates/core/src/soldier/tests.rs
 declares: sim; sweep; arena; leak
-needs:
+needs: environment — restore audit-jgate evidence, PS2 references, baked assets and missions
 effort:
 branch:
-resume:
+resume: 2026-10-24 08:04 UTC cloud preflight blocked; restore audit-jgate raw trials/verifier/mutations, PS2 references, baked assets and missions; reproduce current-main controls before isolated build. Report 20261024_0804_card_JGAT2.md
 created: 2026-10-05
 domain: physics
 alpha: yes

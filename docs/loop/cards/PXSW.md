@@ -4,13 +4,13 @@ title: The PCSX2 reference library was captured under HW Basic on llvmpipe, whic
 milestone: M1
 value: 4
 phase: capture
-status: todo
+status: blocked
 deps:
 files:
 declares:
-needs:
+needs: environment — Restore PCSX2 toolkit/discs and old reference frames/states plus LANE3 renderer control kit.
 branch:
-resume:
+resume: 2026-10-24 10:33 UTC: planner prerequisite hold; no new implementation/acceptance. Recheck KAS2 lamps first under actual available renderer, then >=3 maps/game x >=4 poses old/newHW/SW controls and parity. Keep renderer provenance; no absent-GPU substitution for approved golden acceptance. Exact missing paths: lead_tmp/planner_20261024_1026/preflight.json. Restore or regenerate verified equivalent inputs before clearing hold. reports/20261024_1026_planner.md
 created: 2026-09-30
 ---
 

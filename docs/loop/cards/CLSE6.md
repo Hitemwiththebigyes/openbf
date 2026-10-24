@@ -4,14 +4,14 @@ title: Polis Massa inside 10 m: 3.4 port bots aim at one enemy where the PS2 has
 milestone: M3
 value: 4
 phase: measure
-status: todo
+status: blocked
 deps: CLSE3
 files: engine/crates/core/src/perception.rs, engine/crates/core/src/ai/behave.rs
 declares: sweep; arena
-needs:
+needs: Restore local baked maps/missions, PS2 corpus/captures and CLSE3 scratch/tools; cloud preflight 2026-10-24 cannot measure Acceptance
 effort:
 branch:
-resume:
+resume: Read reports/20261024_0733_card_CLSE6.md; restore lead_tmp/clse3 tools, scratch patch and raw port/PS2 captures plus baked assets/missions; verify prerequisites then set todo and remeasure current-main close aimers/victim, victim hurt rate and team kills on 8 seeds x Kamino/Polis Massa; trace seen/told, retargeting and local density before isolated null-controlled candidates.
 created: 2026-10-22
 alpha: yes
 ---

@@ -6,6 +6,7 @@
 //! (`an earlier project's source`,
 //! `create_terrain_sampler`), with Repeat addressing because game textures tile.
 
+use crate::bindings;
 use crate::RenderError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -148,28 +149,20 @@ impl GpuTexture {
         // that per DRAW and the pipeline carries it, so one texture can serve
         // Opaque, Mask and Blend draws and this slot is now always 0.
         const RESERVED: f32 = 0.0;
-        let params: [f32; 8] = match &desc.detail {
-            Some(d) => [
-                d.scale,
-                1.0,
-                RESERVED,
-                0.0,
-                desc.scroll[0],
-                desc.scroll[1],
-                desc.uv_scale[0],
-                desc.uv_scale[1],
-            ],
-            None => [
-                1.0,
-                0.0,
-                RESERVED,
-                0.0,
-                desc.scroll[0],
-                desc.scroll[1],
-                desc.uv_scale[0],
-                desc.uv_scale[1],
-            ],
+        let (detail_scale, detail_strength) = match &desc.detail {
+            Some(d) => (d.scale, 1.0),
+            None => (1.0, 0.0),
         };
+        let params: [f32; 8] = [
+            detail_scale,
+            detail_strength,
+            RESERVED,
+            0.0,
+            desc.scroll[0],
+            desc.scroll[1],
+            desc.uv_scale[0],
+            desc.uv_scale[1],
+        ];
         let params_buf = crate::made::buffer_init(
             device,
             &wgpu::util::BufferInitDescriptor {
@@ -185,26 +178,12 @@ impl GpuTexture {
                 label: desc.label,
                 layout,
                 entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        // No detail map: bind the base view (never sampled, but
-                        // WebGPU requires every binding to be filled).
-                        resource: wgpu::BindingResource::TextureView(
-                            detail_view.as_ref().unwrap_or(&view),
-                        ),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: params_buf.as_entire_binding(),
-                    },
+                    bindings::texture_view(0, &view),
+                    bindings::sampler(1, &sampler),
+                    // No detail map: bind the base view (never sampled, but
+                    // WebGPU requires every binding to be filled).
+                    bindings::texture_view(2, detail_view.as_ref().unwrap_or(&view)),
+                    bindings::entire_buffer(3, &params_buf),
                 ],
             },
         );

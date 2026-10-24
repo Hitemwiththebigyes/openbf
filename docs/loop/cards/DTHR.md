@@ -4,14 +4,14 @@ title: Environmental death as the PS2's, built from re-kill-floor.md: landing da
 milestone: M3
 value: 4
 phase: measure
-status: todo
+status: blocked
 deps:
 files:
 declares: sim; sweep; arena
-needs:
+needs: (private workflow note omitted)
 effort:
 branch:
-resume: step 1 is the PS2 session (drop table without god mode at 6 / 10 / 16 m; the soldier's bounding-sphere centre and radius from RAM s+0x20..0x2c on BF2 KAM1), then set phase=build
+resume: Restore PCSX2 tooling/README and local BF1/BF2 discs, ELFs/corpora, KAM1 live states and lead_tmp/sthop/ramp_bf2.py; verify inputs then clear needs and set todo phase measure. Measure uncheated 6/10/16 m BF2 health drops plus one BF1 height; read standing/crouched/prone BF2 KAM1 sphere s+0x20..0x2c; census BF1 water_sink_region maps/y and BF2 vehicle-reachable regions. Record raw evidence and independent verification before phase build; see reports/20261024_0738_card_DTHR.md.
 created: 2026-09-25
 alpha: yes
 ---
@@ -68,7 +68,6 @@ no damage number exists yet.
 ---
 # The original DTHR card text
 
-
 ## Evidence
 analysis/PLAN_LOG_2026.md §ARCHIVED 2026-09-25 HANDOFF-OPUS.md HOLD 15; bindings BF1 001857a8 / BF2 0018d628; both PROVISIONAL in `core::sim`.
 
@@ -82,10 +81,8 @@ Both rules ([O]) and a build card.
 ## Planner note (2026-09-30, M-ALPHA)
 `alpha: yes` — UTA1's sinkholes: falling to your death (a showcase map). Value 2 → 3. Showcase maps: BF1 NAB1, BF1 TAT1 (the port's `tat1`), BF1 YAV2, BF2 UTA1, BF2 MYG1, BF2 HOT1 (PLAN §Milestones M-ALPHA).
 
-
 ---
 # SLAND's card text (merged 2026-10-01)
-
 
 ## Why
 Found by STHOP's verifier (`analysis/re-soldier-ground.md` §4). The port kills a soldier outright when he lands at

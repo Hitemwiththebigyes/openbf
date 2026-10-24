@@ -472,7 +472,7 @@ impl BoltVis {
                 .sim
                 .weapon_classes
                 .get(class)
-                .and_then(|w| w.ordnance.laser.clone())
+                .and_then(|w| w.ordnance.laser.as_ref())
             else {
                 continue;
             };
@@ -480,7 +480,7 @@ impl BoltVis {
                 .texture
                 .as_deref()
                 .and_then(|n| self.texture(r, &texture_name(n)));
-            out.push(bolt_draw(&look, head, dir, len, age, fade, [core, glow]));
+            out.push(bolt_draw(look, head, dir, len, age, fade, [core, glow]));
         }
         // The thrown grenades (card GREN). PROVISIONAL: a short glow where
         // each one is — the ordnance's own model (`GeometryName`) waits for

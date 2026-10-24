@@ -4,14 +4,14 @@ title: Soldier collision to the PS2's (audit of JWAL, 2026-09-29): two 0.57 m sp
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: blocked
 deps: GSKIP
 files: engine/crates/core/src/collision/walls.rs,engine/crates/core/src/collision/shape.rs,engine/crates/core/src/collision.rs,engine/crates/core/src/unit.rs,engine/crates/core/src/sim/step.rs,engine/crates/core/src/ai/steer.rs,engine/crates/game/examples/leak_census_accepted.txt
 declares: sim; sweep; arena; leak
-needs:
+needs: environment — restore PCSX2 toolkit, BF1/BF2 discs and baked maps, JWAL raw probes/captures, approved GPU gates
 effort:
 branch:
-resume:
+resume: 2026-10-24 09:18 UTC: restore lead_tmp/srad_20261024_0839/prerequisites.json before measurements; both PS2 games walk/run, BF2 also sprints, BF1-content port sprint tested separately under approved SPUP rule. Keep 0.2/0.3/0.45/0.6 m kerbs, backing/sloped-wall and zero-new-leak bars. reports/20261024_0913_planner.md.
 created: 2026-09-29
 alpha: yes
 ---
@@ -53,9 +53,11 @@ standoff, door and corridor fit, sloped wall and step — the "plays right" of M
   `STEP_HEIGHT` 0.6 is PROVISIONAL.
 
 ## Acceptance (audit)
-1. **PCSX2 first:** walk and sprint a BF1 soldier (and a BF2 one) at kerbs or primitives of known height (about 0.2,
+1. **PCSX2 first:** walk/run a soldier in each game, and also sprint in BF2, at kerbs or primitives of known height (about 0.2,
    0.3, 0.45 and 0.6 m; find them in the bake). Record which are climbed. Also back him into a wall to check the 0.42 m
    standoff, and push him along a sloped wall.
+   BF1's original game has no sprint (`re-stance-roll.md` 1 / 4.2b); compare the port's BF1-content sprint
+   separately under its approved modern movement rules. Do not invent a BF1 PS2 sprint trial or undo SPUP.
 2. **Build, gated:**
    - the two-sphere shape (or an exact equivalent) with the 0.15 m forward offset;
    - the 0.6 wall/ground split;

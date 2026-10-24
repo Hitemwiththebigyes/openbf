@@ -4,14 +4,14 @@ title: The level test calls a ramp behind a barrier OFF the level (BOWL's 0.75 m
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: blocked
 deps:
 files: engine/crates/core/src/sim/bounds.rs
 declares: sweep; arena
 needs:
 effort:
 branch:
-resume:
+resume: Cloud preflight 20261024_0813 UTC: restore audit-bowl tools/raw runs, bowl evidence, audit-retw traces, baked maps/common/classes/vehicles and missions; remeasure current-main profile and 32-map 8-seed UNIT_SAMPLES before building. See engine/artifacts/loop/reports/20261024_0813_card_LVLB.md; no implementation or acceptance run.
 created: 2026-10-02
 domain: ai
 alpha: yes

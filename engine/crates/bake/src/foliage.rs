@@ -613,7 +613,7 @@ pub fn bake(out: &Path, i: &Inputs<'_>) -> Result<Option<ManifestFoliage>> {
             None => None,
         };
         let mask = if mask.dim == dim {
-            Some(mask.clone())
+            Some(mask)
         } else {
             eprintln!(
                 "foliage: FOLG is {}² but the {} grid is {dim}² — not placed",
@@ -622,7 +622,7 @@ pub fn bake(out: &Path, i: &Inputs<'_>) -> Result<Option<ManifestFoliage>> {
             None
         };
         if let (Some(table), Some(mask), Some(lumi)) = (table, mask, Lumi::of(t)) {
-            for p in place(&mask, file, cell, &table) {
+            for p in place(mask, file, cell, &table) {
                 let (row, cv) = &rows[p.mesh as usize];
                 if row.name.is_none() {
                     continue;

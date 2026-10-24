@@ -284,16 +284,7 @@ impl HudView {
         }
 
         let frame = ui::hud_draw::draw(&self.hud, &self.art, [size[0] as f32, size[1] as f32]);
-        self.verts.clear();
-        self.verts.extend(frame.verts.iter().map(|v| HudVertex {
-            pos: v.pos,
-            uv: v.uv,
-            color: v.color,
-        }));
-        self.indices = frame.indices;
-        self.batches = frame.batches;
-        self.boxes = frame.boxes;
-        self.squad = frame.squad;
+        self.install_frame(frame);
     }
 
     /// Lay the shell's page `menus` out for a `size` window (card BSHLA):
@@ -304,6 +295,10 @@ impl HudView {
         self.hud.shell = Some((menus.clone(), movie));
         let frame = ui::hud_draw::draw(&self.hud, &self.art, [size[0] as f32, size[1] as f32]);
         self.hud.shell = None;
+        self.install_frame(frame);
+    }
+
+    fn install_frame(&mut self, frame: ui::hud_draw::HudFrame) {
         self.verts.clear();
         self.verts.extend(frame.verts.iter().map(|v| HudVertex {
             pos: v.pos,
@@ -381,42 +376,41 @@ impl HudView {
         }
         let mut batches = Vec::with_capacity(self.batches.len());
         for b in &self.batches {
-            if b.texture == ui::shell_ps2::MOVIE_SHEET {
-                batches.push(HudBatch {
-                    texture: self.movie,
-                    additive: b.additive,
-                    depth: b.depth,
-                    first: b.first,
-                    count: b.count,
-                });
-                continue;
-            }
-            let texture = match self.textures.get(&b.texture) {
-                Some(t) => *t,
-                None => {
-                    // The PS2's own pixels: the HUD's sheets have no PC tier.
-                    let (sheet, opaque) = match b.texture.strip_suffix(ui::hud_draw::OPAQUE_SHEET) {
-                        Some(sheet) => (sheet, true),
-                        None => (b.texture.as_str(), false),
-                    };
-                    let t = self
-                        .texture_dirs
-                        .iter()
-                        .map(|d| d.join(format!("{sheet}.ktx2")))
-                        .find(|p| pak::is_file(p))
-                        .and_then(|p| pak::read(p).ok())
-                        .and_then(|bytes| crate::assets::load_ktx2(&bytes).ok())
-                        .and_then(|mut t| {
-                            if opaque {
-                                t.rgba.chunks_exact_mut(4).for_each(|p| p[3] = 255);
-                            }
-                            pass.add_texture(device, queue, &t.rgba, t.width, t.height)
-                        });
-                    if t.is_none() {
-                        eprintln!("hud: no sheet {:?}; drawn untextured", b.texture);
+            let texture = if b.texture == ui::shell_ps2::MOVIE_SHEET {
+                self.movie
+            } else {
+                match self.textures.get(&b.texture) {
+                    Some(t) => *t,
+                    None => {
+                        // The PS2's own pixels: the HUD's sheets have no PC tier.
+                        let (sheet, opaque) =
+                            match b.texture.strip_suffix(ui::hud_draw::OPAQUE_SHEET) {
+                                Some(sheet) => (sheet, true),
+                                None => (b.texture.as_str(), false),
+                            };
+                        let t = self
+                            .texture_dirs
+                            .iter()
+                            .map(|d| d.join(format!("{sheet}.ktx2")))
+                            .find(|p| pak::is_file(p))
+                            .and_then(|p| pak::read(p).ok())
+                            .and_then(|bytes| crate::assets::load_ktx2(&bytes).ok())
+                            .and_then(|mut t| {
+                                if opaque {
+                                    t.rgba
+                                        .as_chunks_mut::<4>()
+                                        .0
+                                        .iter_mut()
+                                        .for_each(|p| p[3] = 255);
+                                }
+                                pass.add_texture(device, queue, &t.rgba, t.width, t.height)
+                            });
+                        if t.is_none() {
+                            eprintln!("hud: no sheet {:?}; drawn untextured", b.texture);
+                        }
+                        self.textures.insert(b.texture.clone(), t);
+                        t
                     }
-                    self.textures.insert(b.texture.clone(), t);
-                    t
                 }
             };
             batches.push(HudBatch {

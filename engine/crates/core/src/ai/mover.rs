@@ -751,7 +751,7 @@ mod tests {
     /// that leaves it 0.9 m from the point, outside the arrive radius.
     #[test]
     fn a_bot_that_arrives_stands() {
-        use crate::ai::{Walk, ARRIVED_SLACK, HOLD_ARRIVE};
+        use crate::ai::{ARRIVED_SLACK, HOLD_ARRIVE};
         let (mut sim, h) = l_sim();
         let goal = hold_at(&mut sim, h, Vec3::new(6.0, 0.0, 0.0));
         let mut arrived = None;
@@ -781,7 +781,6 @@ mod tests {
         // Shoved right off it, it walks back.
         sim.unit_mut(h).expect("alive").soldier.pos = goal + Vec3::new(0.0, 0.0, 4.0);
         assert_ne!(stick(&sim, h), (0, 0), "4 m off its point it walks");
-        let _ = Walk::Arrived;
     }
 
     /// Card OBSF: a hold point the bot cannot walk straight at — here inside

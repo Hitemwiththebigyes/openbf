@@ -233,16 +233,7 @@ pub fn find_cloths(inner: &[u8]) -> Result<Vec<Cloth>, UcfbError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn chunk(tag: &[u8; 4], payload: &[u8]) -> Vec<u8> {
-        let mut v = tag.to_vec();
-        v.extend((payload.len() as u32).to_le_bytes());
-        v.extend(payload);
-        while !v.len().is_multiple_of(4) {
-            v.push(0);
-        }
-        v
-    }
+    use crate::build_chunk as chunk;
 
     fn u(v: u32) -> [u8; 4] {
         v.to_le_bytes()

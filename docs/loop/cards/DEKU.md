@@ -4,17 +4,17 @@ title: The droideka unit in the sim: its 14-state form machine (fold 0.50 s, unf
 milestone: M1
 value: 4
 phase: build
-status: parked
+status: blocked
 deps:
 files: engine/crates/core/src/droideka.rs,engine/crates/core/src/droideka/tests.rs,engine/crates/core/src/sim.rs,engine/crates/core/src/lib.rs
 declares:
-needs: maintainer — the RTX is lost (nvidia-smi: Unknown Error, the same Xid 79 NODMG hit at 19:45); a new core file runs the golden step, which needs the NVIDIA adapter. Reboot, then a land job takes it
+needs: cloud prerequisites: branch deku, baked assets, missions and reference evidence absent
 effort:
 branch: deku
-resume: land: python3 scripts/land.py DEKU (branch deku b04f2b0; ci EXIT=0, every GPU-free gate PASS in lead_tmp/deku/gates_nogpu/SUMMARY.md; nothing declared - the module is not fielded, so the goldens must come back byte-identical)
+resume: (private workflow note omitted)
 created: 2026-10-03
 alpha: yes
-first: 6
+first: 11
 ---
 ## Why
 DEKA's RE (`analysis/re-droideka-unit.md` [O], `analysis/re-droideka.md`): the PS2 fields 2-4 droidekas in every BF1 Clone Wars battle and 1-2 in BF2's; the port has no such unit. This card is the unit itself in `core`, driven by a Controllable-style input (so a player or a bot can drive it later), with nothing fielded yet - every gate PASS, nothing declared.
@@ -41,3 +41,4 @@ Planner 2026-10-21 20:50 (the maintainer via INBOX 17:50 item 3): `first: 6` - t
 - Built: `core::droideka` (branch deku b04f2b0), report `reports/20261021_2215_card_DEKU.md`. `sim.rs` not touched: nothing spawns the unit yet.
 - Bar (5) as written (1.27 +- 0.05) is the continuous v0^2 / 2g. The PS2's own order (position, then gravity, twice a tick; B2:109626-109653) gives a discrete apex of 1.354 m at 30 Hz, and the test holds that value. Bar (3)'s drop takes 16 ticks = 0.533 s, inside 0.505 +- one tick.
 - For DEKF / DEKD: `StepReport::weapons_off / weapons_on` must set each weapon's `active` (the PS2 stops a salvo already in progress: B1 FUN_001d0a68 slot +0x58). BF2's walk-form ordnance bodies (13 `p_-o-` bone prims) are not in `prims()`. The BF2 ball boost (sprint) is not built.
+

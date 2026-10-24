@@ -1,6 +1,6 @@
 //! Streamed music (card AMBM): a take of a PS2 stream is decoded block by
-//! block out of the disc's own LVL while it plays - the bake only indexes
-//! the stereo music streams (the maintainer: music stays streamed).
+//! block from the bake's byte-for-byte ADPCM stream bodies through `pak`
+//! while it plays (the maintainer: music stays streamed).
 //!
 //! A take is SPU2 ADPCM (16-byte blocks of 28 frames, `bake::adpcm`'s
 //! recipe). A mono take is one run. A stereo take is laid out in the
@@ -20,7 +20,7 @@ use std::path::PathBuf;
 /// Where a take's ADPCM lives and how to read it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StreamTake {
-    /// The LVL on the disc.
+    /// The baked ADPCM stream body.
     pub path: PathBuf,
     /// Byte offset of the take's first block in that file.
     pub offset: u64,
@@ -56,7 +56,7 @@ struct History(i32, i32);
 
 impl History {
     fn decode(&mut self, adpcm: &[u8], out: &mut Vec<f32>) {
-        for block in adpcm.chunks_exact(16) {
+        for block in adpcm.as_chunks::<16>().0 {
             let shift = i32::from(block[0] & 0x0F);
             let (f0, f1) = FILTERS[usize::from(block[0] >> 4).min(4)];
             for i in 0..28 {

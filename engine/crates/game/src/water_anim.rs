@@ -142,7 +142,7 @@
 //!
 //! ## The clock, and what the goldens show
 //!
-//! [`clock`] is the renderer's clock (`render::Renderer::time`, which the game
+//! [`clock`] is the renderer's unwrapped water clock (`render::Renderer::water_time`, which the game
 //! loop advances) unless `OPENBF_WATER_TIME=<seconds>` pins it, so a capture
 //! of moving water is reproducible. Nothing moves until a caller steps the
 //! water (`viewer::SceneGpu::animate_water`): `upload_scene` builds the still
@@ -209,15 +209,15 @@ pub fn ripple(i: usize, t: f32) -> f32 {
 
 /// The water's clock: `OPENBF_WATER_TIME` when it is set, else
 /// `renderer_time`.
-pub fn clock(renderer_time: f32) -> f32 {
+pub fn clock(renderer_time: f64) -> f64 {
     pinned_time().unwrap_or(renderer_time)
 }
 
-fn pinned_time() -> Option<f32> {
-    static PINNED: OnceLock<Option<f32>> = OnceLock::new();
+fn pinned_time() -> Option<f64> {
+    static PINNED: OnceLock<Option<f64>> = OnceLock::new();
     *PINNED.get_or_init(|| {
         let v = std::env::var("OPENBF_WATER_TIME").ok()?;
-        match v.trim().parse::<f32>() {
+        match v.trim().parse::<f64>() {
             Ok(t) if t.is_finite() => Some(t),
             _ => {
                 eprintln!("OPENBF_WATER_TIME={v:?} is not a number of seconds; ignored");
@@ -404,10 +404,12 @@ impl Ocean {
 
     /// `h̃(k, t) = h̃0(k)·e^{iωt} + conj(h̃0(−k))·e^{−iωt}` — Hermitian by
     /// construction, which is what makes the field real.
-    pub fn spectrum(&self, t: f32) -> Vec<Complex> {
+    pub fn spectrum(&self, t: f64) -> Vec<Complex> {
         (0..self.h0.len())
             .map(|j| {
-                let w = self.omega[j] * t;
+                // Reduce each mode's phase in f64 before converting the angle.
+                // The modes have no common material-clock wrap period.
+                let w = (f64::from(self.omega[j]) * t).rem_euclid(std::f64::consts::TAU) as f32;
                 self.h0[j] * Complex::cis(w) + self.h0_neg_conj[j] * Complex::cis(-w)
             })
             .collect()
@@ -447,19 +449,19 @@ impl Ocean {
     }
 
     /// The complex field at `t`; its imaginary part is rounding.
-    pub fn field(&self, t: f32) -> Vec<Complex> {
+    pub fn field(&self, t: f64) -> Vec<Complex> {
         self.inverse(&self.spectrum(t))
     }
 
     /// The heights at `t`, metres, `[z][x]`.
-    pub fn heights(&self, t: f32) -> Vec<f32> {
+    pub fn heights(&self, t: f64) -> Vec<f32> {
         self.field(t).iter().map(|c| c.re).collect()
     }
 
     /// Root-mean-square height at `t`, metres. On KAM1 this is 4.3 m at the
     /// median of 2000 frames (§3a and the module header): a real sea, which
     /// is the whole of what dropping [`Ocean::inverse`]'s `1/n²` changed.
-    pub fn rms(&self, t: f32) -> f32 {
+    pub fn rms(&self, t: f64) -> f32 {
         let h = self.heights(t);
         (h.iter().map(|v| v * v).sum::<f32>() / h.len() as f32).sqrt()
     }
@@ -478,7 +480,7 @@ impl Ocean {
     /// The `(n+1)²` patch at `t` — [`Ocean::patch`] at full resolution.
     pub fn patch_vertices(
         &self,
-        t: f32,
+        t: f64,
         uv0: [f32; 2],
         metres_per_repeat: [f32; 2],
     ) -> Vec<Vertex> {
@@ -624,11 +626,11 @@ impl Foam {
     /// jumped more than [`FOAM_WARMUP`] steps — clears the map and runs the
     /// `FOAM_WARMUP` steps ending at `t` (module header). Returns the steps
     /// taken; a non-finite `t` takes none.
-    pub fn advance(&mut self, ocean: &Ocean, t: f32) -> u32 {
+    pub fn advance(&mut self, ocean: &Ocean, t: f64) -> u32 {
         if !t.is_finite() {
             return 0;
         }
-        let k = (t * FOAM_RATE).floor() as i64;
+        let k = (t * f64::from(FOAM_RATE)).floor() as i64;
         let warmup = i64::from(FOAM_WARMUP);
         let from = match self.last {
             Some(last) if last <= k && k.saturating_sub(last) <= warmup => last,
@@ -638,7 +640,7 @@ impl Foam {
             }
         };
         for s in from + 1..=k {
-            self.step(&ocean.heights(s as f32 / FOAM_RATE));
+            self.step(&ocean.heights(s as f64 / f64::from(FOAM_RATE)));
         }
         self.last = Some(k);
         (k - from) as u32
@@ -723,7 +725,7 @@ pub fn lattice_cells(positions: &[[f32; 3]], indices: &[u32]) -> Option<Lattice>
     let height = positions.get(indices[0] as usize)?[1];
     let mut cell: Option<f32> = None;
     let mut origins = Vec::with_capacity(indices.len() / 6);
-    for quad in indices.chunks_exact(6) {
+    for quad in indices.as_chunks::<6>().0 {
         let p: Vec<[f32; 3]> = quad
             .iter()
             .map(|&i| positions.get(i as usize).copied())
@@ -899,16 +901,16 @@ impl WaterMotion {
         &mut self,
         r: &mut Renderer,
         draws: &mut Vec<DrawCmd>,
-        t: f32,
+        t: f64,
         eye: Vec3,
     ) -> Result<()> {
         match &mut self.kind {
             Kind::Still => {}
             Kind::Flat { base, bobs, ripple } => {
                 if let Some(rp) = ripple {
-                    rp.step(r, &mut draws[self.range.clone()], t)?;
+                    rp.step(r, &mut draws[self.range.clone()], t as f32)?;
                 }
-                let lift = Mat4::from_translation(Vec3::new(0.0, flat_lift(*bobs, t), 0.0));
+                let lift = Mat4::from_translation(Vec3::new(0.0, flat_lift(*bobs, t as f32), 0.0));
                 for (d, m) in draws[self.range.clone()].iter_mut().zip(base.iter()) {
                     d.model = lift * *m;
                 }
@@ -956,20 +958,14 @@ impl WaterMotion {
                 // the PS2 draws no water past its far pass (module header).
                 // A patch is drawn whole, so it drops the per-fragment cull
                 // `upload_scene` gave the still plane.
-                let mut cells = Vec::new();
-                for c in cells_in_range(&o.lattice, eye, o.ranges.far) {
-                    let at = Mat4::from_translation(Vec3::new(c[0], o.lattice.height, c[1]));
-                    for (tpl, &foam) in o.templates.iter().zip(&o.is_foam) {
-                        cells.push(
-                            DrawCmd {
-                                mesh: if foam { foam_mesh } else { mesh },
-                                model: at * tpl.model,
-                                ..*tpl
-                            }
-                            .with_cull(None),
-                        );
-                    }
-                }
+                let cells = cell_draws(
+                    cells_in_range(&o.lattice, eye, o.ranges.far),
+                    o.lattice.height,
+                    &o.templates,
+                    &o.is_foam,
+                    [mesh, foam_mesh],
+                    |mesh, draw| DrawCmd { mesh, ..draw },
+                );
                 let start = self.range.start;
                 draws.splice(self.range.clone(), cells.iter().copied());
                 self.range = start..start + cells.len();
@@ -988,6 +984,35 @@ impl WaterMotion {
     pub fn draw_range(&self) -> Range<usize> {
         self.range.clone()
     }
+}
+
+/// Route every selected cell's base and foam templates to their own patch.
+/// The mesh type and draw builder let CPU callers use distinct symbolic handles
+/// without uploading a GPU mesh. Production supplies the uploaded mesh handles.
+pub fn cell_draws<M: Copy, D>(
+    cells: impl IntoIterator<Item = [f32; 2]>,
+    height: f32,
+    templates: &[DrawCmd],
+    is_foam: &[bool],
+    meshes: [M; 2],
+    draw: impl Fn(M, DrawCmd) -> D,
+) -> Vec<D> {
+    assert_eq!(templates.len(), is_foam.len());
+    let mut draws = Vec::new();
+    for c in cells {
+        let at = Mat4::from_translation(Vec3::new(c[0], height, c[1]));
+        for (tpl, &foam) in templates.iter().zip(is_foam) {
+            draws.push(draw(
+                meshes[usize::from(foam)],
+                DrawCmd {
+                    model: at * tpl.model,
+                    ..*tpl
+                }
+                .with_cull(None),
+            ));
+        }
+    }
+    draws
 }
 
 /// The wet cells an ocean draws from `eye`: every cell of `lattice` whose

@@ -863,6 +863,85 @@ mod tests {
         );
     }
 
+    /// HTGTW: an off-pivot centre turns with the turret, rather than orbiting
+    /// the unturned location. The radius is too small to cover both rays.
+    #[test]
+    fn htgtw_turned_turret_uses_the_rotated_sphere() {
+        let (mut s, p, _) = range(&[]);
+        let v = put_vehicle(&mut s, crate::vehicle::VehicleKind::Turret);
+        let turret = &mut s.vehicles[v.index as usize];
+        turret.pos = Vec3::new(4.0, 0.0, -16.0);
+        turret.rot = glam::Quat::from_rotation_y(std::f32::consts::FRAC_PI_2);
+        turret.aim_sphere = Some((Vec3::new(4.0, 1.0, 0.0), 0.25));
+        let candidate = s.aim_candidate(AimTarget::Vehicle(v)).unwrap();
+        // +X becomes -Z: (4,0,-16) + (0,1,-4).
+        assert!(candidate.ctr.distance(Vec3::new(4.0, 1.0, -20.0)) < 1e-5);
+        let eye = s.unit(p).unwrap().aim_ray(s.ground_rules, s.views()).0;
+        let aim = |s: &mut Sim, point: Vec3| {
+            let d = point - eye;
+            let player = &mut s.units[p.index as usize];
+            player.soldier.yaw = crate::fmath::atan2(-d.x, -d.z);
+            player.soldier.pitch = crate::fmath::atan2(d.y, (d.x * d.x + d.z * d.z).sqrt());
+            s.acquire_magnet(0, p, false);
+        };
+        aim(&mut s, Vec3::new(4.0, 1.0, -20.0));
+        assert_eq!(s.reticle_pick[0], Some((AimTarget::Vehicle(v), 0)));
+        aim(&mut s, Vec3::new(8.0, 1.0, -16.0));
+        assert_eq!(s.reticle_pick[0], None);
+    }
+
+    #[test]
+    fn htgtw_vehicle_only_weapon_excludes_building_turrets() {
+        use crate::vehicle::VehicleKind;
+        for (kind, vehicle_magnet) in [(VehicleKind::Hover, true), (VehicleKind::Turret, false)] {
+            let (mut s, p, _) = range(&[]);
+            let v = put_vehicle(&mut s, kind);
+            s.vehicles[v.index as usize].team = Some(1);
+            let w = s.unit(p).unwrap().weapon_class;
+            s.weapon_classes[w].target_kind = 1 << 3;
+            s.acquire_magnet(0, p, false);
+            assert_eq!(s.reticle_pick[0], Some((AimTarget::Vehicle(v), -1)));
+            assert_eq!(
+                s.magnet[0],
+                vehicle_magnet.then_some(AimTarget::Vehicle(v)),
+                "{kind:?}"
+            );
+            // Invert the weapon's bits, retaining the same geometry and target.
+            s.magnet[0] = None;
+            s.weapon_classes[w].target_kind = 1 << 4;
+            s.acquire_magnet(0, p, false);
+            assert_eq!(
+                s.magnet[0],
+                (!vehicle_magnet).then_some(AimTarget::Vehicle(v)),
+                "{kind:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn htgtw_crossing_vehicle_assist_leads_in_its_travel_direction() {
+        let (mut s, p, _) = range(&[]);
+        let v = put_vehicle(&mut s, crate::vehicle::VehicleKind::Hover);
+        // Centre exactly on the player's ray: stationary fire has no yaw
+        // pull. With no movement stick, tracking cannot supply the lead.
+        let (eye, fwd) = s.unit(p).unwrap().aim_ray(s.ground_rules, s.views());
+        s.vehicles[v.index as usize].aim_sphere = Some((Vec3::ZERO, 0.5));
+        s.vehicles[v.index as usize].pos = eye + fwd * 20.0;
+        let w = s.unit(p).unwrap().weapon_class;
+        s.weapon_classes[w].ordnance.velocity = 40.0;
+        let mut outputs = Vec::new();
+        for speed in [0.0, 4.0, -4.0] {
+            s.vehicles[v.index as usize].vel = Vec3::X * speed;
+            s.assist[0] = Default::default();
+            let pad = s.apply_assist(0, p, AimTarget::Vehicle(v), &fire(), 1.0 / 30.0);
+            outputs.push(pad.rx);
+        }
+        assert_eq!(outputs[0], 0);
+        assert!(outputs[1] > 100, "rightward lead: {outputs:?}");
+        assert!(outputs[2] < -100, "leftward lead: {outputs:?}");
+        assert_eq!(outputs[1], -outputs[2]);
+    }
+
     /// An enemy behind a wall fails the LOS ray and is not picked.
     #[test]
     fn an_enemy_behind_a_wall_is_not_picked() {

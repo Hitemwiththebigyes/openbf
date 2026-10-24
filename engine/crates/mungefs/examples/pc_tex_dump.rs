@@ -21,10 +21,14 @@
 use std::collections::BTreeSet;
 use std::io::Read;
 
-use mungefs::texture_pc::find_textures;
+use mungefs::texture_pc::{find_textures, Texture};
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    run(&args);
+}
+
+fn run(args: &[String]) {
     if args.len() < 2 {
         eprintln!("usage: pc_tex_dump <lvl-file|-> <out-dir> [label] [texture-name ...]");
         std::process::exit(2);
@@ -36,7 +40,7 @@ fn main() {
             .map(|s| s.to_string_lossy().to_lowercase())
             .unwrap_or_else(|| "lvl".into())
     });
-    let wanted: BTreeSet<String> = args[3..].iter().map(|s| s.to_lowercase()).collect();
+    let wanted: BTreeSet<String> = args.iter().skip(3).map(|s| s.to_lowercase()).collect();
 
     let buf = if src == "-" {
         let mut v = Vec::new();
@@ -48,8 +52,17 @@ fn main() {
     let inner = mungefs::open(&buf).expect("ucfb");
     std::fs::create_dir_all(out_dir).expect("create out dir");
 
+    dump_textures(find_textures(inner), out_dir, &label, &wanted);
+}
+
+fn dump_textures(
+    textures: Vec<Texture>,
+    out_dir: &std::path::Path,
+    label: &str,
+    wanted: &BTreeSet<String>,
+) -> BTreeSet<&'static str> {
     let mut seen: BTreeSet<&'static str> = BTreeSet::new();
-    for tex in find_textures(inner) {
+    for tex in textures {
         if !wanted.is_empty() && !wanted.contains(&tex.name.to_lowercase()) {
             continue;
         }
@@ -59,13 +72,14 @@ fn main() {
         for surface in &tex.surfaces {
             let fmt = surface.format;
             // Default mode: one sample per format, and skip the giants.
-            if wanted.is_empty() && (!seen.insert(fmt.name()) || surface.width > 1024) {
+            if wanted.is_empty() && (seen.contains(fmt.name()) || surface.width > 1024) {
                 continue;
             }
             let Some(mip) = surface.mip0() else { continue };
             let path = out_dir.join(format!("{label}_{}_{}.png", tex.name, fmt.name()));
             std::fs::write(&path, encode_png(&mip.rgba, mip.width, mip.height))
                 .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+            seen.insert(fmt.name());
             println!(
                 "{:<40} {:<9} {:>4}x{:<4} mips={:<2} faces={} -> {}",
                 tex.name,
@@ -81,6 +95,7 @@ fn main() {
     if wanted.is_empty() {
         println!("formats dumped: {:?}", seen);
     }
+    seen
 }
 
 /// Minimal RGBA8 PNG writer: one uncompressed-deflate zlib stream, so it
@@ -144,4 +159,75 @@ fn adler32(data: &[u8]) -> u32 {
         b = (b + a) % 65521;
     }
     b << 16 | a
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mungefs::texture_pc::{Face, Mip, PixelFormat, Surface};
+
+    #[test]
+    fn optional_label_and_sample_selection() {
+        let dir = std::env::temp_dir().join(format!("pc_tex_dump_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let input = dir.join("Empty.LVL");
+        std::fs::write(&input, b"ucfb\0\0\0\0").unwrap();
+        let out = dir.join("out");
+        run(&[input.display().to_string(), out.display().to_string()]);
+        assert!(out.is_dir());
+        assert_eq!(std::fs::read_dir(&out).unwrap().count(), 0);
+
+        let texture = |name: &str, width: u32, has_mip: bool| Texture {
+            name: name.into(),
+            declared: vec![21],
+            unsupported: vec![],
+            surfaces: vec![Surface {
+                format: PixelFormat::A8R8G8B8,
+                width,
+                height: 1,
+                depth: 1,
+                mip_count: u32::from(has_mip),
+                type_flags: 0,
+                faces: vec![Face {
+                    mips: if has_mip {
+                        vec![Mip {
+                            width,
+                            height: 1,
+                            rgba: vec![255; width as usize * 4],
+                        }]
+                    } else {
+                        vec![]
+                    },
+                }],
+            }],
+        };
+        for skipped in [texture("giant", 2048, true), texture("missing", 1, false)] {
+            let seen = dump_textures(
+                vec![
+                    skipped,
+                    texture("eligible", 1, true),
+                    texture("later", 1, true),
+                ],
+                &out,
+                "sample",
+                &BTreeSet::new(),
+            );
+            assert_eq!(seen.into_iter().collect::<Vec<_>>(), ["A8R8G8B8"]);
+            assert!(out.join("sample_eligible_A8R8G8B8.png").is_file());
+            assert_eq!(std::fs::read_dir(&out).unwrap().count(), 1);
+            std::fs::remove_file(out.join("sample_eligible_A8R8G8B8.png")).unwrap();
+        }
+        let wanted = BTreeSet::from(["giant".into(), "second".into()]);
+        dump_textures(
+            vec![texture("GIANT", 2048, true), texture("second", 1, true)],
+            &out,
+            "named",
+            &wanted,
+        );
+        assert!(out.join("named_GIANT_A8R8G8B8.png").is_file());
+        assert!(out.join("named_second_A8R8G8B8.png").is_file());
+        assert_eq!(std::fs::read_dir(&out).unwrap().count(), 2);
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }

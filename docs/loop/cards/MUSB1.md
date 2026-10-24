@@ -4,14 +4,14 @@ title: BF1's music state rule checked live: the manager's state word against the
 milestone: M3
 value: 3
 phase: measure
-status: todo
+status: blocked
 deps:
 files: engine/crates/core/src/music.rs
 declares:
-needs:
+needs: restore PCSX2 session toolkit, BF1 disc/RAM reader and captures, BF1 Naboo bake/sounds and mission; live music comparison unavailable
 effort:
 branch:
-resume:
+resume: 2026-10-24 cloud checkpoint: reports/20261024_1150_card_MUSB1.md; lead_tmp/musb1_cloud/preflight.json (21 probes, 1 available). Restore inputs, log a full BF1 PS2 round and current-main MUSIC_LOG by ticket counts, include states distinguishing BF1/BF2, then retain or fix rule with evidence. PROVISIONAL retained; acceptance unchanged.
 created: 2026-10-21
 alpha: yes
 ---

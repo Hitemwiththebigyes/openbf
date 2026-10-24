@@ -4,13 +4,13 @@ title: Additive model segments: the PS2 draws BF1 Normal 0x04|0x80 and BF2 0x04|
 milestone: M1
 value: 4
 phase: build
-status: todo
+status: blocked
 deps: FXMF
 files: engine/crates/bake/src/alpha.rs, engine/crates/bake/src/glb.rs, engine/crates/game/src/assets.rs, engine/crates/game/src/viewer/upload.rs, engine/crates/render/src/draw.rs, engine/crates/render/src/frame.rs, engine/crates/render/src/pipelines.rs
 declares: rebake=common,side,maps,tat1,tat2; goldens=any
-needs:
+needs: environment — Restore full bake, extracted disc inputs and DEA1/FEL1/MUS1/POL1 PS2 walkabout references/toolkit.
 branch:
-resume:
+resume: 2026-10-24 10:33 UTC: planner prerequisite hold; no new implementation/acceptance. Retake additive-material census on current data, preserve alpha/mode/depth tests and four-map pairs/parity. Implement world DrawLayer rather than treating particle Mesh as the static pass. Exact missing paths: lead_tmp/planner_20261024_1026/preflight.json. Restore or regenerate verified equivalent inputs before clearing hold. reports/20261024_1026_planner.md
 created: 2026-09-30
 ---
 ## Why

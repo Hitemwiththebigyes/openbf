@@ -38,7 +38,8 @@ use manifest::{FoliageKind, LeafLayout, ManifestLeafClass};
 use render::{LeafClass, LeafObject, LeafSprite, TextureHandle};
 use std::collections::HashMap;
 
-use super::grass::{fnv1a_lower, Lcg};
+use super::grass::fnv1a_lower;
+use core::lcg::GameLcg;
 
 /// The seed hash's XOR (58029).
 const SEED_XOR: u32 = 0xc71c_2830;
@@ -51,7 +52,7 @@ fn vine(
     pos: Vec3,
     dir: Vec3,
     n: i32,
-    rng: &mut Lcg,
+    rng: &mut GameLcg,
     out: &mut Vec<(Vec3, f32)>,
 ) {
     let mut k = n - 1;
@@ -63,34 +64,34 @@ fn vine(
     let norm = |v: Vec3| v * (1.0 / (v.x * v.x + v.y * v.y + v.z * v.z).sqrt());
     let (mut pos, mut dir) = (pos, dir);
     let f = (k as f32 + 1.0) * 0.25;
-    let mut size = (mn + rng.next() * (mx - mn)) * f.min(1.0);
+    let mut size = (mn + rng.unit() * (mx - mn)) * f.min(1.0);
     out.push((pos, size));
     let [lo, hi] = g.vine_run;
-    let mut run = (rng.next() * (hi - lo) as f32 + lo as f32) as i32;
+    let mut run = (rng.unit() * (hi - lo) as f32 + lo as f32) as i32;
     run = run.min(k);
     while run != 0 {
         let fs = ((k as f32 + 1.0) * 0.25).min(1.0);
         k -= 1;
         run -= 1;
-        let (a, b) = (rng.next(), rng.next());
+        let (a, b) = (rng.unit(), rng.unit());
         let dx = (a - b) * (wob[0] * 0.5);
-        let (a, b) = (rng.next(), rng.next());
+        let (a, b) = (rng.unit(), rng.unit());
         let dz = (a - b) * (wob[1] * 0.5);
         dir = norm(dir + Vec3::new(dx, 0.2, dz));
         pos += dir * size * step;
-        size = (mn + rng.next() * (mx - mn)) * fs;
+        size = (mn + rng.unit() * (mx - mn)) * fs;
         out.push((pos, size));
     }
     if k > 0 {
-        let branch = |rng: &mut Lcg| {
-            let (a, b) = (rng.next(), rng.next());
+        let branch = |rng: &mut GameLcg| {
+            let (a, b) = (rng.unit(), rng.unit());
             let x = (a - b) * wob[0];
-            let (a, b) = (rng.next(), rng.next());
+            let (a, b) = (rng.unit(), rng.unit());
             let z = (a - b) * wob[1];
             norm(dir + (Vec3::new(x, 0.0, z) - dir) * 0.8)
         };
         let da = branch(rng);
-        let na = (k as f32 * (rng.next() * 0.5 + 0.25)) as i32;
+        let na = (k as f32 * (rng.unit() * 0.5 + 0.25)) as i32;
         vine(g, wob, pos + da * size * step, da, na, rng, out);
         let db = branch(rng);
         vine(g, wob, pos + db * size * step, db, k - na, rng, out);
@@ -101,7 +102,7 @@ fn vine(
 /// direction the sunlight travels.
 pub fn template(g: &ManifestLeafClass, sun: Vec3) -> (Vec<LeafSprite>, f32) {
     let seed = g.seed.unwrap_or_else(|| fnv1a_lower(&g.name));
-    let mut rng = Lcg(seed ^ SEED_XOR);
+    let mut rng = GameLcg::new(seed ^ SEED_XOR);
     rng.step();
     rng.step();
     let n = g.particles as usize;
@@ -124,17 +125,17 @@ pub fn template(g: &ManifestLeafClass, sun: Vec3) -> (Vec<LeafSprite>, f32) {
                 (x, y, z, size) = (p.x, p.y, p.z, Some(sz));
             }
             LeafLayout::Box(b) => {
-                x = (rng.next() - 0.5) * b[0];
-                y = (rng.next() - 0.5) * b[1];
-                z = (rng.next() - 0.5) * b[2];
+                x = (rng.unit() - 0.5) * b[0];
+                y = (rng.unit() - 0.5) * b[1];
+                z = (rng.unit() - 0.5) * b[2];
                 size = None;
             }
             LeafLayout::Ball => {
                 let (mut px, mut py, mut pz);
                 loop {
-                    px = rng.next() * r * 1.5;
-                    py = rng.next() * r;
-                    pz = rng.next() * r * 1.5;
+                    px = rng.unit() * r * 1.5;
+                    py = rng.unit() * r;
+                    pz = rng.unit() * r * 1.5;
                     if q < 2 {
                         px = -px;
                     }
@@ -158,15 +159,15 @@ pub fn template(g: &ManifestLeafClass, sun: Vec3) -> (Vec<LeafSprite>, f32) {
                 (x, y, z, size) = (px, py, pz, None);
             }
         }
-        let size = size.unwrap_or_else(|| g.min_size + rng.next() * (g.max_size - g.min_size));
+        let size = size.unwrap_or_else(|| g.min_size + rng.unit() * (g.max_size - g.min_size));
         let dd = g.darkness_max - g.darkness_min;
-        let u = rng.next() * dd;
+        let u = rng.unit() * dd;
         let l2 = x * x + y * y + z * z;
         // The VU's RSQRT of 0 gives +MAX; × 0 = 0 (a vine's root).
         let ln = if l2 > 0.0 { 1.0 / l2.sqrt() } else { 0.0 };
         let dot = x * ln * sun.x + y * ln * sun.y + z * ln * sun.z;
         let grey = (g.darkness_min + u * 0.5) - dot * dd * 0.5;
-        let phase = rng.next() * 100.0;
+        let phase = rng.unit() * 100.0;
         sprites.push(LeafSprite {
             pos: Vec3::new(x + g.offset[0], y + g.offset[1] * inv_s, z + g.offset[2]),
             size,
@@ -214,11 +215,11 @@ pub fn object_matrix(up: Vec3, pos: Vec3, scale: f32) -> Mat4 {
 }
 
 /// An object's tint (see the module doc).
-fn tint(rng: &mut Lcg) -> [f32; 4] {
-    let u = rng.next() * 0.2;
-    let r = u + rng.next() * 0.1 + 0.7;
-    let g = u + rng.next() * 0.1 + 0.7;
-    let b = u + rng.next() * 0.1 + 0.7;
+fn tint(rng: &mut GameLcg) -> [f32; 4] {
+    let u = rng.unit() * 0.2;
+    let r = u + rng.unit() * 0.1 + 0.7;
+    let g = u + rng.unit() * 0.1 + 0.7;
+    let b = u + rng.unit() * 0.1 + 0.7;
     [r, g, b, 1.0]
 }
 
@@ -278,9 +279,9 @@ pub fn objects(
         .filter(|k| !k.attach.is_empty())
         .map(|k| (k.name.to_ascii_lowercase(), k))
         .collect();
-    let mut rng = Lcg(fnv1a_lower(&m.map));
+    let mut rng = GameLcg::new(fnv1a_lower(&m.map));
     let mut objects = Vec::new();
-    let mut place = |class: u32, up: Vec3, pos: Vec3, rng: &mut Lcg| {
+    let mut place = |class: u32, up: Vec3, pos: Vec3, rng: &mut GameLcg| {
         let g = &m.leaf[class as usize];
         objects.push(LeafObject {
             class,
@@ -348,8 +349,15 @@ mod tests {
             "{}/../../artifacts/lead_tmp/re/leaf/vectors/{file}",
             env!("CARGO_MANIFEST_DIR")
         );
-        let s = pak::read_to_string(p).ok()?;
-        serde_json::from_str(&s).ok()
+        let s = match pak::read_to_string(&p) {
+            Ok(s) => s,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                eprintln!("SKIP: {p} not present (0 vector sets tested, 1 skipped)");
+                return None;
+            }
+            Err(e) => panic!("read {p}: {e}"),
+        };
+        Some(serde_json::from_str(&s).unwrap_or_else(|e| panic!("parse {p}: {e}")))
     }
 
     fn f(v: &serde_json::Value) -> f32 {
@@ -401,7 +409,6 @@ mod tests {
     #[test]
     fn templates_reproduce_the_ps2_s_ram() {
         let Some(t) = vectors("templates.json") else {
-            eprintln!("SKIP: no leaf vectors");
             return;
         };
         let mut n = 0;
@@ -436,7 +443,6 @@ mod tests {
     #[test]
     fn object_frames_are_the_ps2_s() {
         let Some(o) = vectors("objects.json") else {
-            eprintln!("SKIP: no leaf vectors");
             return;
         };
         let mut n = 0;
@@ -463,21 +469,23 @@ mod tests {
     #[test]
     fn objects_are_the_ps2_s_live_ones() {
         let Some(o) = vectors("objects.json") else {
-            eprintln!("SKIP: no leaf vectors");
             return;
         };
         let bake = std::env::var("OPENBF_LEAF_BAKE")
             .unwrap_or_else(|_| format!("{}/../../assets_baked", env!("CARGO_MANIFEST_DIR")));
+        let (mut tested, mut skipped) = (0, 0);
         for (state, live) in o.as_object().unwrap() {
             let map: Vec<&str> = state.splitn(3, '_').take(2).collect();
             let path = format!("{bake}/{}/manifest.ron", map.join("_"));
             let Ok(text) = pak::read_to_string(&path) else {
                 eprintln!("SKIP: no {path}");
+                skipped += 1;
                 continue;
             };
             let m: manifest::Manifest = ron::from_str(&text).unwrap();
             if m.leaf.is_empty() {
                 eprintln!("SKIP: {path} predates LEAF");
+                skipped += 1;
                 continue;
             }
             let ours = objects(&m, &[], None);
@@ -500,6 +508,9 @@ mod tests {
             }
             eprintln!("{state}: {} live, {} predicted", live.len(), ours.len());
             assert_eq!(live.len(), ours.len(), "{state}");
+            tested += 1;
         }
+        assert!(tested + skipped > 0, "empty leaf object vectors");
+        eprintln!("leaf objects: {tested} states tested, {skipped} skipped");
     }
 }

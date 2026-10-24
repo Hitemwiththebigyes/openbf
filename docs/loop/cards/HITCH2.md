@@ -4,14 +4,14 @@ title: the maintainer's hitches while the loop runs: name the cause from his nex
 milestone: M0
 value: 4
 phase: measure
-status: todo
+status: blocked
 deps:
 files: scripts/loop_cpu.py, engine/crates/game/src/main/windowed.rs
 declares:
-needs:
+needs: environment — Restore the maintainer current hitch F9/quit snapshot, original HITCH frame/load kit and NAB2 bake/missions; local polite-mode topology/access unavailable.
 effort:
 branch:
-resume:
+resume: 2026-10-24 10:33 UTC: planner prerequisite hold; no new implementation/acceptance. Read FRAMES queued/files/made first; reproduce quiet/polite A/B before any remedy. Preserve exact snapshot cause and quiet-count acceptance; no new thread or machine-scope workaround. Exact missing paths: lead_tmp/planner_20261024_1026/preflight.json. Restore or regenerate verified equivalent inputs before clearing hold. reports/20261024_1026_planner.md
 created: 2026-10-20
 ---
 ## Why

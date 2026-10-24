@@ -56,15 +56,34 @@ impl ClassProps for BakedClass {
 
 pub fn bake_classes(lvl_path: &str, out_ron: &str) -> Result<Vec<BakedClass>> {
     let buf = std::fs::read(lvl_path).with_context(|| lvl_path.to_string())?;
-    let inner = mungefs::open(&buf).map_err(|e| anyhow!("{e}"))?;
+    let classes = read_classes(&buf, &CLASS_TAGS, MalformedClass::Strict)?;
+    crate::write_ron(std::path::Path::new(out_ron), &classes)?;
+    Ok(classes)
+}
+
+/// Only selected class parse errors differ; container errors always propagate.
+pub(crate) enum MalformedClass {
+    Strict,
+    Skip,
+}
+
+pub(crate) fn read_classes(
+    buf: &[u8],
+    tags: &[&[u8; 4]],
+    policy: MalformedClass,
+) -> Result<Vec<BakedClass>> {
+    let inner = mungefs::open(buf).map_err(|e| anyhow!("{e}"))?;
     let mut classes: Vec<BakedClass> = Vec::new();
     for c in mungefs::content_chunks(inner).map_err(|e| anyhow!("{e}"))? {
-        if !CLASS_TAGS.contains(&&c.tag) {
+        if !tags.contains(&&c.tag) {
             continue;
         }
         let kind = String::from_utf8_lossy(&c.tag).into_owned();
-        let e = mungefs::entity::EntityClass::parse(&c)
-            .map_err(|e| anyhow!("{kind} 0x{:X}: {e}", c.offset))?;
+        let e = match mungefs::entity::EntityClass::parse(&c) {
+            Ok(e) => e,
+            Err(_) if matches!(policy, MalformedClass::Skip) => continue,
+            Err(e) => return Err(anyhow!("{kind} 0x{:X}: {e}", c.offset)),
+        };
         // Side LVLs repeat shared classes across per-unit sublevels — first
         // definition wins (they are byte-identical repeats of the same munge).
         // Dedup on (kind, name) so a weapon never shadows a same-named entity.
@@ -78,13 +97,88 @@ pub fn bake_classes(lvl_path: &str, out_ron: &str) -> Result<Vec<BakedClass>> {
             props: e.props.into_iter().map(|p| (p.key_hash, p.value)).collect(),
         });
     }
-    crate::write_ron(std::path::Path::new(out_ron), &classes)?;
     Ok(classes)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn chunk(tag: &[u8; 4], payload: &[u8]) -> Vec<u8> {
+        let mut out = tag.to_vec();
+        out.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        out.extend_from_slice(payload);
+        out.resize(out.len().next_multiple_of(4), 0);
+        out
+    }
+
+    fn class(tag: &[u8; 4], name: &str, base: &str) -> Vec<u8> {
+        let mut payload = chunk(b"TYPE", format!("{name}\0").as_bytes());
+        payload.extend(chunk(b"BASE", format!("{base}\0").as_bytes()));
+        chunk(tag, &payload)
+    }
+
+    #[test]
+    fn class_reader_keeps_order_exact_names_kinds_and_selected_tags() {
+        let payload: Vec<u8> = [
+            class(b"entc", "Same", "first"),
+            class(b"entc", "Same", "duplicate"),
+            class(b"wpnc", "Same", "weapon"),
+            class(b"entc", "same", "case"),
+            class(b"ordc", "ord", "ordnance"),
+            class(b"expc", "exp", "explosion"),
+        ]
+        .concat();
+        let lvl = chunk(b"ucfb", &chunk(b"lvl_", &payload));
+        let strict = read_classes(&lvl, &CLASS_TAGS, MalformedClass::Strict).unwrap();
+        let rows: Vec<_> = strict
+            .iter()
+            .map(|c| (c.kind.as_str(), c.name.as_str(), c.base.as_str()))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("entc", "Same", "first"),
+                ("wpnc", "Same", "weapon"),
+                ("entc", "same", "case"),
+                ("ordc", "ord", "ordnance"),
+                ("expc", "exp", "explosion"),
+            ]
+        );
+        let side = crate::anim_sets::bf2::side_classes(&lvl).unwrap();
+        assert_eq!(side, strict[..3]);
+    }
+
+    #[test]
+    fn class_reader_only_tolerates_selected_class_parse_errors() {
+        let malformed = chunk(b"entc", &chunk(b"TYPE", b"Same")); // no NUL
+        let good = class(b"entc", "Same", "valid");
+        let lvl = chunk(b"ucfb", &[malformed, good.clone()].concat());
+        let err = read_classes(&lvl, &CLASS_TAGS, MalformedClass::Strict).unwrap_err();
+        assert!(err.to_string().starts_with("entc 0x0:"), "{err}");
+        let side = crate::anim_sets::bf2::side_classes(&lvl).unwrap();
+        assert_eq!(side.len(), 1);
+        assert_eq!(side[0].name, "Same");
+        assert_eq!(side[0].base, "valid");
+
+        // An omitted malformed class must never be parsed, even in strict mode.
+        let omitted = chunk(b"ucfb", &[chunk(b"ordc", &[]), good].concat());
+        assert!(read_classes(&omitted, &[b"entc", b"wpnc"], MalformedClass::Strict).is_ok());
+        assert!(read_classes(&omitted, &CLASS_TAGS, MalformedClass::Strict).is_err());
+        assert_eq!(
+            crate::anim_sets::bf2::side_classes(&omitted).unwrap().len(),
+            1
+        );
+
+        for lvl in [
+            b"bad magic".to_vec(),
+            b"ucfb\x10\0\0\0".to_vec(),
+            chunk(b"ucfb", b"entc\x20\0\0\0"),
+        ] {
+            assert!(read_classes(&lvl, &CLASS_TAGS, MalformedClass::Strict).is_err());
+            assert!(crate::anim_sets::bf2::side_classes(&lvl).is_err());
+        }
+    }
 
     const BF1: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -102,8 +196,13 @@ mod tests {
             eprintln!("SKIP: {lvl} not present");
             return None;
         }
-        let out =
-            std::env::temp_dir().join(format!("openbf-{tag}-classes-{}.ron", std::process::id()));
+        static NEXT_SCRATCH: std::sync::atomic::AtomicUsize =
+            std::sync::atomic::AtomicUsize::new(0);
+        let serial = NEXT_SCRATCH.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let out = std::env::temp_dir().join(format!(
+            "openbf-{tag}-classes-{}-{serial}.ron",
+            std::process::id()
+        ));
         let classes = bake_classes(lvl, out.to_str().unwrap()).expect("bake");
         drop_scratch(&out);
         Some(classes)

@@ -4,13 +4,13 @@ title: Leaf canopies as the PS2 lays them out: an unseeded leafpatch class's see
 milestone: M1
 value: 4
 phase: build
-status: todo
+status: blocked
 deps:
 files: engine/crates/game/src/viewer/leaf.rs,analysis/re-leafpatch.md
 declares: goldens=maps/bf1_yav1.png,maps/bf1_yav2.png,maps/bf2_yav1.png,maps/bf2_dag1.png,maps/bf2_kas2.png,maps/bf1_nab1.png,maps/bf1_nab2.png,maps/bf2_nab2.png,maps/bf2_cor1.png,walkabout_stats.ron
-needs:
+needs: environment — Restore leaf-map bake and audit-leaf RAM outputs, pose files and paired frames.
 branch:
-resume:
+resume: 2026-10-24 10:33 UTC: planner prerequisite hold; no new implementation/acceptance. Reproduce seed/tint tables and current leaf mask before build; preserve 96-state seeds, per-era PROVISIONAL fallback and DAG1 IoU >=0.55 with approved picture/golden gates. Exact missing paths: lead_tmp/planner_20261024_1026/preflight.json. Restore or regenerate verified equivalent inputs before clearing hold. reports/20261024_1026_planner.md
 created: 2026-09-30
 ---
 ## Why

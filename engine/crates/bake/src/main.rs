@@ -1,8 +1,8 @@
 //! Offline bake tool: ISO/LVL -> glTF/KTX2/OGG/RON.
 //!
 //! `map`, `common`, `soldier`, `weapon` and `vehicle` take an optional trailing PC-format
-//! LVL: any texture the PC ships LARGER than the PS2 one replaces it (the maintainer's
-//! classic-plus chain — see `bake::tier`). Omit it and the bake is PS2-only.
+//! LVL: eligible larger PC textures become optional tier-2 siblings beside
+//! the PS2 base (see `bake::tier`). Omit it and the bake is PS2-only.
 //!
 //! Run `bake` with no arguments for the full usage table (tex-dump, pc-tex,
 //! map, common, classes, loadscreen, sounds, sound-names, global-sound, beep,
@@ -232,7 +232,7 @@ fn main() -> Result<()> {
             let music = g.streams.iter().filter(|s| !s.baked).count();
             let segs: usize = g.streams.iter().map(|s| s.segments.len()).sum();
             println!(
-                "baked global-sound {:?}: {} streams ({music} music, indexed only), \
+                "baked global-sound {:?}: {} streams ({music} music, ADPCM bodies copied), \
                  {segs} segments, {} OGG written ({} referenced, {} unreferenced) -> {}",
                 g.sources,
                 g.streams.len(),

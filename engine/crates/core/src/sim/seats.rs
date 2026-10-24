@@ -54,6 +54,11 @@
 //!   (`FEEL_NOTES.md`). With no human at the pilot seat the input is zero
 //!   and the timer 0 (FUN_002f4a50).
 //!
+//! SQVEH followers walk to their leader's vehicle and take a free boardable
+//! seat in step 1c (`analysis/re-squad-orders.md` §4.3). This directed entry
+//! bypasses autonomous seat search and its cooldown; the port's boarding
+//! radius and per-tick service remain PROVISIONAL.
+//!
 //! PROVISIONAL (ours): the gather's sphere test, the soldier's sphere (the
 //! capsule's centre, radius max(r, h/2)), the eye (the muzzle) and the
 //! vehicle's sphere centred on its origin; the rays' surfaces (the terrain
@@ -194,13 +199,94 @@ impl Sim {
     /// place re-plans on its next think; a failed entry blocks new claims
     /// for `ai::BOARD_BLOCK`.
     pub(crate) fn ai_use_pass(&mut self) {
+        // VBAIL: collect the pilot's order before changing ANY seat, so a
+        // gunner at a lower unit index exits on the same pass. Player seats
+        // never receive an AI get-out order. Preserve the normal exit path.
+        let mut bail = Vec::new();
+        if crate::ai::VEHICLE_BAIL && !self.vehicles.is_empty() {
+            for (vh, v) in self.alive_vehicles() {
+                if !matches!(v.kind, VehicleKind::Hover | VehicleKind::Walker)
+                    || v.health.cur >= v.health.max * 0.2
+                {
+                    continue;
+                }
+                let Some(h) = v
+                    .seats
+                    .first()
+                    .filter(|s| s.kind == SeatKind::Pilot)
+                    .and_then(|s| s.occupant)
+                else {
+                    continue;
+                };
+                let Some(u) = self.unit(h).filter(|u| u.controller == Controller::Ai) else {
+                    continue;
+                };
+                if u.ai.ride.is_some_and(|r| r.use_req) && crate::ai::vehicle_bail_allowed(self, vh)
+                {
+                    bail.push(vh);
+                }
+            }
+            // Count each low-health driver ride once, including failing draws.
+            for i in 0..self.units.len() {
+                let u = &self.units[i];
+                let exposed = u.alive
+                    && u.controller == Controller::Ai
+                    && u.mount.is_some_and(|m| {
+                        m.seat == 0
+                            && self.vehicle(m.vehicle).is_some_and(|v| {
+                                matches!(v.kind, VehicleKind::Hover | VehicleKind::Walker)
+                                    && v.health.cur < v.health.max * 0.2
+                            })
+                    });
+                if exposed
+                    && u.ai
+                        .ride
+                        .is_some_and(|r| r.bail_draw.is_some() && !r.bail_seen)
+                {
+                    self.units[i].ai.ride.as_mut().unwrap().bail_seen = true;
+                    self.nav_stats.ai_bail_exposed += 1;
+                }
+            }
+        }
+        for vh in &bail {
+            self.nav_stats.ai_bail_drivers += 1;
+            for u in &mut self.units {
+                if u.alive
+                    && u.controller == Controller::Ai
+                    && u.mount.is_some_and(|m| m.vehicle == *vh)
+                {
+                    let r = u.ai.ride.get_or_insert_default();
+                    r.use_req = true;
+                    r.board = None;
+                    self.nav_stats.ai_bail_occupants += 1;
+                }
+            }
+        }
         let mut pilots = Vec::new();
         for i in 0..self.units.len() {
             let u = &self.units[i];
             if !u.alive || u.controller != Controller::Ai {
                 continue;
             }
-            let Some(mut r) = u.ai.ride.filter(|r| r.use_req) else {
+            // SQVEH: a follower boards the vehicle its leader occupies,
+            // independently of autonomous claim/search eligibility. Re-read
+            // CanEnter in unit order so two followers never take one seat.
+            // PROVISIONAL: served every tick on reaching the port's boarding
+            // radius, rather than the PS2 board agent's queued think.
+            let follow_target = crate::squad::follow_vehicle(self, u);
+            let following = follow_target.filter(|&vh| crate::ai::in_reach(self, u, vh));
+            if follow_target.is_some() && following.is_none() {
+                continue;
+            }
+            let mut r = if let Some(vh) = following {
+                crate::ai::RideState {
+                    board: Some(vh),
+                    use_req: true,
+                    ..u.ai.ride.unwrap_or_default()
+                }
+            } else if let Some(r) = u.ai.ride.filter(|r| r.use_req) {
+                r
+            } else {
                 continue;
             };
             r.use_req = false;
@@ -218,14 +304,29 @@ impl Sim {
                     }
                 }
                 self.exit_vehicle(h);
+                r.bail_draw = None;
+                r.bail_seen = false;
                 self.nav_stats.ai_dismounts += 1;
                 r.block_until = self.tick + crate::ai::BOARD_BLOCK;
                 true
             } else if let Some(vh) = r.board.take() {
                 let near = crate::ai::in_reach(self, &self.units[i], vh);
-                let seat = crate::ai::claim_seat(self, h, vh).filter(|_| near);
+                let seat = if following == Some(vh) {
+                    self.enter_seat(h, vh)
+                } else {
+                    crate::ai::claim_seat(self, h, vh)
+                }
+                .filter(|_| near);
                 let entered = seat.is_some_and(|k| self.enter_vehicle(h, vh, k));
                 if entered {
+                    // seat_unit drew once; keep that draw when writing this
+                    // pass's local boarding state back to the unit.
+                    r.bail_draw = self.units[i].ai.ride.and_then(|r| r.bail_draw);
+                    r.bail_seen = false;
+                    if following.is_some() {
+                        self.units[i].command = None;
+                        self.units[i].ai.cmd_clear();
+                    }
                     self.nav_stats.ai_boards += 1;
                     self.nav_stats.man_boards += u64::from(
                         self.vehicle(vh)
@@ -240,7 +341,12 @@ impl Sim {
                         pilots.push((h, vh));
                     }
                 } else {
-                    r.block_until = self.tick + crate::ai::BOARD_BLOCK;
+                    let until = self.tick + crate::ai::BOARD_BLOCK;
+                    r.block_until = if following.is_some() {
+                        r.block_until.max(until)
+                    } else {
+                        until
+                    };
                 }
                 entered
             } else {
@@ -393,10 +499,22 @@ impl Sim {
     /// Put `u` into seat `seat` of `vh`, exiting (and placing) an AI that
     /// holds it. `false` when the seat stays taken or either side is gone.
     pub fn enter_vehicle(&mut self, u: UnitHandle, vh: VehicleHandle, seat: u8) -> bool {
-        let held = self
-            .vehicle(vh)
-            .and_then(|v| v.seats.get(usize::from(seat)))
-            .and_then(|s| s.occupant);
+        // Validate every refusal before moving the current rider outside.
+        let Some(unit) = self.unit(u).filter(|unit| unit.mount.is_none()) else {
+            return false;
+        };
+        let Some(v) = self.vehicle(vh) else {
+            return false;
+        };
+        let Some(target) = v.seats.get(usize::from(seat)) else {
+            return false;
+        };
+        let held = target.occupant;
+        if held.is_some_and(|occupant| {
+            !unit.is_player || !self.unit(occupant).is_some_and(|rider| !rider.is_player)
+        }) {
+            return false;
+        }
         if let Some(ai) = held {
             self.exit_vehicle(ai);
         }
@@ -596,7 +714,8 @@ impl Sim {
         // last tick's (card VTURZ).
         let zoom_press =
             pad.pressed(buttons::ZOOM) && self.units[i].soldier.prev_buttons() & buttons::ZOOM == 0;
-        self.tick_seat_zoom(i, zoom_press, driver_input(pad).0.throttle);
+        let (inp, full) = driver_input(pad);
+        self.tick_seat_zoom(i, zoom_press, inp.throttle);
         let u = &mut self.units[i];
         u.soldier.set_prev_buttons(pad.buttons);
         u.soldier.vel = Vec3::ZERO;
@@ -612,14 +731,12 @@ impl Sim {
             return;
         }
         if human {
-            let (inp, full) = driver_input(pad);
             v.input = inp;
             ramp_stick_timer(&mut v.hover, full, crate::TICK_DT);
         } else if ai {
             // Card VAI: the bot's pad through the same shaping, as an AI
             // driver — no full-stick timer (re-hover §5.1 I7), no boost (the
             // AI branch of I5 is undecoded) and no jump.
-            let (inp, _) = driver_input(pad);
             v.input = HoverInput {
                 human: false,
                 boost: false,

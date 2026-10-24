@@ -4,14 +4,14 @@ title: The HUD while seated: BF2's reticle group (reticle, clip ring, heat ring,
 milestone: M2
 value: 4
 phase: build
-status: todo
+status: blocked
 deps: OVHT
 files: engine/crates/game/src/main/battle.rs, engine/crates/game/src/walk.rs, engine/crates/ui/src/hud.rs, engine/crates/game/tests/suite/hud_layout.rs
 declares:
-needs:
+needs: maintainer — restore local PS2 corpora/ELFs, VSHUD/BHUD/VRIDE raw evidence and PCSX2 tools; baked assets/missions and approved GPU environment required for acceptance
 effort:
 branch:
-resume: BUILD from analysis/re-seat-hud.md section 8 (Do 1-4). Rides on OVHT's heat events (deps OVHT). No golden shows a rider and the sim is untouched: declares is expected to stay empty - check with gates.py --auto. PS2 halves for the pairs: lead_tmp/vshud/ps2/b2{tower,bike,atst}_*.png + .p2s.
+resume: BLOCKED audit prerequisite checkpoint 2026-10-24 14:51 UTC: re-seat-hud.md remains UNAUDITED; ninth incomplete checkpoint, 18/18 recorded primary/data/GPU paths still absent, 0 input changes, six target/source/ledger hashes unchanged against the 13:24 checkpoint. Restore inputs listed in engine/artifacts/lead_tmp/audit-seat-hud-20261024T144704/preflight.json before independent primary re-derivation; no verdict or acceptance run. Report reports/20261024_1451_audit_seat_hud.md. AUDPRE remains uncommitted/unlanded; OVHT dependency and original VSHUD acceptance/continuation preserved below.
 created: 2026-10-22
 alpha: yes
 ---
@@ -52,3 +52,10 @@ the weapon panel (Mygeeto turret ...). The port's hud_model shows the weapon row
 - A test: a seated player's HUD model carries the seat gun (rows, heat) and the reticle at the seat ray's projection,
   and the feed sends `healthDisable` + `vehicle.health*` on mounting and `vehicle.healthDisable` on dismounting;
   mutation-checked (gate the rows on foot again, project the soldier's ray, drop the disable).
+
+## Cloud audit checkpoint (2026-10-24 07:29 UTC)
+Claim AUDIT selected `analysis/re-seat-hud.md`; primary-evidence re-derivation is blocked, not completed. The RE note stays `[O] UNAUDITED`; no OK/PARTLY/WRONG verdict was earned. Both decompiled corpora and extracted ELFs, `lead_tmp/vshud/{tools,ps2,checks}`, `lead_tmp/re/bhud/dump_named.txt`, the cited VRIDE states, and PCSX2 tooling/references are absent here. Baked assets, missions and `/dev/dri` are absent too, so the build acceptance cannot currently run. Report: `reports/20261024_0729_audit_seat_hud.md`.
+
+Restore these locally owned inputs, verify the PS2 caller/vtable/ControlsUnit paths, replay the 20 BF2 and 6 BF1 states and remeasure heat against each state's own Screenshot.png before issuing an audit verdict. Then complete OVHT and the original VSHUD acceptance; clear the cloud block only after verifying prerequisites. No acceptance threshold changed.
+
+Previous build continuation (preserved): BUILD from analysis/re-seat-hud.md section 8 (Do 1-4). Rides on OVHT's heat events (deps OVHT). No golden shows a rider and the sim is untouched: declares is expected to stay empty - check with gates.py --auto. PS2 halves for the pairs: lead_tmp/vshud/ps2/b2{tower,bike,atst}_*.png + .p2s.

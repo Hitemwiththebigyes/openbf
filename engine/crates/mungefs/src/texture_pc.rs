@@ -283,8 +283,10 @@ impl Texture {
             return Err(bad());
         }
         let declared: Vec<u32> = ip[4..4 + count * 4]
-            .chunks_exact(4)
-            .map(|c| u32::from_le_bytes(c.try_into().unwrap()))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| u32::from_le_bytes(*c))
             .collect();
 
         let mut surfaces = Vec::new();
@@ -617,19 +619,10 @@ pub fn find_texture(inner: &[u8], name: &str) -> Option<Texture> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::build_chunk as chunk;
 
     /// `tex_ { NAME, INFO, FMT_ { INFO, FACE { LVL_ { INFO, BODY } } } }`.
     fn synth_tex(name: &str, d3d: u32, w: u16, h: u16, mips: &[Vec<u8>]) -> Vec<u8> {
-        fn chunk(tag: &[u8; 4], payload: &[u8]) -> Vec<u8> {
-            let mut v = Vec::new();
-            v.extend(tag);
-            v.extend((payload.len() as u32).to_le_bytes());
-            v.extend(payload);
-            while v.len() % 4 != 0 {
-                v.push(0);
-            }
-            v
-        }
         let mut face = Vec::new();
         for (i, body) in mips.iter().enumerate() {
             let mut info = Vec::new();
@@ -963,7 +956,12 @@ mod tests {
             worst = worst.max((*a as i32 - *b as i32).abs());
         }
         assert!(worst < 128, "DXT1 vs R5G6B5 differ by {worst}");
-        assert!(dxt.rgba.chunks_exact(4).any(|p| p[0] > 40 || p[1] > 40));
+        assert!(dxt
+            .rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|p| p[0] > 40 || p[1] > 40));
         // The game renders the DXT1 copy; R5G6B5 is the more faithful one.
         assert_eq!(gonk.preferred().unwrap().format, Dxt1);
         assert_eq!(gonk.best().unwrap().format, R5G6B5);

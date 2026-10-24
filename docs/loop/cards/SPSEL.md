@@ -11,10 +11,11 @@ declares: goldens=tat1_spawn.png
 needs:
 effort:
 branch: spsel
-resume: landed 6dc5a68 2026-10-20 (code 806b7f8); report reports/20261020_0158_card_SPSEL.md
+resume: (private workflow note omitted)
 created: 2026-09-25
 alpha: yes
 first: 4
+domain: sim
 ---
 
 ## Evidence

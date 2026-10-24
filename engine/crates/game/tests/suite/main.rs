@@ -10,6 +10,7 @@ mod all_maps_load;
 mod ambience_ps2;
 mod announcer_ps2;
 mod battle_replay;
+mod class_dbs;
 mod collision;
 mod event_messages;
 mod glb_material;
@@ -41,3 +42,5 @@ mod water_floor;
 mod water_look;
 mod weapon_classdb;
 mod weather_ps2;
+
+mod bug_checks;

@@ -4,14 +4,14 @@ title: Footsteps follow the legs: foley's walk / run choice reads the animator's
 milestone: M1
 value: 3
 phase: build
-status: todo
+status: blocked
 deps: ANIMM
 files: engine/crates/game/src/foley.rs
 declares:
 needs:
 effort:
 branch:
-resume:
+resume: RESTORATION HOLD 2026-10-24: restore baked maps/classes/soldier animation sets and missions plus FOLY step trials; measure current-main baseline before isolated build. See reports/20261024_1319_card_FOLYM.md and lead_tmp/folym_cloud/next_prompt.md; caller timing and resolved clip/stride scope remain. Original Acceptance unchanged.
 created: 2026-10-15
 ---
 ## Why

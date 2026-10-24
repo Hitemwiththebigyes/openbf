@@ -538,7 +538,7 @@ impl Instance {
             n_bursts += 1;
             if delay <= 0.0 && self.max < 0 {
                 // A zero-delay forever emitter: one burst per update.
-                self.next_burst = t + f32::EPSILON;
+                self.next_burst = t.next_up();
             }
         }
         let life = em.transformer.lifetime;
@@ -660,6 +660,85 @@ pub fn hsv_to_rgb(h: f32, s: f32, v: f32) -> [f32; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn scheduling_emitter(delay: f32) -> FxEmitter {
+        let zero = FxRange(0.0, 0.0);
+        let one = FxRange(1.0, 0.0);
+        FxEmitter {
+            label: "synthetic scheduler".into(),
+            start_delay: zero,
+            burst_delay: FxRange(delay, 0.0),
+            burst_count: one,
+            max_particles: FxRange(-1.0, 0.0),
+            color: [one; 4],
+            hsv: false,
+            size: one,
+            spawner: FxSpawner {
+                shape: FxShape::None,
+                shape_ranges: [zero; 9],
+                offset: [zero; 3],
+                position_scale: one,
+                velocity_scale: one,
+                inherit_velocity_factor: zero,
+                size: one,
+                color: [one; 4],
+                hsv: false,
+                fade_in_time: 0.0,
+                start_rotation: zero,
+                rotation_velocity: zero,
+            },
+            transformer: manifest::FxTransformer {
+                lifetime: 1.0,
+                position: vec![],
+                size: vec![],
+                rotation: vec![],
+                color: vec![],
+            },
+            geometry: manifest::FxGeometry {
+                blend: manifest::FxBlend::Normal,
+                kind: FxType::Particle,
+                texture: None,
+                model: None,
+                child: None,
+                time_per_frame: 0.0,
+                frame_size: 1.0,
+                total_frames: 1.0,
+                blur_value: 0.0,
+                blur_res: 0,
+                spark_length: 0.0,
+                looping: false,
+            },
+            min_lod_dist: 0.0,
+            max_lod_dist: 0.0,
+            bounding_radius: 0.0,
+            no_register_step: false,
+            world_aligned: false,
+            sibling: None,
+            sound_name: None,
+        }
+    }
+
+    #[test]
+    fn nonpositive_forever_delays_emit_once_at_large_times() {
+        for delay in [0.0, -1.0] {
+            let em = scheduling_emitter(delay);
+            let mut instance = Instance::new(&em, Era::Bf2, 1, 0);
+            for (i, t) in [0.0, 1.0, 2.0, 4.0, 1_000_000.0].into_iter().enumerate() {
+                instance.update(&em, t, Frame::at(Vec3::ZERO), false);
+                assert_eq!(instance.emitted(), i as u32 + 1, "delay {delay}, time {t}");
+                assert!(instance.next_burst > t);
+            }
+            let emitted = instance.emitted();
+            instance.update(&em, 2_000_000.0, Frame::at(Vec3::ZERO), true);
+            assert_eq!(instance.emitted(), emitted);
+        }
+        // Ordinary positive delays still catch up every due burst.
+        let em = scheduling_emitter(0.5);
+        let mut instance = Instance::new(&em, Era::Bf2, 1, 0);
+        instance.update(&em, 2.0, Frame::at(Vec3::ZERO), false);
+        assert_eq!(instance.emitted(), 5);
+        assert_eq!(instance.next_burst, 2.5);
+    }
 
     fn pnode(lifetime: f32, op: FxPositionOp, value: [f32; 3]) -> FxPositionNode {
         FxPositionNode {

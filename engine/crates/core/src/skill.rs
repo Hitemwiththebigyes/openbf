@@ -367,10 +367,9 @@ impl Skill {
     /// a weapon that is not a `WeaponCannon` (RE §4.2 step 4,
     /// `DAT_00699ec8`).
     ///
-    /// Every weapon the port builds today is a cannon-class rifle
-    /// (`core::weapon::WeaponClass`, the BF1/BF2 rifles), so the halving has
-    /// no input yet and the one call site passes `true`. The `false` arm is
-    /// tested so the branch cannot rot before a non-cannon weapon exists.
+    /// The foot gunner currently passes `true` for every weapon class: its
+    /// tracker does not yet classify non-cannon weapons. The non-cannon
+    /// scaling remains available and tested.
     pub fn tracker_for(self, is_cannon: bool) -> (f32, f32) {
         if is_cannon {
             (self.aim_accel, self.aim_damping)

@@ -403,22 +403,23 @@ impl MultiLine {
             if due && (self.always_scroll || wanted) {
                 self.shown[0].fader.hide();
                 self.state = LineState::Expiring;
-            } else if let (Some(y), Some((text, color))) = (place, self.pending.front().cloned()) {
-                self.pending.pop_front();
-                let mut fader = Fader {
-                    fade_in: self.fade_in,
-                    fade_out: self.fade_out,
-                    ..Fader::default()
-                };
-                fader.show();
-                self.shown.push(Line {
-                    text,
-                    color,
-                    y,
-                    fader,
-                    held: 0.0,
-                });
-                self.state = LineState::Admitting;
+            } else if let Some(y) = place {
+                if let Some((text, color)) = self.pending.pop_front() {
+                    let mut fader = Fader {
+                        fade_in: self.fade_in,
+                        fade_out: self.fade_out,
+                        ..Fader::default()
+                    };
+                    fader.show();
+                    self.shown.push(Line {
+                        text,
+                        color,
+                        y,
+                        fader,
+                        held: 0.0,
+                    });
+                    self.state = LineState::Admitting;
+                }
             }
         }
         false
@@ -1090,8 +1091,8 @@ impl Hud {
     /// model-table lookup in the NameMesh fallback).
     pub fn send(&mut self, event: &str, value: EventValue, has_mesh: &dyn Fn(&str) -> bool) {
         let event = event.to_ascii_lowercase();
-        if let Some(list) = self.listeners.get(&event).cloned() {
-            for (i, what) in list {
+        if let Some(list) = self.listeners.get(&event) {
+            for &(i, what) in list {
                 // A message box takes a text as a new message and a colour
                 // as that of the messages to come.
                 if self.elems[i].lines.is_some() {

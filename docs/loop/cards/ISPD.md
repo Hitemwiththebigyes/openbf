@@ -13,7 +13,7 @@ effort:
 branch:
 resume: Table re-taken on main 8729cae after ISPF (README 'Update 2026-10-20': 52-79 fps at 2880x1920, 132-166 at 1080p on the iGPU) and the world fs priced by shader variants (x/*.wgsl, scratch binary reads OPENBF_X_SHADER: worktree openbf-wt/ispd-x-scratch, target lead_tmp/ispdx_target) -> card ISPS filed (value 5). NEXT after ISPS and LODP land: re-take the table (batch3.sh gating on load < 8 - the iGPU slows ~2x under the other lane's load), price BF1 grass (NAB1 6.6 ms at native: alpha-blend overdraw; try the sprite count and a cheaper fs) and per-vertex lighting (the PS2's VU1 way; lean 7.44 vs flat 2.26 ms on KAM1 is what is left), then state the final target (Acceptance 4) and close; fold in the maintainer's Surface CSV when he sends it.
 created: 2026-10-19
-first: 2
+first: 7
 ---
 
 ## Why
