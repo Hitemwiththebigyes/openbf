@@ -17,6 +17,7 @@
 //!   `crate::perception` owns contact memory and target acquisition.
 //! - `command` applies squad orders; `team` coordinates roles; `ride`,
 //!   `gunner`, `hover_drive`, `walker_drive` and `man` own seated behavior.
+//!   GBOARD delivers uncommanded BF1 call targets through `ride` at a scheduled think.
 //! - `state` owns AI state and its hash; `draw` owns per-unit hash draws.
 //!   This facade retains re-exports, shared tuning and test fixtures.
 //!

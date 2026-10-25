@@ -1,5 +1,4 @@
 //! Game library: asset loading + viewer wiring. The binary is the CLI.
-#![allow(clippy::nonminimal_bool)]
 pub mod ambience;
 pub mod animator;
 pub mod announce;

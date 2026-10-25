@@ -66,26 +66,6 @@ pub fn ps2_soldier_fovs(rules: core::soldier::GroundRules) -> (f32, f32) {
 /// targets by exp(-25 dt) per update (`re-zoom.md` §5).
 pub const ZOOM_EASE_RATE: f32 = 25.0;
 
-/// The soldier stance sections' MoveTension (`re-aim-assist.md` §10.1, the
-/// eye's ease of §10.6 step 5 [V]): the drawn eye keeps exp(-15 dt) of its
-/// step to the section's place per update, the zoom out's 0.606 per update
-/// of `re-zoom.md` §5 [M]. A ZOOM section's tension is FLT_MAX: taken at once.
-pub const CAMERA_MOVE_TENSION: f32 = 15.0;
-
-/// The drawn camera's section place `(eye_y, offset)` eased `dt` toward
-/// `to` by [`CAMERA_MOVE_TENSION`]; it rests exactly on `to` once within
-/// 0.1 mm.
-pub fn ease_camera_place(from: (f32, Vec3), to: (f32, Vec3), dt: f32) -> (f32, Vec3) {
-    let k = core::fmath::exp(-CAMERA_MOVE_TENSION * dt);
-    let y = to.0 + (from.0 - to.0) * k;
-    let offset = to.1 + (from.1 - to.1) * k;
-    if (y - to.0).abs() < 1e-4 && (offset - to.1).abs().max_element() < 1e-4 {
-        to
-    } else {
-        (y, offset)
-    }
-}
-
 /// The chase camera's vertical FOV (radians) for a manifest's `source_game`.
 /// The port keeps the PS2's VERTICAL framing and widens the horizontal with
 /// the window (Hor+, `render::Camera::fov_y`) — never the 4:3 horizontal.
@@ -504,12 +484,6 @@ pub struct WalkSim {
     /// How far the FOV has eased from the class's third-person FOV (0) to
     /// its first-person one (1), the zoomed view's.
     pub zoom_fov_mix: f32,
-    /// The drawn chase camera's section place `(eye_y, offset)`, eased each
-    /// tick toward the player's section ([`ease_camera_place`]): a sprint's
-    /// step back, a change of stance and the zoom out glide as on the PS2.
-    /// None (in a seat, the scope, the backdrop) snaps on the next tick.
-    /// Visual only: the sim's aim keeps the section itself.
-    pub cam_place: Option<(f32, Vec3)>,
     /// The player's FOV option (profile `Settings::fov_scale`), clamped to
     /// [`FOV_SCALE_RANGE`]; 1.0 = the PS2's framing.
     pub fov_scale: f32,
@@ -627,7 +601,6 @@ impl WalkSim {
             fov_y_ps2: ps2_fov_y("bf1"),
             zoom_s: 1.0,
             zoom_fov_mix: 0.0,
-            cam_place: None,
             fov_scale: 1.0,
             voice: None,
             music: None,
@@ -959,7 +932,6 @@ impl WalkSim {
         };
         self.zoom_s = ease(self.zoom_s, zoom.map_or(1.0, |z| z.value));
         self.zoom_fov_mix = ease(self.zoom_fov_mix, if zoom.is_some() { 1.0 } else { 0.0 });
-        self.cam_place = self.next_cam_place();
         // The squad's answers to this tick's orders join the voice queue;
         // the units' combat calls wait for the sound bank's gates
         // (`Commander::gate_calls`).
@@ -973,12 +945,11 @@ impl WalkSim {
     /// `ideal_camera`, `analysis/re-aim-assist.md` §10.2 step 4) - the track
     /// centre above the soldier plus the stance's track offset in a frame
     /// that looks the section's tilt BELOW the aim - then kept out of the
-    /// terrain and (PROVISIONAL) out of world geometry. The eye stands at
-    /// [`WalkSim::cam_place`], the section's place eased by its MoveTension
-    /// (§10.6 step 5; the ZOOM sections are taken at once); the eye's ease
-    /// as the soldier moves and BF1's AimTension 30 stay card CAMS's. Zoomed
-    /// on a scope weapon it is the scope's eye, looking along the aim.
-    /// Framed at [`WalkSim::fov_y`].
+    /// terrain and (PROVISIONAL) out of world geometry. No smoothing (BF1's
+    /// AimTension 30 and the MoveTension 15 are card CAMS's; the ZOOM
+    /// sections are taken at once on the PS2 too). Zoomed on a scope weapon
+    /// it is the scope's eye, looking along the aim. Framed at
+    /// [`WalkSim::fov_y`].
     pub fn camera(&self) -> Camera {
         if let Some(b) = &self.backdrop {
             return b.camera();
@@ -988,48 +959,12 @@ impl WalkSim {
         }
         let me = &self.sim.units[self.player.index as usize];
         let ideal = me.ideal_camera(self.sim.ground_rules, self.sim.views());
-        let (center, position) = self.drawn_eye(me, &ideal);
         Camera {
-            position: self.settle_camera(center, position),
+            position: self.settle_camera(ideal.center, ideal.position),
             yaw: me.soldier.yaw,
             pitch: core::fmath::atan2(ideal.forward.y, ideal.forward.with_y(0.0).length()),
             fov_y: self.fov_y(),
             ..Camera::default()
-        }
-    }
-
-    /// The track centre and eye of the ideal camera moved from the player's
-    /// section to [`WalkSim::cam_place`] in the same frame.
-    fn drawn_eye(&self, me: &core::unit::Unit, ideal: &core::unit::IdealCamera) -> (Vec3, Vec3) {
-        let sec = me.section(self.sim.ground_rules);
-        let Some((eye_y, offset)) = self.cam_place.filter(|_| !me.scoped()) else {
-            return (ideal.center, ideal.position);
-        };
-        if (eye_y, offset) == (sec.eye_y, sec.offset) {
-            return (ideal.center, ideal.position);
-        }
-        let lift = Vec3::Y * (eye_y - sec.eye_y);
-        let d = offset - sec.offset;
-        let right = ideal.forward.cross(ideal.up);
-        (
-            ideal.center + lift,
-            ideal.position + lift + right * d.x + ideal.up * d.y - ideal.forward * d.z,
-        )
-    }
-
-    /// The next tick's [`WalkSim::cam_place`]: the last one eased toward the
-    /// player's section, or the section itself when the last was None or
-    /// the player zoomed.
-    fn next_cam_place(&self) -> Option<(f32, Vec3)> {
-        let me = self.sim.unit(self.player)?;
-        if self.backdrop.is_some() || me.mount.is_some() || me.scoped() {
-            return None;
-        }
-        let sec = me.section(self.sim.ground_rules);
-        let to = (sec.eye_y, sec.offset);
-        match self.cam_place {
-            Some(from) if me.zoom.is_none() => Some(ease_camera_place(from, to, core::TICK_DT)),
-            _ => Some(to),
         }
     }
 
@@ -1351,64 +1286,6 @@ mod tests {
             assert_eq!(w.camera().fov_y, plain.fov_y);
             assert_eq!(w.camera().position, plain.position);
         }
-    }
-
-    /// The sprint's step back eases by the section's MoveTension (§10.6 step
-    /// 5): on the first sprint tick the eye has gone 1 - exp(-15 dt) of the
-    /// way from 3.2 m to 4.0 m, it rests exactly on the SPRINT section, and
-    /// the end of the sprint eases back to the STAND section the same way.
-    #[test]
-    fn the_sprint_camera_eases_back_and_forth() {
-        use core::soldier::GroundRules;
-        let mut w = WalkSim::new(1, Vec3::ZERO, Some(flat_ground()));
-        w.sim.ground_rules = GroundRules::Bf2;
-        let pad = |buttons| PadState {
-            ly: 32767,
-            buttons,
-            ..Default::default()
-        };
-        let back = |w: &WalkSim| {
-            let me = &w.sim.units[w.player.index as usize];
-            let ideal = me.ideal_camera(w.sim.ground_rules, w.sim.views());
-            (w.camera().position - ideal.center).length()
-        };
-        let stance = |w: &WalkSim| w.sim.units[w.player.index as usize].soldier.stance;
-        let k = (-CAMERA_MOVE_TENSION * core::TICK_DT).exp();
-        for _ in 0..30 {
-            w.step_tick(&[pad(0)]);
-        }
-        assert!((back(&w) - 3.2).abs() < 1e-4);
-        let mut ticks = 0;
-        while stance(&w) != Stance::Sprint {
-            w.step_tick(&[pad(buttons::SPRINT)]);
-            ticks += 1;
-            assert!(ticks < 30, "no sprint");
-        }
-        let first = back(&w);
-        assert!((first - (4.0 + (3.2 - 4.0) * k)).abs() < 1e-3, "{first}");
-        for _ in 0..30 {
-            w.step_tick(&[pad(buttons::SPRINT)]);
-        }
-        assert_eq!(stance(&w), Stance::Sprint);
-        assert_eq!(w.cam_place, Some((1.8, Vec3::new(0.0, 0.0, 4.0))));
-        let me = &w.sim.units[w.player.index as usize];
-        let ideal = me.ideal_camera(w.sim.ground_rules, w.sim.views());
-        assert_eq!(
-            w.camera().position,
-            w.settle_camera(ideal.center, ideal.position)
-        );
-        let mut ticks = 0;
-        while stance(&w) == Stance::Sprint {
-            w.step_tick(&[pad(0)]);
-            ticks += 1;
-            assert!(ticks < 30, "no end of sprint");
-        }
-        let first = back(&w);
-        assert!((first - (3.2 + (4.0 - 3.2) * k)).abs() < 1e-3, "{first}");
-        for _ in 0..30 {
-            w.step_tick(&[pad(0)]);
-        }
-        assert!((back(&w) - 3.2).abs() < 1e-6);
     }
 
     /// Card AIMA: the chase camera looks the section's tilt below the aim

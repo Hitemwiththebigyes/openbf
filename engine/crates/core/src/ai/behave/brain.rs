@@ -1,3 +1,4 @@
+//! GBOARD call targets are consumed only at scheduled thinks.
 //! Foot-bot tick priority chain, valid boarding maintenance (CWAIT), and failed-walk recovery.
 
 use crate::ai::draw::{stance_hold, unit_unit, SALT_DODGE};
@@ -101,6 +102,7 @@ pub fn think(sim: &Sim, me: UnitHandle, st: &mut AiState) -> (PadState, NavTick)
             (_, None, Some(p)) => super::route::retarget_board(sim, me, st, p, &mut nt),
             _ => retarget(sim, me, st, hunt.map(|(_, p)| p), &mut nt),
         }
+        super::ride::deliver_call(sim, me, u, st);
         // Card VAI: a bot on foot in the commander's pool may go for a
         // vehicle (`ride::claim`); an ordered one stays with its order.
         if u.mount.is_none() && u.command.is_none_or(|c| c.in_pool()) {

@@ -1,3 +1,5 @@
+//! WGCAL keeps non-ground entry calls here; ground calls follow wait start in step.
+//! GBOARD stores uncommanded BF1 answerers' next-think vehicle targets.
 //! Entry, exit and follower write-back discard ground-claim maintenance (CWAIT).
 //! Enter, drive, exit (card VSEAT, `analysis/re-vehicles.md` §5 [O],
 //! `analysis/re-hover.md` §5.2 [O]): the use input's pick and seat choice,
@@ -371,7 +373,14 @@ impl Sim {
             }
         }
         for (h, vh) in pilots {
-            self.need_gunner_call(h, vh);
+            // WGCAL: ground pilots call when their pickup wait starts in step,
+            // rather than on entry. Retain other vehicles' entry behavior.
+            if self
+                .vehicle(vh)
+                .is_some_and(|v| !matches!(v.kind, VehicleKind::Hover | VehicleKind::Walker))
+            {
+                self.need_gunner_call(h, vh);
+            }
         }
     }
 
@@ -384,11 +393,13 @@ impl Sim {
     /// [`crate::squad::ORDER_REACH`] (3-D, no cap, no sight) answers "yes"
     /// ([`Call::Yes`]) - the order is delivered whether or not the issuer's
     /// line passes its sound gates (`FUN_00260f38` 181702-181793).
-    /// PROVISIONAL [H]: the PS2 says it on entering its wait-in-seat agent
-    /// (`UnitWaitSecondaryAgent` state 2); the port's moment is the seat
-    /// taken. The answers come on the issue tick, not at each receiver's
-    /// next think. NOT built: the receivers boarding the vehicle (goal 5,
-    /// RE 4.4) - they answer and carry on.
+    /// Ground pilots issue once when the pickup wait starts (WGCAL,
+    /// `re-driver-wait.md` §§1/2/4/8), after all AI write-backs. Other vehicle
+    /// kinds retain entry timing. The free armed-gun gate remains the port's
+    /// existing boundary; full/unarmed console policy belongs to GUNWT.
+    /// The answers come on the issue tick, not at each receiver's
+    /// next think. GBOARD gives uncommanded ground-vehicle receivers goal 5
+    /// at their next think (RE 4.4); ordered-goal stacking remains GUNWT.
     ///
     /// [`NEED_GUNNER_CHANCE`]: super::state::NEED_GUNNER_CHANCE
     /// [`Call::Yes`]: super::state::Call::Yes
@@ -399,6 +410,7 @@ impl Sim {
             return;
         }
         let Some(v) = self.vehicle(vh) else { return };
+        let ground = matches!(v.kind, VehicleKind::Hover | VehicleKind::Walker);
         let guns = self
             .seat_setup
             .get(v.class as usize)
@@ -436,6 +448,12 @@ impl Sim {
             .map(|j| self.handle(j))
             .collect();
         for unit in yes {
+            let u = &mut self.units[unit.index as usize];
+            // Keep the issue-tick acknowledgement list intact. Ordered
+            // recipients retain their player order (GUNWT owns stacking).
+            if ground && u.command.is_none_or(|c| c.in_pool()) {
+                u.ai.pending_board = Some((unit, vh));
+            }
             self.events.push(Event::Call {
                 unit,
                 call: Call::Yes,

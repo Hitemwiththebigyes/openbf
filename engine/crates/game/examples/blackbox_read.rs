@@ -551,7 +551,7 @@ fn commit_time(commit: &str) -> Option<u64> {
 }
 
 fn buttons(b: u32) -> String {
-    const NAMES: [&str; 23] = [
+    const NAMES: [&str; 24] = [
         "fire",
         "jump",
         "roll",
@@ -574,6 +574,7 @@ fn buttons(b: u32) -> String {
         "post-right",
         "accept",
         "back",
+        "respawn",
         "mouse-aim",
     ];
     let v: Vec<&str> = NAMES

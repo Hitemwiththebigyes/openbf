@@ -11,7 +11,8 @@ declares:
 needs:
 effort:
 branch: tposa
-resume: landed 85834ec8 2026-10-16
+resume: landed 85834ec8 2026-10-16; independent audit INCOMPLETE / UNAUDITED 2026-10-25; restore held primary inputs and verified history before retry; report reports/20261025_2207_audit_TPOSA.md
+domain: ai
 created: 2026-10-16
 alpha: yes
 owner: TPOS 8632
@@ -26,3 +27,4 @@ Card TPOS (value 5) is bigger than one session: its Tactician (slice 2, branch t
 
 ## Notes
 - TPOS keeps the rest (the Tactician, reservations, the cycle, Capture / Guard / Overwatch, the deletions) and rebases onto this.
+

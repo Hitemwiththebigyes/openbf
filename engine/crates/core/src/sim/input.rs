@@ -66,8 +66,9 @@ pub mod buttons {
     pub const SPAWN_BACK: u32 = 1 << 21;
     /// One-tick command from the confirmed pause-menu Respawn action (BUGX).
     /// Recorded/replayed with the other pad bits; no physical button maps to it.
-    pub const RESPAWN: u32 = 1 << 23;
-    pub const MOUSE_AIM: u32 = 1 << 22;
+    pub const RESPAWN: u32 = 1 << 22;
+    /// The pad is aimed by the mouse (`mx`/`my`): aim assist leaves it alone.
+    pub const MOUSE_AIM: u32 = 1 << 23;
 }
 
 pub const LOOK_UNIT: f32 = 1.0 / 65536.0;

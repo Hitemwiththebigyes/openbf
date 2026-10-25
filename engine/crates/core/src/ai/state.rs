@@ -2,7 +2,8 @@
 //! [`AiState`] with its [`Route`] leg, the steering's last [`SteerPick`] and
 //! the leg's [`RouteSource`] — plus [`NavTick`], what one think had to fall
 //! back on (a diagnostic output, not hashed). Ride state includes the initial
-//! pickup window and its vehicle identity (WAIT4), and claim freshness (CWAIT). The AI-hash test lives here.
+//! pickup window, release time and vehicle identity (WAIT4/WPOKE), claim
+//! freshness (CWAIT), and next-think call targets (GBOARD). The AI-hash test lives here.
 
 use super::command::CmdState;
 use super::{DETOUR_MAX, ERR_NO_TARGET};
@@ -308,6 +309,9 @@ pub struct AiState {
     /// when `Some`, after `cmd`, so a vehicle-free sim's AI hash is the
     /// pre-VAI one.
     pub ride: Option<RideState>,
+    /// GBOARD: one BF1 call target, (receiver identity, vehicle identity).
+    /// Taken only on a scheduled think; absent state adds no hash bytes.
+    pub pending_board: Option<(crate::unit::UnitHandle, crate::vehicle::VehicleHandle)>,
     /// Card BNDS: this bot is off the playable level ([`LostState`]); `None`
     /// on it. Hashed only when `Some`, after `ride`.
     pub lost: Option<LostState>,
@@ -715,6 +719,8 @@ pub struct PickupWait {
     pub vehicle: crate::vehicle::VehicleHandle,
     pub seated: u64,
     pub started: Option<u64>,
+    /// BF1 release order time: effective expiry is two seconds before this.
+    pub released: Option<u64>,
     pub complete: bool,
 }
 
@@ -1318,6 +1324,7 @@ impl RideState {
             vehicle,
             seated: tick,
             started: None,
+            released: None,
             complete: false,
         });
     }
@@ -1333,6 +1340,10 @@ impl RideState {
             eat(&w.vehicle.index.to_le_bytes());
             eat(&w.vehicle.gen.to_le_bytes());
             eat(&w.seated.to_le_bytes());
+            if let Some(t) = w.released {
+                eat(&[14]);
+                eat(&t.to_le_bytes());
+            }
             match w.started {
                 Some(t) => {
                     eat(&[1]);
@@ -1414,6 +1425,7 @@ impl Default for AiState {
             squad: None,
             cmd: None,
             ride: None,
+            pending_board: None,
             lost: None,
             hold: None,
             fight: FightState::default(),
@@ -1528,6 +1540,12 @@ impl AiState {
         }
         if let Some(r) = self.ride {
             r.hash_into(eat);
+        }
+        if let Some((owner, target)) = self.pending_board {
+            eat(b"GBOARD");
+            for v in [owner.index, owner.gen, target.index, target.gen] {
+                eat(&v.to_le_bytes());
+            }
         }
         if let Some(l) = self.lost {
             l.hash_into(eat);
@@ -1883,6 +1901,7 @@ mod tests {
             |w| w.vehicle.gen += 1,
             |w| w.seated += 1,
             |w| w.started = Some(12),
+            |w| w.released = Some(12),
             |w| w.complete = true,
         ] {
             let mut other = r;
@@ -1893,6 +1912,10 @@ mod tests {
         a.pickup.as_mut().unwrap().started = Some(12);
         let mut b = a;
         b.pickup.as_mut().unwrap().started = Some(13);
+        assert_ne!(bytes(&a), bytes(&b));
+        a.pickup.as_mut().unwrap().released = Some(12);
+        b = a;
+        b.pickup.as_mut().unwrap().released = Some(13);
         assert_ne!(bytes(&a), bytes(&b));
         b.pickup = None;
         assert_ne!(base, bytes(&b));

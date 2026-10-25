@@ -1,3 +1,5 @@
+//! GBOARD pending call targets end on seating, receiver death and target removal.
+//! WPOKE mounted pending orders end on unseating, including same-tick reboarding.
 //! Seating, unseating, death/despawn and target removal end claim maintenance (CWAIT).
 //! The sim's vehicle slots (card VENT, `crate::vehicle`): spawn with slot
 //! reuse, the handle queries, and the two occupancy writers that keep
@@ -314,6 +316,7 @@ impl Sim {
         let pilot = v.seats[usize::from(seat)].kind == SeatKind::Pilot;
         let ground = matches!(v.kind, VehicleKind::Hover | VehicleKind::Walker);
         self.units[u.index as usize].mount = Some(Mount { vehicle: vh, seat });
+        self.units[u.index as usize].ai.pending_board = None;
         if let Some(r) = self.units[u.index as usize].ai.ride.as_mut() {
             r.board = None;
             r.maintenance = None;
@@ -354,6 +357,7 @@ impl Sim {
         // Death/despawn also comes here for a unit on foot. Preserve the
         // existing claim's release policy, but end its heartbeat immediately.
         if !unit.alive {
+            unit.ai.pending_board = None;
             if let Some(r) = unit.ai.ride.as_mut() {
                 r.maintenance = None;
             }
@@ -361,6 +365,9 @@ impl Sim {
         let Some(m) = unit.mount.take() else {
             return;
         };
+        if unit.order.is_some_and(|p| p.pickup.is_some()) {
+            unit.order = None;
+        }
         unit.ai.charge_until = 0;
         if let Some(r) = unit.ai.ride.as_mut() {
             r.pickup = None;
@@ -557,6 +564,9 @@ impl Sim {
         }
         self.vehicles[h.index as usize].alive = false;
         for u in &mut self.units {
+            if u.ai.pending_board.is_some_and(|(_, vh)| vh == h) {
+                u.ai.pending_board = None;
+            }
             if let Some(r) = u.ai.ride.as_mut().filter(|r| r.board == Some(h)) {
                 r.maintenance = None;
             }

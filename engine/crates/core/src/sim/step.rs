@@ -1,7 +1,8 @@
 //! [`Sim::step`] itself — one fixed tick, in the order `sim.rs`'s module
 //! header lists — and `separate_units`, its step 3b. The helpers the other
 //! stages call live with the feature they serve (`spawn`, `input`, `combat`,
-//! `round`). The movement (unit separation, the A.4 step, the wall pass),
+//! `round`). WGCAL publishes initial BF1 ground wait-start calls after all
+//! AI write-backs, before use/entry and movement. The movement (unit separation, the A.4 step, the wall pass),
 //! stamina-cheat and AI-fire (D9's spread multiplier, the fairness rule)
 //! tests live here, and a human's shot (card AIMA, `re-aim-assist.md` §10.2:
 //! from the fire point at what the aim ray hits, `Sim::aim_hit`) with its
@@ -241,7 +242,25 @@ impl Sim {
         let mut recycled: Vec<(usize, DeathCause)> = Vec::new();
         // Card TPOS: positions taken this tick, granted in unit-index order.
         let mut granted: Vec<glam::Vec3> = Vec::new();
+        // WGCAL: derive the one-shot transition from the existing wait clock.
+        // Publish only after every scratch AiState has been written back, so
+        // neither index ordering can erase a receiver's pending target.
+        let mut wait_calls = Vec::new();
         for (i, mut st, p, nt) in ai_updates {
+            if self.ground_rules == GroundRules::Bf1 {
+                if let Some(w) = st.ride.and_then(|r| r.pickup) {
+                    let previous = self.units[i].ai.ride.and_then(|r| r.pickup);
+                    if w.started == Some(self.tick)
+                        && previous.is_some_and(|old| {
+                            old.vehicle == w.vehicle
+                                && old.seated == w.seated
+                                && old.started.is_none()
+                        })
+                    {
+                        wait_calls.push((self.handle(i), w.vehicle));
+                    }
+                }
+            }
             ai::tactic::grant(&self.positions, self.tick, &mut st, &mut granted);
             self.nav_stats.cover_ticks += u64::from(st.role.post.is_some());
             self.nav_stats.flank_ticks += u64::from(st.flank.route.is_some());
@@ -342,6 +361,21 @@ impl Sim {
         for (i, cause) in recycled {
             let h = self.handle(i);
             self.kill_environment(h, cause);
+        }
+        for (pilot, vehicle) in wait_calls {
+            // Recycled units and stale seating tenures cannot issue a call.
+            if self.unit(pilot).is_some_and(|u| {
+                u.alive
+                    && u.controller == Controller::Ai
+                    && u.mount.is_some_and(|m| m.vehicle == vehicle && m.seat == 0)
+            }) && self.vehicle(vehicle).is_some_and(|v| {
+                matches!(
+                    v.kind,
+                    crate::vehicle::VehicleKind::Hover | crate::vehicle::VehicleKind::Walker
+                ) && v.seats.first().is_some_and(|s| s.occupant == Some(pilot))
+            }) {
+                self.need_gunner_call(pilot, vehicle);
+            }
         }
 
         // 1c. The use input (VSEAT, `seats`): an ACTION edge enters what the
