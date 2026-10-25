@@ -99,6 +99,8 @@ impl App {
                 fov_scale: k,
                 fov_deg: (game::walk::ps2_fov_y("bf2") * k).to_degrees(),
                 music_volume: settings.music_volume,
+                mouse_sensitivity: settings.mouse_sensitivity,
+                invert_y: settings.invert_y,
                 cursor,
                 in_shell: Some(
                     front.menus.options.rows[front.menus.options.focus]
@@ -224,7 +226,15 @@ impl App {
                 // Restarted at the new level by the next frame (none at 0).
                 front.music = None;
             }
+            MenuAction::SetMouseSensitivity(v) => {
+                s.mouse_sensitivity = v.clamp(
+                    game::kbm::SENSITIVITY_RANGE.0,
+                    game::kbm::SENSITIVITY_RANGE.1,
+                )
+            }
+            MenuAction::ToggleInvertY => s.invert_y = !s.invert_y,
         }
+        self.kbm.follow(&self.profile.settings);
         if let Err(e) = self.profile.save() {
             eprintln!("profile autosave failed: {e:#}");
         }

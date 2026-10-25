@@ -33,7 +33,7 @@ Everyone builds their own from their own discs.
 Requirements on Linux:
 - Rust (https://rustup.rs), Python 3, bash, ffmpeg
 - ALSA and udev libraries (on Fedora: `alsa-lib-devel systemd-devel`; on Debian/Ubuntu: `libasound2-dev libudev-dev`)
-- A Vulkan-capable GPU and a game controller; there is no keyboard and mouse play
+- A Vulkan-capable GPU, and a game controller or a keyboard and mouse
 
 ### Windows
 
@@ -42,7 +42,7 @@ The same command builds `dist\openbf.exe`. You need:
 - Python 3 (https://python.org, or `winget install Python.Python.3.12`)
 - Git for Windows (https://git-scm.com): the bake runs in its bash; `pack.py` finds it by itself
 - ffmpeg on your `PATH` (`winget install Gyan.FFmpeg`, then open a new terminal)
-- A DirectX 12 or Vulkan GPU and a game controller
+- A DirectX 12 or Vulkan GPU, and a game controller or a keyboard and mouse
 
 In a new PowerShell or Command Prompt:
 ```
@@ -55,6 +55,33 @@ dist\openbf.exe
 Your profile and snapshots are saved in `openbf_data\` beside `openbf.exe`.
 
 Disc images: `--iso1 <path>` and `--iso2 <path>` point the script at images stored somewhere else.
+
+## Controls
+
+The game is built around a controller and plays like the PS2 versions, with their aim assist.
+Keyboard and mouse also work, as a deliberate addition for PC: click into the battle to capture
+the pointer; Esc pauses and frees it again. Mouse aim gets no aim assist. Sensitivity and invert-Y
+are in Options and in the pause menu.
+
+| Action | Keyboard and mouse |
+|---|---|
+| Move | W A S D |
+| Look and aim | mouse |
+| Fire / secondary fire | left / right button |
+| Zoom | middle button or Z |
+| Jump | Space |
+| Crouch / prone | C or Left Ctrl |
+| Sprint | Left Shift |
+| Reload | R |
+| Use (enter or leave a vehicle) | E |
+| Next / previous weapon | Q or the wheel |
+| Switch secondary weapon | G |
+| Squad orders | F1 follow, F2 hold, F3 at ease, F4 move out (or the arrow keys, as the D-pad) |
+| Spawn screen | W A S D or arrows to pick a post, Q / Tab or the wheel for the class, Space or Enter to spawn, Backspace back |
+| Menus | arrows, Enter, Esc or Backspace |
+
+In a hover tank, speeder or flyer the mouse turns the vehicle, as the steering stick does;
+in a walker it aims the walker. In a gunner's seat or a turret it turns the gun.
 Tested and working on Linux and Windows, with the NTSC-U PS2 releases (SLUS-20898 and SLUS-21240).
 
 ## How it was made

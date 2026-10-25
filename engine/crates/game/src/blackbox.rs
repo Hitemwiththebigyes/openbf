@@ -62,8 +62,9 @@ pub use rotating::PREVIOUS;
 /// commit, each trail's last tick. 3 (card SNDB): the sound rows. 4 (card
 /// OBST2): a unit's behaviour and its going-round commitment. 5 (card
 /// CPBAR): a post's units inside per team and its two times. 6 (card HITCH):
-/// the frame record (`hitches`). An older file still reads.
-pub const SCHEMA: u32 = 6;
+/// the frame record (`hitches`). 7: the human's mouse look (`mx`, `my`)
+/// and the mouse-aim bit. An older file still reads.
+pub const SCHEMA: u32 = 7;
 /// Ticks between two unit frames (0.5 s).
 pub const UNIT_PERIOD: u64 = core::TICK_HZ as u64 / 2;
 /// Ticks between two world frames (2 s).
@@ -202,6 +203,10 @@ pub struct HumanRow {
     pub rx: i16,
     pub ry: i16,
     pub buttons: u32,
+    #[serde(default)]
+    pub mx: i32,
+    #[serde(default)]
+    pub my: i32,
     pub hp: f32,
     pub stance: u8,
     pub grounded: bool,
@@ -853,6 +858,8 @@ impl Ring {
             rx: pad.rx,
             ry: pad.ry,
             buttons: pad.buttons,
+            mx: pad.mx,
+            my: pad.my,
             hp: r2(u.health.cur),
             stance: crate::unit_probe::stance_code(u.soldier.stance),
             grounded: u.soldier.grounded,
@@ -1132,7 +1139,7 @@ impl Ring {
         for (k, v) in [
             ("ticks", "30 per second of game time; header.time = tick / 30"),
             ("frames", "every alive unit every 0.5 s, oldest first; keys below"),
-            ("human", "the player: every 0.5 s, then every tick for the last 5 s; lx/ly/rx/ry sticks -32767..32767; buttons bits 1 fire 2 jump 4 roll/stance 8 sprint 16 zoom 32 reload 64 action 128 switch 256 secondary fire 512-4096 squad follow / hold / at ease / move out 8192 / 16384 spawn class next / prev 32768 switch secondary"),
+            ("human", "the player: every 0.5 s, then every tick for the last 5 s; lx/ly/rx/ry sticks -32767..32767; buttons bits 1 fire 2 jump 4 roll/stance 8 sprint 16 zoom 32 reload 64 action 128 switch 256 secondary fire 512-4096 squad follow / hold / at ease / move out 8192 / 16384 spawn class next / prev 32768 switch secondary 65536-524288 spawn post up / down / left / right 1048576 spawn accept 2097152 spawn back 4194304 mouse aim (aim assist off); mx/my the mouse look the tick took, 1/65536 rad (mx + turns right, my + looks up), 0 = none or a controller"),
             ("world", "every 2 s: tickets, bleed/s, alive, posts (owner -1 neutral, cap charge and cap_team its team, neutral the neutralise charge, inside the counting units per team, times CaptureTime / NeutralizeTime), vehicles (kind 0 hover 1 walker 2 flyer 3 turret; riders by seat), doors (0 shut..1 open)"),
             ("events", "kill: a killer b victim c the killer's weapon in hand (a seat gun's or a thrown grenade's kill reads as it); death_region/fall/rider_death/blast/kill_floor/under_map/lost/recycle: a unit; spawn/despawn: a unit; captured/neutralized/saved: a post b team; vehicle_lost: a vehicle b killer c class; order: a slot b kind c bots; voice: text; stuck: a unit b body (a no-progress run reached 3 s)"),
             ("trails", "each unit's last 10 s of positions at 4 Hz, oldest first, ending at its own tick: header.trail_tick for a unit alive then, earlier for one that died (its slot not yet respawned); gen is that life's generation"),

@@ -53,6 +53,23 @@ windowed renderer cannot read its frame back, so the picture is the maintainer's
   (its row type, `game/src/unit_probe.rs`, stays — the sweep's `UNIT_SAMPLES` shares it). On with dev mode, which is on by
   default (`OPENBF_DEV=0` turns both off); `OPENBF_BLACKBOX=0` turns only the black box off.
 
+## Keyboard + mouse (the maintainer, 2026-10-25)
+Keyboard and mouse play is a deliberate deviation from the PS2's controller-only input. Controller play, bots and
+controller-only replays must stay bit-identical. The rules:
+- The mouse reaches the sim as `PadState::mx`/`my`: angles in `LOOK_UNIT` (1/65536 rad), applied once, on the
+  first tick of a frame. They are not rates: no `max_turn_speed` cap and no stance turn factor (except Tumble,
+  GetUp and Dead), and zoom divides them by its magnification. The pitch limits, the prone clamp and the seat aimer
+  limits still hold. Both fields default to 0 and are left out of logs when 0, so old logs and snapshots load.
+- `buttons::MOUSE_AIM` marks a pad aimed by the mouse; aim assist never acts on it. Moving the right stick clears it.
+- Hovers and flyers (flyers ride the hover model): the mouse yaw becomes the turn stick, full deflection at
+  `MOUSE_STEER` rad per tick. Walkers: the mouse aims directly, held inside the walker's yaw limits beside its legs
+  (`walker_aim`); the drawn aim keeps its heading while the legs turn the hull. Seats and building turrets: the look
+  turns by the angle.
+- Between ticks the view draws the mouse look not yet consumed (`Sim::look_preview`, `render_blend::blend_in_looking`),
+  so the drawn view is where the next tick's aim lands.
+- Bindings are one table (`game/src/kbm.rs`, `Bindings::pc_default`). Pointer lock follows the battle: it is taken on a
+  click, and freed on pause, in the shell and spawn screens, on focus loss and on exit.
+
 ## Bots (the maintainer's top concern, 2026-10-02)
 "If the bots suck, the whole game is worthless." The plan is cards JITR, FFLN, BOTM, SAIR (RE the PS2 foot soldier's own
 AI), BOTD (the design note `analysis/bot-design.md`; the maintainer’s original read hold was released as recorded in `engine/artifacts/loop/cards/FGHT.md`) and OBST. The PS2 behaviour is

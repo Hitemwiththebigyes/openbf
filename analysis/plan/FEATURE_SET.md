@@ -299,6 +299,9 @@ INVENTORY.md for pack-by-pack verdicts/credits). PS2 bake stays gameplay truth
 ### Platform & meta
 - Input: **controller only** (KB/M dropped entirely); PS2 default mapping, full remap;
   on-screen keyboard for text entry.
+  - REVERSED 2026-10-25 (the maintainer): keyboard + mouse is supported as a deliberate deviation. Controller play
+    is unchanged. The mouse aims by angle (`PadState::mx`/`my`, `core/src/sim/look.rs`), under pointer lock,
+    without aim assist; the bindings are one table in `game/src/kbm.rs`. Sensitivity and invert-Y are profile settings.
 - Splitscreen co-op: **KEEP** (roadmap: M5, before PACK; local — one sim, N cameras, N input devices, no netcode; NOT
   part of the multiplayer hold, the loop builds it without asking — the maintainer, 2026-09-30 evening; card SSCR).
 - LAN: client-server UDP, **cap 16**, bots server-side. Internet matchmaking: DROP. Held until the maintainer says (M7).
@@ -307,7 +310,7 @@ INVENTORY.md for pack-by-pack verdicts/credits). PS2 bake stays gameplay truth
 ### Dropped outright (never RE these binary regions)
 GameSpy + DNAS, EENet/PPP stack, NTGUI app, memory-card UI, USB headset/GSM voice, PS2
 GS/VIF/VU renderer internals, IOP sound drivers, PSS movie codec, PAL/NTSC logic, SDK
-plumbing. KB/M input paths (PC-ism, dropped by decision #28). BF1 Historical Campaign
+plumbing. KB/M input paths (PC-ism, dropped by decision #28; our own KB/M was added 2026-10-25, see Platform & meta). BF1 Historical Campaign
 scripting. BF2's on-foot X-lock aim mechanic (the vehicle/space lock-on is NOT dropped —
 §Vehicles & space).
 

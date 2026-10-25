@@ -183,6 +183,8 @@ const IDLE: PadState = PadState {
     rx: 0,
     ry: 0,
     buttons: 0,
+    mx: 0,
+    my: 0,
 };
 const WALK: PadState = PadState {
     lx: 0,
@@ -190,6 +192,8 @@ const WALK: PadState = PadState {
     rx: 0,
     ry: 0,
     buttons: 0,
+    mx: 0,
+    my: 0,
 };
 
 fn taken_within(s: &Scene, at: u64) -> (usize, f32) {

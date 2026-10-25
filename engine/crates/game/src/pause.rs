@@ -63,6 +63,6 @@ pub fn apply_menu_action(
         }
         // Quit: --map launches exit, shell launches return to the shell —
         // decided by the caller (needs App state).
-        MenuAction::Quit => {}
+        MenuAction::Quit | MenuAction::SetMouseSensitivity(_) | MenuAction::ToggleInvertY => {}
     }
 }

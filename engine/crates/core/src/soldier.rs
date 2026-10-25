@@ -614,6 +614,45 @@ impl Soldier {
     /// caller's next call, [`Soldier::resolve_ground`], with the floor under
     /// the feet this leaves (after the wall pass).
     pub fn step(&mut self, dt: f32, pad: &PadState, c: &SoldierConstants, rules: GroundRules) {
+        self.step_looking(dt, pad, c, rules, 1.0);
+    }
+
+    pub fn look_frozen(&self) -> bool {
+        self.lock_hard && self.lock_timer > 0.0
+    }
+
+    pub fn pitch_limits(&self, c: &SoldierConstants) -> (f32, f32) {
+        if self.stance == Stance::Prone {
+            (-0.4, 0.4)
+        } else {
+            c.pitch_limits
+        }
+    }
+
+    pub fn mouse_scale(&self) -> f32 {
+        match self.stance {
+            Stance::Tumble | Stance::GetUp | Stance::Dead => self.stance.control()[2],
+            _ => 1.0,
+        }
+    }
+
+    pub fn mouse_turned(&self, look: (f32, f32), scale: f32, c: &SoldierConstants) -> (f32, f32) {
+        let k = scale * self.mouse_scale();
+        let (lo, hi) = self.pitch_limits(c);
+        (
+            self.yaw - look.0 * k,
+            (self.pitch + look.1 * k).clamp(lo, hi),
+        )
+    }
+
+    pub fn step_looking(
+        &mut self,
+        dt: f32,
+        pad: &PadState,
+        c: &SoldierConstants,
+        rules: GroundRules,
+        look_scale: f32,
+    ) {
         let fwd_in = PadState::axis(pad.ly);
         let strafe_in = PadState::axis(pad.lx);
         let turn_in = PadState::axis(pad.rx);
@@ -630,7 +669,7 @@ impl Soldier {
             self.fire_lock = false;
         }
         // BF1 hard lock (FUN_00205cc8 t<10 band): movement + turn frozen.
-        let frozen = self.lock_hard && self.lock_timer > 0.0;
+        let frozen = self.look_frozen();
         let (fwd_in, strafe_in, turn_in, pitch_in) = if frozen {
             (0.0, 0.0, 0.0, 0.0)
         } else {
@@ -640,12 +679,11 @@ impl Soldier {
         // ── Aim (per-stance turn factor; prone pitch clamp — BF1) ─────────
         let ctl = self.stance.control();
         self.yaw -= turn_in * c.max_turn_speed * ctl[2] * dt;
-        let (lo, hi) = if self.stance == Stance::Prone {
-            (-0.4, 0.4)
-        } else {
-            c.pitch_limits
-        };
+        let (lo, hi) = self.pitch_limits(c);
         self.pitch = (self.pitch + pitch_in * c.max_pitch_speed * ctl[2] * dt).clamp(lo, hi);
+        if pad.has_look() && !frozen {
+            (self.yaw, self.pitch) = self.mouse_turned(pad.look(), look_scale, c);
+        }
 
         // ── Stance transitions ────────────────────────────────────────────
         let can_command = self.lock_timer <= 0.0;

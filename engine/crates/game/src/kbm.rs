@@ -1,0 +1,366 @@
+use core::sim::{buttons, PadState, LOOK_UNIT};
+use winit::event::{KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
+use winit::keyboard::{KeyCode, PhysicalKey};
+use winit::window::{CursorGrabMode, Window};
+
+pub const RAD_PER_COUNT: f64 = 0.0006;
+pub const SENSITIVITY_RANGE: (f32, f32) = ui::menu::MOUSE_SENSITIVITY_RANGE;
+pub const KEY_ESCAPE: u32 = 128;
+pub const KEY_ENTER: u32 = 256;
+
+pub fn menu_key(code: KeyCode) -> u32 {
+    match code {
+        KeyCode::ArrowUp => 1,
+        KeyCode::ArrowDown => 2,
+        KeyCode::ArrowLeft => 4,
+        KeyCode::ArrowRight => 8,
+        KeyCode::Enter | KeyCode::NumpadEnter => 16 | KEY_ENTER,
+        KeyCode::Backspace => 32,
+        KeyCode::Escape => KEY_ESCAPE,
+        _ => 0,
+    }
+}
+
+pub fn menu_bits(keys: u32, shell: bool) -> u32 {
+    let mut bits = keys & 63;
+    if keys & KEY_ESCAPE != 0 {
+        bits |= if shell { 32 } else { 64 };
+    }
+    if shell && keys & KEY_ENTER != 0 {
+        bits |= 64;
+    }
+    bits
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Trigger {
+    Key(KeyCode),
+    Mouse(MouseButton),
+    WheelUp,
+    WheelDown,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Bind {
+    pub bits: u32,
+    pub walk: (i8, i8),
+}
+
+impl Bind {
+    const fn bits(bits: u32) -> Bind {
+        Bind { bits, walk: (0, 0) }
+    }
+
+    const fn walk(x: i8, y: i8, bits: u32) -> Bind {
+        Bind { bits, walk: (x, y) }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Bindings {
+    pub table: Vec<(Trigger, Bind)>,
+}
+
+impl Bindings {
+    pub fn pc_default() -> Bindings {
+        use buttons as b;
+        use KeyCode as K;
+        use Trigger::{Key, Mouse};
+        Bindings {
+            table: vec![
+                (Key(K::KeyW), Bind::walk(0, 1, b::SPAWN_POST_UP)),
+                (Key(K::KeyS), Bind::walk(0, -1, b::SPAWN_POST_DOWN)),
+                (Key(K::KeyA), Bind::walk(-1, 0, b::SPAWN_POST_LEFT)),
+                (Key(K::KeyD), Bind::walk(1, 0, b::SPAWN_POST_RIGHT)),
+                (Mouse(MouseButton::Left), Bind::bits(b::FIRE)),
+                (Mouse(MouseButton::Right), Bind::bits(b::SECONDARY_FIRE)),
+                (Mouse(MouseButton::Middle), Bind::bits(b::ZOOM)),
+                (Key(K::KeyZ), Bind::bits(b::ZOOM)),
+                (Key(K::Space), Bind::bits(b::JUMP | b::SPAWN_ACCEPT)),
+                (Key(K::Enter), Bind::bits(b::SPAWN_ACCEPT)),
+                (Key(K::NumpadEnter), Bind::bits(b::SPAWN_ACCEPT)),
+                (Key(K::Backspace), Bind::bits(b::SPAWN_BACK)),
+                (Key(K::KeyC), Bind::bits(b::ROLL_STANCE)),
+                (Key(K::ControlLeft), Bind::bits(b::ROLL_STANCE)),
+                (Key(K::ShiftLeft), Bind::bits(b::SPRINT)),
+                (Key(K::KeyR), Bind::bits(b::RELOAD)),
+                (Key(K::KeyE), Bind::bits(b::ACTION)),
+                (
+                    Key(K::KeyQ),
+                    Bind::bits(b::SWITCH_WEAPON | b::SPAWN_CLASS_NEXT),
+                ),
+                (
+                    Trigger::WheelDown,
+                    Bind::bits(b::SWITCH_WEAPON | b::SPAWN_CLASS_NEXT),
+                ),
+                (
+                    Trigger::WheelUp,
+                    Bind::bits(b::SWITCH_WEAPON | b::SPAWN_CLASS_PREV),
+                ),
+                (Key(K::Tab), Bind::bits(b::SPAWN_CLASS_PREV)),
+                (Key(K::KeyG), Bind::bits(b::SWITCH_SECONDARY)),
+                (
+                    Key(K::ArrowUp),
+                    Bind::bits(b::SQUAD_MOVE_OUT | b::SPAWN_POST_UP),
+                ),
+                (
+                    Key(K::ArrowDown),
+                    Bind::bits(b::SQUAD_HOLD | b::SPAWN_POST_DOWN),
+                ),
+                (
+                    Key(K::ArrowLeft),
+                    Bind::bits(b::SQUAD_AT_EASE | b::SPAWN_POST_LEFT),
+                ),
+                (
+                    Key(K::ArrowRight),
+                    Bind::bits(b::SQUAD_FOLLOW | b::SPAWN_POST_RIGHT),
+                ),
+                (Key(K::F1), Bind::bits(b::SQUAD_FOLLOW)),
+                (Key(K::F2), Bind::bits(b::SQUAD_HOLD)),
+                (Key(K::F3), Bind::bits(b::SQUAD_AT_EASE)),
+                (Key(K::F4), Bind::bits(b::SQUAD_MOVE_OUT)),
+            ],
+        }
+    }
+
+    fn of(&self, t: Trigger) -> impl Iterator<Item = Bind> + '_ {
+        self.table
+            .iter()
+            .filter(move |(k, _)| *k == t)
+            .map(|(_, b)| *b)
+    }
+}
+
+impl Default for Bindings {
+    fn default() -> Self {
+        Bindings::pc_default()
+    }
+}
+
+#[derive(Debug)]
+pub struct Kbm {
+    pub bindings: Bindings,
+    pub sensitivity: f32,
+    pub invert_y: bool,
+    held: Vec<Trigger>,
+    taps: u32,
+    pending: (f64, f64),
+    mouse_aim: bool,
+    want_grab: bool,
+    grabbed: bool,
+}
+
+impl Default for Kbm {
+    fn default() -> Self {
+        Kbm {
+            bindings: Bindings::default(),
+            sensitivity: 1.0,
+            invert_y: false,
+            held: Vec::new(),
+            taps: 0,
+            pending: (0.0, 0.0),
+            mouse_aim: false,
+            want_grab: false,
+            grabbed: false,
+        }
+    }
+}
+
+impl Kbm {
+    pub fn follow(&mut self, settings: &crate::profile::Settings) {
+        self.sensitivity = settings.mouse_sensitivity;
+        self.invert_y = settings.invert_y;
+    }
+
+    pub fn press(&mut self, t: Trigger, down: bool) {
+        let at = self.held.iter().position(|h| *h == t);
+        match (down, at) {
+            (true, None) => {
+                self.taps |= self.bindings.of(t).fold(0, |a, b| a | b.bits);
+                self.held.push(t);
+            }
+            (false, Some(i)) => {
+                self.held.swap_remove(i);
+            }
+            _ => {}
+        }
+    }
+
+    pub fn tap(&mut self, t: Trigger) {
+        self.press(t, true);
+        self.press(t, false);
+    }
+
+    pub fn wheel(&mut self, dy: f32) {
+        if dy > 0.0 {
+            self.tap(Trigger::WheelUp);
+        } else if dy < 0.0 {
+            self.tap(Trigger::WheelDown);
+        }
+    }
+
+    pub fn window_event(&mut self, event: &WindowEvent, battle: bool) {
+        if !battle {
+            return;
+        }
+        match event {
+            WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        physical_key: PhysicalKey::Code(code),
+                        state,
+                        ..
+                    },
+                ..
+            } => self.press(Trigger::Key(*code), state.is_pressed()),
+            WindowEvent::MouseInput { state, button, .. } => {
+                if self.grabbed || !state.is_pressed() {
+                    self.press(Trigger::Mouse(*button), state.is_pressed());
+                } else {
+                    self.click_in();
+                }
+            }
+            WindowEvent::MouseWheel { delta, .. } => self.wheel(match delta {
+                MouseScrollDelta::LineDelta(_, y) => *y,
+                MouseScrollDelta::PixelDelta(p) => p.y as f32,
+            }),
+            _ => {}
+        }
+    }
+
+    pub fn motion(&mut self, dx: f64, dy: f64) {
+        if !self.grabbed {
+            return;
+        }
+        let k = RAD_PER_COUNT * f64::from(self.sensitivity);
+        let up = if self.invert_y { dy } else { -dy };
+        self.pending.0 += dx * k;
+        self.pending.1 += up * k;
+        if dx != 0.0 || dy != 0.0 {
+            self.mouse_aim = true;
+        }
+    }
+
+    fn walk(&self) -> (f32, f32) {
+        let (mut x, mut y) = (0i32, 0i32);
+        for t in &self.held {
+            for b in self.bindings.of(*t) {
+                x += i32::from(b.walk.0);
+                y += i32::from(b.walk.1);
+            }
+        }
+        let (x, y) = (x.signum() as f32, y.signum() as f32);
+        if x != 0.0 && y != 0.0 {
+            let k = std::f32::consts::FRAC_1_SQRT_2;
+            (x * k, y * k)
+        } else {
+            (x, y)
+        }
+    }
+
+    pub fn look(&self) -> PadState {
+        PadState {
+            mx: PadState::quantize_look(self.pending.0),
+            my: PadState::quantize_look(self.pending.1),
+            buttons: if self.mouse_aim {
+                buttons::MOUSE_AIM
+            } else {
+                0
+            },
+            ..PadState::default()
+        }
+    }
+
+    pub fn pad(&mut self, pad: PadState) -> PadState {
+        if pad.rx != 0 || pad.ry != 0 {
+            self.mouse_aim = false;
+        }
+        let held = self
+            .held
+            .iter()
+            .flat_map(|t| self.bindings.of(*t))
+            .fold(0, |a, b| a | b.bits);
+        let (kx, ky) = self.walk();
+        let axis = |key: f32, stick: i16| {
+            if key != 0.0 && key.abs() > PadState::axis(stick).abs() {
+                PadState::quantize(key)
+            } else {
+                stick
+            }
+        };
+        let look = self.look();
+        PadState {
+            lx: axis(kx, pad.lx),
+            ly: axis(ky, pad.ly),
+            buttons: pad.buttons | held | self.taps | look.buttons,
+            mx: look.mx,
+            my: look.my,
+            ..pad
+        }
+    }
+
+    pub fn consumed(&mut self, pad: &PadState, ticks: u32) {
+        if ticks == 0 {
+            return;
+        }
+        self.pending.0 -= f64::from(pad.mx) * f64::from(LOOK_UNIT);
+        self.pending.1 -= f64::from(pad.my) * f64::from(LOOK_UNIT);
+        self.taps = 0;
+    }
+
+    pub fn drop_taps(&mut self) {
+        self.taps = 0;
+    }
+
+    pub fn release_keys(&mut self) {
+        self.held.clear();
+        self.taps = 0;
+    }
+
+    pub fn grabbed(&self) -> bool {
+        self.grabbed
+    }
+
+    pub fn click_in(&mut self) {
+        self.want_grab = true;
+    }
+
+    pub fn sync_grab(&mut self, window: &Window, allowed: bool) {
+        let want = self.want_grab && allowed;
+        if want == self.grabbed {
+            return;
+        }
+        if want {
+            let size = window.inner_size();
+            let _ = window.set_cursor_position(winit::dpi::PhysicalPosition::new(
+                size.width / 2,
+                size.height / 2,
+            ));
+            let locked = window
+                .set_cursor_grab(CursorGrabMode::Locked)
+                .or_else(|_| window.set_cursor_grab(CursorGrabMode::Confined));
+            if let Err(e) = locked {
+                eprintln!("mouse: the pointer cannot be grabbed ({e}); it stays free");
+            }
+            window.set_cursor_visible(false);
+            self.grabbed = true;
+        } else {
+            self.free(window);
+        }
+    }
+
+    fn free(&mut self, window: &Window) {
+        let _ = window.set_cursor_grab(CursorGrabMode::None);
+        window.set_cursor_visible(true);
+        self.pending = (0.0, 0.0);
+        self.grabbed = false;
+    }
+
+    pub fn release(&mut self, window: &Window) {
+        self.want_grab = false;
+        self.free(window);
+    }
+}
+
+#[cfg(test)]
+mod tests;

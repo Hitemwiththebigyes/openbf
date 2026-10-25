@@ -383,6 +383,10 @@ impl Unit {
         self.zoom.is_some_and(|z| z.scope)
     }
 
+    pub fn look_scale(&self) -> f32 {
+        self.zoom.map_or(1.0, |z| 1.0 / z.value.max(1.0))
+    }
+
     /// The point the scope looks from and the scoped shot leaves (§10.2
     /// step 7): BF1 the fire point; BF2 the shoulder pivot plus the gun's
     /// reach along the aim, without the fire point's two sideways terms.

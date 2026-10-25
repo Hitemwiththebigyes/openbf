@@ -38,6 +38,7 @@ mod combat;
 mod doors;
 mod guns;
 mod input;
+mod look;
 mod ordnance;
 mod pickups;
 mod round;
@@ -54,7 +55,8 @@ pub use bounds::{
     Level, ReturnPath, BOUND_DROP, KILL_FLOOR_DROP, LEVEL_HUBS, LEVEL_RISE, UNDER_MAP_SPEED,
 };
 pub use guns::SeatLook;
-pub use input::{buttons, AimTarget, InputLog, PadState};
+pub use input::{buttons, AimTarget, InputLog, PadState, LOOK_UNIT};
+pub use look::{LookPreview, MOUSE_STEER};
 pub use pickups::{
     Buffs, DropTable, ItemClass, Pickup, BODY_AHEAD, BODY_RADIUS, DROP_HEIGHT, DROP_SIDE_SPEED,
     ITEM_GRAVITY, ITEM_POOL_DEFAULT, LIFE_END, MAX_DROPS, TAKE_AGE,

@@ -390,6 +390,7 @@ pub fn pad_from_gamepad_with_arms(
             rx: PadState::quantize(dz(pad.value(Axis::RightStickX)) * LOOK_SCALE),
             ry: PadState::quantize(dz(pad.value(Axis::RightStickY)) * LOOK_SCALE),
             buttons: b,
+            ..PadState::default()
         },
         arms,
     )

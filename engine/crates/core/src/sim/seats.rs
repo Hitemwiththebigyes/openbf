@@ -735,6 +735,10 @@ impl Sim {
         let sticks = u.ai.ride.and_then(|r| r.sticks);
         let hover = u.ai.ride.and_then(|r| r.hover);
         let Some(m) = u.mount else { return };
+        let walker = self
+            .vehicle(m.vehicle)
+            .filter(|_| human && pad.has_look())
+            .and_then(|v| self.walker_params.get(v.class as usize)?.clone());
         let Some(v) = self.vehicle_mut(m.vehicle) else {
             return;
         };
@@ -743,6 +747,7 @@ impl Sim {
         }
         if human {
             v.input = inp;
+            let full = super::look::mouse_drive(v, pad, full, walker.as_ref());
             ramp_stick_timer(&mut v.hover, full, crate::TICK_DT);
         } else if ai {
             // Card VAI: the bot's pad through the same shaping, as an AI

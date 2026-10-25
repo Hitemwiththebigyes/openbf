@@ -202,7 +202,7 @@ impl Sim {
     }
 
     /// The gun setup of `u`'s seat, if it has one.
-    fn seat_gun_setup(&self, u: UnitHandle) -> Option<GunSetup> {
+    pub(super) fn seat_gun_setup(&self, u: UnitHandle) -> Option<GunSetup> {
         let m = self.unit(u)?.mount?;
         let v = self.vehicle(m.vehicle)?;
         let setup = self.seat_setup.get(v.class as usize)?.as_ref()?;
@@ -326,6 +326,9 @@ impl Sim {
                 (st.look.0 - rx * a.yaw_rate * dt).clamp(a.yaw[0], a.yaw[1])
             };
             st.look.1 = (st.look.1 + ry * a.pitch_rate * dt).clamp(a.pitch[0], a.pitch[1]);
+        }
+        if p.has_look() && !walker {
+            st.look = super::look::seat_look(&g, st.look, p.look(), st.zoom);
         }
 
         // The camera ray and the aimer (zoomed, from the zoomed eye). A bot

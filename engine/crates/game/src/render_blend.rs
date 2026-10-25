@@ -8,10 +8,11 @@
 //! What is blended (the drawn state the frame's builders read): each unit's
 //! feet, yaw and pitch (the chase camera hangs off them, so the camera blends
 //! too), each vehicle's place and turn, its guns' looks and a walker's aim,
-//! and the camera's zoom ease (`zoom_s`, `zoom_fov_mix`). Not blended: a
-//! walker's posed legs and the door / station animations (they step with
-//! their ticks), the bolts (their own blend, `BoltVis::draws`), effects and
-//! the soldiers' animation clocks (already advanced by the frame's dt).
+//! the camera's zoom ease (`zoom_s`, `zoom_fov_mix`) and its eased section
+//! place (`cam_place`). Not blended: a walker's posed legs and the door /
+//! station animations (they step with their ticks), the bolts (their own
+//! blend, `BoltVis::draws`), effects and the soldiers' animation clocks
+//! (already advanced by the frame's dt).
 //!
 //! A unit or vehicle snaps - drawn where the tick left it, no blend - when
 //! its slot's generation or alive flag changed (a respawn, a death, a new
@@ -25,6 +26,7 @@
 //! value, so the sim hash is the same with or without it.
 
 use crate::walk::WalkSim;
+use core::sim::{LookPreview, PadState};
 use glam::{Quat, Vec3};
 
 /// A unit that moved farther than this in one tick is drawn where it is
@@ -66,6 +68,7 @@ pub struct Pose {
     pub vehicles: Vec<VehiclePose>,
     pub zoom_s: f32,
     pub zoom_fov_mix: f32,
+    pub cam_place: Option<(f32, Vec3)>,
 }
 
 impl Pose {
@@ -100,6 +103,7 @@ impl Pose {
             }));
         self.zoom_s = walk.zoom_s;
         self.zoom_fov_mix = walk.zoom_fov_mix;
+        self.cam_place = walk.cam_place;
     }
 
     /// Write this pose into the walk (slots past either length untouched).
@@ -121,6 +125,7 @@ impl Pose {
         }
         walk.zoom_s = self.zoom_s;
         walk.zoom_fov_mix = self.zoom_fov_mix;
+        walk.cam_place = self.cam_place;
     }
 }
 
@@ -189,6 +194,9 @@ pub fn blend(prev: &Pose, cur: &Pose, t: f32) -> Pose {
     }
     out.zoom_s = mix(prev.zoom_s, cur.zoom_s, t);
     out.zoom_fov_mix = mix(prev.zoom_fov_mix, cur.zoom_fov_mix, t);
+    if let (Some(p), Some(c)) = (prev.cam_place, cur.cam_place) {
+        out.cam_place = Some((mix(p.0, c.0, t), mix3(p.1, c.1, t)));
+    }
     out
 }
 
@@ -262,6 +270,49 @@ impl Blend {
     pub fn applied(&self) -> bool {
         self.saved.is_some()
     }
+
+    pub fn preview(&mut self, walk: &mut WalkSim, look: LookPreview) {
+        if self.saved.is_none() {
+            self.saved = Some(Pose::capture(walk));
+        }
+        match look {
+            LookPreview::Foot { unit, yaw, pitch } => {
+                if let Some(u) = walk.sim.units.get_mut(unit) {
+                    (u.soldier.yaw, u.soldier.pitch) = (yaw, pitch);
+                }
+            }
+            LookPreview::Seat {
+                vehicle,
+                seat,
+                mut look,
+                walker,
+            } => {
+                let tick = self.saved.as_ref().and_then(|p| p.vehicles.get(vehicle));
+                if let (true, Some(t), Some(v)) = (walker, tick, walk.sim.vehicles.get(vehicle)) {
+                    let f = (v.rot.inverse() * t.rot) * Vec3::Z;
+                    look.0 += core::fmath::atan2(f.x, f.z);
+                }
+                if let Some(v) = walk.sim.vehicles.get_mut(vehicle) {
+                    if let Some(Some(g)) = v.guns.get_mut(seat) {
+                        g.look = look;
+                    }
+                    if walker {
+                        (v.walker.aim_yaw, v.walker.aim_pitch) = look;
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub fn blend_in_looking(walk: &mut WalkSim, look: &PadState) {
+    let preview = walk.sim.look_preview(walk.player, look);
+    walk.blend_in();
+    if let Some(p) = preview {
+        let mut blend = std::mem::take(&mut walk.blend);
+        blend.preview(walk, p);
+        walk.blend = blend;
+    }
 }
 
 /// How far the frame is between the last tick and the next (0..1): the
@@ -273,7 +324,6 @@ pub fn fraction(walk: &WalkSim) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use core::sim::PadState;
 
     fn walk() -> WalkSim {
         let mut w = WalkSim::new(1, Vec3::ZERO, None);
@@ -294,6 +344,7 @@ mod tests {
         let mut w = walk();
         me(&mut w).pos = Vec3::new(1.0, 0.0, 2.0);
         me(&mut w).yaw = 3.0;
+        w.cam_place = Some((1.8, Vec3::new(0.0, 0.0, 3.2)));
         let mut b = Blend {
             on: true,
             ..Default::default()
@@ -301,8 +352,10 @@ mod tests {
         b.before_tick(&w);
         me(&mut w).pos = Vec3::new(2.0, 0.5, 4.0);
         me(&mut w).yaw = -3.0;
+        w.cam_place = Some((1.8, Vec3::new(0.0, 0.0, 4.0)));
         assert!(b.apply(&mut w, 0.5));
         assert!(me(&mut w).pos.abs_diff_eq(Vec3::new(1.5, 0.25, 3.0), 1e-6));
+        assert_eq!(w.cam_place, Some((1.8, Vec3::new(0.0, 0.0, 3.6))));
         let half = std::f32::consts::PI;
         assert!(
             (me(&mut w).yaw.abs() - half).abs() < 1e-4,
@@ -312,6 +365,7 @@ mod tests {
         b.restore(&mut w);
         assert_eq!(me(&mut w).pos, Vec3::new(2.0, 0.5, 4.0));
         assert_eq!(me(&mut w).yaw, -3.0);
+        assert_eq!(w.cam_place, Some((1.8, Vec3::new(0.0, 0.0, 4.0))));
         assert!(!b.applied());
     }
 
@@ -342,6 +396,80 @@ mod tests {
         b.apply(&mut w, 0.5);
         assert_eq!(me(&mut w).pos.x, 1.0 + UNIT_SNAP_M + 0.5, "teleport");
         b.restore(&mut w);
+    }
+
+    #[test]
+    fn the_pending_mouse_look_is_drawn_where_the_tick_lands() {
+        for on in [true, false] {
+            let mut w = walk();
+            w.blend.on = on;
+            w.advance(1.0 / 30.0, &[PadState::default()]);
+            let look = PadState {
+                mx: PadState::quantize_look(0.2),
+                my: PadState::quantize_look(-0.05),
+                buttons: core::sim::buttons::MOUSE_AIM,
+                ..PadState::default()
+            };
+            let tick = (me(&mut w).yaw, me(&mut w).pitch);
+            blend_in_looking(&mut w, &look);
+            let drawn = (me(&mut w).yaw, me(&mut w).pitch);
+            let cam = w.camera();
+            w.blend_out();
+            assert_eq!((me(&mut w).yaw, me(&mut w).pitch), tick, "restored");
+            assert_ne!(drawn, tick);
+            assert_eq!(cam.yaw, drawn.0);
+            w.step_tick(&[look]);
+            assert_eq!((me(&mut w).yaw, me(&mut w).pitch), drawn, "blend {on}");
+        }
+    }
+
+    #[test]
+    fn a_walkers_mouse_aim_keeps_its_heading_while_the_legs_turn_the_hull() {
+        use core::vehicle::{gun::dir, hover::quat_y, SeatKind, VehicleKind, VehicleSpec};
+        let mut w = walk();
+        let i = w
+            .sim
+            .spawn_vehicle(&VehicleSpec {
+                kind: VehicleKind::Walker,
+                class: 0,
+                home_team: None,
+                neutral_when_empty: false,
+                spawn_pad: None,
+                pos: Vec3::ZERO,
+                yaw: 0.0,
+                max_health: 1.0,
+                health_type: core::weapon::HealthType::Vehicle,
+                seats: vec![SeatKind::Pilot],
+            })
+            .index as usize;
+        w.sim.vehicles[i].walker.aim_yaw = 0.3;
+        let mut b = Blend {
+            on: true,
+            ..Default::default()
+        };
+        b.before_tick(&w);
+        let v = &mut w.sim.vehicles[i];
+        v.rot = (v.rot * quat_y(-0.1)).normalize();
+        v.walker.aim_yaw += 0.1;
+        let aim = v.walker.aim_yaw;
+        let heading = v.rot * dir(aim, 0.0);
+        let tick_rot = v.rot;
+        assert!(b.apply(&mut w, 0.25));
+        b.preview(
+            &mut w,
+            LookPreview::Seat {
+                vehicle: i,
+                seat: 0,
+                look: (aim, 0.0),
+                walker: true,
+            },
+        );
+        let v = &w.sim.vehicles[i];
+        assert!(v.rot.angle_between(tick_rot) > 0.05);
+        let drawn = v.rot * dir(v.walker.aim_yaw, 0.0);
+        assert!(drawn.angle_between(heading) < 1e-5, "{drawn} {heading}");
+        b.restore(&mut w);
+        assert_eq!(w.sim.vehicles[i].walker.aim_yaw, aim);
     }
 
     /// The sim never reads the blend: a walk drawn blended at 144 Hz (the

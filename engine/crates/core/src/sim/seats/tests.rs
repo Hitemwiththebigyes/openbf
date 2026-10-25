@@ -147,6 +147,84 @@ fn the_drivers_pad_drives_the_hover_and_the_rider_follows() {
 }
 
 #[test]
+fn the_mouse_steers_a_hover_as_a_turn_stick_and_aims_a_walker() {
+    let drive = |pad: PadState| {
+        let (mut s, _, v) = world(Vec3::new(0.0, 2.0, -6.0), None, true);
+        for _ in 0..60 {
+            s.step(&[PadState::default()]);
+        }
+        press(&mut s);
+        for _ in 0..20 {
+            s.step(&[pad]);
+        }
+        let veh = s.vehicle(v).unwrap();
+        (veh.rot, veh.input.turn, veh.hover.stick_timer)
+    };
+    let stick = drive(PadState {
+        ly: i16::MAX,
+        rx: i16::MAX,
+        ..PadState::default()
+    });
+    let mouse = drive(PadState {
+        ly: i16::MAX,
+        mx: PadState::quantize_look(f64::from(crate::sim::MOUSE_STEER) * 1.5),
+        buttons: buttons::MOUSE_AIM,
+        ..PadState::default()
+    });
+    assert_eq!(mouse.1, 1.0);
+    assert_eq!(stick.1, 1.0);
+    assert!(mouse.0.angle_between(stick.0) < 1e-4, "{stick:?} {mouse:?}");
+    assert!(mouse.2 > 0.5);
+
+    let (mut s, _, v) = world(Vec3::new(0.0, 2.0, -6.0), None, true);
+    let veh = &mut s.vehicles[v.index as usize];
+    veh.kind = VehicleKind::Walker;
+    let pad = PadState {
+        mx: PadState::quantize_look(0.4),
+        my: PadState::quantize_look(-0.2),
+        ..PadState::default()
+    };
+    let turn = veh.input.turn;
+    let full = crate::sim::look::mouse_drive(veh, &pad, false, None);
+    assert!(!full);
+    assert_eq!(veh.input.turn, turn);
+    let (dy, dp) = pad.look();
+    assert_eq!((veh.walker.aim_yaw, veh.walker.aim_pitch), (-dy, dp));
+}
+
+#[test]
+fn a_walkers_mouse_aim_stops_at_its_limits_beside_the_legs() {
+    let p = crate::vehicle::walker::tests::atst();
+    let (mut s, _, v) = world(Vec3::new(0.0, 2.0, -6.0), None, true);
+    let veh = &mut s.vehicles[v.index as usize];
+    veh.kind = VehicleKind::Walker;
+    let legs = veh.walker.leg_angle();
+    let (lo, hi) = (p.yaw_limits[0] + legs, p.yaw_limits[1] + legs);
+    let pad = |yaw: f64, pitch: f64| PadState {
+        mx: PadState::quantize_look(yaw),
+        my: PadState::quantize_look(pitch),
+        ..PadState::default()
+    };
+    crate::sim::look::mouse_drive(veh, &pad(-10.0, 10.0), false, Some(&p));
+    assert_eq!(veh.walker.aim_yaw, hi);
+    assert_eq!(veh.walker.aim_pitch, p.pitch_limits[1]);
+    crate::sim::look::mouse_drive(veh, &pad(-10.0, 0.0), false, Some(&p));
+    assert_eq!(veh.walker.aim_yaw, hi, "held at the limit");
+    crate::sim::look::mouse_drive(veh, &pad(0.25, 0.0), false, Some(&p));
+    assert!((veh.walker.aim_yaw - (hi - pad(0.25, 0.0).look().0)).abs() < 1e-6);
+    crate::sim::look::mouse_drive(veh, &pad(20.0, -10.0), false, Some(&p));
+    assert_eq!(veh.walker.aim_yaw, lo);
+    assert_eq!(veh.walker.aim_pitch, p.pitch_limits[0]);
+    veh.walker.aim_yaw = hi + 0.1;
+    crate::sim::look::mouse_drive(veh, &pad(-0.05, 0.0), false, Some(&p));
+    assert_eq!(
+        veh.walker.aim_yaw,
+        hi + 0.1,
+        "past the limit it is not pulled back"
+    );
+}
+
+#[test]
 fn exit_stands_the_soldier_behind_the_vehicle_on_the_ground() {
     let (mut s, p, v) = world(Vec3::new(0.0, 2.0, -6.0), None, true);
     press(&mut s);
@@ -199,7 +277,7 @@ fn the_driver_sticks_are_shaped_as_the_ps2_shapes_them() {
         ly: q(-0.05),
         rx: q(1.0),
         ry: q(1.0),
-        buttons: 0,
+        ..Default::default()
     });
     assert_eq!(
         (i.strafe, i.throttle),
