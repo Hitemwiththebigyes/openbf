@@ -11,9 +11,10 @@ declares: sim; sweep; arena
 needs:
 effort: high
 branch: snpr
-resume: landed 66470010 2026-10-16 (6647001 = the perch fix found at landing); planner: remove [approvals.SNPR]
+resume: landed 66470010 2026-10-16 (6647001 = the perch fix found at landing); planner: remove [approvals.SNPR]; AUDIT INCOMPLETE / UNAUDITED 2026-10-25 — restore primary inputs/history, see reports/20261025_1139_audit_SNPR.md
 created: 2026-10-12
 alpha: yes
+domain: ai
 ---
 ## Why
 The maintainer's wish (INBOX 2026-10-12 16:20, ask 2 - read it first; under `## Done` now): snipers with a purpose. A
@@ -117,3 +118,4 @@ approved (his 16:00 note).
   Fixed on the branch (6647001: given up under / over the spot on the last leg; `arrive` refuses it from below; test +
   2 mutations). Landed rows: travel-standing spells 10 -> 0, B9 standing with overwatch counted 0.05 % = main's, recycled
   35 -> 33. Report `reports/20261016_1103_land_SNPR.md`. Owed: the planner removes `[approvals.SNPR]`.
+

@@ -58,7 +58,7 @@ rc=0
 
 replay() {  # <name> <input log>
   local name="$1" log="$2" e
-  "$GAME" --map assets_baked/tat1 --headless \
+  "$GAME" --map assets_baked/tat1 --headless --spawn -140,230 \
           --walk-replay "artifacts/p3_walk/$log" \
           --capture-series "100000,$OUT/motion/$name" > "$OUT/${name}_raw.txt" 2>&1
   e=$?

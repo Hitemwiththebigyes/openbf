@@ -1159,3 +1159,115 @@ fn bf2_scales_the_error_vector_by_target_and_range() {
     assert!(s.enter_vehicle(mate, v, 1));
     assert!(close(seated(&s, 20.0), off * 1.5), "a bot beside a human");
 }
+
+/// RKMAR: fixed capsule-centre distances from the predicted blast point,
+/// independent of the policy's margin. Both lateral sides and both teams shoot.
+fn rkmar_blast_clearance(rules: crate::soldier::GroundRules) {
+    use crate::collision::{Body, CollisionWorld, Shape};
+    use crate::unit::UnitSpec;
+    use crate::vehicle::{SeatKind, VehicleKind, VehicleSpec};
+    use crate::weapon::ExplosionClass;
+    use crate::weapon::HealthType;
+    for team in [0, 1] {
+        for side in [-1.0, 1.0] {
+            for (distance, other_team, dead, mounted, explosive, held) in [
+                (3.0, team, false, false, true, true),
+                (4.5, team, false, false, true, true),
+                (5.5, team, false, false, true, false),
+                (4.5, 1 - team, false, false, true, false),
+                (4.5, team, true, false, true, false),
+                (4.5, team, false, true, true, false),
+                (4.5, team, false, false, false, false),
+            ] {
+                let mut s = Sim::empty(5);
+                s.ground_rules = rules;
+                let shooter = s
+                    .spawn(&UnitSpec::trooper(team, Vec3::new(0.0, 0.0, 20.0)))
+                    .unwrap();
+                s.units[shooter.index as usize].soldier.pos = Vec3::new(0.0, 0.0, 20.0);
+                s.collision = CollisionWorld::new(
+                    vec![Body::new(
+                        glam::Mat4::from_translation(Vec3::new(0.0, 1.5, -3.0)),
+                        Shape::Box {
+                            half: Vec3::new(20.0, 4.0, 0.5),
+                        },
+                    )],
+                    vec![],
+                );
+                if explosive {
+                    s.weapon_classes[0].ordnance.explosion = Some(ExplosionClass {
+                        damage: 400.0,
+                        damage_inner: 2.0,
+                        damage_outer: 4.0,
+                        ..ExplosionClass::default()
+                    });
+                }
+                let u = s.unit(shooter).unwrap();
+                let muzzle = u.muzzle();
+                let blast = Vec3::new(muzzle.x, muzzle.y, -2.3);
+                let other = s.spawn(&UnitSpec::trooper(other_team, Vec3::ZERO)).unwrap();
+                let offset =
+                    s.unit(other).unwrap().capsule().center() - s.unit(other).unwrap().soldier.pos;
+                let pos = blast + Vec3::X * side * distance - offset;
+                s.units[other.index as usize].soldier.pos = pos;
+                if mounted {
+                    let vehicle = s.spawn_vehicle(&VehicleSpec {
+                        kind: VehicleKind::Hover,
+                        class: 0,
+                        home_team: None,
+                        neutral_when_empty: true,
+                        spawn_pad: None,
+                        pos,
+                        yaw: 0.0,
+                        max_health: 1000.0,
+                        health_type: HealthType::Vehicle,
+                        seats: vec![SeatKind::Pilot],
+                    });
+                    assert!(s.enter_vehicle(other, vehicle, 0));
+                }
+                // Keep the legal mounted soldier at the measured seat position.
+                let centre = s.units[other.index as usize].capsule().center();
+                assert!(((centre - blast).length() - distance).abs() < 1e-4);
+                if dead {
+                    s.units[other.index as usize].alive = false;
+                }
+                let u = s.unit(shooter).unwrap();
+                let bolt = crate::projectile::Bolt::spawn(
+                    muzzle,
+                    Vec3::NEG_Z,
+                    s.weapon_classes[0].ordnance.velocity,
+                    s.weapon_classes[0].ordnance.life_span,
+                    crate::projectile::Shooter {
+                        owner: shooter,
+                        team,
+                        weapon_class: 0,
+                        is_player: false,
+                    },
+                    None,
+                    &s.collision,
+                    crate::collision::HullFilter::All,
+                    s.alive_units()
+                        .filter(|(h, _)| *h != shooter)
+                        .map(|(h, o)| (h, o.capsule())),
+                );
+                assert!(matches!(bolt.hit, crate::projectile::Hit::World));
+                assert!((bolt.end - Vec3::new(muzzle.x, muzzle.y, -2.5)).length() < 1e-4);
+                let aim = friend_in_blast(&s, shooter, u, blast, &s.weapon_classes[0]);
+                assert_eq!(aim, if held { Some(if side > 0.0 { -1 } else { 1 }) } else { None },
+                        "aim {rules:?} team={team} side={side} d={distance} dead={dead} mounted={mounted} explosive={explosive}");
+                assert_eq!(release_blasts_own_side(&s, shooter.index as usize), held,
+                        "release {rules:?} team={team} side={side} d={distance} dead={dead} mounted={mounted} explosive={explosive}");
+            }
+        }
+    }
+}
+
+#[test]
+fn rkmar_bf1_blast_clearance_at_aim_and_release() {
+    rkmar_blast_clearance(crate::soldier::GroundRules::Bf1);
+}
+
+#[test]
+fn rkmar_bf2_blast_clearance_at_aim_and_release() {
+    rkmar_blast_clearance(crate::soldier::GroundRules::Bf2);
+}

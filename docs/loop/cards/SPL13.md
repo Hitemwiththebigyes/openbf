@@ -8,10 +8,10 @@ status: blocked
 deps:
 files: engine/crates/core/src/ai/behave.rs, engine/crates/core/src/ai/behave/brain.rs, engine/crates/core/src/ai/behave/position.rs, engine/crates/core/src/ai/behave/position/tests.rs, engine/crates/core/src/sim/vehicles.rs
 declares:
-needs: planner — accept the 9 rustfmt-reflow lines in place of the literal PURE MOVE receipt (whitespace-identical; sweep/arena neutral) or order a re-split; sim/vehicles.rs (1752 lines) split or waiver in its own session
+needs: local-proof — restore the canonical pure_move_check helper and obtain its original exit0/PURE MOVE receipt; planner orders recipe-compliant re-split/reflow repair instead of waiving nine unmatched lines; vehicles remains its own later session
 effort:
 branch:
-resume: (private workflow note omitted)
+resume: 20261024_2231 planner: CRATES pointer fix is committed08ab825, do not reapply it. Retain measured behave sweep/arena neutrality; do not accept hash100/600 as think coverage. Canonical helper exit1 is still unpassed: repair split/reflow under the existing recipe until exit0, no helper weakening. Then vehicles1752 alone. See engine/artifacts/loop/reports/20261024_2231_planner.md.
 created: 2026-10-13
 ---
 

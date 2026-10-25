@@ -1,3 +1,4 @@
+//! Turret offers discard an earlier ground-claim heartbeat (CWAIT).
 //! Card TURR (`analysis/bot-design.md` 6.1, deviation D11; the maintainer's annoyance
 //! 1, 2026-10-02: "they'll get in the turret and rarely leave unless they're
 //! being shot at or die"): a bot mans a building turret only with a PURPOSE,
@@ -393,6 +394,7 @@ pub fn offer_pass(sim: &mut Sim) {
             let r = ai.ride.unwrap_or_default();
             ai.ride = Some(RideState {
                 board: Some(vh),
+                maintenance: None,
                 since: tick,
                 use_req: false,
                 ..r

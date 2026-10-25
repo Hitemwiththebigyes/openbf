@@ -4,16 +4,17 @@ title: BF1 Geonosis cp2's building is missing: rep_bldg_forwardcenter (BASE comm
 milestone: M1
 value: 3
 phase: build
-status: todo
+status: blocked
 deps:
 files: engine/crates/bake/src/side_classes.rs,engine/crates/game/src/main/battle.rs,engine/crates/game/src/assets.rs
 declares: rebake=side; sweep
-needs:
+needs: Restore BF1 side/map/common LVLs, PS2 damage trial and paired poses, census kit, bakes/missions/goldens and GPU before retry.
 effort:
 branch:
-resume: Predict first which bf1_geo1 goldens / walkabout views have cp2 in sight and add them as goldens=<list>; settle whether the PS2 lets the building be destroyed (MaxHealth 30000, a _dest model) before building.
+resume: 20261025_0339 pre-build hold: 0/22 named inputs present; resolve PS2 destructibility and exact visible golden panels before implementation; see engine/artifacts/loop/reports/20261025_0339_card_FWDC.md. No unchanged-input retry.
 created: 2026-10-15
 defer: post-alpha
+tries: 1
 ---
 ## Why
 BF1 Geonosis cp2 (the Republic's forward command center) is a large hull with a tower and a ramp on the PS2 and open desert in

@@ -4,17 +4,18 @@ title: Uncapturable command posts: BF1 HOT1's shield generator ('shield') and EN
 milestone: M3
 value: 4
 phase: re
-status: todo
+status: blocked
 deps:
 files: engine/crates/game/src/layout.rs, engine/crates/game/src/walk.rs
 declares:
-needs:
+needs: restore HOT1/END1 manifests, classes, missions, primary PS2 corpora/states and B1LL light referee before further RE
 effort:
 branch:
-resume: planner 10-22 06:55: deferred (BF1 HOT1 / END1 are not showcase maps; the backlog cap); phase re: settle the PS2 rule for a post with no CaptureRegion first (Evidence line 2), then build.
+resume: 2026-10-24 23:25 UTC — RE prerequisite hold; restore named evidence, resolve Radius fallback and post lifecycle, then verify spawn/map/bleed separately for BF1/BF2 before build. See reports/20261024_2325_card_NOCAP.md; do not repeat unchanged missing-input preflight.
 created: 2026-10-22
 alpha: 
 defer: post-alpha
+tries: 1
 ---
 ## Why
 Found by card B1LL's light referee (lead_tmp/b1ll/referee.py over the BF1 walk states, referee.txt): of 1203 view-0 omnis the PS2 files, the only 10 the port lacks are the hologram lights of HOT1 'shield' (hoth_bldg_shieldgenerator, light at (-423.92, -18.21, 186.03)) and END1 'cp1' (end_bldg_bunker_controlpanel, (137.85, -5.14, -229.31)). Both instances carry Team, Label, ControlRegion and SpawnPath but no CaptureRegion; MapLayout::from_manifest (game/src/layout.rs ~318) skips any instance without CaptureRegion as 'not a command post'. The hologram (card CPHOL) is missing there for the same reason. Census of the baked manifests (ControlRegion without CaptureRegion): bf1_end1 1, bf1_hot1 1, bf1_geo1 4 (no PS2 hologram in GEO1's states: check what they are), bf2_hot1 1, and many BF2 ctf / campaign-only posts.
@@ -26,3 +27,4 @@ Found by card B1LL's light referee (lead_tmp/b1ll/referee.py over the BF1 walk s
 ## Acceptance
 - referee.py: the 10 misses -> 0 (place within 5 cm, owner colour).
 - A battle on BF1 HOT1 / END1: bots of the owning team spawn at the post when the PS2 does (count per 8 seeds), the post is never captured; sweep finish counts not worse than main beyond noise.
+

@@ -1,23 +1,25 @@
 ---
 id: UNLK
-title: BF2 class unlocks: each side's officer (PointsToUnlock 8) and special class (12: jet trooper, droideka, Wookiee, dark trooper) are locked on the player's class select until the player has scored that many points - the PS2 shows 'Get N more points to unlock!' and a black silhouette; the port reads nothing
+title: BF2 class unlocks: complete score and reset/re-lock research and validate SSELB's existing 8-point officer / 12-point special gate, silhouette and text
 milestone: M3
 value: 3
 phase: re
-status: todo
+status: blocked
 deps:
 files:
 declares:
-needs:
+needs: Restore primary corpora, ELFs, score scripts and saved-state evidence listed in engine/artifacts/loop/reports/20261025_0021_card_UNLK.md; real roster/UI validation also pending
+effort:
 branch:
-resume:
+resume: 20261025_0021 reconciliation, no source edit; SSELB re-spawn-flow 4.3 already names the reader/non-hero score and implements refusal/text/black tint. Trace score writers/reset and live threshold crossings after restoration; original Acceptance retained. See engine/artifacts/loop/reports/20261025_0021_card_UNLK.md.
 created: 2026-09-29
 defer: post-alpha
+tries: 1
 ---
 ## Why
-UAUD2 (analysis/unit-audit-bf2.md §3.8). A BF2 rule the player sees at the start of every battle: the officer and special
-classes cannot be picked until the player earns points. The port offers every class at once (and today spawns one class per
-faction, SPSEL).
+UAUD2 (analysis/unit-audit-bf2.md §3.8) originally found the BF2 officer/special class gate missing.
+SSELB subsequently added the gate and its presentation. This card retains the score/lifecycle research and full
+validation work below; the original port-gap description is historical.
 
 ## Evidence
 - Setter: B2 FUN_0026a340 stores PointsToUnlock 0x714b2463 with '%d' (ELF 0x61fc20) at class+0x374 (186907-186909).
@@ -40,3 +42,20 @@ faction, SPSEL).
 
 ## Planner note
 Planner 2026-10-21 20:50: the maintainer (INBOX 17:50 item 4) wants BF1 unlocks and a career unlock too: cards UNLK1 (BF1 tiers), UNLK2 (career counter), UNLK3 (stages + the class-select line) follow this one.
+
+## Reconciliation (2026-10-25)
+- The later `analysis/re-spawn-flow.md` §4.3 already records the reader `FUN_00364290`, its four callers and
+  `FUN_00361900(stats, 1)` reading the signed non-hero points at stats+0x1fc; it also records the human-only refusal
+  path, class-cap test and separate droideka pool check. Those are existing [O] UNAUDITED claims, not re-derived here.
+- `analysis/re-event-messages.md` §9.1 records the scripted points table, separate hero score, ordinary kills,
+  suicide/team-kill deductions and capture/assist credit. Its unread special-event and gate branches remain unread.
+- Current source consumes `PointsToUnlock` in `game/src/roster.rs`, passes it to `UnitClass`, and refuses a human's
+  accept through `Sim::class_refusal`. `game/src/spawn_page.rs` formats the deficit and refused mask;
+  `spawn_preview.rs` applies black tint. These paths exist; do not implement the original missing-feature premise again.
+- `game/src/main/windowed.rs` writes slot0's gate input from `EventFeed::stats` before `advance_with`; the feed scores
+  kill/death/capture events. Existing synthetic tests manually set points: they do not prove an actual scored event
+  changes the gate, or the PS2's reset/re-lock behavior. Verify that caller path, including catch-up ticks.
+- Still owed: every writer/default/reset of the compared score, death/new-battle/side-change and downward-score
+  crossings; event-to-score map including hero exclusions and special bonuses; bots and BF1 primary evidence;
+  real roster and rendered gate/text/silhouette checks. Original Acceptance is unchanged; no new build card opened.
+

@@ -1351,6 +1351,9 @@ impl Animator {
             None => c.sample(skel, t, true),
         });
         self.action = None;
+        // Seated updates replace foot motion; the next step starts its history here.
+        self.yaw = None;
+        self.legs = Legs::default();
         self.twist = 0.0;
         self.aim = aim::Aim::default();
     }

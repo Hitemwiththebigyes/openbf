@@ -50,3 +50,4 @@ Needs `[approvals.LANDG] oracle = "guards"` in gates.toml (planner or the mainta
    -> phase 2 reaches `landed` without touching gates.toml; (d) mutation-check (a) by reverting to moved_list.
 Then: `land.py SSELB --resume` (phase 2) -> landed; set SSELB back to status=todo, branch= (it has more slices);
 `land.py HTGT --forget`. (lead_tmp/landg/land.py is an UNCHANGED copy of a87df1b's land.py; the guard refused its removal.)
+

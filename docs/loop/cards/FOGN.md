@@ -4,15 +4,17 @@ title: BF2 fogs far-scene draws only (beyond NearSceneRange[2], blended over b..
 milestone: M1
 value: 3
 phase: build
-status: todo
+status: blocked
 deps:
 files: engine/crates/game/src/viewer/look.rs,engine/crates/render/src/shader.wgsl,engine/crates/render/src/lighting.rs
 declares:
-needs:
+needs: Restore current MYG1 map/pose/frame measurement inputs and BF2 rendering validation inputs; see reports/20261025_0334_card_FOGN.md
+effort:
 branch:
-resume:
+resume: Restore inputs before retry; reproduce MYG1 spawn/v2 band on current main after LITEB/REDB, then implement and mutation-check a PROVISIONAL BF2-only near/far fog approximation; preserve 0.92 and no-far-layer fade. Acceptance remains unpassed.
 created: 2026-09-25
 defer: post-alpha
+tries: 1
 ---
 
 ## Why
@@ -46,3 +48,4 @@ REDB builds the fog AMOUNT (planar depth, the `fogspread` table, a lerp on the s
 
 ## Planner note (2026-09-30, M-ALPHA)
 `defer: post-alpha` — not needed for the alpha's six showcase maps or its checklist. Value 3 (kept).
+

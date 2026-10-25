@@ -107,7 +107,7 @@ impl Battle {
     /// A unit died: the team pays one reinforcement, plus any mission drain
     /// ([`Battle::death_drain`]). A drain can leave the paying team with
     /// fewer tickets than live units; the next [`Battle::tick_bleed`] sheds
-    /// the AI, exactly as a bleed does.
+    /// the AI even when command-post bleed is clamped off.
     pub fn on_death(&mut self, team: usize, was_player: bool) {
         let t = &mut self.teams[team];
         if was_player {
@@ -162,9 +162,11 @@ impl Battle {
         }
     }
 
-    /// Ticket bleed for one fixed tick. If bleed drops tickets below the
-    /// live count, AI despawn to restore the invariant; returns AI shed per
-    /// team this tick.
+    /// Spend ticket bleed and repair the no-overspawn invariant; returns AI
+    /// shed per team this tick. The sim's command-post bleed clamps at the
+    /// live count, but mission death drains can leave excess AI even with
+    /// zero bleed (`analysis/re-bleed-reachability.md`). Direct callers may
+    /// also supply an unclamped bleed rate.
     pub fn tick_bleed(&mut self, dt: f32) -> [u32; 2] {
         let mut shed = [0u32; 2];
         for (i, t) in self.teams.iter_mut().enumerate() {

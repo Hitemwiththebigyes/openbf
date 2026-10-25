@@ -208,6 +208,7 @@ impl App {
         use ui::menu::MenuAction;
         let s = &mut self.profile.settings;
         match a {
+            MenuAction::RequestRespawn | MenuAction::CancelRespawn | MenuAction::Respawn => return,
             MenuAction::Resume | MenuAction::Quit => {
                 front.settings = None;
                 return;

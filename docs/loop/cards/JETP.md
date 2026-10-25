@@ -4,15 +4,17 @@ title: Jet and jump packs: BF1 dark trooper (JetJump 21, no fuel cost), BF1 jet 
 milestone: M3
 value: 3
 phase: re
-status: todo
+status: blocked
 deps:
 files:
 declares:
-needs:
+needs: restore both PS2 corpora/ELFs, class data, SAIR jet evidence and runtime inputs before retry
+effort:
 branch:
-resume:
+resume: 20261024_2347 input hold; both-game jet physics and arc RE remain unproved; restore report inputs before another attempt; engine/artifacts/loop/reports/20261024_2347_card_JETP.md
 created: 2026-09-29
 defer: post-alpha
+tries: 1
 ---
 
 ## Why
@@ -57,3 +59,4 @@ infinite fuel via cheat".
   randint(3, 8) s and jet 80 m along its direction; hover-jet classes fly at a target 20 m or more away when the
   fuel lasts and no barrier crosses the line. On a route: the follower sets jump or jet from the connection's flags.
   The deathmatch agent jets straight up at random. BF1: an evade jump every 3-8 s and JetJumpHintHelper.
+

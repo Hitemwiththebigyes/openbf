@@ -4,16 +4,18 @@ title: The far scene on the 13 maps with a drawn LOWR sheet: cull the heightfiel
 milestone: M1
 value: 3
 phase: build
-status: todo
+status: blocked
 deps: REDB
 files:
 declares:
-needs:
+needs: environment — Restore the 13 maps, original PCSX2 states/pairs and REDB raw sweep; validate DATE and winding before per-map policy.
+effort:
 branch:
-resume:
+resume: Persistent prerequisite hold (2026-10-25): 70/70 inventoried inputs absent. Restore inputs and follow reports/20261025_0301_card_FARS.md; resolve map-by-map pairs, DATE and one-sidedness before implementation. No flag/default change; original Acceptance unpassed. Wait for restoration before retry.
 created: 2026-09-29
 defer: post-alpha
 value_pre_alpha: 4
+tries: 1
 ---
 
 ## Why
@@ -46,3 +48,4 @@ Created 2026-09-29 by REDB (lane 2): split out of REDB when its RE showed the re
 
 ## Planner note (2026-09-30, M-ALPHA)
 `defer: post-alpha` — not needed for the alpha's six showcase maps or its checklist. Value 4 → 3 until the alpha (restore from `value_pre_alpha`).
+

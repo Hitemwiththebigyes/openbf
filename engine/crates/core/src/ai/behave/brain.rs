@@ -1,4 +1,4 @@
-//! Foot-bot tick priority chain and failed-walk recovery.
+//! Foot-bot tick priority chain, valid boarding maintenance (CWAIT), and failed-walk recovery.
 
 use crate::ai::draw::{stance_hold, unit_unit, SALT_DODGE};
 use crate::ai::gunner_foot::{self, AimRequest};
@@ -417,6 +417,9 @@ pub fn think(sim: &Sim, me: UnitHandle, st: &mut AiState) -> (PadState, NavTick)
         _ if boarding.is_some() && goal == boarding => WalkAsk::BOARD,
         _ => WalkAsk::LEG,
     };
+    if thinking && boarding.is_some() && ret.is_none() && flee.is_none() {
+        super::ride::maintain(sim, me, st);
+    }
     // Card MOVR: where the walk ENDS, when it ends somewhere — a held
     // position, the last leg's point (the last-node radius), a post or a
     // remembered enemy walked straight at. A commanded bot's stand is its

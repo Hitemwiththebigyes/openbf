@@ -6,13 +6,14 @@ value: 2
 phase: cleanup
 status: todo
 deps:
-files: engine/crates/core/src/weapon.rs, engine/crates/bake/src/map.rs, engine/crates/core/src/commander.rs
+files: engine/crates/core/src/weapon.rs, engine/crates/core/src/weapon/ordnance.rs, engine/crates/bake/src/map.rs, engine/crates/core/src/commander.rs
 declares:
 needs:
 effort:
 branch:
-resume: 2026-10-24 14:22 UTC: Current source: nav.rs 1472 already under cap, weapon.rs 1739, map.rs 2199, commander.rs 2500. Active files are the latter three; vehicles.rs belongs only to SPL13. One source file per slice, real seam or reasoned waiver; map slice still owes byte-identical scratch bake and all neutral gates. reports/20261024_1422_planner.md; lead_tmp/planner_20261024_1417/next_prompt.md.
+resume: (private workflow note omitted)
 created: 2026-09-25 (from QUEUE.md)
+tries: 1
 ---
 
 ## Why / Evidence / Acceptance
@@ -26,3 +27,4 @@ SPL7. [TODO — **NOTE 2026-09-24 (SPL6's landing): SPL1–SPL6 have all LANDED,
 
 ## Note (cleanse CLNF, 2026-10-06)
 `core/src/commander.rs` is 2,004 lines now (MOVR): `scripts/size_report.sh --strict` exits 1 on it (the one unwaived file over 2,000). No gate runs `--strict` (gates.py's `map` step is `--check-map`), so nothing is blocked; this card's split of it is what clears it. `core/src/weapon.rs` is back over the cap at 1,518 (SPRD).
+

@@ -14,7 +14,7 @@
 //! [`yaw_toward`]. Card SPL11, `analysis/bot-design.md` 3 and 4.8: this is
 //! the ONLY writer of a foot soldier's `pad.rx` / `pad.ry` and of FIRE (a
 //! seated bot's gun is [`super::gunner`], which shares the aim point and the
-//! bursts). The aim and fire tests live here.
+//! bursts and charge release). The aim and fire tests live here.
 
 use super::arsenal::{self, Armed};
 use super::behave::Tick;
@@ -328,24 +328,7 @@ pub(super) fn run(
                 }
                 st.charge_until = 0;
             } else if wc.max_pressed_time > 0.0 {
-                // A CHARGE weapon fires on the trigger RELEASE (`weapon.rs`
-                // `fire_cmd == -1`): the bot holds for `U(0.15, charge_hi) ×
-                // MaxPressedTime` seconds, drawn ONCE at the press (RE §4.4),
-                // and then lets go. No roster soldier carries one today.
-                if want_fire && st.charge_until == 0 {
-                    let draw = unit_unit(me.index, sim.tick, me.gen, SALT_CHARGE);
-                    let frac = CHARGE_MIN + (skill.charge_hi - CHARGE_MIN).max(0.0) * draw;
-                    let ticks = (frac * wc.max_pressed_time * crate::TICK_HZ as f32).round();
-                    st.charge_until = sim.tick + (ticks.max(1.0) as u64);
-                }
-                if st.charge_until > 0 {
-                    if sim.tick < st.charge_until {
-                        pad.buttons |= buttons::FIRE;
-                    } else {
-                        // The release edge: the trigger comes up THIS tick.
-                        st.charge_until = 0;
-                    }
-                }
+                charge(sim, me, st, wc, &skill, want_fire, pad);
             } else if wc.trigger_single {
                 // Card STTAP: a single-shot weapon fires on a fresh press
                 // only, so the bot TAPS it, by the PS2's own rule and not by
@@ -373,6 +356,34 @@ pub(super) fn run(
         range,
         no_throw,
     })
+}
+
+/// Shared charge-release policy (STCHG, re-ai-difficulty §4.4): draw once
+/// at the press, hold until the deadline, then release for one tick.
+/// Callers clear the deadline when no target is seen, as on foot.
+pub(super) fn charge(
+    sim: &Sim,
+    me: UnitHandle,
+    st: &mut AiState,
+    wc: &WeaponClass,
+    skill: &crate::skill::Skill,
+    want_fire: bool,
+    pad: &mut PadState,
+) {
+    if want_fire && st.charge_until == 0 {
+        let draw = unit_unit(me.index, sim.tick, me.gen, SALT_CHARGE);
+        let frac = CHARGE_MIN + (skill.charge_hi - CHARGE_MIN).max(0.0) * draw;
+        let ticks = (frac * wc.max_pressed_time * crate::TICK_HZ as f32).round();
+        st.charge_until = sim.tick + (ticks.max(1.0) as u64);
+    }
+    if st.charge_until > 0 {
+        if sim.tick < st.charge_until {
+            pad.buttons |= buttons::FIRE;
+        } else {
+            // The release edge: the trigger comes up THIS tick.
+            st.charge_until = 0;
+        }
+    }
 }
 
 /// How late a shot of class `wc` leaves and how fast it flies (s, m/s), for

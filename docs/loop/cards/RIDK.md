@@ -11,7 +11,8 @@ declares: sweep
 needs:
 effort:
 branch: ridk
-resume: landed 1f00b531 2026-10-16; report reports/20261016_1642_card_RIDK.md; planner: re-take fidelity (world_death_pct 1.47 -> 0.76)
+resume: landed 1f00b531 2026-10-16; report reports/20261016_1642_card_RIDK.md; planner: re-take fidelity (world_death_pct 1.47 -> 0.76); audit INCOMPLETE / UNAUDITED 20261025_0818; restore held inputs/history; reports/20261025_0818_audit_RIDK.md
+domain: vehicle
 created: 2026-10-13
 alpha: yes
 ---
@@ -56,3 +57,4 @@ ejected [H]. PROVISIONAL (ours): every rider dies'). The player who shoots a tan
   6 hovers, 11 riders, every rider's record = the vehicle's, each destroyer's kills + riders within 0.1 s. Presentation only:
   exposed riders leave a corpse, riders inside the hull are deleted (§10.5). The fidelity gate's `world_death_pct` should fall
   (HVYW's reading: 1.08 -> about 0.2 with the riders as kills) - a move the planner re-takes the baseline for, not a refusal.
+

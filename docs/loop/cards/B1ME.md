@@ -4,15 +4,17 @@ title: BF1 Mos Eisley is not a port map: the port's `tat2` is BF2's; BF1's TAT/T
 milestone: M1
 value: 3
 phase: build
-status: todo
+status: blocked
 deps:
-files:
-declares:
-needs:
+files: scripts/rebake.sh,scripts/gen_missions.py
+declares: rebake=maps,sounds; goldens=maps/bf1_tat2.png; sweep
+needs: the maintainer decision to bake bf1_tat2 into engine/assets_baked + its two RONs into engine/missions (adds a 33rd map: sweep/fidelity baselines move, golden maps/bf1_tat2.png needed); PS2 postB terrain ~2 m mismatch RE; Jawa locals unconsumed
+effort:
 branch:
-resume:
+resume: (private workflow note omitted)
 created: 2026-09-29
 defer: post-alpha
+tries: 1
 ---
 
 ## Why
@@ -31,3 +33,4 @@ pairs) and its live roster (`lead_tmp/unit-audit/ramcensus_bf1.txt`: Republic, C
 
 ## Planner note (2026-09-30, M-ALPHA)
 `defer: post-alpha` — not needed for the alpha's six showcase maps or its checklist. Value 3 (kept).
+

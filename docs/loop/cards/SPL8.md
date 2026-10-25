@@ -4,14 +4,14 @@ title: game/src/viewer/scene.rs (1,546 lines) and game/src/assets.rs (1,514) are
 milestone: M0
 value: 1
 phase: cleanup
-status: todo
+status: parked
 deps:
 files: engine/crates/game/src/assets.rs, engine/crates/game/src/main/windowed.rs, engine/crates/game/src/sounds.rs
 declares:
-needs:
+needs: windowed.rs and sounds.rs slices (assets slice validated locally 2026-10-25)
 effort:
-branch:
-resume: 2026-10-24 14:22 UTC: Current source: scene.rs 1453 already under cap; active assets.rs 1781, windowed.rs 1983, sounds.rs 2665. Do not split scene again. Check GCL16 item 9 already shared via battle_resources. One source file per slice; unchanged game/GPU/bake/sim gates still required. reports/20261024_1422_planner.md; lead_tmp/planner_20261024_1417/next_prompt.md.
+branch: spl8-assets-20261024
+resume: 2026-10-25: assets mesh slice e3c323fc validated (canonical PURE MOVE exit0, sweep/arena identical). Next: windowed.rs (1976) then sounds.rs (1864); scene already under cap.
 created: 2026-09-29
 ---
 
@@ -23,6 +23,11 @@ one session, a pure move, every gate PASS) — or, if no seam gives two 400+ lin
 ## Evidence
 
 ## Acceptance
+
+Each source slice follows SPLIT_RECIPE: both resulting files below1500 lines,
+canonical pure-move proof exit0/PURE MOVE, unchanged test count and every original
+CI/GPU/sim/sweep gate PASS with no declarations or changed goldens/baselines.
+All named oversized sources must be resolved before this card is done.
 
 ## Notes
 
@@ -39,3 +44,4 @@ Both halves have their own acceptance above; land them as two commits on one bra
 
 ## Note (cleanse CLNF, 2026-10-06)
 Two more `game` files are over the 1,500 cap with no split card or waiver: `game/src/main/windowed.rs` (1,632; WTHR's splashes and the black box hooks) and `game/src/sounds.rs` (1,550). They join this card (same crate, same recipe) rather than a new one; `scene.rs` is 1,770 and `assets.rs` 1,616 today.
+

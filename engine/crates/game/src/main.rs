@@ -29,7 +29,7 @@
 //!                                 tickets wins, a tie is a draw (default Off)
 //!     --events <file.csv>         with --walk-replay: dump sim events
 //!     --cheat <list>              dev cheats: invincible,ammo (comma list)
-//!     --spawn x,z                 walk spawn point (default -140,230 on TAT1)
+//!     --spawn x,z                 explicit walk spawn (otherwise mission/post start)
 //!     --headless                  no window; render offscreen
 //!     --capture-frame <out.png>   headless-render one frame to PNG
 //!     --hud                       headless: paint the HUD onto captures (walk mode)

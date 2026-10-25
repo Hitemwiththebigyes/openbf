@@ -2,6 +2,7 @@
 //! and walks to ([`claim`], [`board_goal`]), the pad a seated driver makes
 //! ([`drive`]) and when it gets out. `think` hands a seated bot here; step 1c
 //! (`Sim::ai_use_pass`) carries out the enter / exit it asks for.
+//! STCHG preserves a seat gun's charge deadline through this dispatch.
 //!
 //! The PS2's side, as far as it is read (`analysis/re-vehicles.md` §5, RE_LOG
 //! "Arrival and locate" / "The six type bits"):
@@ -38,11 +39,13 @@
 //! AT-AT, the AT-TE) has a bot at its pilot seat from the first seconds to
 //! the end ([`command`]); a tauntaun is ridden on past the hub its graph
 //! ends at (`walker_drive::drive`).
-//! Card VTAI, also ours: a bot may claim a gunner seat with a gun in a hover
-//! a teammate pilots (the claim rules above; CanEnter still picks the seat,
-//! so a gunner that arrives first drives); its pilot holds the throttle for
-//! [`GUNNER_WAIT`] after the claim; a gunner gets out when the pilot seat is
-//! empty. Both fire their seat's guns (`gunner`).
+//! VTAI: bots may claim an armed gunner seat beside a teammate pilot;
+//! CanEnter still selects the seat. Both occupants fire (`gunner`), and a
+//! gunner leaves an unpiloted vehicle. WAIT4/HWAIT/CWAIT share the pickup
+//! hold (`analysis/re-driver-wait.md` §§2,3,5,7): four seconds from seating
+//! (BF1) or first think (BF2), extended by fresh same-team AI claims or BF2's
+//! approaching human (15 seconds, before full-seat completion). Completion
+//! lasts this pilot tenure; route/progress work runs only after the hold.
 //! VBAIL Part 1 (re-walker-ai §8, re-hover-ai §2 H2): under 20% health,
 //! a pilot whose seeded 0..=100 draw has its low two bits clear orders all
 //! AI occupants out. The card's per-boarding draw lifetime is PROVISIONAL
@@ -59,8 +62,8 @@ use super::gunner::Look;
 use super::route::{hub_has_floor, post_hub};
 use super::state::{AiState, NavTick, RideState, SteerPick};
 use super::{
-    BOARD_BLOCK, BOARD_GIVEUP, BOARD_PAD_BF1, BOARD_PAD_BF2, BOARD_SEEK, BOARD_SLACK, BOARD_TRIP,
-    GUNNER_WAIT, OTHER_FLOOR, RIDE_GAIN,
+    BOARD_BLOCK, BOARD_FRESH, BOARD_GIVEUP, BOARD_PAD_BF1, BOARD_PAD_BF2, BOARD_SEEK, BOARD_SLACK,
+    BOARD_TRIP, GUNNER_WAIT, OTHER_FLOOR, RIDE_GAIN,
 };
 use crate::nav;
 use crate::sim::{PadState, Sim, ENTER_REACH};
@@ -189,6 +192,7 @@ pub(super) fn claim(sim: &Sim, me: UnitHandle, u: &Unit, st: &mut AiState) {
         st.ride = Some(RideState {
             board: Some(vh),
             since: sim.tick,
+            maintenance: None,
             ..r
         });
     }
@@ -246,11 +250,9 @@ fn routes_to(sim: &Sim, vh: VehicleHandle, cp: &crate::cp::CommandPost) -> bool 
 /// that can no longer be boarded, no longer routes to the bot's post, or has
 /// run [`BOARD_GIVEUP`], is dropped (and blocked for [`BOARD_BLOCK`]); one
 /// within reach asks step 1c to enter. Card WAI2 — a claim is LOST, not
-/// given up, when another bot has it: an older claim on the same vehicle
-/// (two bots thinking on one tick both claim it; the later one is free to
-/// claim again at once), or its pilot seat taken with the claimer still out
-/// of reach [`GUNNER_WAIT`] after claiming (the pilot waits no longer, and
-/// the claimer walked 30 s after a walker that was walking away).
+/// given up, when an older bot has it. CWAIT replaces the old eight-second
+/// abandonment with a three-second maintenance lifetime for ground claims.
+/// `since` remains the original arbitration and thirty-second give-up clock.
 pub(super) fn board_goal(
     sim: &Sim,
     me: UnitHandle,
@@ -269,15 +271,18 @@ pub(super) fn board_goal(
                 .ride
                 .is_some_and(|x| x.board == Some(vh) && (x.since, i) < (r.since, me.index as usize))
     });
-    let piloted = sim
-        .vehicle(vh)
-        .and_then(|v| v.seats.first())
-        .is_some_and(|s| s.occupant.is_some());
-    let left = piloted && !reach && sim.tick >= r.since + GUNNER_WAIT;
     // The post can change under a claim (the commander re-plans), so the
     // vehicle must still route to the CURRENT one. Card TURR: a turret is
     // claimed for itself, not for a post - but not in the endgame.
     let turret = super::man::is_turret(sim, vh);
+    // Preserve the turret's existing claim policy; CWAIT is ground pickup only.
+    let left = turret
+        && !reach
+        && sim.tick >= r.since + GUNNER_WAIT
+        && sim
+            .vehicle(vh)
+            .and_then(|v| v.seats.first())
+            .is_some_and(|s| s.occupant.is_some());
     let routes = if turret {
         !super::man::endgame(sim, u.team)
     } else {
@@ -286,8 +291,13 @@ pub(super) fn board_goal(
             .is_some_and(|cp| routes_to(sim, vh, cp))
     };
     let late = sim.tick >= r.since + BOARD_GIVEUP || on_another_floor(sim, u, vh);
-    if older || left || late || !routes || claim_seat(sim, me, vh).is_none() {
-        nt.claim = if older || left {
+    let stale = !turret
+        && (r
+            .maintenance
+            .is_some_and(|c| c.owner != me || c.tick > sim.tick)
+            || sim.tick >= r.maintenance.map_or(r.since, |c| c.tick) + BOARD_FRESH);
+    if older || left || stale || late || !routes || claim_seat(sim, me, vh).is_none() {
+        nt.claim = if older || left || stale {
             NavTick::CLAIM_LOST
         } else if late {
             NavTick::CLAIM_GIVEUP
@@ -295,6 +305,7 @@ pub(super) fn board_goal(
             0
         };
         r.board = None;
+        r.maintenance = None;
         r.use_req = false;
         r.block_until = if older {
             sim.tick
@@ -319,6 +330,7 @@ pub(super) fn board_goal(
 pub(super) fn give_up(sim: &Sim, st: &mut AiState, nt: &mut NavTick) {
     if let Some(mut r) = st.ride {
         let vh = r.board.take();
+        r.maintenance = None;
         r.use_req = false;
         r.block_until = sim.tick + BOARD_BLOCK;
         st.ride = Some(r);
@@ -347,6 +359,7 @@ pub(super) fn settle(sim: &Sim, st: &mut AiState) {
     if st.ride.is_some_and(|r| {
         r.board.is_none()
             && !r.use_req
+            && r.pickup.is_none()
             && r.bail_draw.is_none()
             && sim.tick >= r.block_until
             && sim.tick >= r.closed_until
@@ -361,6 +374,7 @@ pub(super) fn request_exit(st: &mut AiState) {
     st.ride = Some(RideState {
         use_req: true,
         board: None,
+        maintenance: None,
         ..r
     });
 }
@@ -392,11 +406,9 @@ pub(crate) fn vehicle_bail_allowed(sim: &Sim, vh: VehicleHandle) -> bool {
         .is_some_and(|draw| draw & 3 == 0)
 }
 
-/// The think of a SEATED bot: a pilot drives its route and fires its seat's
-/// gun as it goes; a gunner aims and fires (`gunner::aim`, card VTAI). A
-/// pilot asks to get out at its post, with nowhere to go, when stuck, or in a
-/// class the port cannot drive; a gunner when its vehicle has no pilot. A
-/// building turret's gunner is `man::seated`'s (card TURR).
+/// Seated tick: pilots drive and fire; gunners aim and fire (VTAI).
+/// Pilots leave at their post, with no goal, stuck, or in an unsupported
+/// class; gunners leave an unpiloted vehicle. Turrets use `man::seated`.
 pub(super) fn drive(
     sim: &Sim,
     me: UnitHandle,
@@ -410,7 +422,6 @@ pub(super) fn drive(
     st.aim_dir = Vec3::ZERO;
     st.aim_vel = Vec3::ZERO;
     st.dispersion = None;
-    st.charge_until = 0;
     let Some(v) = sim.vehicle(m.vehicle) else {
         return (pad, nt);
     };
@@ -434,6 +445,20 @@ pub(super) fn drive(
         request_exit(st);
         return (pad, nt);
     }
+    if pickup_wait(sim, m, st, thinking) {
+        // Return before either driver's route/follower progress clocks run.
+        let r = st.ride.get_or_insert_default();
+        if v.kind == VehicleKind::Walker {
+            r.sticks = Some([0.0; 2]);
+        } else {
+            r.hover = Some(super::state::HoverOut {
+                sticks: [0.0; 3],
+                ai: v.hover.ai,
+            });
+        }
+        super::gunner::aim(sim, me, st, &mut pad, Look::Steering, None);
+        return (pad, nt);
+    }
     // Card WAI: a walker's pilot steers by the PS2's own stick law.
     if let Some(wp) = sim
         .walker_params
@@ -451,6 +476,76 @@ pub(super) fn drive(
         return (pad, nt);
     };
     super::hover_drive::drive(sim, me, m, hp, st, nt)
+}
+
+/// Initial window, BF2 human precedence, then maintained AI claims (CWAIT).
+fn pickup_wait(sim: &Sim, m: Mount, st: &mut AiState, thinking: bool) -> bool {
+    let Some(w) = st.ride.as_mut().and_then(|r| r.pickup.as_mut()) else {
+        return false;
+    };
+    if w.vehicle != m.vehicle {
+        // A stale handle cannot lend a different vehicle its boarding clock.
+        st.ride.as_mut().unwrap().pickup = None;
+        return false;
+    }
+    if w.complete {
+        return false;
+    }
+    let full = sim
+        .vehicle(m.vehicle)
+        .is_some_and(|v| v.seats.iter().all(|s| s.occupant.is_some()));
+    if thinking && w.started.is_none() {
+        w.started = Some(sim.tick);
+    }
+    let start = if sim.ground_rules == GroundRules::Bf1 {
+        Some(w.seated)
+    } else {
+        w.started
+    };
+    // BF2 tests humans before occupancy (re-driver-wait.md §5). Reuse the
+    // first-think clock: neither a later arrival nor a full seat restarts it.
+    if sim.ground_rules == GroundRules::Bf2
+        && w.started
+            .is_none_or(|t| sim.tick < t + 15 * u64::from(crate::TICK_HZ))
+        && human_approaching(sim, m)
+    {
+        return true;
+    }
+    if !full && maintained_boarder(sim, m) {
+        return true;
+    }
+    if full || start.is_some_and(|t| sim.tick > t + 4 * u64::from(crate::TICK_HZ)) {
+        w.complete = true;
+        return false;
+    }
+    true
+}
+
+/// Resolve current player slots on every update, including respawn generations.
+/// BF2's member test uses 3-D range and the human's forward aim row (§5).
+fn human_approaching(sim: &Sim, m: Mount) -> bool {
+    let Some(v) = sim.vehicle(m.vehicle) else {
+        return false;
+    };
+    let Some(driver) = v.seats[usize::from(m.seat)]
+        .occupant
+        .and_then(|h| sim.unit(h))
+    else {
+        return false;
+    };
+    sim.players.iter().enumerate().any(|(slot, handle)| {
+        let Some(u) = handle.and_then(|h| sim.unit(h)) else {
+            return false;
+        };
+        let to = v.pos - u.soldier.pos;
+        let distance_sq = to.length_squared();
+        u.controller == (crate::unit::Controller::Player { slot: slot as u8 })
+            && u.team == driver.team
+            && u.mount.is_none()
+            && distance_sq <= 150.0 * 150.0
+            && (distance_sq < 12.0 * 12.0
+                || u.aim_frame().0.dot(to.normalize_or_zero()) > 0.8660254)
+    })
 }
 
 /// Has this walker come within `reach` of the hub its route ends at, where
@@ -472,15 +567,45 @@ pub(super) fn at_drop(
     })
 }
 
-/// Has a bot on foot claimed a seat of `vh` within the last [`GUNNER_WAIT`]?
-/// (The pilot seat is taken, so it is a gunner's claim.)
-pub(super) fn gunner_coming(sim: &Sim, vh: VehicleHandle) -> bool {
-    sim.units.iter().any(|o| {
-        o.alive
-            && o.mount.is_none()
-            && o.ai
-                .ride
-                .is_some_and(|r| r.board == Some(vh) && sim.tick < r.since + GUNNER_WAIT)
+/// Refresh only after valid boarding work wins the foot priority chain on a
+/// scheduled think. Turret offers and follower entry keep their existing policy.
+pub(super) fn maintain(sim: &Sim, me: UnitHandle, st: &mut AiState) {
+    if let Some(r) = st.ride.as_mut().filter(|r| {
+        r.board.is_some_and(|vh| {
+            sim.vehicle(vh)
+                .is_some_and(|v| matches!(v.kind, VehicleKind::Hover | VehicleKind::Walker))
+        })
+    }) {
+        r.maintenance = Some(super::state::BoardMaintenance {
+            owner: me,
+            tick: sim.tick,
+        });
+    }
+}
+
+/// Resolve both entity generations and current eligibility every tick. A copied
+/// record cannot survive unit reuse; `board` carries the vehicle generation.
+fn maintained_boarder(sim: &Sim, m: Mount) -> bool {
+    let Some(driver) = sim
+        .vehicle(m.vehicle)
+        .and_then(|v| v.seats.get(usize::from(m.seat)))
+        .and_then(|s| s.occupant)
+        .and_then(|h| sim.unit(h))
+    else {
+        return false;
+    };
+    sim.alive_units().any(|(h, u)| {
+        u.controller == crate::unit::Controller::Ai
+            && u.team == driver.team
+            && u.mount.is_none()
+            && u.ai.ride.is_some_and(|r| {
+                r.board == Some(m.vehicle)
+                    && sim.tick < r.since + BOARD_GIVEUP
+                    && r.maintenance.is_some_and(|c| {
+                        c.owner == h && c.tick <= sim.tick && sim.tick < c.tick + BOARD_FRESH
+                    })
+            })
+            && claim_seat(sim, h, m.vehicle).is_some()
     })
 }
 
@@ -1004,4 +1129,360 @@ mod tests {
         assert!(s.enter_vehicle(near, v, 1));
         assert_eq!(tally(&mut s).0, 0, "the gun seat taken");
     }
+    fn pickup_probe(rules: GroundRules, full: bool) {
+        let (mut s, b, v) = world();
+        s.ground_rules = rules;
+        let mut boarded = None;
+        for _ in 0..300 {
+            s.step(&[]);
+            if s.unit(b).unwrap().mount.is_some() {
+                boarded = Some(s.tick);
+                break;
+            }
+        }
+        let boarded = boarded.expect("natural boarding failed");
+        if full {
+            let rider = s.spawn(&UnitSpec::player(0, Vec3::ZERO)).unwrap();
+            assert!(s.enter_vehicle(rider, v, 1));
+        }
+        assert_eq!(s.vehicle(v).unwrap().seats[1].occupant.is_some(), full);
+        let start = s.vehicle(v).unwrap().pos;
+        let mut max_throttle: f32 = 0.0;
+        for _ in 0..60 {
+            s.step(&[]);
+            assert!(s.unit(b).unwrap().mount.is_some(), "pilot left");
+            if let Some(h) = s.unit(b).unwrap().ai.ride.and_then(|r| r.hover) {
+                max_throttle = max_throttle.max(h.sticks[0].abs()).max(h.sticks[1].abs());
+            }
+        }
+        let delta = nav::xz_dist(start, s.vehicle(v).unwrap().pos);
+        eprintln!("WAIT {rules:?} full={full} boarded={boarded} tick={} delta={delta:.6} max_stick={max_throttle:.6}",s.tick);
+        if full {
+            assert!(
+                delta > 1.0 && max_throttle > 0.0,
+                "full vehicle must depart"
+            );
+        } else {
+            assert_eq!(
+                max_throttle, 0.0,
+                "new driver must wait while empty seat and within four seconds"
+            );
+            assert!(delta < 0.1, "waiting vehicle must stay put");
+        }
+        if !full {
+            let w = s.unit(b).unwrap().ai.ride.unwrap().pickup.unwrap();
+            assert_eq!(
+                w.seated + 1,
+                boarded,
+                "successful seat clock survives ai_use_pass"
+            );
+            let expected = if rules == crate::soldier::GroundRules::Bf1 {
+                w.seated
+            } else {
+                w.started.unwrap()
+            } + 120;
+            let mut departure = None;
+            for _ in 0..100 {
+                s.step(&[]);
+                let r = s.unit(b).unwrap().ai.ride.unwrap();
+                let stick = r.sticks.map_or_else(
+                    || {
+                        r.hover
+                            .map_or(0.0, |h| h.sticks[0].abs().max(h.sticks[1].abs()))
+                    },
+                    |x| x[0].abs().max(x[1].abs()),
+                );
+                if stick > 0.0 {
+                    departure = Some(s.tick);
+                    break;
+                }
+                assert!(crate::nav::xz_dist(start, s.vehicle(v).unwrap().pos) < 0.1);
+                assert!(s.vehicle(v).unwrap().stuck_at.is_none());
+            }
+            let departure = departure.expect("driver must depart after initial window");
+            assert!(
+                (expected..=expected + crate::ai::THINK_PERIOD + 2).contains(&departure),
+                "departure {departure}, deadline {expected}"
+            );
+            assert!(s.unit(b).unwrap().ai.ride.unwrap().pickup.unwrap().complete);
+            eprintln!("PICKUP {rules:?} boarded={boarded} start={:?} deadline={expected} complete/depart={departure} pos={:?}", w.started, s.vehicle(v).unwrap().pos);
+        }
+    }
+    #[test]
+    fn pickup_bf1_empty() {
+        pickup_probe(GroundRules::Bf1, false);
+    }
+    #[test]
+    fn pickup_bf2_empty() {
+        pickup_probe(GroundRules::Bf2, false);
+    }
+    #[test]
+    fn pickup_bf1_full_control() {
+        pickup_probe(GroundRules::Bf1, true);
+    }
+    #[test]
+    fn pickup_bf2_full_control() {
+        pickup_probe(GroundRules::Bf2, true);
+    }
+    fn pickup_world(kind: VehicleKind) -> (Sim, UnitHandle, VehicleHandle) {
+        let (mut s, b, v) = world();
+        if kind == VehicleKind::Walker {
+            s.vehicle_mut(v).unwrap().kind = kind;
+            s.walker_params = vec![Some(crate::vehicle::walker::tests::atst())];
+        }
+        (s, b, v)
+    }
+
+    fn locomotion(s: &Sim, b: UnitHandle) -> f32 {
+        let r = s.unit(b).unwrap().ai.ride.unwrap();
+        r.sticks.map_or_else(
+            || {
+                r.hover
+                    .map_or(0.0, |h| h.sticks[0].abs().max(h.sticks[1].abs()))
+            },
+            |x| x[0].abs().max(x[1].abs()),
+        )
+    }
+
+    #[test]
+    fn pickup_lifecycle_success_refusal_handover_switch_and_handle_reuse() {
+        for kind in [VehicleKind::Hover, VehicleKind::Walker] {
+            let (mut s, b, v) = pickup_world(kind);
+            assert!(!s.enter_vehicle(b, v, 9));
+            assert!(s.unit(b).unwrap().ai.ride.is_none());
+            s.tick = 500; // Distinguish a new tenure from an expired zero clock.
+            assert!(s.enter_vehicle(b, v, 0));
+            let w = s.unit(b).unwrap().ai.ride.unwrap().pickup.unwrap();
+            assert_eq!(
+                (w.vehicle, w.seated, w.started, w.complete),
+                (v, 500, None, false)
+            );
+            assert!(!s.enter_vehicle(b, v, 1));
+            assert_eq!(s.unit(b).unwrap().ai.ride.unwrap().pickup, Some(w));
+            s.step(&[]);
+            assert_eq!(locomotion(&s, b), 0.0);
+            let old = s.unit(b).unwrap().ai.ride.unwrap().pickup;
+            s.exit_vehicle(b);
+            assert!(s.unit(b).unwrap().ai.ride.unwrap().pickup.is_none());
+            assert!(s.enter_vehicle(b, v, 0));
+            assert_ne!(s.unit(b).unwrap().ai.ride.unwrap().pickup, old);
+            s.step(&[]);
+            assert_eq!(locomotion(&s, b), 0.0);
+            // A successful seat switch uses unseat/seat, just like switch_pass.
+            s.unseat_unit(b);
+            assert!(s.seat_unit(b, v, 1));
+            assert!(s.unit(b).unwrap().ai.ride.unwrap().pickup.is_none());
+            s.unseat_unit(b);
+            assert!(s.seat_unit(b, v, 0));
+            assert_eq!(
+                s.unit(b).unwrap().ai.ride.unwrap().pickup.unwrap().seated,
+                s.tick
+            );
+            // A human takeover ends the AI tenure; the next AI pilot starts fresh.
+            let human = s.spawn(&UnitSpec::player(0, Vec3::ZERO)).unwrap();
+            assert!(s.enter_vehicle(human, v, 0));
+            assert!(s.unit(b).unwrap().ai.ride.unwrap().pickup.is_none());
+            assert!(s.unit(human).unwrap().ai.ride.is_none());
+            s.exit_vehicle(human);
+            assert!(s.enter_vehicle(b, v, 0));
+            s.remove_vehicle(v);
+            assert!(s.unit(b).unwrap().ai.ride.unwrap().pickup.is_none());
+            let replacement = s.spawn_vehicle(&VehicleSpec {
+                kind,
+                class: 0,
+                home_team: None,
+                neutral_when_empty: true,
+                spawn_pad: None,
+                pos: Vec3::ZERO,
+                yaw: 0.0,
+                max_health: 1000.0,
+                health_type: HealthType::Vehicle,
+                seats: vec![SeatKind::Pilot, SeatKind::Gunner(0)],
+            });
+            assert_eq!(v.index, replacement.index);
+            assert_ne!(v.gen, replacement.gen);
+            assert!(s.enter_vehicle(b, replacement, 0));
+            s.step(&[]);
+            assert_eq!(
+                s.unit(b).unwrap().ai.ride.unwrap().pickup.unwrap().vehicle,
+                replacement
+            );
+            assert_eq!(locomotion(&s, b), 0.0);
+        }
+    }
+
+    #[test]
+    fn pickup_wait_preserves_progress_rng_events_and_bailout_priority() {
+        for kind in [VehicleKind::Hover, VehicleKind::Walker] {
+            let (mut s, b, v) = pickup_world(kind);
+            assert!(s.enter_vehicle(b, v, 0));
+            let mut st = s.unit(b).unwrap().ai;
+            st.route = Some(super::super::state::Route {
+                waypoint: Vec3::new(0.0, 0.0, -300.0),
+                ref_dist: 300.0,
+                stuck_ticks: 59,
+                stuck_run: 100,
+                sidestep: 7,
+                ..Default::default()
+            });
+            let route = st.route;
+            let follower = s.vehicle(v).unwrap().hover.ai;
+            let rng = s.rng.state();
+            let events = s.events.len();
+            let m = s.unit(b).unwrap().mount.unwrap();
+            for tick in 0..120 {
+                s.tick = tick;
+                let (_, nt) = drive(&s, b, m, &mut st, NavTick::default(), tick % 10 == 0);
+                assert_eq!(st.route, route, "wait cannot spend route progress");
+                assert_eq!(nt.stuck_run, 0);
+                assert!(!st.ride.unwrap().use_req);
+                if let Some(h) = st.ride.unwrap().hover {
+                    assert_eq!(h.ai, follower);
+                }
+            }
+            assert_eq!(s.rng.state(), rng);
+            assert_eq!(s.events.len(), events, "wait emits no call/reply");
+            s.unit_mut(b).unwrap().ai = st;
+            s.unit_mut(b).unwrap().ai.ride.as_mut().unwrap().bail_draw = Some(0);
+            s.unit_mut(b).unwrap().ai.next_think = 0;
+            s.vehicle_mut(v).unwrap().health.cur = 100.0;
+            s.step(&[]);
+            assert!(s.unit(b).unwrap().mount.is_none(), "bailout preempts wait");
+        }
+    }
+
+    #[test]
+    fn pickup_reachable_different_clocks_hash_and_continue_differently() {
+        // Both scenes stay still: only the time of successful entry differs.
+        // A player controller holds the late entrant on foot until entry.
+        for rules in [GroundRules::Bf1, GroundRules::Bf2] {
+            let scene = |late: bool| {
+                let (mut s, b, v) = world();
+                s.ground_rules = rules;
+                if late {
+                    s.unit_mut(b).unwrap().controller = Controller::Player { slot: 0 };
+                } else {
+                    assert!(s.enter_vehicle(b, v, 0));
+                }
+                for _ in 0..30 {
+                    s.step(&[]);
+                }
+                if late {
+                    s.unit_mut(b).unwrap().controller = Controller::Ai;
+                    assert!(s.enter_vehicle(b, v, 0));
+                }
+                for _ in 0..10 {
+                    s.step(&[]);
+                }
+                (
+                    s.unit(b).unwrap().ai.ride.unwrap().pickup.unwrap(),
+                    s.vehicle(v).unwrap().pos,
+                )
+            };
+            let (early, ep) = scene(false);
+            let (late, lp) = scene(true);
+            assert_eq!(ep, lp, "identical stationary geometry");
+            assert_ne!(early.seated, late.seated);
+            // Put each reachable clock into the same stationary continuation.
+            // Every other sim field, including RNG, geometry and AI, is equal.
+            let continuation = |wait| {
+                let (mut s, b, v) = world();
+                s.ground_rules = rules;
+                assert!(s.enter_vehicle(b, v, 0));
+                for _ in 0..40 {
+                    s.step(&[]);
+                }
+                s.tick = 125;
+                s.unit_mut(b).unwrap().ai.ride.as_mut().unwrap().pickup = Some(wait);
+                (s, b, v)
+            };
+            let (mut a, ab, av) = continuation(early);
+            let (mut c, cb, cv) = continuation(late);
+            assert_eq!(a.vehicle(av).unwrap().pos, c.vehicle(cv).unwrap().pos);
+            assert_ne!(
+                a.hash(),
+                c.hash(),
+                "different future departure must be hashed"
+            );
+            a.step(&[]);
+            c.step(&[]);
+            assert!(
+                a.unit(ab)
+                    .unwrap()
+                    .ai
+                    .ride
+                    .unwrap()
+                    .pickup
+                    .unwrap()
+                    .complete
+            );
+            assert!(
+                !c.unit(cb)
+                    .unwrap()
+                    .ai
+                    .ride
+                    .unwrap()
+                    .pickup
+                    .unwrap()
+                    .complete
+            );
+            assert!(locomotion(&a, ab) > 0.0);
+            assert_eq!(locomotion(&c, cb), 0.0);
+        }
+    }
+    #[test]
+    fn pickup_clock_boundary_uses_source_rule_and_first_think() {
+        for kind in [VehicleKind::Hover, VehicleKind::Walker] {
+            for rules in [GroundRules::Bf1, GroundRules::Bf2] {
+                let (mut s, b, v) = pickup_world(kind);
+                s.ground_rules = rules;
+                let mut expected_rng = s.rng.clone();
+                expected_rng.next_rand(); // unchanged VBAIL boarding draw
+                assert!(s.enter_vehicle(b, v, 0));
+                assert_eq!(s.rng.state(), expected_rng.state());
+                assert!(!s.enter_vehicle(b, v, 0));
+                assert_eq!(s.rng.state(), expected_rng.state());
+                s.unit_mut(b).unwrap().ai.next_think = 10;
+                for _ in 0..10 {
+                    s.step(&[]);
+                }
+                assert!(s
+                    .unit(b)
+                    .unwrap()
+                    .ai
+                    .ride
+                    .unwrap()
+                    .pickup
+                    .unwrap()
+                    .started
+                    .is_none());
+                s.step(&[]);
+                assert_eq!(
+                    s.unit(b).unwrap().ai.ride.unwrap().pickup.unwrap().started,
+                    Some(10)
+                );
+                let end = if rules == GroundRules::Bf1 { 120 } else { 130 };
+                while s.tick <= end {
+                    s.step(&[]);
+                    assert_eq!(locomotion(&s, b), 0.0);
+                }
+                s.step(&[]);
+                assert!(locomotion(&s, b) > 0.0);
+                eprintln!(
+                    "BOUNDARY {kind:?} {rules:?} seated=0 first_think=10 departure={}",
+                    s.tick
+                );
+            }
+        }
+        let (mut s, b, v) = world();
+        s.vehicle_mut(v).unwrap().kind = VehicleKind::Turret;
+        let rng = s.rng.state();
+        assert!(s.enter_vehicle(b, v, 0));
+        assert!(s.unit(b).unwrap().ai.ride.is_none());
+        assert_eq!(rng, s.rng.state(), "turret has no wait or boarding draw");
+    }
+    #[path = "claim_wait_tests.rs"]
+    mod claim_wait_tests;
+    #[path = "human_wait_tests.rs"]
+    mod human_wait_tests;
 }

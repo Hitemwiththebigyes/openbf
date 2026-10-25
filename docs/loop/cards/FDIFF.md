@@ -4,15 +4,16 @@ title: The first-divergence differ: compare two state traces (port vs port, or p
 milestone: M0
 value: 3
 phase: build
-status: todo
+status: done
 deps: SHASH
-files: scripts/fdiff.py
+files: scripts/fdiff.py, scripts/tests/test_fdiff.py, scripts/gates_selftest.py, engine/artifacts/oracle/README.md
 declares:
 needs:
 effort:
-branch:
+branch: fdiff
 resume:
 created: 2026-10-08
+tries: 1
 ---
 
 ## Why
@@ -34,3 +35,20 @@ The output the oracle exists for: "the first mismatch is tick 412, group units, 
 
 ## Notes
 Python, stdlib only. No engine change in this card (sync mode that needs one is FDIFF2).
+
+## Implementation (2026-10-24)
+
+Streaming version-1 differ implemented with exact hash and full-tuple tolerance
+modes, physical-unit values, strict headers/layout/hash validation, optional
+coarser-quanta comparison and explicit unavailable-group reporting. Self-test is
+wired into gates_selftest.py. State injection split to FDIFF2; no engine changes.
+
+Synthetic reference output:
+```
+first mismatch: tick 3, group units, unit 0x61d1, field x: A=13.0000 B=13.1250; previous matching tick 2
+fdiff: matched 2 of 4 ticks first_divergence tick 3 group units field x
+```
+Existing port-binary fixture pairs: 600/600 matched, including full vs compact.
+These are fixture checks; the real-map speed-mutation Acceptance is still owed.
+PSHASH remains todo, so its conditional real PS2 comparison is not yet applicable.
+

@@ -1043,6 +1043,7 @@ impl Deaths {
                 Event::EnvDeath { unit, cause } => (
                     unit,
                     match cause {
+                        DeathCause::Suicide => 9,
                         DeathCause::DeathRegion => 1,
                         DeathCause::Fall => 2,
                         DeathCause::VehicleDestroyed => 3,

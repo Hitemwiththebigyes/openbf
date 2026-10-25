@@ -4,16 +4,18 @@ title: BF1 interiors are 2-3x darker and uncoloured in the port: GEO1's cave glo
 milestone: M1
 value: 3
 phase: re
-status: todo
+status: blocked
 deps:
 files:
 declares:
-needs:
+needs: primary inputs: PS2 corpora/ELFs, INTL saved states and pairs, PCSX2 tools and real map content absent
+effort:
 branch:
-resume:
+resume: Restore the inputs listed in engine/artifacts/loop/reports/20261025_0358_card_INTL.md; reproduce current-main GEO1/RHN2 and BES2 draws, identify static/material flags and light sets, then controlled PS2 knockouts and independent verification before build. Do not repeat the same missing-input attempt.
 created: 2026-09-29
 defer: post-alpha
 value_pre_alpha: 4
+tries: 1
 ---
 ## Why
 The PXWA walkabout (PCSX2 at the port's own post stands, 1-unit battle) shows two BF1 interiors lit 2-3x brighter and
@@ -68,3 +70,4 @@ does not multiply, a light region (LREG), the SunInfo back light (BACKL), or the
 ## Notes
 - Created 2026-09-29 by PXWA (lane 2). The states `ref/states/bf1_bes2_walk_cp*_b000.p2s` are kept (a 1-unit battle,
   every pad parked, the player held — reload one and it stands at the post).
+

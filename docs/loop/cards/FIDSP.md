@@ -8,10 +8,10 @@ status: blocked
 deps:
 files: scripts/gates.py,scripts/loop_spells.py
 declares: oracle=guards
-needs: planner — write [fidelity.metrics.loop20] (dir=down, tol_agg_abs=9, tol_map_abs=6, agg/maps = main seeds 1-8, agg 23) via --fidelity-both + --rebaseline-fidelity --only loop20; choose a mutation that measurably raises loop20 on main (PIN_FAILS=200 lowers it: 23->19, 19->14)
+needs: decision — the stall-off control raises loop20 only +1..+5 against main's six-block spread 8 (loop seconds x2.0..2.9, separated); choose a duration-weighted metric (loop seconds or loop30) or amend Acceptance 2, then write the row
 effort:
 branch: fidsp
-resume: (private workflow note omitted)
+resume: 20261024_2231 planner: historical six-block23/19/17/20/15/14, proposed9/6 and PIN20019/14 belong to bace5903, not current main. Inputs absent here; no row enabled or mutation claimed. Candidate next control: disable stall::send_off floor-walk/recycle responses plus watch stalled/recycle outputs on scratch only, null-prove and measure both blocks before acceptance amendment. See engine/artifacts/loop/reports/20261024_2231_planner.md.
 created: 2026-10-15
 alpha: yes
 ---

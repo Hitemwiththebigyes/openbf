@@ -4,16 +4,17 @@ title: Endor's log trap (end_weap_treesmash, base trap, both games): collision p
 milestone: M1
 value: 3
 phase: re
-status: todo
+status: blocked
 deps:
 files: engine/crates/bake/src/map.rs,engine/crates/game/src/assets.rs
 declares: rebake=maps; leak; sweep
-needs:
+needs: restore both PS2 corpora/ELFs, Endor LVLs/bakes/missions, original trap states/body rows, PCSX2 toolkit and VDROP/HAIS evidence
 effort:
 branch:
-resume:
+resume: 20261025_0438 input hold: 0/30 minimum paths; restore and verify primary evidence, measure both-disc rest/trigger/strike/reset and body transforms before build; reports/20261025_0438_card_TRAP.md
 created: 2026-10-03
 defer: post-alpha
+tries: 1
 ---
 ## Why
 Card VDROP (2026-10-03) found the two log cylinders of end_weap_treesmash (p_log / p_log1, parents bone_l_tree /
@@ -43,3 +44,4 @@ unowned rider losses in 8 BF2 END1 rounds were there. VDROP gives a class of bas
 The backlog cap: Endor is not one of the six showcase maps, the card is value 3 and blocks no alpha card. What is on
 main (VDROP's "a class of base `trap` gets no collision body", PROVISIONAL) keeps the bikes passing as on the PS2;
 what is missing is the logs' real place and the trap itself. Reverse: `loopctl.py set TRAP defer=`.
+

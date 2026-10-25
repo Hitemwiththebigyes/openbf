@@ -1,3 +1,4 @@
+//! Entry, exit and follower write-back discard ground-claim maintenance (CWAIT).
 //! Enter, drive, exit (card VSEAT, `analysis/re-vehicles.md` §5 [O],
 //! `analysis/re-hover.md` §5.2 [O]): the use input's pick and seat choice,
 //! the exit placement, and the driver's pad written into the hover's input.
@@ -54,6 +55,7 @@
 //!   (`FEEL_NOTES.md`). With no human at the pilot seat the input is zero
 //!   and the timer 0 (FUN_002f4a50).
 //!
+//! WAIT4 preserves the successful entry clock through AI local write-back.
 //! SQVEH followers walk to their leader's vehicle and take a free boardable
 //! seat in step 1c (`analysis/re-squad-orders.md` §4.3). This directed entry
 //! bypasses autonomous seat search and its cooldown; the port's boarding
@@ -258,6 +260,7 @@ impl Sim {
                     let r = u.ai.ride.get_or_insert_default();
                     r.use_req = true;
                     r.board = None;
+                    r.maintenance = None;
                     self.nav_stats.ai_bail_occupants += 1;
                 }
             }
@@ -281,6 +284,7 @@ impl Sim {
             let mut r = if let Some(vh) = following {
                 crate::ai::RideState {
                     board: Some(vh),
+                    maintenance: None,
                     use_req: true,
                     ..u.ai.ride.unwrap_or_default()
                 }
@@ -304,12 +308,16 @@ impl Sim {
                     }
                 }
                 self.exit_vehicle(h);
+                r.pickup = None;
+                r.board = None;
+                r.maintenance = None;
                 r.bail_draw = None;
                 r.bail_seen = false;
                 self.nav_stats.ai_dismounts += 1;
                 r.block_until = self.tick + crate::ai::BOARD_BLOCK;
                 true
             } else if let Some(vh) = r.board.take() {
+                r.maintenance = None;
                 let near = crate::ai::in_reach(self, &self.units[i], vh);
                 let seat = if following == Some(vh) {
                     self.enter_seat(h, vh)
@@ -319,8 +327,11 @@ impl Sim {
                 .filter(|_| near);
                 let entered = seat.is_some_and(|k| self.enter_vehicle(h, vh, k));
                 if entered {
-                    // seat_unit drew once; keep that draw when writing this
-                    // pass's local boarding state back to the unit.
+                    // Preserve seat_unit's clock, zero driver output and draw
+                    // when writing this pass's local state back to the unit.
+                    r.pickup = self.units[i].ai.ride.and_then(|r| r.pickup);
+                    r.sticks = self.units[i].ai.ride.and_then(|r| r.sticks);
+                    r.hover = self.units[i].ai.ride.and_then(|r| r.hover);
                     r.bail_draw = self.units[i].ai.ride.and_then(|r| r.bail_draw);
                     r.bail_seen = false;
                     if following.is_some() {

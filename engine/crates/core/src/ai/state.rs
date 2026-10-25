@@ -1,7 +1,8 @@
 //! What an AI unit carries from one tick to the next, and how it is hashed:
 //! [`AiState`] with its [`Route`] leg, the steering's last [`SteerPick`] and
 //! the leg's [`RouteSource`] — plus [`NavTick`], what one think had to fall
-//! back on (a diagnostic output, not hashed). The AI-hash test lives here.
+//! back on (a diagnostic output, not hashed). Ride state includes the initial
+//! pickup window and its vehicle identity (WAIT4), and claim freshness (CWAIT). The AI-hash test lives here.
 
 use super::command::CmdState;
 use super::{DETOUR_MAX, ERR_NO_TARGET};
@@ -664,6 +665,8 @@ impl StallState {
 /// the entry itself is the PS2's instant Enter slot (re-vehicles §5).
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct RideState {
+    /// WAIT4: once per ground pilot tenure; absent for other seats.
+    pub pickup: Option<PickupWait>,
     /// VBAIL: 0..=100, once per successful AI hover/walker boarding.
     /// PROVISIONAL lifetime: the card asks per boarding; re-walker-ai §1
     /// records a PS2 controller-construction draw instead.
@@ -674,6 +677,9 @@ pub struct RideState {
     pub board: Option<crate::vehicle::VehicleHandle>,
     /// The tick that claim began (the give-up clock).
     pub since: u64,
+    /// CWAIT: last valid ground-boarding think; independent of `since`.
+    /// Cleared on claim release or seating, ignored without `board`.
+    pub maintenance: Option<BoardMaintenance>,
     /// This tick's request for step 1c: enter `board` on foot, get out in a
     /// seat — the port's stand-in for the PS2's queued enter request (B1
     /// FUN_0023c418 → FUN_0023d418, re-vehicles §5).
@@ -693,6 +699,23 @@ pub struct RideState {
     pub closed_until: u64,
     /// Card TURR: in a building turret's seat, the gunner's clocks.
     pub man: Option<ManState>,
+}
+
+/// A ground boarding claim's maintenance and the unit generation owning it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BoardMaintenance {
+    pub owner: UnitHandle,
+    pub tick: u64,
+}
+
+/// Initial ground-driver window (`analysis/re-driver-wait.md` §§2,5,7).
+/// Completion is permanent until the pilot leaves this vehicle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PickupWait {
+    pub vehicle: crate::vehicle::VehicleHandle,
+    pub seated: u64,
+    pub started: Option<u64>,
+    pub complete: bool,
 }
 
 /// Card TURR: what a bot in a building turret's seat carries (`man`): the
@@ -1273,11 +1296,50 @@ impl LostState {
 }
 
 impl RideState {
+    /// Called only after successful entry into a ground pilot seat.
+    pub(crate) fn begin_pickup(
+        &mut self,
+        vehicle: crate::vehicle::VehicleHandle,
+        tick: u64,
+        kind: crate::vehicle::VehicleKind,
+        ai: crate::vehicle::hover::HoverAi,
+    ) {
+        // Step 1c precedes ride(): suppress the boarding foot pad immediately.
+        if kind == crate::vehicle::VehicleKind::Walker {
+            self.sticks = Some([0.0; 2]);
+        } else {
+            self.hover = Some(HoverOut {
+                sticks: [0.0; 3],
+                ai,
+            });
+        }
+        self.maintenance = None;
+        self.pickup = Some(PickupWait {
+            vehicle,
+            seated: tick,
+            started: None,
+            complete: false,
+        });
+    }
+
     fn hash_into(&self, eat: &mut impl FnMut(&[u8])) {
         // Tag 2: `CmdState`'s stream starts with 1, so the two stay apart.
         eat(&[2, u8::from(self.use_req)]);
         if let Some(draw) = self.bail_draw {
             eat(&[11, draw, u8::from(self.bail_seen)]);
+        }
+        if let Some(w) = self.pickup {
+            eat(&[12, u8::from(w.complete)]);
+            eat(&w.vehicle.index.to_le_bytes());
+            eat(&w.vehicle.gen.to_le_bytes());
+            eat(&w.seated.to_le_bytes());
+            match w.started {
+                Some(t) => {
+                    eat(&[1]);
+                    eat(&t.to_le_bytes());
+                }
+                None => eat(&[0]),
+            }
         }
         match self.board {
             Some(v) => {
@@ -1285,6 +1347,14 @@ impl RideState {
                 eat(&v.gen.to_le_bytes());
             }
             None => eat(&u32::MAX.to_le_bytes()),
+        }
+        if self.board.is_some() {
+            if let Some(c) = self.maintenance {
+                eat(&[13]);
+                eat(&c.owner.index.to_le_bytes());
+                eat(&c.owner.gen.to_le_bytes());
+                eat(&c.tick.to_le_bytes());
+            }
         }
         eat(&self.since.to_le_bytes());
         eat(&self.block_until.to_le_bytes());
@@ -1792,5 +1862,71 @@ mod tests {
         };
         assert_ne!(sq(None), sq(Some(0)));
         assert_ne!(sq(Some(0)), sq(Some(1)));
+    }
+    #[test]
+    fn every_pickup_field_changes_the_hash() {
+        let mut r = RideState::default();
+        r.begin_pickup(
+            crate::vehicle::VehicleHandle { index: 2, gen: 3 },
+            10,
+            crate::vehicle::VehicleKind::Walker,
+            Default::default(),
+        );
+        let bytes = |r: &RideState| {
+            let mut out = vec![];
+            r.hash_into(&mut |b| out.extend_from_slice(b));
+            out
+        };
+        let base = bytes(&r);
+        for mutate in [
+            (|w: &mut PickupWait| w.vehicle.index += 1) as fn(&mut PickupWait),
+            |w| w.vehicle.gen += 1,
+            |w| w.seated += 1,
+            |w| w.started = Some(12),
+            |w| w.complete = true,
+        ] {
+            let mut other = r;
+            mutate(other.pickup.as_mut().unwrap());
+            assert_ne!(base, bytes(&other));
+        }
+        let mut a = r;
+        a.pickup.as_mut().unwrap().started = Some(12);
+        let mut b = a;
+        b.pickup.as_mut().unwrap().started = Some(13);
+        assert_ne!(bytes(&a), bytes(&b));
+        b.pickup = None;
+        assert_ne!(base, bytes(&b));
+    }
+    #[test]
+    fn cwait_each_maintenance_field_is_hashed_only_with_a_claim() {
+        let bytes = |r: &RideState| {
+            let mut out = vec![];
+            r.hash_into(&mut |b| out.extend_from_slice(b));
+            out
+        };
+        let mut r = RideState {
+            board: Some(crate::vehicle::VehicleHandle { index: 2, gen: 3 }),
+            maintenance: Some(BoardMaintenance {
+                owner: UnitHandle { index: 4, gen: 5 },
+                tick: 6,
+            }),
+            ..Default::default()
+        };
+        let baseline = bytes(&r);
+        for change in 0..4 {
+            let mut other = r;
+            match change {
+                0 => other.maintenance.as_mut().unwrap().owner.index += 1,
+                1 => other.maintenance.as_mut().unwrap().owner.gen += 1,
+                2 => other.maintenance.as_mut().unwrap().tick += 1,
+                _ => other.maintenance = None,
+            }
+            assert_ne!(baseline, bytes(&other), "omitted field {change}");
+        }
+        r.board = None;
+        let absent = bytes(&r);
+        r.maintenance = None;
+        assert_eq!(absent, bytes(&r), "inactive maintenance adds no bytes");
+        assert_eq!(bytes(&RideState::default()), bytes(&r));
     }
 }

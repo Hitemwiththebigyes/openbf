@@ -155,8 +155,15 @@ impl SceneGpu {
         }
     }
 
+    /// [`Self::animate_water`] at the renderer's own unwrapped water clock
+    /// (or `OPENBF_WATER_TIME`): what the game loop calls every frame.
+    pub fn animate_water_live(&mut self, r: &mut Renderer, eye: Vec3) -> Result<()> {
+        let t = crate::water_anim::clock(r.water_time);
+        self.animate_water(r, t, eye)
+    }
+
     /// Move the map's water to `t` seconds, seen from `eye` (the camera's
-    /// position) — pass [`crate::water_anim::clock`] of the renderer's unwrapped water clock.
+    /// position) — a fixed time; a live loop calls [`Self::animate_water_live`].
     /// The flat-water bob rides the water draws' model matrices. On an ocean
     /// map every call re-uploads the FFT patches and instances them over the
     /// wet cells that reach inside the water's far range; the first call also

@@ -1,4 +1,4 @@
-//! Pause menu (BF2-style, controller-navigated): resume, the session cheat
+//! Pause menu (BF2-style, controller-navigated): resume, confirmed Respawn, the session cheat
 //! registry (PLAN §Cheats), the settings (aim-assist intensity slider,
 //! unit-count/alive-AI cap slider, the FOV option, the music volume), quit. Pure egui over a
 //! [`MenuModel`]; the game applies the returned [`MenuAction`]s.
@@ -22,6 +22,10 @@ pub struct MenuModel {
     /// The music volume, 0..1 (1 = the disc record's own gain, 0 = off).
     pub music_volume: f32,
     pub cursor: usize,
+    /// Pending pause-menu Respawn confirmation (re-spawn-flow §7).
+    pub respawn_confirm: bool,
+    /// None outside a live battle; caller may supply a localized label.
+    pub respawn_label: Option<String>,
     /// Round result line, if the round is over.
     pub outcome_line: Option<String>,
     /// The shell's settings page (card BSHLA: Options → Game / Audio
@@ -32,6 +36,9 @@ pub struct MenuModel {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MenuAction {
     Resume,
+    RequestRespawn,
+    CancelRespawn,
+    Respawn,
     ToggleCheat(usize),
     SetAssist(f32),
     SetAiCap(u32),
@@ -55,6 +62,9 @@ pub struct MenuInput {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Row {
     Resume,
+    Respawn,
+    No,
+    Yes,
     Cheat(usize),
     Assist,
     AiCap,
@@ -64,6 +74,9 @@ pub enum Row {
 }
 
 pub fn rows(m: &MenuModel) -> Vec<Row> {
+    if m.respawn_confirm {
+        return vec![Row::No, Row::Yes];
+    }
     let mut v = vec![Row::Resume];
     v.extend((0..m.cheats.len()).map(Row::Cheat));
     v.push(Row::Assist);
@@ -71,6 +84,9 @@ pub fn rows(m: &MenuModel) -> Vec<Row> {
     v.push(Row::Fov);
     v.push(Row::Music);
     if m.in_shell.is_none() {
+        if m.respawn_label.is_some() {
+            v.push(Row::Respawn);
+        }
         v.push(Row::Quit);
     }
     v
@@ -84,7 +100,11 @@ pub fn navigate(m: &MenuModel, input: MenuInput) -> (usize, Vec<MenuAction>) {
     let mut cursor = m.cursor.min(n - 1);
     let mut actions = Vec::new();
     if input.back {
-        actions.push(MenuAction::Resume);
+        actions.push(if m.respawn_confirm {
+            MenuAction::CancelRespawn
+        } else {
+            MenuAction::Resume
+        });
         return (cursor, actions);
     }
     if input.up {
@@ -93,7 +113,13 @@ pub fn navigate(m: &MenuModel, input: MenuInput) -> (usize, Vec<MenuAction>) {
     if input.down {
         cursor = (cursor + 1) % n;
     }
+    if m.respawn_confirm && (input.left || input.right) {
+        cursor = 1 - cursor;
+    }
     match rows[cursor] {
+        Row::Respawn if input.confirm => actions.push(MenuAction::RequestRespawn),
+        Row::No if input.confirm => actions.push(MenuAction::CancelRespawn),
+        Row::Yes if input.confirm => actions.push(MenuAction::Respawn),
         Row::Resume if input.confirm => actions.push(MenuAction::Resume),
         Row::Cheat(i) if input.confirm => actions.push(MenuAction::ToggleCheat(i)),
         Row::Assist if input.left || input.right => {
@@ -181,10 +207,21 @@ pub fn draw_menu(ctx: &egui::Context, m: &MenuModel) -> Vec<MenuAction> {
                         }
                     });
                     ui.add_space(8.0);
+                    if m.respawn_confirm {
+                        ui.label("Do you really wish to kill your current player?");
+                    }
                     let rows = rows(m);
                     for (i, row) in rows.iter().enumerate() {
                         let sel = i == m.cursor;
                         let clicked = match row {
+                            Row::Respawn => row_label(
+                                ui,
+                                sel,
+                                m.respawn_label.clone().unwrap_or_else(|| "Respawn".into()),
+                                None,
+                            ),
+                            Row::No => row_label(ui, sel, "No".into(), None),
+                            Row::Yes => row_label(ui, sel, "Yes".into(), None),
                             Row::Resume => {
                                 let back = if m.in_shell.is_some() {
                                     "Back"
@@ -234,6 +271,9 @@ pub fn draw_menu(ctx: &egui::Context, m: &MenuModel) -> Vec<MenuAction> {
                         };
                         if clicked {
                             match row {
+                                Row::Respawn => actions.push(MenuAction::RequestRespawn),
+                                Row::No => actions.push(MenuAction::CancelRespawn),
+                                Row::Yes => actions.push(MenuAction::Respawn),
                                 Row::Resume => actions.push(MenuAction::Resume),
                                 Row::Cheat(k) => actions.push(MenuAction::ToggleCheat(*k)),
                                 Row::Quit => actions.push(MenuAction::Quit),
@@ -409,9 +449,88 @@ mod tests {
             fov_deg: 37.7,
             music_volume: 1.0,
             cursor: 0,
+            respawn_confirm: false,
+            respawn_label: Some("Respawn".into()),
             outcome_line: None,
             in_shell: None,
         }
+    }
+
+    #[test]
+    fn respawn_confirmation_navigation_and_shell_exclusion() {
+        let mut m = model();
+        m.cursor = rows(&m).iter().position(|r| *r == Row::Respawn).unwrap();
+        assert_eq!(
+            navigate(
+                &m,
+                MenuInput {
+                    confirm: true,
+                    ..Default::default()
+                }
+            )
+            .1,
+            vec![MenuAction::RequestRespawn]
+        );
+        m.respawn_confirm = true;
+        m.cursor = 0;
+        assert_eq!(rows(&m), vec![Row::No, Row::Yes]);
+        assert_eq!(
+            navigate(
+                &m,
+                MenuInput {
+                    confirm: true,
+                    ..Default::default()
+                }
+            )
+            .1,
+            vec![MenuAction::CancelRespawn]
+        );
+        assert_eq!(
+            navigate(
+                &m,
+                MenuInput {
+                    down: true,
+                    confirm: true,
+                    ..Default::default()
+                }
+            )
+            .1,
+            vec![MenuAction::Respawn]
+        );
+        assert_eq!(
+            navigate(
+                &m,
+                MenuInput {
+                    right: true,
+                    confirm: true,
+                    ..Default::default()
+                }
+            )
+            .1,
+            vec![MenuAction::Respawn]
+        );
+        m.cursor = 1;
+        assert_eq!(
+            navigate(
+                &m,
+                MenuInput {
+                    back: true,
+                    ..Default::default()
+                }
+            )
+            .1,
+            vec![MenuAction::CancelRespawn]
+        );
+        let ctx = egui::Context::default();
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            draw_menu(ctx, &m);
+        });
+        m.respawn_confirm = false;
+        m.in_shell = Some("Options".into());
+        assert!(!rows(&m).contains(&Row::Respawn));
+        m.in_shell = None;
+        m.respawn_label = None;
+        assert!(!rows(&m).contains(&Row::Respawn));
     }
 
     #[test]

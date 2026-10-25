@@ -9,6 +9,148 @@ use game::roster::{ClassRoster, FactionRoster};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+type Gcl16ClassRow<'a> = (&'a str, &'a str, &'a [(&'a str, &'a str)]);
+
+/// Asset-free class RONs exercise the same load path as baked classes.
+fn gcl16_db(rows: &[Gcl16ClassRow<'_>]) -> game::classdb::ClassDb {
+    use game::classdb::{fnv1a_lowercase, ClassDb, ClassDef};
+    let defs: Vec<_> = rows
+        .iter()
+        .map(|(name, base, props)| ClassDef {
+            name: (*name).into(),
+            kind: String::new(),
+            base: (*base).into(),
+            props: props
+                .iter()
+                .map(|(k, v)| (fnv1a_lowercase(k), (*v).into()))
+                .collect(),
+        })
+        .collect();
+    let path = std::env::temp_dir().join(format!(
+        "openbf-gcl16-{}-{:?}.ron",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    std::fs::write(&path, ron::to_string(&defs).unwrap()).unwrap();
+    let mut db = ClassDb::default();
+    let loaded = db.load(&path);
+    std::fs::remove_file(path).unwrap();
+    assert_eq!(loaded.unwrap(), rows.len());
+    db
+}
+
+#[test]
+fn gcl16_animation_banks_resolve_slot_case_and_preserve_priority() {
+    use game::roster::class_anim;
+    for spelling in ["AuthoredWeapon", "aUtHoReDwEaPoN"] {
+        let db = gcl16_db(&[
+            ("trooper", "soldier", &[("WeaponName1", spelling)]),
+            (
+                "bank_parent",
+                "cannon",
+                &[("AnimationBank", "Pistol extra")],
+            ),
+            ("AuthoredWeapon", "bank_parent", &[]),
+        ]);
+        let anim = class_anim(&db, "trooper", &db.weapon_slots("trooper"));
+        assert_eq!(anim.bank_of(spelling), "pistol", "{spelling}");
+        assert_eq!(anim.bank_of("AUTHOREDWEAPON"), "pistol");
+        assert_eq!(anim.bank_of("absent"), "rifle");
+    }
+    for (props, expected) in [
+        (
+            vec![
+                ("AnimationBank", "Pistol"),
+                ("CustomAnimationBank", "Tool"),
+                ("ComboAnimationBank", "Saber"),
+            ],
+            "saber",
+        ),
+        (
+            vec![("AnimationBank", "Pistol"), ("CustomAnimationBank", "Tool")],
+            "tool",
+        ),
+        (vec![], "rifle"),
+    ] {
+        let db = gcl16_db(&[
+            ("trooper", "soldier", &[("WeaponName1", "weapon")]),
+            ("weapon", "cannon", &props),
+        ]);
+        assert_eq!(
+            class_anim(&db, "trooper", &db.weapon_slots("trooper")).bank_of("weapon"),
+            expected
+        );
+    }
+}
+
+#[test]
+fn gcl16_duplicate_weapon_keeps_selected_primary_slot() {
+    let db = gcl16_db(&[
+        (
+            "parent",
+            "soldier",
+            &[
+                ("WeaponName1", "grenade_weapon"),
+                ("WeaponChannel1", "1"),
+                ("WeaponAmmo1", "3"),
+                ("WeaponName2", "grenade_weapon"),
+                ("WeaponChannel2", "0"),
+                ("WeaponAmmo2", "9"),
+            ],
+        ),
+        ("trooper", "parent", &[("WeaponAmmo2", "7")]),
+        ("grenade_weapon", "grenade", &[("OrdnanceName", "shell")]),
+        ("shell", "sticky", &[]),
+    ]);
+    let roster = ClassRoster::build(&db, "trooper", 1, None).unwrap();
+    assert_eq!(
+        game::roster::primary_weapon(&db, "trooper"),
+        Some(("grenade_weapon".into(), 7))
+    );
+    assert_eq!((roster.weapon_slot, roster.spare_clips), (1, 7));
+    assert_eq!(roster.weapon.name, "grenade_weapon");
+    assert_eq!(roster.slots, db.weapon_slots("trooper"));
+    let held: Vec<_> = roster
+        .held
+        .iter()
+        .map(|h| (h.slot, h.channel, h.clips, h.weapon.name.as_str()))
+        .collect();
+    assert_eq!(held, [(0, 1, 3, "grenade_weapon")]);
+}
+
+#[test]
+fn gcl16_primary_slot_controls() {
+    for (channel, selected, clips, held_slot) in [(0, 1, 9, 0), (1, 0, 3, 1)] {
+        let db = gcl16_db(&[
+            (
+                "trooper",
+                "soldier",
+                &[
+                    ("WeaponName1", "first"),
+                    ("WeaponChannel1", "1"),
+                    ("WeaponAmmo1", "3"),
+                    ("WeaponName2", "second"),
+                    ("WeaponChannel2", &channel.to_string()),
+                    ("WeaponAmmo2", "9"),
+                ],
+            ),
+            ("first", "grenade", &[("OrdnanceName", "shell")]),
+            ("second", "grenade", &[("OrdnanceName", "shell")]),
+            ("shell", "sticky", &[]),
+        ]);
+        let roster = ClassRoster::build(&db, "trooper", 1, None).unwrap();
+        let name = if selected == 0 { "first" } else { "second" };
+        assert_eq!((roster.weapon_slot, roster.spare_clips), (selected, clips));
+        assert_eq!(roster.weapon.name, name);
+        assert_eq!(
+            game::roster::primary_weapon(&db, "trooper"),
+            Some((name.into(), clips))
+        );
+        assert_eq!(roster.held.len(), 1);
+        assert_eq!(roster.held[0].slot, held_slot);
+    }
+}
+
 /// The baked class RONs, baked ONCE per test binary: every test reads the
 /// same ten files, so the first caller bakes them and the rest share the dir.
 fn classes_dir() -> Option<PathBuf> {
@@ -543,11 +685,28 @@ fn every_mission_mix_resolves_against_its_maps_own_disc() {
         let db = &dbs.iter().find(|(k, _)| *k == key).unwrap().1;
         for (t, faction) in factions.iter().enumerate() {
             let mix = &m.teams[t].classes;
-            if mix.is_empty() {
-                continue;
-            }
             let (r, skipped) = FactionRoster::build(db, &m.source_game, faction, mix)
                 .unwrap_or_else(|e| panic!("{stem} {faction}: {e:#}"));
+            for c in &r.classes {
+                println!(
+                    "ROSTER {stem} {faction} {} primary={} ammo={} held={:?}",
+                    c.class,
+                    c.weapon_slot,
+                    c.spare_clips,
+                    c.held.iter().map(|h| h.slot).collect::<Vec<_>>()
+                );
+                for slot in &c.slots {
+                    println!(
+                        "ROSTER {stem} {faction} {} slot={} channel={} name={} ammo={:?} bank={}",
+                        c.class,
+                        slot.slot,
+                        slot.channel,
+                        slot.weapon,
+                        slot.ammo,
+                        c.anim.bank_of(&slot.weapon)
+                    );
+                }
+            }
             for s in &skipped {
                 if s.reason.contains("not in the baked class db") {
                     missing.push(format!("{stem} {faction} {}", s.class));
@@ -555,7 +714,7 @@ fn every_mission_mix_resolves_against_its_maps_own_disc() {
                     not_soldier.push(format!("{stem} {faction} {}", s.class));
                 }
             }
-            if r.fill_class().class != mix[0].0.to_ascii_lowercase() {
+            if !mix.is_empty() && r.fill_class().class != mix[0].0.to_ascii_lowercase() {
                 fell_back.push(format!("{stem} {faction} {}", mix[0].0));
             }
         }

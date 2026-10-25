@@ -572,6 +572,126 @@ fn a_bot_fires_no_rocket_into_the_wall_before_it() {
     }
 }
 
+/// RKPRF: exercise the first press, independently of the latched salvo and
+/// charge-release cases above. The retained, seen target avoids a think refresh;
+/// a ready tap gate/burst makes the real AI produce FIRE on this very tick.
+fn immediate_rocket_press(rules: GroundRules, human: bool, wall: bool) {
+    use crate::weapon::{ExplosionClass, FireState};
+    let mut sim = Sim::empty(3);
+    sim.ground_rules = rules;
+    sim.heightfield = Some(flat_ground());
+    sim.tick = 100;
+    let mut w = sim.weapon_classes[0].clone();
+    w.initial_salvo_delay = 0.0;
+    w.max_pressed_time = 0.0;
+    w.trigger_single = true;
+    w.ordnance.velocity = 100.0;
+    w.ordnance.life_span = 3.0;
+    w.ordnance.explosion = Some(ExplosionClass {
+        damage: 400.0,
+        damage_inner: 2.0,
+        damage_outer: 4.0,
+        ..ExplosionClass::default()
+    });
+    sim.weapon_classes.push(w);
+    let wc = sim.weapon_classes.len() - 1;
+    let spec = if human {
+        UnitSpec::player(0, Vec3::ZERO)
+    } else {
+        ai(0, Vec3::ZERO, 0.0)
+    };
+    let shooter = sim.spawn(&spec).unwrap();
+    let target = sim
+        .spawn(&UnitSpec::trooper(1, Vec3::new(0.0, 0.0, -25.0)))
+        .unwrap();
+    let target_pos = sim.unit(target).unwrap().soldier.pos;
+    {
+        let u = &mut sim.units[shooter.index as usize];
+        u.weapon_class = wc;
+        u.weapon.active = true;
+        u.weapon.clip = 10;
+        assert!(u.held.is_empty(), "the primary weapon path");
+        assert_eq!(u.weapon.state, FireState::Idle);
+        assert_eq!((u.weapon.fire_cmd, u.weapon.salvo_counter), (0, 0));
+        u.ai.next_think = 1000;
+        u.ai.target = Some(target);
+        u.ai.tap_gate = false;
+        u.ai.tap_byte = -2;
+        u.ai.burst = 10;
+        u.ai.err = 0.0;
+        u.ai.aim_dir = Vec3::NEG_Z;
+        u.ai.contacts[0] = Some(crate::perception::Contact {
+            handle: target,
+            first_seen: 0,
+            last_seen: 100,
+            last_pos: target_pos,
+            seen_now: true,
+            heard: false,
+            told: false,
+        });
+    }
+    if wall {
+        sim.collision = wall_world();
+    }
+    if !human {
+        // Inspect a COPY: Sim::step must generate and use its own AI pad.
+        let mut brain = sim.units[shooter.index as usize].ai;
+        let (pad, _) = crate::ai::think(&sim, shooter, &mut brain);
+        assert!(
+            pad.pressed(buttons::FIRE),
+            "fresh AI press: {rules:?}, wall={wall}"
+        );
+    }
+    let hp = sim.unit(shooter).unwrap().health.cur;
+    let spare = sim.unit(shooter).unwrap().weapon.spare;
+    sim.step(&[if human { fire() } else { PadState::default() }]);
+    let shots: Vec<_> = sim
+        .events
+        .iter()
+        .filter_map(|e| match e {
+            Event::Shot { unit, .. } => Some(*unit),
+            _ => None,
+        })
+        .collect();
+    let held = !human && wall;
+    assert_eq!(
+        shots,
+        if held { vec![] } else { vec![shooter] },
+        "press-tick shot ownership: {rules:?}, human={human}, wall={wall}"
+    );
+    assert_eq!(
+        sim.nav_stats.blast_holds,
+        u64::from(held),
+        "press-tick holds: {rules:?}, human={human}, wall={wall}"
+    );
+    // The exempt human can die to this point-blank shot; its slot still
+    // carries the weapon-cycle result, while unit() excludes dead soldiers.
+    let u = &sim.units[shooter.index as usize];
+    assert_eq!(u.weapon.clip, if held { 10 } else { 9 });
+    assert_eq!(u.weapon.spare, spare);
+    if !human || !wall {
+        assert_eq!(u.health.cur, hp, "the held/open-air shooter is unhurt");
+    }
+}
+
+#[test]
+fn an_ai_fresh_rocket_press_holds_at_a_wall_but_fires_in_open_air() {
+    for rules in [GroundRules::Bf1, GroundRules::Bf2] {
+        for wall in [false, true] {
+            immediate_rocket_press(rules, false, wall);
+        }
+    }
+}
+
+#[test]
+fn a_human_fresh_rocket_press_is_exempt_from_blast_holds() {
+    for rules in [GroundRules::Bf1, GroundRules::Bf2] {
+        for wall in [false, true] {
+            immediate_rocket_press(rules, true, wall);
+        }
+    }
+}
+
 /// Determinism holds with a collision world, and the world CHANGES the
 /// replay (the player walks into a wall instead of through it).
 #[test]
@@ -1228,4 +1348,70 @@ fn the_zoom_is_hashed_only_while_on() {
         scope: false,
     });
     assert_ne!(a.hash(), b.hash());
+}
+
+/// RKMAR: the tick must consult release clearance for a due salvo. Distances
+/// are lateral capsule-centre offsets from the wall blast, not muzzle ranges.
+fn rkmar_due_salvo(rules: GroundRules) {
+    use crate::weapon::{ExplosionClass, FireState};
+    for (distance, team, held) in [(4.5, 0, true), (5.5, 0, false), (4.5, 1, false)] {
+        let mut s = Sim::empty(3);
+        s.ground_rules = rules;
+        s.heightfield = Some(flat_ground());
+        s.collision = wall_world();
+        s.weapon_classes[0].ordnance.explosion = Some(ExplosionClass {
+            damage: 400.0,
+            damage_inner: 2.0,
+            damage_outer: 4.0,
+            ..ExplosionClass::default()
+        });
+        let shooter = s.spawn(&ai(0, Vec3::new(0.0, 0.0, 20.0), 0.0)).unwrap();
+        let muzzle = s.unit(shooter).unwrap().muzzle();
+        let other = s
+            .spawn(&UnitSpec::trooper(
+                team,
+                Vec3::new(muzzle.x + distance, 0.0, -2.3),
+            ))
+            .unwrap();
+        let hp = s.unit(other).unwrap().health.cur;
+        let own_hp = s.unit(shooter).unwrap().health.cur;
+        let u = s.unit_mut(shooter).unwrap();
+        u.weapon.active = true;
+        u.weapon.clip = 10;
+        u.weapon.state = FireState::Firing;
+        u.weapon.salvo_counter = 1;
+        u.weapon.salvo_timer = 0.2;
+        let spare = u.weapon.spare;
+        let mut owners = Vec::new();
+        for _ in 0..12 {
+            s.step(&[]);
+            owners.extend(s.events.iter().filter_map(|e| match e {
+                Event::Shot { unit, .. } => Some(*unit),
+                _ => None,
+            }));
+        }
+        assert_eq!(
+            owners,
+            if held { vec![] } else { vec![shooter] },
+            "{rules:?} d={distance} team={team}"
+        );
+        assert_eq!(s.nav_stats.blast_holds, u64::from(held));
+        let u = &s.units[shooter.index as usize];
+        assert_eq!(
+            (u.weapon.clip, u.weapon.spare),
+            (if held { 10 } else { 9 }, spare)
+        );
+        assert_eq!(u.health.cur, own_hp);
+        assert_eq!(s.units[other.index as usize].health.cur, hp);
+    }
+}
+
+#[test]
+fn rkmar_bf1_due_salvo_holds_only_for_the_margin_friend() {
+    rkmar_due_salvo(GroundRules::Bf1);
+}
+
+#[test]
+fn rkmar_bf2_due_salvo_holds_only_for_the_margin_friend() {
+    rkmar_due_salvo(GroundRules::Bf2);
 }

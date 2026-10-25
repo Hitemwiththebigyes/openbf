@@ -1000,3 +1000,111 @@ fn census_slide_accounts_for_root_scale_and_matches_playback() {
         );
     }
 }
+
+/// Use the public rider path; the run clip is a distinct, animated seat marker.
+fn seat_updates(r: &mut Run) {
+    for frame in 0..4 {
+        r.a.seat(&r.clips, &r.skel, RUN, None, DT);
+        assert!(r.a.seated());
+        let pose = r.a.pose(&r.skel);
+        let expected = 200.0 + frame as f32 * DT * 30.0;
+        assert!((pose.0[LEG].translation.x - expected).abs() < 1e-4);
+        assert!(root_yaw(r).abs() < 1e-5);
+    }
+}
+
+fn idle_exit(r: &mut Run, i: &AnimInput) {
+    for _ in 0..30 {
+        r.steps(i, 1);
+        assert!(!r.a.seated());
+        assert_eq!(r.a.body(), Some(Body::Feet(0, Move::Idle)));
+        assert_eq!(r.a.lower_clip(), Some(IDLE));
+        assert!(r.a.twist().abs() < 1e-5, "stale twist {}", r.a.twist());
+        assert!(root_yaw(r).abs() < 1e-5);
+        // Through the blend the lower pose stays between seat and idle,
+        // never approaching the turn clip's marker (900).
+        let x = r.a.pose(&r.skel).0[LEG].translation.x;
+        assert!((100.0..=202.0).contains(&x), "exit leg {x}");
+    }
+    assert_eq!(r.clip_of(LEG), IDLE);
+}
+
+fn seat_exit_yaw_scene(rig: Rig) {
+    for yaw in [-PI / 2.0, PI / 2.0] {
+        let mut r = Run::new(rig.clone());
+        let mut i = input(0.0);
+        r.steps(&i, 20);
+        seat_updates(&mut r);
+        i.yaw = yaw;
+        idle_exit(&mut r, &i);
+        // A new on-foot turn still works in both directions.
+        i.yaw += yaw;
+        r.steps(&i, 1);
+        let turn = if yaw < 0.0 {
+            Move::TurnRight
+        } else {
+            Move::TurnLeft
+        };
+        assert_eq!(r.a.body(), Some(Body::Feet(0, turn)));
+        assert_eq!(r.a.lower_clip(), Some(TURN));
+    }
+}
+
+fn seat_exit_turn_scene(rig: Rig) {
+    for yaw in [-PI / 2.0, PI / 2.0] {
+        let mut r = Run::new(rig.clone());
+        let mut i = input(0.0);
+        r.steps(&i, 20);
+        i.yaw = yaw;
+        r.steps(&i, 1);
+        assert_eq!(r.a.lower_clip(), Some(TURN));
+        seat_updates(&mut r);
+        // No yaw change here: only the unfinished leg turn can leak out.
+        idle_exit(&mut r, &i);
+    }
+}
+
+#[test]
+fn invalid_seat_clip_keeps_current_foot_or_seat_state() {
+    for rig in [rig_bf1(), rig_bf2()] {
+        let mut r = Run::new(rig.clone());
+        let mut control = Run::new(rig);
+        let mut i = input(0.0);
+        r.steps(&i, 20);
+        control.steps(&i, 20);
+        r.a.seat(&r.clips, &r.skel, usize::MAX, None, DT);
+        assert!(!r.a.seated());
+        i.yaw = -PI / 2.0;
+        r.steps(&i, 1);
+        control.steps(&i, 1);
+        assert_eq!(r.a.body(), control.a.body());
+        assert_eq!(r.a.lower_clip(), Some(TURN));
+        assert_eq!(r.a.twist(), control.a.twist());
+        assert_eq!(r.a.pose(&r.skel).0, control.a.pose(&control.skel).0);
+        seat_updates(&mut r);
+        let before = r.a.pose(&r.skel);
+        r.a.seat(&r.clips, &r.skel, usize::MAX, None, DT);
+        assert!(r.a.seated());
+        assert_eq!(r.a.pose(&r.skel).0, before.0);
+        // The invalid call must not advance the seat clock either.
+        r.a.seat(&r.clips, &r.skel, RUN, None, DT);
+        assert!((r.a.pose(&r.skel).0[LEG].translation.x - 202.0).abs() < 1e-4);
+    }
+}
+
+#[test]
+fn seat_exit_mounted_yaw_bf1() {
+    seat_exit_yaw_scene(rig_bf1());
+}
+#[test]
+fn seat_exit_mounted_yaw_bf2() {
+    seat_exit_yaw_scene(rig_bf2());
+}
+#[test]
+fn seat_exit_interrupted_turn_bf1() {
+    seat_exit_turn_scene(rig_bf1());
+}
+#[test]
+fn seat_exit_interrupted_turn_bf2() {
+    seat_exit_turn_scene(rig_bf2());
+}

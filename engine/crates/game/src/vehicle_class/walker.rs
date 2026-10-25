@@ -1,8 +1,8 @@
 //! A walker's class numbers (card WALK, `analysis/re-walker.md` §11 [O]): the
 //! ctor defaults (FUN_00263160), the setter's conversions (FUN_00263f68),
 //! the BASE chain and the `WalkerSection` routing — with a section open the
-//! turret setter FUN_00270770 gets first refusal ([`TURRET_CLAIMS`]), and
-//! what it does not claim (the legs, speeds, turn rates) still lands on the
+//! turret setter FUN_00270770 gets first refusal ([`turret_claims`]), and
+//! what it does not claim (the legs and locomotion speeds) still lands on the
 //! walker (B2:182865-182869).
 //!
 //! BASE chains: scalars inherit child-over-parent, as the hover's; a def that
@@ -39,15 +39,119 @@ use glam::Vec3;
 /// Engine bases that construct the walker (re-vehicles §2).
 pub const WALKER_BASES: [&str; 2] = ["walker", "commandwalker"];
 
-/// The 30 hashes the MountedTurret setter FUN_00270770 claims inside a
-/// `WalkerSection` (`lead_tmp/vwlk/turret_claims_b2.txt`, re-walker §11):
-/// YawLimits, PitchLimits, the weapons, the turret node and sounds among
-/// them — so a section's limits are the section's, not the walker's.
-pub const TURRET_CLAIMS: [u32; 30] = [
-    0x8822cb3c, 0xc13068b6, 0x9d39f68a, 0xb371fc9a, 0xb69a7cb4, 0x9455a446, 0x8e5da6e8, 0x9b0ca8c3,
-    0xde721cb4, 0xd6c12c3b, 0xd0329e80, 0xdc19bd13, 0xf2aa4a90, 0xe9d0fb69, 0xf84aa204, 0xfbf47dba,
-    0x3403b139, 0x1503f425, 0x1fa43b99, 0x16472328, 0x28f016d2, 0x2c3e8078, 0x0ebb87c8, 0x5d967ebc,
-    0x6f332041, 0x6363d774, 0x8585bb8a, 0x865061fc, 0x4ed7a4d0, 0x4c39154d,
+/// What the MountedTurret setter claims inside a `WalkerSection` (card WSEAT):
+/// its own compares, then the three setters it falls through to, in order -
+/// the camera's, the aimer's and the Controllable seat's, whose claim it
+/// returns (B2 FUN_00270770 -> FUN_001d0328, FUN_00302f10, FUN_002f6eb8,
+/// B2:191723-191731). BF1's FUN_00225f08 runs the same chain (FUN_001b6168,
+/// FUN_0026e260, FUN_0023da58, B1:139038-139045); its own compares add the
+/// four PC* rates and lack three of BF2's, none authored inside a walker
+/// section on either disc. Everything else is the walker's.
+pub fn turret_claims(k: u32) -> bool {
+    [&OWN[..], &CAMERA, &AIMER, &SEAT]
+        .iter()
+        .any(|s| s.contains(&k))
+}
+
+/// FUN_00270770's own compares: limits, rates, weapons, node, sounds.
+const OWN: [u32; 35] = [
+    0x0b2f_c2f9,
+    0x0ebb_87c8,
+    0x0f77_c4e8,
+    0x1503_f425,
+    0x1647_2328,
+    0x1fa4_3b99,
+    0x28f0_16d2,
+    0x2c3e_8078,
+    0x3403_b139,
+    0x4c39_154d,
+    0x4ed7_a4d0,
+    0x5433_f589,
+    0x5d96_7ebc,
+    0x6363_d774,
+    0x6f33_2041,
+    0x8585_bb8a,
+    0x8650_61fc,
+    0x8822_cb3c,
+    0x8e5d_a6e8,
+    0x9455_a446,
+    0x9b0c_a8c3,
+    0x9d39_f68a,
+    0xb371_fc9a,
+    0xb553_4be0,
+    0xb69a_7cb4,
+    0xb9b8_abc3,
+    0xc130_68b6,
+    0xd032_9e80,
+    0xd6c1_2c3b,
+    0xdc19_bd13,
+    0xde72_1cb4,
+    0xe9d0_fb69,
+    0xf2aa_4a90,
+    0xf84a_a204,
+    0xfbf4_7dba,
+];
+
+/// FUN_001d0328: EyePointOffset, TrackCenter/TrackOffset, TiltValue, ...
+const CAMERA: [u32; 9] = [
+    0x2105_0bf6,
+    0x359d_5227,
+    0x4156_8c97,
+    0x5e31_71cc,
+    0x86f1_2d64,
+    0x88f1_308a,
+    0x89f1_321d,
+    0xe85d_5895,
+    0xfd3d_9507,
+];
+
+/// FUN_00302f10: the aimer and barrel keys (AimerNodeName, FirePointName, ...).
+const AIMER: [u32; 17] = [
+    0x1e53_4b12,
+    0x2d64_87bd,
+    0x2e53_75da,
+    0x3f38_083c,
+    0x407e_801e,
+    0x4106_141f,
+    0x4274_fc96,
+    0x444f_8958,
+    0x486a_6946,
+    0x5a29_d1cb,
+    0x665d_96ea,
+    0x78ed_58ee,
+    0xa9c3_675c,
+    0xc182_abc2,
+    0xe856_b41e,
+    0xe98f_377c,
+    0xef09_5ea9,
+];
+
+/// FUN_002f6eb8: PilotType, the pose keys, both FOVs, VehiclePosition, ...
+const SEAT: [u32; 24] = [
+    0x104c_d1b8,
+    0x11ce_2025,
+    0x2072_8c12,
+    0x2b60_e217,
+    0x325f_7c20,
+    0x3534_1815,
+    0x44c7_7c95,
+    0x4785_d6b7,
+    0x4982_4403,
+    0x51ca_39a6,
+    0x6e4f_c069,
+    0x72cc_bde1,
+    0x81bc_e0f9,
+    0x8319_2029,
+    0x8488_19e7,
+    0x8a30_1535,
+    0x91ee_6929,
+    0x939b_9985,
+    0x9d1f_5707,
+    0xa976_d065,
+    0xbadf_3672,
+    0xd67d_9ba2,
+    0xda1b_8c0c,
+    0xef20_a0a0,
 ];
 
 /// The three angle props' ceiling (0x3fc70bd8 = 89.1°, B2:183688-183702).

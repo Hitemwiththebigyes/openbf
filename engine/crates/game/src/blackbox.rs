@@ -293,6 +293,7 @@ pub enum Ev {
     DeathRegion,
     Fall,
     RiderDeath,
+    Suicide,
     Blast,
     KillFloor,
     UnderMap,
@@ -772,6 +773,7 @@ impl Ring {
                 ),
                 Event::EnvDeath { unit, cause } => (
                     match cause {
+                        DeathCause::Suicide => Ev::Suicide,
                         DeathCause::DeathRegion => Ev::DeathRegion,
                         DeathCause::Fall => Ev::Fall,
                         DeathCause::VehicleDestroyed => Ev::RiderDeath,

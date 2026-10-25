@@ -691,6 +691,109 @@ mod tests {
         (lo, hi)
     }
 
+    /// `a`'s mirror image across x = 0 equals `b` (rotation and centre).
+    fn mirrored(a: &manifest::ManifestPrim, b: &manifest::ManifestPrim, tol: f32) -> bool {
+        let s = [-1.0f32, 1.0, 1.0];
+        (0..3).all(|i| {
+            (a.translation[i] * s[i] - b.translation[i]).abs() < tol
+                && (0..3).all(|j| (a.rotation[i][j] * s[i] * s[j] - b.rotation[i][j]).abs() < tol)
+        })
+    }
+
+    /// The bake's prims for `geom` (the prim chunk named as the geometry).
+    fn baked_pair(
+        ix: &Index,
+        geom: &str,
+        l: &str,
+        r: &str,
+    ) -> [(manifest::ManifestPrim, manifest::ManifestPrim); 2] {
+        let (stored, _) = &ix.prims[geom];
+        let raw = crate::map::manifest_prims(stored).0;
+        let (posed, _) = ix.rest_prims(stored, geom);
+        let get =
+            |v: &[manifest::ManifestPrim], n: &str| v.iter().find(|p| p.name == n).unwrap().clone();
+        [
+            (get(&raw, l), get(&raw, r)),
+            (get(&posed, l), get(&posed, r)),
+        ]
+    }
+
+    /// Data-gated (card RKHULT): BF2's MAF (bone-space) stores its right
+    /// flap's wing and cannon rotated on `bone_r_flap`. At bind the left and
+    /// right prims mirror each other, as the ship does; the stored XFRMs do
+    /// not. Composing in the wrong order (`bind · XFRM`) turns the right wing.
+    #[test]
+    fn the_mafs_flap_prims_mirror_at_bind() {
+        let Some(cis) = side("bf2", "CIS.LVL") else {
+            eprintln!("SKIP: BF2 CIS.LVL not present");
+            return;
+        };
+        let chunks = mungefs::content_chunks(mungefs::open(&cis).unwrap()).unwrap();
+        let ix = index(&chunks).unwrap();
+        let geom = "cis_fly_maf";
+        let top = top_lod(&ix, geom).unwrap();
+        assert!(ix.models[&top.to_ascii_lowercase()].bone_space);
+        for (l, r) in [("p_wingL", "p_wingR"), ("p_cannonL", "p_cannonR")] {
+            let [raw, posed] = baked_pair(&ix, geom, l, r);
+            assert_ne!(raw.1.rotation[0], [1.0, 0.0, 0.0], "{r} stored rotation");
+            assert!(!mirrored(&raw.0, &raw.1, 1e-3), "{l}/{r} stored");
+            assert!(mirrored(&posed.0, &posed.1, 1e-4), "{l}/{r}: {posed:?}");
+        }
+        let [_, (_, wing)] = baked_pair(&ix, geom, "p_wingL", "p_wingR");
+        assert!(
+            (wing.rotation[0][1] - 0.4537).abs() < 1e-3,
+            "{:?}",
+            wing.rotation
+        );
+        assert!(
+            (wing.translation[0] + 3.0729).abs() < 1e-3,
+            "{:?}",
+            wing.translation
+        );
+    }
+
+    /// Data-gated (card RKHULT): vehicles that are not bone-space compose
+    /// their prims too. BF1's troop transport stores both wing boxes on the
+    /// +x side; through their bones they mirror at x ±5.19, z −4.85. BF1's
+    /// MTT stores its two cannon boxes at the origin; at bind they sit at
+    /// x ±4.4 on the barrels, 11.9 m forward.
+    #[test]
+    fn a_non_bone_space_vehicles_prims_rest_at_bind() {
+        let (Some(imp), Some(cis)) = (side("bf1", "IMP.LVL"), side("bf1", "CIS.LVL")) else {
+            eprintln!("SKIP: BF1 SIDE LVLs not present");
+            return;
+        };
+        let chunks = mungefs::content_chunks(mungefs::open(&imp).unwrap()).unwrap();
+        let ix = index(&chunks).unwrap();
+        let geom = "imp_fly_trooptrans";
+        let top = top_lod(&ix, geom).unwrap();
+        assert!(!ix.models[&top.to_ascii_lowercase()].bone_space);
+        let [raw, posed] = baked_pair(&ix, geom, "p_wing_L", "p_wing_R");
+        assert!(!mirrored(&raw.0, &raw.1, 1e-3));
+        assert!(mirrored(&posed.0, &posed.1, 1e-4), "{posed:?}");
+        let t = posed.0.translation;
+        assert!(
+            (t[0] - 5.1916).abs() < 1e-3 && (t[2] + 4.8456).abs() < 1e-3,
+            "{t:?}"
+        );
+
+        let chunks = mungefs::content_chunks(mungefs::open(&cis).unwrap()).unwrap();
+        let ix = index(&chunks).unwrap();
+        let geom = "cis_hover_mtt";
+        let top = top_lod(&ix, geom).unwrap();
+        assert!(!ix.models[&top.to_ascii_lowercase()].bone_space);
+        let [raw, posed] = baked_pair(&ix, geom, "p_cannon1", "p_cannon2");
+        assert!(raw.0.translation[0].abs() < 0.1 && raw.1.translation[0].abs() < 0.1);
+        for (p, sign) in [(&posed.0, 1.0f32), (&posed.1, -1.0)] {
+            let t = p.translation;
+            assert!(
+                (t[0] * sign - 4.4).abs() < 0.05 && (t[2] - 11.9).abs() < 0.1,
+                "{} {t:?}",
+                p.name
+            );
+        }
+    }
+
     fn side(game: &str, lvl: &str) -> Option<Vec<u8>> {
         let p = format!(
             "{}/../../../extracted/{game}/lvl/DATA/_LVL_PS2/SIDE/{lvl}",

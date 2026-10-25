@@ -841,6 +841,7 @@ def _balanced(s, open_idx):
 MAPS = [
     # ---- BF1
     ("tat1",     "bf1", "TAT", {"gcw": ("tat1i", "tat1i"), "cw": ("tat1r", "tat1r")}),
+    ("bf1_tat2", "bf1", "TAT", {"gcw": ("tat2i", "tat2i"), "cw": ("tat2r", "tat2r")}),
     ("bf1_bes1", "bf1", "BES", {"gcw": ("bes1a", "bes1a"), "cw": ("bes1r", "bes1r")}),
     ("bf1_bes2", "bf1", "BES", {"gcw": ("bes2a", "bes2a"), "cw": ("bes2r", "bes2r")}),
     ("bf1_end1", "bf1", "END", {"gcw": ("end1a", "end1a")}),
@@ -883,6 +884,8 @@ MAPS = [
                                 "cw": ("pol1c_con", "pol1c_con")}),
     ("bf2_tan1", "bf2", "TAN", {"gcw": ("tan1g_con", "tan1g_con"),
                                 "cw": ("tan1c_con", "tan1c_con")}),
+    ("bf2_tat3", "bf2", "tat", {"gcw": ("tat3g_con", "tat3g_con"),
+                                "cw": ("tat3c_con", "tat3c_con")}),
     ("bf2_uta1", "bf2", "UTA", {"gcw": ("uta1g_con", "uta1g_con"),
                                 "cw": ("uta1c_con", "uta1c_con")}),
     ("bf2_yav1", "bf2", "YAV", {"gcw": ("yav1g_con", "yav1g_con"),
@@ -890,7 +893,8 @@ MAPS = [
 ]
 
 PRETTY = {
-    "tat1": "Tatooine: Dune Sea", "bf1_bes1": "Bespin: Platforms",
+    "tat1": "Tatooine: Dune Sea", "bf1_tat2": "Tatooine: Mos Eisley",
+    "bf1_bes1": "Bespin: Platforms",
     "bf1_bes2": "Bespin: Cloud City", "bf1_end1": "Endor: Bunker",
     "bf1_geo1": "Geonosis: Spire", "bf1_hot1": "Hoth: Echo Base",
     "bf1_kam1": "Kamino: Tipoca City", "bf1_kas1": "Kashyyyk: Islands",
@@ -899,6 +903,7 @@ PRETTY = {
     "bf1_rhn2": "Rhen Var: Citadel", "bf1_yav1": "Yavin 4: Temple",
     "bf1_yav2": "Yavin 4: Arena",
     "tat2": "Tatooine: Mos Eisley", "bf2_cor1": "Coruscant: Jedi Temple",
+    "bf2_tat3": "Tatooine: Jabba's Palace",
     "bf2_dag1": "Dagobah: Swamp", "bf2_dea1": "Death Star: Interior",
     "bf2_end1": "Endor: Bunker", "bf2_fel1": "Felucia: Marshland",
     "bf2_geo1": "Geonosis: Dust Plains", "bf2_hot1": "Hoth: Echo Base",

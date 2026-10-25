@@ -175,6 +175,8 @@ pub struct HudModel {
     pub spawn: Option<crate::spawn_draw::SpawnPage>,
 }
 
+/// PROVISIONAL team accents for the egui HUD and spawn menu (orange/green);
+/// these RGB values have not been measured from the PS2 HUD.
 pub const TEAM_COLORS: [Color32; 2] = [
     Color32::from_rgb(242, 100, 40),
     Color32::from_rgb(80, 220, 90),

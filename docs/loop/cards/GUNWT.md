@@ -5,13 +5,13 @@ milestone: M3
 value: 4
 phase: build
 status: blocked
-deps: UTALK
+deps: UTALK,WAIT4,CWAIT,WPOKE
 files: engine/crates/core/src/ai/ride.rs, engine/crates/core/src/sim/seats.rs, engine/crates/core/src/ai/hover_drive.rs, engine/crates/core/src/ai/walker_drive.rs, engine/crates/core/src/ai/behave.rs, engine/crates/core/src/sim/step.rs, engine/crates/core/src/ai.rs, engine/crates/core/src/ai/state.rs, engine/crates/core/src/squad.rs
 declares: sim; sweep
 needs: environment restoration — baked game data/missions plus UTALK census kit and GUNWT raw reference evidence
 effort:
 branch:
-resume: Cloud preflight 20261024_0756: BLOCKED before implementation; baked maps/common/classes/vehicles, missions, UTALK census kit and GUNWT raw RE tools/states absent. Restore inputs, reproduce current-main census/boarding trace, then start isolated build for re-driver-wait section 7 A+B. Report engine/artifacts/loop/reports/20261024_0756_card_GUNWT.md. Original spec preserved below.
+resume: WAIT4/HWAIT/CWAIT source checkpoints integrated, acceptance pending. WPOKE splits BF1 release-order pickup interruption: eight real-button failures/forty controls on4730708. Original restoration hold, call/reissue/answers/allocation and full Acceptance remain. reports/20261025_1230_planner.md
 created: 2026-10-16
 alpha: yes
 ---
@@ -29,3 +29,4 @@ Card UTALK (2026-10-16) landed BF1's AI squad lines on the port's own seat event
 - Census on UTALK's kit: TAT1 yes lines and need-gunner gate passes within 30 % of 12.0 / 4.25; the sweep / fidelity gates' boarding counts sorted NOISE / EXPOSED / CAUSED.
 ## Notes
 - 2026-10-16 planner (from UTALK's report): this RE pass also corrects `analysis/re-squad-orders.md` 5 / 9b - the follow line fires when the trooper "sets out for a post it is not at" (FUN_00235258 = inside the goal's radius, not "its first path leg fails"), and the lines are now built (UTALK, e22e702). The edit needs the MAIN claim (RULES: RE drafts off the main checkout).
+

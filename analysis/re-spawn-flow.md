@@ -208,7 +208,7 @@ below; it read `DAT_00600b30`'s ELF word 1 and its writers: the splitscreen coun
   slide ends in its 11th update counting the step's own and a held push repeats every 11 updates (PROVISIONAL until a
   PS2 row pins the boundary; the verifier's catch - IEEE nearest would give 10). The accept (X, B2:393040-393075) has no slide test. The arm is
   shared with the map's push (`FUN_0039a058`, B2:393792-393969) and set when the display opens (`FUN_00396a00`,
-  B2:392362). Built: `Sim::class_carousel` (`core/src/sim/spawn.rs`).
+  B2:392362). Built: `Sim::class_carousel` (`core/src/sim/spawn/runtime.rs`).
 - Not built: the selected flag's pose (vtable +0x54), the third vector `DAT_006a5070` (25, 0, -25).
 
 ### 4.2 The screen soldiers' light (OPUS RE 2026-10-21, card SSELB slice 7) - [O] UNAUDITED
@@ -391,7 +391,10 @@ C7 / C12 narrowed (folded in below).
     pause-menu suicides it stays 0.48838. [D] the player camera eases the FOV toward a dead soldier's default 48 deg
     (`analysis/re-zoom.md` §5) for one update before the switch: 48 + 17 x e^(-25/30) = 55.388 deg, tan(27.694 deg) x
     0.7666 = 0.40237; the respawn screens keep it, then the next soldier eases it back to 65 deg (0.44997, 0.47147, ...).
-    This is CFOVM's unexplained FEL1 state (tan_half_v 0.40237).
+    This matches CFOVM's reported FEL1 tangent (tan_half_v 0.40237) [D]. Identifying that particular
+    `cp3_cp3_1_postA_v3` state as a death or respawn screen remains [H]: its own JSON and save-state RAM must
+    establish the active camera, human member/unit and spawn-display state. The second pass did not inspect it
+    (`reports/20261020_0412_card_SSEL.md`, "CFOVM not closed by me"; planner `reports/20261020_0525_planner.md`).
 - The body point's split: the eye holds 5.25 m behind / 4.13 m above the feet on Kamino (elevation 32.4 deg) where the
   set-up gives 35.0 deg; the distance matches to the millimetre, the angle is off by 2.6 deg - [H] the point the camera
   reads and the corpse settle after the set-up (the Hoth eye rose 4.20 -> 4.27 m over the 4 s).

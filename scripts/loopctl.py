@@ -479,7 +479,7 @@ def lane_alive(lane):
         return False
 
 
-def pick(lane, lanes, pid):
+def pick(lane, lanes, pid, candidate_filter=None):
     """Returns the job dict and claims it. Order: stop/pause, resume, land, periodic, best card, planner."""
     note_lane(lane, pid)
     for f in ("STOP", "PAUSE"):
@@ -488,6 +488,7 @@ def pick(lane, lanes, pid):
     if os.path.exists(DRAINED):
         return {"job": "stop", "reason": "DRAINED: " + open(DRAINED).read().strip()[:400]}
     cs = cards()
+    ready = candidate_filter or (lambda c: True)
     live = live_locks()
     st = state()
     audit_wait = ""
@@ -543,7 +544,7 @@ def pick(lane, lanes, pid):
     #    live CLEANSE / PLANNER / AUDIT session (`owner:`), not a branch a live land.py is on, not one waiting on the maintainer
     for c in ranked(cs):
         if (c.get("status") == "in-progress" and c["id"] not in live and not capped(c) and not needs_acceptance(c)
-                and not (c.get("needs") or "").strip() and not owner_live(c, live) and not landing_live(c)):
+                and not (c.get("needs") or "").strip() and not owner_live(c, live) and not landing_live(c) and ready(c)):
             j = take("resume", c["id"], c.get("phase"), "in-progress with no live claim")
             if j:
                 return j
@@ -553,7 +554,7 @@ def pick(lane, lanes, pid):
     if "MAIN" not in live:
         for c in ranked(cs):
             if (c.get("status") == "parked" and c["id"] not in live and has_branch(c) and not landing_live(c)
-                    and not (c.get("needs") or "").strip()):
+                    and not (c.get("needs") or "").strip() and ready(dict(c, phase="land"))):
                 j = take("land", c["id"], "land", "parked, MAIN free")
                 if j:
                     return j
@@ -583,7 +584,7 @@ def pick(lane, lanes, pid):
                 return j
     # 4. the best eligible card, preferring this lane's kinds when there are two lanes; `post-alpha` cards only when no
     #    alpha or untagged card is eligible
-    r = [c for c in ranked(cs) if c["id"] not in live and eligible(c, cs, busy) and not owner_live(c, live) and not landing_live(c)]
+    r = [c for c in ranked(cs) if c["id"] not in live and eligible(c, cs, busy) and not owner_live(c, live) and not landing_live(c) and ready(c)]
     r = [c for c in r if not is_deferred(c)] or r
     if lane == RESEARCH_LANE:  # its own kinds first at ANY value (a lane started with LANE=3 runs with --lanes 1)
         r = [c for c in r if c.get("phase") in LANE_PREF[lane]] + [c for c in r if c.get("phase") not in LANE_PREF[lane]]
@@ -601,7 +602,7 @@ def pick(lane, lanes, pid):
         j = take("card", c["id"], c.get("phase"), f"top eligible card (value {c.get('value')})")
         if j:
             return j
-    if audit_wait:
+    if audit_wait and candidate_filter is None:
         return {"job": "none", "reason": audit_wait}
     # nothing eligible: one refill planner; if the last job was already an empty-handed refill, the loop is drained
     if st.get("last_job") == "planner-refill":

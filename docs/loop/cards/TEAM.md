@@ -11,9 +11,10 @@ declares: sim; sweep; arena
 needs:
 effort: high
 branch: team
-resume: landed d4a50c62 2026-10-20
+resume: landed d4a50c62 2026-10-20; audit INCOMPLETE/UNAUDITED 2026-10-25: restore held inputs and verified history; see private note
 created: 2026-10-03
 alpha: yes
+domain: ai
 ---
 
 ## Why
@@ -63,3 +64,4 @@ The maintainer, 2026-10-02: bots "all standing next to each other", shooting eac
   circler with no ring point walks at an out-of-reach target (BF1 KAS2 Hard seed 2 NO OUTCOME on B1). B3 / B4 met, 256/256 at
   Normal and Hard, ms a tick x0.996 of main. Left (not carded): lanes held on the board (the Tactician asks each friend's line
   itself); Flank / Gunner roles are FLNK / TURR.
+

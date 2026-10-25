@@ -5,13 +5,13 @@ milestone: M1
 value: 3
 phase: build
 status: blocked
-deps:
+deps: VOICEP, HITSND
 files: engine/crates/game/src/event_sounds.rs,engine/crates/game/src/sounds.rs,engine/crates/game/src/engine_sound.rs,engine/crates/game/src/foley.rs,engine/crates/core/src/sim/state.rs
 declares:
 needs:
 effort:
 branch:
-resume: 2026-10-24 13:28 UTC BLOCKED: restore 25 missing inputs in lead_tmp/gsnd_cloud/preflight.json; verify hover lifecycle and merged SPWS spawn rule; baseline Kamino 16/team seed 60; isolated fixes and original Acceptance plus all gates. Report reports/20261024_1328_card_GSND.md; next prompt lead_tmp/gsnd_cloud/next_prompt.md.
+resume: Findings1/2/3 implemented by HITSND347a508/VOICEP983addb; TESTEVd87ebf6 repairs layout. All full checks owed;4/5/SPWS original holds/Acceptance retained. engine/artifacts/loop/reports/20261025_0832_planner.md
 created: 2026-10-15
 ---
 

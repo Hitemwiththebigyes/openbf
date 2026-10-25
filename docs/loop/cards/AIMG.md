@@ -6,12 +6,12 @@ value: 2
 phase: build
 status: blocked
 deps: AIMF
-files: scripts/sim_gates.sh, engine/crates/game/src/main.rs, engine/crates/game/src/main/headless.rs
+files: scripts/sim_gates.sh, engine/crates/game/src/main.rs, engine/crates/game/src/main/headless.rs, scripts/land.py
 declares: sim
 needs: (private workflow note omitted)
 effort:
 branch:
-resume: (private workflow note omitted)
+resume: 20261024_2231 planner: 69ddd8f/b7f2b26 resolve the old CLN6 CI failure (historical combined1932 pass/53skip); current-main rerun remains owed. AIMG appendix patch is unapplied and guarded; no approval granted. After explicit approval, implement/test it and publish aim_targets only through normal gated baseline process. See engine/artifacts/loop/reports/20261024_2231_planner.md.
 created: 2026-09-28
 tries: 1
 ---

@@ -4,16 +4,18 @@ title: The flyer, transcribed: the 5-state machine (landed/takeoff/flying/landin
 milestone: M2
 value: 3
 phase: re
-status: todo
+status: blocked
 deps:
 files:
 declares:
-needs:
+needs: restore matching BF1/BF2 corpora and ELFs for transcription; disc extracts, PCSX2 toolkit and checked states for live contact/height trials
+effort:
 branch:
-resume:
+resume: 20261025_0507 input hold: 0/14 inspected reference paths (static primaries 0/4); restore evidence, derive both dispatches/state-4 writers/contact and speed law, then independent verifier before doc/build card; reports/20261025_0507_card_VFLY.md; do not retry unchanged inputs
 created: 2026-09-25
 defer: post-alpha
 value_pre_alpha: 4
+tries: 1
 ---
 
 ## Why
@@ -68,3 +70,4 @@ instead of 6.5 s. And FUN_002faf90 (from FUN_00202880) refuses a point 300 m ahe
 
 Settle the [H] gate with a 2-minute live sample before building: a human flyer held above MaxPlayerFlyHeight, its
 record+0x184 read.
+

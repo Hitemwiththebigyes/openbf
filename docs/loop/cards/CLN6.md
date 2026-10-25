@@ -8,10 +8,10 @@ status: blocked
 deps:
 files: engine/crates/core/src/fmath.rs, engine/crates/core/src/ai/arsenal.rs, engine/crates/core/src/ai/hover_drive.rs, engine/crates/game/src/vehicle_class.rs, engine/crates/game/tests/golden_tat1.rs, engine/crates/game/tests/suite/water_look.rs
 declares:
-needs: reconciliation — planner rules on the stale historical sim pin 17e1b946ff0e821c (old main and gates.toml are f9f37400e0f3171e, CLN6 neutral); then full gates on main green (aim/sweep/arena/protect moves are other cards')
+needs: main-green — current-main full gates remain owed; historical sim pin reconciled by planner against parent/candidate local receipts without changing any approved runtime pin
 effort:
 branch:
-resume: (private workflow note omitted)
+resume: 20261024_2231 planner: 69ddd8f committed the real-water fixture fix; no patch reapply. Local report proves base8230082/part14209f8aa hash100=f9f37400e0f3171e and replay neutrality; historical17e1b946 is superseded as an old card citation, not an active runtime pin. Full unchanged current-main gates still owed (AIMG/HASH/guard/baseline debt). See engine/artifacts/loop/reports/20261024_2231_planner.md.
 created: 2026-09-25 (from QUEUE.md)
 acceptance: 
 tries: 1

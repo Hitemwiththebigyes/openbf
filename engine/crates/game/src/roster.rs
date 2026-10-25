@@ -360,11 +360,16 @@ pub fn is_soldier_chain(db: &ClassDb, class: &str) -> bool {
 /// takes its first slot (PROVISIONAL, no fielded class is one).
 pub fn primary_weapon(db: &ClassDb, soldier: &str) -> Option<(String, u32)> {
     let slots = db.weapon_slots(soldier);
-    let s = slots
+    let s = primary_slot(&slots)?;
+    Some((s.weapon.clone(), s.ammo.unwrap_or(0)))
+}
+
+/// Keep the chosen slot's identity when multiple slots name one weapon.
+fn primary_slot(slots: &[WeaponSlot]) -> Option<&WeaponSlot> {
+    slots
         .iter()
         .find(|s| s.channel == 0)
-        .or_else(|| slots.first())?;
-    Some((s.weapon.clone(), s.ammo.unwrap_or(0)))
+        .or_else(|| slots.first())
 }
 
 /// BF2's size term of the aim error per soldier model (card CLSE2,
@@ -511,9 +516,10 @@ pub fn class_anim(
     let banks = slots
         .iter()
         .filter_map(|s| {
+            let weapon = db.resolve(&s.weapon)?;
             let bank = ["ComboAnimationBank", "CustomAnimationBank", "AnimationBank"]
                 .iter()
-                .find_map(|k| db.prop(&s.weapon, k).and_then(word))?;
+                .find_map(|k| db.prop(weapon, k).and_then(word))?;
             Some((s.weapon.to_ascii_lowercase(), bank))
         })
         .collect();
@@ -1054,13 +1060,13 @@ impl ClassRoster {
             ));
         }
         let src = ClassSrc { db, class };
-        let (weapon_name, spare_clips) =
-            primary_weapon(db, class).with_context(|| format!("{class}: no WeaponName"))?;
         let slots = db.weapon_slots(class);
-        let weapon_slot = slots
-            .iter()
-            .find(|s| s.weapon == weapon_name)
-            .map_or(0, |s| s.slot);
+        let primary = primary_slot(&slots).with_context(|| format!("{class}: no WeaponName"))?;
+        let (weapon_name, spare_clips, weapon_slot) = (
+            primary.weapon.clone(),
+            primary.ammo.unwrap_or(0),
+            primary.slot,
+        );
         let weapon = weapon_from_db(db, &weapon_name)?;
         let unit_type = db
             .prop(class, "UnitType")

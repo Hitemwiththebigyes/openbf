@@ -25,6 +25,7 @@ pub mod layout;
 pub mod minimap;
 pub mod mission;
 pub mod music;
+pub mod pause;
 pub mod point_light;
 pub mod profile;
 pub mod render_blend;

@@ -4,17 +4,18 @@ title: DEA1's pit falls are the PS2's own (3.0 / min, none under fire): its bots
 milestone: M3
 value: 4
 phase: re
-status: todo
+status: blocked
 deps: STDOR
 files:
 declares:
-needs:
+needs: restore DEA1 PS2 scripts, panel classes, bridge collision/animation data, fall traces and PCSX2 observation
 effort:
 branch:
-resume:
+resume: 2026-10-24 RE prerequisite hold; report reports/20261024_2318_card_DPIT.md. Startup-only mission path checked; panel health/respawn, bridge motion/collision and on-arc reaction unverified. Keep floor probe at A/C/D (FEEL_NOTES). Restore named evidence before retry; phase and remaining Acceptance unchanged.
 created: 2026-10-01
 defer: post-alpha
 domain: ai
+tries: 1
 ---
 ## Why
 AUDIT of STFAL (2026-10-01, PARTLY; `reports/20261001_1845_audit_STFAL.md`). STFAL's acceptance line 'DEA1's pit deaths
@@ -67,3 +68,4 @@ site A, none at B.
 ## Notes
 - DEA1 is not a showcase map: `defer: post-alpha` (the planner may lift it).
 - Run scratch binaries under the memory cap (OFFG's note).
+

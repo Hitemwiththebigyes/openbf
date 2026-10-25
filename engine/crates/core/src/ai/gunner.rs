@@ -16,8 +16,8 @@
 //! rates stand in for on foot's D9 tracker; the tolerance is a cone about the
 //! BARREL (on foot's is per axis about the look); with nothing seen the look
 //! returns to the aimer's rest (card TURR: a turret gunner's to the last
-//! known point of what it can hit); a charge weapon in a seat is never
-//! fired.
+//! known point of what it can hit). Card STCHG shares on foot's charge
+//! release policy (re-turret-ai §7; re-ai-difficulty §4.4), before tap dispatch.
 //! A building turret's look turns by the PS2's rate law (card VTURL,
 //! `gun::Turn`): the bot asks for the rate that would stop on its aim -
 //! at most what the filter can brake from (BF1 `gap x filter`, BF2
@@ -28,7 +28,7 @@
 //! own aim, `FUN_00236700`, B1:191963-191967); and it sees from its muzzle
 //! (`perception::scan`).
 
-use super::gunner_foot::{fire_discipline, seen_aim, tap, Meter};
+use super::gunner_foot::{charge, fire_discipline, seen_aim, tap, Meter};
 use super::state::AiState;
 use super::AIM_TOLERANCE;
 use crate::fmath;
@@ -120,9 +120,19 @@ pub(super) fn aim(
             (p - s.muzzle).normalize_or_zero().dot(s.barrel) >= fmath::sin_cos(AIM_TOLERANCE).1;
         let range = (e.capsule().center() - s.muzzle).length();
         let ready = held.is_some_and(|c| perception::fireable(&c, sim.tick, tier.reaction_ticks));
-        ready && on && range <= wc.ordnance.max_range() && wc.max_pressed_time <= 0.0
+        ready && on && range <= wc.ordnance.max_range()
     });
-    if wc.trigger_single {
+    if wc.max_pressed_time > 0.0 {
+        if enemy.is_some() {
+            let want_fire = shot && st.burst > 0 && sim.tick >= st.pause_until;
+            charge(sim, me, st, wc, &skill, want_fire, pad);
+        } else {
+            if wc.trigger_single {
+                tap(sim, me, st, wc, &skill, false);
+            }
+            st.charge_until = 0;
+        }
+    } else if wc.trigger_single {
         // Card BRSTU: a single-shot seat gun is TAPPED, by on foot's rule
         // (card STTAP; one trigger function for every seat on the PS2,
         // `re-soldier-ai.md` 23.2) - a held trigger fires it once.
