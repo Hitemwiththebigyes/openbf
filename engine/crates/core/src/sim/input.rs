@@ -64,6 +64,13 @@ pub mod buttons {
     /// The spawn screens' back (the PS2's Triangle): class -> spawn map;
     /// nothing on the spawn map (offline) or on the side screen.
     pub const SPAWN_BACK: u32 = 1 << 21;
+    pub const MOUSE_AIM: u32 = 1 << 22;
+}
+
+pub const LOOK_UNIT: f32 = 1.0 / 65536.0;
+
+fn zero(v: &i32) -> bool {
+    *v == 0
 }
 
 /// One controller's state for one tick. Extend as input needs grow (axes are
@@ -75,6 +82,10 @@ pub struct PadState {
     pub rx: i16,
     pub ry: i16,
     pub buttons: u32,
+    #[serde(default, skip_serializing_if = "zero")]
+    pub mx: i32,
+    #[serde(default, skip_serializing_if = "zero")]
+    pub my: i32,
 }
 
 impl PadState {
@@ -91,6 +102,29 @@ impl PadState {
     /// Quantize an f32 axis in [-1, 1] to the log-exact i16 form.
     pub fn quantize(v: f32) -> i16 {
         (v.clamp(-1.0, 1.0) * 32767.0) as i16
+    }
+
+    pub fn look(&self) -> (f32, f32) {
+        (self.mx as f32 * LOOK_UNIT, self.my as f32 * LOOK_UNIT)
+    }
+
+    pub fn has_look(&self) -> bool {
+        self.mx != 0 || self.my != 0
+    }
+
+    pub fn mouse_aim(&self) -> bool {
+        self.pressed(buttons::MOUSE_AIM)
+    }
+
+    pub fn quantize_look(rad: f64) -> i32 {
+        (rad / f64::from(LOOK_UNIT))
+            .round()
+            .clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32
+    }
+
+    pub fn clear_look(&mut self) {
+        self.mx = 0;
+        self.my = 0;
     }
 }
 
@@ -861,6 +895,30 @@ mod tests {
             "yaw {}",
             s.unit(p).unwrap().soldier.yaw
         );
+    }
+
+    #[test]
+    fn aim_assist_leaves_a_mouse_aimed_pad_alone() {
+        use crate::vehicle::VehicleKind;
+        let run = |mouse: bool| {
+            let (mut s, p, _) = range(&[]);
+            let v = put_vehicle(&mut s, VehicleKind::Hover);
+            s.vehicles[v.index as usize].pos.x = 0.8;
+            s.vehicles[v.index as usize].team = Some(1);
+            let w = s.unit(p).unwrap().weapon_class;
+            s.weapon_classes[w].target_kind = 0x1f;
+            let mut pad = fire();
+            if mouse {
+                pad.buttons |= buttons::MOUSE_AIM;
+            }
+            for _ in 0..30 {
+                s.step(&[pad]);
+            }
+            assert_eq!(s.magnet[0], Some(AimTarget::Vehicle(v)));
+            s.unit(p).unwrap().soldier.yaw
+        };
+        assert!(run(false) < -0.005);
+        assert_eq!(run(true), 0.0);
     }
 
     /// HTGTW: an off-pivot centre turns with the turret, rather than orbiting

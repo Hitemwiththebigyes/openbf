@@ -152,7 +152,6 @@ fn note_sounds(
     }
 }
 
-/// Autosave the settings a menu action changed.
 /// The window's first size: 1280x720 logical, or `OPENBF_WINDOW_SIZE=WxH`
 /// physical pixels (a measurement knob, card ISPD: the same frame at a
 /// laptop panel's resolution).
@@ -164,20 +163,6 @@ fn window_size() -> winit::dpi::Size {
     match want {
         Some((w, h)) if w > 0 && h > 0 => winit::dpi::PhysicalSize::new(w, h).into(),
         _ => winit::dpi::LogicalSize::new(1280, 720).into(),
-    }
-}
-
-fn persist_setting(profile: &mut game::profile::Profile, a: ui::menu::MenuAction, walk: &WalkSim) {
-    use ui::menu::MenuAction;
-    match a {
-        MenuAction::SetAssist(_) => profile.settings.assist_intensity = walk.sim.assist_intensity,
-        MenuAction::SetAiCap(_) => profile.settings.ai_alive_cap = Some(walk.sim.ai_alive_cap),
-        MenuAction::SetFov(_) => profile.settings.fov_scale = walk.fov_scale,
-        MenuAction::SetMusic(v) => profile.settings.music_volume = v,
-        _ => return,
-    }
-    if let Err(e) = profile.save() {
-        eprintln!("profile autosave failed: {e:#}");
     }
 }
 
@@ -297,32 +282,6 @@ fn apply_cheat_word(
     }
 }
 
-/// Apply a pause-menu action to the battle/session.
-fn apply_menu_action(walk: &mut WalkSim, a: ui::menu::MenuAction, paused: &mut bool) {
-    use ui::menu::MenuAction;
-    match a {
-        MenuAction::Resume => *paused = false,
-        MenuAction::ToggleCheat(i) => {
-            let id = walk.sim.cheats.entries()[i].0;
-            walk.sim.cheats.toggle(id);
-            println!("cheat {id}: {}", walk.sim.cheats.entries()[i].2);
-        }
-        MenuAction::SetAssist(v) => walk.sim.assist_intensity = v.clamp(0.0, 1.5),
-        MenuAction::SetAiCap(c) => walk.sim.ai_alive_cap = c,
-        MenuAction::SetMusic(v) => {
-            if let Some(m) = walk.music.as_mut() {
-                m.volume = v.clamp(game::music::VOLUME_RANGE.0, game::music::VOLUME_RANGE.1);
-            }
-        }
-        MenuAction::SetFov(k) => {
-            walk.fov_scale = k.clamp(game::walk::FOV_SCALE_RANGE.0, game::walk::FOV_SCALE_RANGE.1)
-        }
-        // Quit: --map launches exit, shell launches return to the shell —
-        // decided by the caller (needs App state).
-        MenuAction::Quit => {}
-    }
-}
-
 /// Battle state as one line — the window title and the round-over stdout line
 /// (the on-screen HUD is `ui::hud::draw_hud`).
 fn hud_title(walk: &WalkSim) -> String {
@@ -354,6 +313,11 @@ fn hud_title(walk: &WalkSim) -> String {
 #[path = "windowed/front.rs"]
 mod front;
 use front::FrontShell;
+#[path = "windowed/menu_actions.rs"]
+mod menu_actions;
+use menu_actions::{apply_menu_action, persist_setting};
+#[path = "windowed/mouse.rs"]
+mod mouse;
 
 enum Screen {
     Shell,
@@ -444,6 +408,7 @@ struct App {
     /// The bits pressed since the last frame read them: a tap that is let
     /// go inside one frame still counts.
     keys_tapped: u32,
+    kbm: game::kbm::Kbm,
     /// The PS2 shell's front screens (`None` until the shell first draws).
     front: Option<FrontShell>,
     /// One click of L3 sprints (`input::SprintLatch`).
@@ -503,6 +468,7 @@ fn autopilot_pad(tick: u64) -> PadState {
         ),
         ry: 0,
         buttons,
+        ..PadState::default()
     }
 }
 
@@ -616,6 +582,8 @@ impl App {
         audio: Option<audio::Audio>,
         profile: game::profile::Profile,
     ) -> Self {
+        let mut kbm = game::kbm::Kbm::default();
+        kbm.follow(&profile.settings);
         Self {
             map: None,
             screen: Screen::Shell,
@@ -658,6 +626,7 @@ impl App {
             gameplay_stick: GameplayStick::default(),
             keys_held: 0,
             keys_tapped: 0,
+            kbm,
             front: None,
             sprint_latch: input::SprintLatch::default(),
             autopilot: false,
@@ -1046,6 +1015,7 @@ impl App {
         self.gpu = Some(gpu);
         self.setup = setup;
         self.paused = false;
+        self.kbm.release_keys();
         self.outcome_reported = false;
         self.round_recorded = false;
         self.screen = Screen::Battle;
@@ -1089,6 +1059,8 @@ impl App {
         self.gpu = None;
         self.hud_view = None;
         self.paused = false;
+        self.kbm.release_keys();
+        self.release_mouse();
         if let Some(sl) = self.sounds.as_mut() {
             sl.stop_loops();
         }
@@ -1133,11 +1105,9 @@ impl App {
                 );
             }
         }
-        let mut tapped = 0;
-        if matches!(self.screen, Screen::Shell) {
-            now |= self.keys_held;
-            tapped = std::mem::take(&mut self.keys_tapped);
-        }
+        let shell = matches!(self.screen, Screen::Shell);
+        now |= game::kbm::menu_bits(self.keys_held, shell);
+        let tapped = game::kbm::menu_bits(std::mem::take(&mut self.keys_tapped), shell);
         let edges = (now & !self.prev_menu_buttons) | tapped;
         self.prev_menu_buttons = now;
         edges
@@ -1292,6 +1262,21 @@ impl winit::application::ApplicationHandler for App {
         self.last = std::time::Instant::now();
     }
 
+    fn exiting(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {
+        self.release_mouse();
+    }
+
+    fn device_event(
+        &mut self,
+        _event_loop: &winit::event_loop::ActiveEventLoop,
+        _device: winit::event::DeviceId,
+        event: winit::event::DeviceEvent,
+    ) {
+        if let winit::event::DeviceEvent::MouseMotion { delta } = event {
+            self.kbm.motion(delta.0, delta.1);
+        }
+    }
+
     fn window_event(
         &mut self,
         event_loop: &winit::event_loop::ActiveEventLoop,
@@ -1302,6 +1287,7 @@ impl winit::application::ApplicationHandler for App {
         if let (Some(o), Some(w)) = (&mut self.overlay, &self.window) {
             let _ = o.on_window_event(w, &event);
         }
+        self.mouse_window_event(&event);
         match event {
             WindowEvent::CloseRequested => {
                 if let Some((walk, _)) = self.walk.as_mut() {
@@ -1335,16 +1321,7 @@ impl winit::application::ApplicationHandler for App {
                     },
                 ..
             } => {
-                use winit::keyboard::KeyCode as K;
-                let bit = match code {
-                    K::ArrowUp => 1,
-                    K::ArrowDown => 2,
-                    K::ArrowLeft => 4,
-                    K::ArrowRight => 8,
-                    K::Enter | K::NumpadEnter => 16 | 64,
-                    K::Escape | K::Backspace => 32,
-                    _ => 0,
-                };
+                let bit = game::kbm::menu_key(code);
                 if state == winit::event::ElementState::Pressed {
                     self.keys_held |= bit;
                     // The system's key repeat steps the arrows, never a
@@ -1372,6 +1349,7 @@ impl winit::application::ApplicationHandler for App {
                     r.water_time += f64::from(dt);
                 }
 
+                self.sync_grab();
                 if matches!(self.screen, Screen::Shell) {
                     self.redraw_shell(event_loop, dt);
                     if let Some(w) = &self.window {
@@ -1406,8 +1384,10 @@ impl winit::application::ApplicationHandler for App {
                 if self.walk.is_some() && edges & 64 != 0 {
                     self.paused = !self.paused;
                 }
+                self.sync_grab();
                 let camera = if self.walk.is_some() {
                     let pad = if self.paused {
+                        self.kbm.drop_taps();
                         PadState::default()
                     } else {
                         let (on_foot, sprinting) =
@@ -1419,13 +1399,17 @@ impl winit::application::ApplicationHandler for App {
                             });
                         let pad = match self.autopilot {
                             true => autopilot_pad(self.walk.as_ref().map_or(0, |w| w.0.sim.tick)),
-                            false => self.sample_pad(),
+                            false => {
+                                let pad = self.sample_pad();
+                                self.kbm.pad(pad)
+                            }
                         };
                         self.sprint_latch.apply(pad, on_foot, sprinting)
                     };
                     let paused = self.paused;
                     let (walk, cube) = self.walk.as_mut().unwrap();
                     let mut stuck_alarm = false;
+                    let mut look = PadState::default();
                     if paused {
                         // The engines fall silent with the sim.
                         if let Some(sl) = self.sounds.as_mut() {
@@ -1441,6 +1425,8 @@ impl winit::application::ApplicationHandler for App {
                                 .music
                                 .as_ref()
                                 .map_or(self.profile.settings.music_volume, |m| m.volume),
+                            mouse_sensitivity: self.profile.settings.mouse_sensitivity,
+                            invert_y: self.profile.settings.invert_y,
                             cursor: self.menu_cursor,
                             in_shell: None,
                             outcome_line: walk.sim.outcome.map(|w| match w {
@@ -1480,6 +1466,7 @@ impl winit::application::ApplicationHandler for App {
                             apply_menu_action(walk, a, &mut self.paused);
                             persist_setting(&mut self.profile, a, walk);
                             quit |= a == ui::menu::MenuAction::Quit;
+                            self.kbm.follow(&self.profile.settings);
                             // The music follows its slider while paused.
                             if let (ui::menu::MenuAction::SetMusic(_), Some(m), Some(v)) =
                                 (a, walk.music.as_ref(), self.music_voice.as_mut())
@@ -1502,6 +1489,8 @@ impl winit::application::ApplicationHandler for App {
                                 .music
                                 .as_ref()
                                 .map_or(self.profile.settings.music_volume, |m| m.volume),
+                            mouse_sensitivity: self.profile.settings.mouse_sensitivity,
+                            invert_y: self.profile.settings.invert_y,
                             ..model
                         });
                     } else {
@@ -1524,7 +1513,8 @@ impl winit::application::ApplicationHandler for App {
                         if let Some(gpu) = self.gpu.as_mut() {
                             gpu.step_stations(&walk.sim);
                         }
-                        walk.advance_with(dt, std::slice::from_ref(&pad), |walk| {
+                        let mut tick_pad = pad;
+                        let ticks = walk.advance_with(dt, std::slice::from_ref(&pad), |walk| {
                             let hook_t0 = std::time::Instant::now();
                             if let Some(gpu) = self.gpu.as_mut() {
                                 gpu.step_stations(&walk.sim);
@@ -1552,14 +1542,17 @@ impl winit::application::ApplicationHandler for App {
                             }
                             self.feed.tick(&walk.sim, walk.player);
                             if let Some(bb) = self.blackbox.as_mut() {
-                                stuck_alarm |= bb.tick(walk, Some(pad));
+                                stuck_alarm |= bb.tick(walk, Some(tick_pad));
                                 note_sounds(bb, self.sounds.as_mut(), walk.sim.tick);
                             }
                             if let Some(p) = self.frame_profile.as_mut() {
                                 let hook = hook_t0.elapsed().as_secs_f64() * 1000.0;
                                 p.tick(walk.sim.ai_wall_ms, hook);
                             }
+                            tick_pad.clear_look();
                         });
+                        self.kbm.consumed(&pad, ticks);
+                        look = self.kbm.look();
                         if let Some(p) = self.frame_profile.as_mut() {
                             p.lap("sim_ms");
                         }
@@ -1665,7 +1658,7 @@ impl winit::application::ApplicationHandler for App {
                     // pose blended between its last two ticks (card RINT):
                     // the camera, units and vehicles drawn at the display's
                     // rate. Restored below, before anything else reads it.
-                    walk.blend_in();
+                    game::render_blend::blend_in_looking(walk, &look);
                     let models = self
                         .soldier_vis
                         .as_ref()

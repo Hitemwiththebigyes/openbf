@@ -184,6 +184,66 @@ fn the_aimer_follows_the_look_at_its_rate_and_stops_at_its_limit() {
     );
 }
 
+fn mouse(yaw: f32, pitch: f32) -> PadState {
+    PadState {
+        mx: PadState::quantize_look(f64::from(yaw)),
+        my: PadState::quantize_look(f64::from(pitch)),
+        buttons: buttons::MOUSE_AIM,
+        ..PadState::default()
+    }
+}
+
+#[test]
+fn a_gunners_mouse_moves_the_look_by_its_angle_inside_the_limits() {
+    let (mut s, p, v) = world(false);
+    tap(&mut s, buttons::ACTION);
+    tap(&mut s, buttons::SWITCH_WEAPON);
+    tap(&mut s, buttons::SWITCH_WEAPON);
+    let look = |s: &Sim| s.vehicle(v).unwrap().guns[2].clone().unwrap().look;
+    let before = look(&s);
+    let pad = mouse(0.3, 0.1);
+    let preview = s.look_preview(p, &pad);
+    s.step(&[pad]);
+    let after = look(&s);
+    let (dy, dp) = pad.look();
+    assert!(
+        (before.0 - dy - after.0).abs() < 1e-6,
+        "{before:?} {after:?}"
+    );
+    assert!((before.1 + dp - after.1).abs() < 1e-6);
+    assert_eq!(
+        preview,
+        Some(crate::sim::LookPreview::Seat {
+            vehicle: v.index as usize,
+            seat: 2,
+            look: after,
+            walker: false,
+        })
+    );
+    s.step(&[mouse(-3.0, 3.0)]);
+    assert_eq!(look(&s), (25.0 * DEG, 45.0 * DEG));
+}
+
+#[test]
+fn a_turrets_mouse_look_wraps_and_holds_its_pitch_limits() {
+    let (mut s, v) = dish_world();
+    let p = s
+        .spawn(&UnitSpec::player(0, Vec3::new(0.0, 0.0, 3.0)))
+        .unwrap();
+    assert!(s.enter_vehicle(p, v, 0));
+    let look = |s: &Sim| s.vehicle(v).unwrap().guns[0].clone().unwrap().look;
+    for _ in 0..5 {
+        s.step(&[mouse(1.0, 0.0)]);
+    }
+    let l = look(&s);
+    assert!(l.0.abs() <= std::f32::consts::PI, "wrapped {l:?}");
+    assert!((crate::vehicle::gun::wrap(l.0 + 5.0)).abs() < 1e-4, "{l:?}");
+    s.step(&[mouse(0.0, -2.0)]);
+    assert!((look(&s).1 + 35.0 * DEG).abs() < 1e-5);
+    s.step(&[mouse(0.0, 2.0)]);
+    assert!((look(&s).1 - 10.0 * DEG).abs() < 1e-5);
+}
+
 #[test]
 fn a_side_gun_rests_across_the_hull() {
     let (mut s, _, v) = world(false);

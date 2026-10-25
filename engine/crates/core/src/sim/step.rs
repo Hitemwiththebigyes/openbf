@@ -355,7 +355,7 @@ impl Sim {
                 continue;
             }
             let p = unit_pads[ph.index as usize];
-            if let Some(m) = self.magnet[slot] {
+            if let Some(m) = self.magnet[slot].filter(|_| !p.mouse_aim()) {
                 unit_pads[ph.index as usize] = self.apply_assist(slot, ph, m, &p, dt);
             }
             self.acquire_magnet(slot, ph, p.pressed(buttons::FIRE));
@@ -435,7 +435,10 @@ impl Sim {
                     }
                     stepped = Some(self.units[i].soldier.grounded);
                     let rules = self.ground_rules;
-                    self.units[i].soldier.step(dt, pad_i, &consts, rules);
+                    let look = self.units[i].look_scale();
+                    self.units[i]
+                        .soldier
+                        .step_looking(dt, pad_i, &consts, rules, look);
                     let u = &mut self.units[i];
                     if stamina_cheat && u.is_player {
                         u.soldier.energy = consts.energy_bar;

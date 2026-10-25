@@ -404,7 +404,9 @@ mod tests {
             {
                 continue;
             }
-            let text = std::fs::read_to_string(path).expect("read source");
+            let text = std::fs::read_to_string(path)
+                .expect("read source")
+                .replace("\r\n", "\n");
 
             // The LAST `#[cfg(test)]` of a file is its trailing `mod tests`,
             // and cutting there drops the test code. One before it is a test

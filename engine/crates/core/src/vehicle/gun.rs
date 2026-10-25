@@ -215,10 +215,15 @@ impl Turn {
         };
         let ry = slew(rate.0, -stick.0 * self.yaw_speed, self.yaw_filter);
         let rp = slew(rate.1, stick.1 * self.pitch_speed, self.pitch_filter);
+        ((self.hold(look.0 + dt * ry, look.1 + dt * rp)), (ry, rp))
+    }
+
+    pub fn hold(&self, yaw: f32, pitch: f32) -> (f32, f32) {
         let hold = |a: f32, l: [f32; 2], w: bool| if w { wrap(a) } else { a.clamp(l[0], l[1]) };
-        let y = hold(look.0 + dt * ry, self.yaw, self.yaw_wrap);
-        let p = hold(look.1 + dt * rp, self.pitch, self.pitch_wrap);
-        ((y, p), (ry, rp))
+        (
+            hold(yaw, self.yaw, self.yaw_wrap),
+            hold(pitch, self.pitch, self.pitch_wrap),
+        )
     }
 }
 

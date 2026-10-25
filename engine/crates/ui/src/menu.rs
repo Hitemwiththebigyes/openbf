@@ -4,8 +4,8 @@
 //! [`MenuModel`]; the game applies the returned [`MenuAction`]s.
 //!
 //! Navigation: D-pad up/down moves the cursor, Cross activates/toggles,
-//! left/right adjusts sliders, Circle or Start resumes. The pointer works too
-//! (egui), but the game is controller-only by design.
+//! left/right adjusts sliders, Circle or Start resumes; on a keyboard the
+//! arrows, Enter and Esc do the same, and the pointer clicks rows (egui).
 
 use egui::{Align2, Color32, RichText, Vec2};
 
@@ -21,6 +21,8 @@ pub struct MenuModel {
     pub fov_deg: f32,
     /// The music volume, 0..1 (1 = the disc record's own gain, 0 = off).
     pub music_volume: f32,
+    pub mouse_sensitivity: f32,
+    pub invert_y: bool,
     pub cursor: usize,
     /// Round result line, if the round is over.
     pub outcome_line: Option<String>,
@@ -37,8 +39,12 @@ pub enum MenuAction {
     SetAiCap(u32),
     SetFov(f32),
     SetMusic(f32),
+    SetMouseSensitivity(f32),
+    ToggleInvertY,
     Quit,
 }
+
+pub const MOUSE_SENSITIVITY_RANGE: (f32, f32) = (0.1, 5.0);
 
 /// Controller edges for one frame.
 #[derive(Debug, Clone, Copy, Default)]
@@ -60,6 +66,8 @@ pub enum Row {
     AiCap,
     Fov,
     Music,
+    MouseSensitivity,
+    InvertY,
     Quit,
 }
 
@@ -70,6 +78,8 @@ pub fn rows(m: &MenuModel) -> Vec<Row> {
     v.push(Row::AiCap);
     v.push(Row::Fov);
     v.push(Row::Music);
+    v.push(Row::MouseSensitivity);
+    v.push(Row::InvertY);
     if m.in_shell.is_none() {
         v.push(Row::Quit);
     }
@@ -121,6 +131,16 @@ pub fn navigate(m: &MenuModel, input: MenuInput) -> (usize, Vec<MenuAction>) {
             actions.push(MenuAction::SetMusic(
                 ((m.music_volume + d) * 10.0).round().clamp(0.0, 10.0) / 10.0,
             ));
+        }
+        Row::MouseSensitivity if input.left || input.right => {
+            let d = if input.right { 0.1 } else { -0.1 };
+            let (lo, hi) = MOUSE_SENSITIVITY_RANGE;
+            actions.push(MenuAction::SetMouseSensitivity(
+                (((m.mouse_sensitivity + d) * 10.0).round() / 10.0).clamp(lo, hi),
+            ));
+        }
+        Row::InvertY if input.confirm || input.left || input.right => {
+            actions.push(MenuAction::ToggleInvertY)
         }
         Row::Quit if input.confirm => actions.push(MenuAction::Quit),
         _ => {}
@@ -230,12 +250,25 @@ pub fn draw_menu(ctx: &egui::Context, m: &MenuModel) -> Vec<MenuAction> {
                                     format!("{:.0}%", m.music_volume * 100.0)
                                 }),
                             ),
+                            Row::MouseSensitivity => row_label(
+                                ui,
+                                sel,
+                                "Mouse sensitivity  ◀ ▶".into(),
+                                Some(format!("{:.1}", m.mouse_sensitivity)),
+                            ),
+                            Row::InvertY => row_label(
+                                ui,
+                                sel,
+                                "Invert mouse Y".into(),
+                                Some(if m.invert_y { "ON".into() } else { "off".into() }),
+                            ),
                             Row::Quit => row_label(ui, sel, "Quit to desktop".into(), None),
                         };
                         if clicked {
                             match row {
                                 Row::Resume => actions.push(MenuAction::Resume),
                                 Row::Cheat(k) => actions.push(MenuAction::ToggleCheat(*k)),
+                                Row::InvertY => actions.push(MenuAction::ToggleInvertY),
                                 Row::Quit => actions.push(MenuAction::Quit),
                                 _ => {}
                             }
@@ -243,7 +276,9 @@ pub fn draw_menu(ctx: &egui::Context, m: &MenuModel) -> Vec<MenuAction> {
                     }
                     ui.add_space(8.0);
                     ui.label(
-                        RichText::new("D-pad move · ✕ select · ◀▶ adjust · ○/Start resume")
+                        RichText::new(
+                            "D-pad / arrows move · ✕ / Enter select · ◀▶ adjust · ○ / Start / Esc resume",
+                        )
                             .size(12.0)
                             .color(Color32::GRAY),
                     );
@@ -408,10 +443,40 @@ mod tests {
             fov_scale: 1.0,
             fov_deg: 37.7,
             music_volume: 1.0,
+            mouse_sensitivity: 1.0,
+            invert_y: false,
             cursor: 0,
             outcome_line: None,
             in_shell: None,
         }
+    }
+
+    #[test]
+    fn the_mouse_rows_step_the_sensitivity_and_toggle_invert() {
+        let mut m = model();
+        let at = |m: &MenuModel, r: Row| rows(m).iter().position(|x| *x == r).unwrap();
+        m.cursor = at(&m, Row::MouseSensitivity);
+        let go = |m: &MenuModel, input: MenuInput| navigate(m, input).1;
+        let right = MenuInput {
+            right: true,
+            ..Default::default()
+        };
+        let left = MenuInput {
+            left: true,
+            ..Default::default()
+        };
+        assert_eq!(go(&m, right), vec![MenuAction::SetMouseSensitivity(1.1)]);
+        m.mouse_sensitivity = 0.1;
+        assert_eq!(go(&m, left), vec![MenuAction::SetMouseSensitivity(0.1)]);
+        m.mouse_sensitivity = 5.0;
+        assert_eq!(go(&m, right), vec![MenuAction::SetMouseSensitivity(5.0)]);
+        m.cursor = at(&m, Row::InvertY);
+        let confirm = MenuInput {
+            confirm: true,
+            ..Default::default()
+        };
+        assert_eq!(go(&m, confirm), vec![MenuAction::ToggleInvertY]);
+        assert_eq!(rows(&m).last(), Some(&Row::Quit));
     }
 
     #[test]

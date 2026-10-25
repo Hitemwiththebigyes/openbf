@@ -49,6 +49,10 @@ pub struct Settings {
     /// `game::music::VOLUME_RANGE`; 0 = no music.
     #[serde(default = "one")]
     pub music_volume: f32,
+    #[serde(default = "one")]
+    pub mouse_sensitivity: f32,
+    #[serde(default)]
+    pub invert_y: bool,
     /// Alive-AI cap override (None = the mission's authentic cap).
     pub ai_alive_cap: Option<u32>,
     pub last_map: Option<String>,
@@ -66,6 +70,8 @@ impl Default for Settings {
             team_handicap_on: true,
             fov_scale: 1.0,
             music_volume: 1.0,
+            mouse_sensitivity: 1.0,
+            invert_y: false,
             ai_alive_cap: None,
             last_map: None,
             last_mode: None,
@@ -172,6 +178,13 @@ impl Profile {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_older_profile_reads_the_mouse_defaults() {
+        let s: Settings = ron::from_str("(assist_intensity: 0.5, fov_scale: 1.1)").unwrap();
+        assert_eq!((s.mouse_sensitivity, s.invert_y), (1.0, false));
+        assert_eq!(s.assist_intensity, 0.5);
+    }
 
     #[test]
     fn round_trips_and_survives_corruption() {

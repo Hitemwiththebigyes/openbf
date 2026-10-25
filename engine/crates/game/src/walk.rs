@@ -861,11 +861,15 @@ impl WalkSim {
     ) -> u32 {
         self.accum = (self.accum + real_dt).min(core::MAX_FRAME_ACCUM_SECS);
         let mut ticks = 0;
+        let mut pads = std::borrow::Cow::Borrowed(pads);
         while self.accum >= core::TICK_DT {
             let mut blend = std::mem::take(&mut self.blend);
             blend.before_tick(self);
             self.blend = blend;
-            self.step_tick(pads);
+            self.step_tick(&pads);
+            if pads.iter().any(PadState::has_look) {
+                pads.to_mut().iter_mut().for_each(PadState::clear_look);
+            }
             each(self);
             self.accum -= core::TICK_DT;
             ticks += 1;

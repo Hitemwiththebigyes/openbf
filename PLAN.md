@@ -5,7 +5,8 @@
 # SWBF Modern Port — PLAN
 
 North star: ONE game from two. A single Rust codebase for Windows/Linux/macOS that plays
-like the PS2 Battlefronts (not the PC ports): controller-ONLY with BF1 aim assist, all
+like the PS2 Battlefronts (not the PC ports): controller-first with BF1 aim assist (keyboard + mouse added
+2026-10-25 as a deliberate deviation, no assist on the mouse), all
 maps of both games, BF2's shell/menus, BF1's loading screens and beeps, the better
 subsystem from either game wherever they differ, "classic-plus" wgpu rendering (same
 content, modernized look), and LAN multiplayer (cap 16). Original discs remain the asset
@@ -108,7 +109,7 @@ One line per decision; the full text, with every number, is VERBATIM in `analysi
 - Legal: everything stays local-only and uncommitted; [L287]
 
 **Platform & meta** (FEATURE_SET.md L291+)
-- Input: controller only (KB/M dropped entirely); [L292]
+- Input: controller first; keyboard + mouse added 2026-10-25 as a deliberate deviation (pointer lock, mouse look as angles, no aim assist on the mouse); [L292]
 - Splitscreen co-op: KEEP (roadmap: M5, before PACK; [L294]
 - LAN: client-server UDP, cap 16, bots server-side. [L296]
 - Saves/profiles: modern format; awards/unlock progression persists per profile. [L297]

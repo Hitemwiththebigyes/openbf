@@ -551,7 +551,7 @@ fn commit_time(commit: &str) -> Option<u64> {
 }
 
 fn buttons(b: u32) -> String {
-    const NAMES: [&str; 15] = [
+    const NAMES: [&str; 23] = [
         "fire",
         "jump",
         "roll",
@@ -567,6 +567,14 @@ fn buttons(b: u32) -> String {
         "sq-clear",
         "class+",
         "class-",
+        "switch2",
+        "post-up",
+        "post-down",
+        "post-left",
+        "post-right",
+        "accept",
+        "back",
+        "mouse-aim",
     ];
     let v: Vec<&str> = NAMES
         .iter()
@@ -599,9 +607,11 @@ fn human(snap: &Snapshot, span: f32) -> String {
         // ones are grouped.
         let bucket = rows[i].tick.div_ceil(15);
         let mut j = i;
-        let (mut pressed, mut stick) = (0u32, glam::Vec2::ZERO);
+        let (mut pressed, mut stick, mut mouse) = (0u32, glam::Vec2::ZERO, (0i64, 0i64));
         while j < rows.len() && rows[j].tick.div_ceil(15) == bucket {
             pressed |= rows[j].buttons;
+            mouse.0 += i64::from(rows[j].mx);
+            mouse.1 += i64::from(rows[j].my);
             stick += glam::Vec2::new(f32::from(rows[j].lx), f32::from(rows[j].ly)) / 32767.0;
             j += 1;
         }
@@ -609,10 +619,18 @@ fn human(snap: &Snapshot, span: f32) -> String {
         let r = rows[j - 1];
         let _ = writeln!(
             s,
-            "  {:>6.1} s  {} ({:.1},{:.1},{:.1}) yaw {:.2} pitch {:.2}  {:.1} m/s  stick ({:+.2},{:+.2}) {}  hp {:.0}  {} {}/{}  reticle {}  magnet {}{}",
+            "  {:>6.1} s  {} ({:.1},{:.1},{:.1}) yaw {:.2} pitch {:.2}  {:.1} m/s  stick ({:+.2},{:+.2}){} {}  hp {:.0}  {} {}/{}  reticle {}  magnet {}{}",
             secs(snap, r.tick),
             if r.alive { "alive" } else { "DEAD " },
             r.pos[0], r.pos[1], r.pos[2], r.yaw, r.pitch, r.speed, stick.x, stick.y,
+            match mouse {
+                (0, 0) => String::new(),
+                (x, y) => format!(
+                    " mouse ({:+.1},{:+.1}) deg",
+                    (x as f32 * core::sim::LOOK_UNIT).to_degrees(),
+                    (y as f32 * core::sim::LOOK_UNIT).to_degrees()
+                ),
+            },
             buttons(pressed), r.hp,
             snap.names.weapons.get(r.weapon as usize).map_or("?", String::as_str),
             r.clip, r.spare,
