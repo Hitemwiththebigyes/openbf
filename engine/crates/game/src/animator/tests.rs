@@ -228,6 +228,240 @@ impl Run {
 }
 
 #[test]
+fn bf1_sprinting_keeps_the_run_animation_above_eight_metres_per_second() {
+    for speed in [3.0, 7.9, 8.1, 9.75, 10.5] {
+        for scale in [1.0, 1.15] {
+            for (set, expected) in [(0, RUN), (1, BAZOOKA_RUN)] {
+                for alert in [false, true] {
+                    let mut r = Run::new(rig_bf1());
+                    let sprint = AnimInput {
+                        stance: Stance::Sprint,
+                        root_scale: scale,
+                        set,
+                        alert,
+                        ..input(speed)
+                    };
+                    r.steps(&input(0.0), 30);
+                    r.steps(&sprint, 30);
+                    assert_eq!(
+                        r.a.body(),
+                        Some(Body::Feet(0, Move::RunForward)),
+                        "speed {speed}, scale {scale}, set {set}, alert {alert}"
+                    );
+                    assert_eq!(r.a.lower_clip(), Some(RUN));
+                    assert_eq!(r.a.upper_clip(), Some(expected));
+                    assert_eq!(r.clip_of(LEG), RUN);
+                    assert_eq!(r.clip_of(ARM), expected);
+                    let phase = r.a.lower_phase();
+                    r.steps(&sprint, 1);
+                    assert_ne!(r.a.lower_phase(), phase);
+                    r.steps(
+                        &AnimInput {
+                            vel: glam::Vec2::ZERO,
+                            ..sprint
+                        },
+                        30,
+                    );
+                    assert_eq!(r.a.body(), Some(Body::Feet(0, Move::Idle)));
+                    r.steps(&sprint, 30);
+                    assert_eq!(r.a.lower_clip(), Some(RUN));
+                    r.steps(&input(0.0), 30);
+                    assert_eq!(r.a.body(), Some(Body::Feet(0, Move::Idle)));
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn baked_soldier_weapon_sets_keep_moving_during_sprint() {
+    let root = crate::assets::baked_root();
+    for game in ["bf1", "bf2"] {
+        let side = root.join(format!("side_{game}"));
+        if !side.join("soldiers").exists() || !root.join("classes").exists() {
+            eprintln!("skip: no {game} soldier bake");
+            continue;
+        }
+        let db =
+            crate::roster::load_classdb(&root.join("classes"), game, &["all", "imp", "rep", "cis"])
+                .unwrap();
+        let mut assets = BTreeMap::new();
+        let mut rows = 0;
+        let mut classes: Vec<_> = db.names().collect();
+        classes.sort_unstable();
+        for class in classes {
+            if !crate::roster::is_soldier_chain(&db, class) {
+                continue;
+            }
+            let Some(geometry) = db.prop(class, "GeometryName") else {
+                continue;
+            };
+            let geometry = geometry.trim().to_ascii_lowercase();
+            let path = side.join("soldiers").join(format!("{geometry}.glb"));
+            if !path.exists() || !manifest::anim_sets::path(&side, &geometry).exists() {
+                continue;
+            }
+            let (asset, rig) = assets.entry(geometry.clone()).or_insert_with(|| {
+                let asset = crate::assets::load_skinned_glb(&path).unwrap();
+                let rig = crate::soldier_vis::SoldierVisuals::load_rig(&side, &geometry, &asset)
+                    .expect("baked soldier rig");
+                (asset, rig)
+            });
+            let slots = db.weapon_slots(class);
+            let anim = crate::roster::class_anim(&db, class, &slots);
+            let max_speed = db.prop_f32(class, "MaxSpeed").unwrap_or(7.0);
+            for slot in &slots {
+                let set = rig.weapon_set(&anim.family, anim.bank_of(&slot.weapon));
+                let mut a = Animator::new();
+                let i = AnimInput {
+                    stance: Stance::Sprint,
+                    max_speed,
+                    root_scale: anim.root_scale,
+                    set,
+                    ..input(1.5 * max_speed)
+                };
+                for _ in 0..30 {
+                    a.step(rig, &asset.clips, &asset.skeleton, &i, DT);
+                }
+                for clip in [a.lower_clip(), a.upper_clip()] {
+                    let name = &asset.clips[clip.expect("a sprint clip")].name;
+                    assert!(
+                        name.contains("run") || name.contains("sprint"),
+                        "{game} {class} {}: {name}",
+                        slot.weapon
+                    );
+                }
+                let phase = a.lower_phase();
+                a.step(rig, &asset.clips, &asset.skeleton, &i, DT);
+                assert_ne!(a.lower_phase(), phase, "{game} {class} {}", slot.weapon);
+                rows += 1;
+            }
+        }
+        assert!(rows > 0, "no {game} sprint rows checked");
+        println!("{game}: {rows} soldier/weapon sprint rows keep moving");
+    }
+}
+
+#[test]
+fn bf1_jump_changes_pose_after_three_tenths_and_plays_its_landing() {
+    let root = crate::assets::baked_root().join("side_bf1");
+    let path = root.join("soldiers/rep_inf_trooper.glb");
+    if !path.exists() {
+        eprintln!("skip: no BF1 clone bake");
+        return;
+    }
+    let asset = crate::assets::load_skinned_glb(&path).unwrap();
+    let rig = crate::soldier_vis::SoldierVisuals::load_rig(&root, "rep_inf_trooper", &asset)
+        .expect("clone rig");
+    let mut a = Animator::new();
+    let mut i = input(0.0);
+    let dt = 1.0 / 30.0;
+    a.step(&rig, &asset.clips, &asset.skeleton, &i, dt);
+    i.stance = Stance::Jump;
+    let mut clock = 0.0f32;
+    let mut poses = Vec::new();
+    for _ in 0..27 {
+        a.step(&rig, &asset.clips, &asset.skeleton, &i, dt);
+        let expected = if clock > 0.3 {
+            Special::Fall
+        } else {
+            Special::Jump
+        };
+        assert_eq!(a.body(), Some(Body::Special(expected)), "at {clock}");
+        let expected = format!("human_rifle_{}", expected.name());
+        for clip in [a.lower_clip(), a.upper_clip()] {
+            assert_eq!(asset.clips[clip.unwrap()].name, expected);
+        }
+        poses.push(a.kept_pose(&asset.skeleton));
+        clock += dt;
+    }
+    assert_ne!(poses[3], poses[8]);
+    assert_ne!(poses[11], poses[20]);
+    i.stance = Stance::Stand;
+    for n in 0..17 {
+        a.step(&rig, &asset.clips, &asset.skeleton, &i, dt);
+        assert_eq!(
+            a.body(),
+            Some(Body::Special(Special::Landing(false))),
+            "landing {n}"
+        );
+        assert_eq!(
+            asset.clips[a.lower_clip().unwrap()].name,
+            "human_rifle_landsoft"
+        );
+    }
+    a.step(&rig, &asset.clips, &asset.skeleton, &i, dt);
+    assert_eq!(a.body(), Some(Body::Feet(0, Move::Idle)));
+    i.stance = Stance::Jump;
+    a.step(&rig, &asset.clips, &asset.skeleton, &i, dt);
+    assert_eq!(a.body(), Some(Body::Special(Special::Jump)));
+}
+
+#[test]
+fn bf1_jump_blends_with_the_ps2s_thirty_update_weights() {
+    let mut rig = rig_bf1();
+    rig.sets.bf1.as_mut().unwrap().special[0] = Some(SHOOT_LEGS as u16);
+    rig.sets.clips[SHOOT_LEGS].blend = Some(0.4);
+    let mut r = Run::new(rig);
+    r.clips[SHOOT_LEGS] = clip(SHOOT_LEGS, "shoot_legs", 1, false);
+    r.steps(&input(0.0), 30);
+    let i = AnimInput {
+        stance: Stance::Jump,
+        ..input(0.0)
+    };
+    let mut expected = r.a.kept_pose(&r.skel).0[LEG].translation.x;
+    let mut upper = r.a.kept_pose(&r.skel).0[ARM].translation.x;
+    for n in 1..=6 {
+        let dt = 1.0 / 30.0;
+        r.a.step(&r.rig, &r.clips, &r.skel, &i, dt);
+        expected += (700.0 - expected) * (n as f32 * dt / 0.4);
+        upper += (700.0 - upper) * ((n - 1) as f32 * dt / 0.4);
+        let got = r.a.kept_pose(&r.skel).0[LEG].translation.x;
+        assert!(
+            (got - expected).abs() < 1e-3,
+            "update {n}: {got} != {expected}"
+        );
+        let got = r.a.kept_pose(&r.skel).0[ARM].translation.x;
+        assert!(
+            (got - upper).abs() < 1e-3,
+            "upper update {n}: {got} != {upper}"
+        );
+    }
+}
+
+#[test]
+fn bf1_running_landing_can_end_after_point_fifteen_seconds_but_hard_landing_cannot() {
+    for (air_updates, hard) in [(27, false), (63, true)] {
+        let mut rig = rig_bf1();
+        let table = rig.sets.bf1.as_mut().unwrap();
+        table.special[0] = Some(SHOOT_LEGS as u16);
+        table.special[4] = Some(SHOOT_LEGS as u16);
+        table.special[if hard { 3 } else { 2 }] = Some(RELOAD as u16);
+        let mut r = Run::new(rig);
+        let airborne = AnimInput {
+            stance: Stance::Jump,
+            ..input(0.0)
+        };
+        for _ in 0..air_updates {
+            r.a.step(&r.rig, &r.clips, &r.skel, &airborne, 1.0 / 30.0);
+        }
+        for _ in 0..5 {
+            r.a.step(&r.rig, &r.clips, &r.skel, &input(6.5), 1.0 / 30.0);
+            assert_eq!(r.a.body(), Some(Body::Special(Special::Landing(hard))));
+        }
+        r.a.step(&r.rig, &r.clips, &r.skel, &input(6.5), 1.0 / 30.0);
+        assert_eq!(
+            r.a.body(),
+            Some(if hard {
+                Body::Special(Special::Landing(true))
+            } else {
+                Body::Feet(0, Move::RunForward)
+            })
+        );
+    }
+}
+
+#[test]
 fn stance_table() {
     let at = |stance| {
         let mut i = input(3.0);

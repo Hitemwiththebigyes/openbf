@@ -454,6 +454,7 @@ pub enum Special {
     Roll,
     Jump,
     Fall,
+    Landing(bool),
     /// BF2 only: BF1 sprints on the run clip.
     Sprint,
     /// Card KNOCK (re-knockback §2, B1 FUN_0022a0a8): thrown, by the
@@ -477,6 +478,7 @@ impl Special {
             Special::Roll => "diveforward",
             Special::Jump => "jump",
             Special::Fall => "fall",
+            Special::Landing(hard) => ["landsoft", "landhard"][usize::from(hard)],
             Special::Sprint => "sprint",
             Special::Flying(d) => [
                 "thrown_flyingfront",
@@ -873,6 +875,7 @@ struct Ctx<'a> {
     dt: f32,
     /// BF1: the alert's factor on both layers' weight (§3.4).
     factor: f32,
+    blend_updates: f32,
 }
 
 /// One clip player.
@@ -929,6 +932,7 @@ impl Player {
             skel,
             dt,
             factor,
+            blend_updates,
         } = *cx;
         let (mask, game) = (if upper { &rig.upper } else { &rig.lower }, rig.game);
         let Some(s) = self.slot else { return };
@@ -943,7 +947,7 @@ impl Player {
         // The weight the kept pose moves toward the clip by, this update.
         let k = match game {
             _ if snap || cur >= 1.0 => 1.0,
-            Game::Bf1 => 1.0 - (1.0 - cur).powf(dt * BF1_UPDATES),
+            Game::Bf1 => 1.0 - (1.0 - cur).powf(dt * blend_updates),
             Game::Bf2 => ((cur - self.weight) / (1.0 - self.weight)).clamp(0.0, 1.0),
         };
         self.weight = cur;
@@ -998,6 +1002,7 @@ pub struct Animator {
     twist: f32,
     travel: f32,
     roll: RollClock,
+    jump: jump::Jump,
     /// Seated (card VTURG): the seat clip's frame clock; the kept pose is
     /// the seat's and the twist and aim are not laid on it.
     seat: Option<f32>,
@@ -1086,6 +1091,7 @@ impl Animator {
             }
             (s, _) => s,
         };
+        let stance = self.jump.step(rig, clips, i, stance, dt);
         let scale = if i.root_scale > 0.0 {
             i.root_scale
         } else {
@@ -1153,20 +1159,23 @@ impl Animator {
             }
             Ok(s) => {
                 let strafe = rig.strafes(i.set, s, alert);
-                let mv = match choose(
-                    rig.game,
-                    i.vel,
-                    scale,
-                    strafe,
-                    alert,
-                    i.max_speed,
-                    &mut self.legs,
-                ) {
-                    // BF1 sprints on the run clip.
-                    Some((Move::WalkForward, leg)) if i.stance == Stance::Sprint => {
-                        self.leg = leg;
-                        Move::RunForward
-                    }
+                let movement = if rig.game == Game::Bf1
+                    && i.stance == Stance::Sprint
+                    && (i.vel / scale).abs().max_element() >= IDLE
+                {
+                    Some((Move::RunForward, i.vel.x.atan2(i.vel.y)))
+                } else {
+                    choose(
+                        rig.game,
+                        i.vel,
+                        scale,
+                        strafe,
+                        alert,
+                        i.max_speed,
+                        &mut self.legs,
+                    )
+                };
+                let mv = match movement {
                     Some((m, leg)) => {
                         self.leg = leg;
                         m
@@ -1212,6 +1221,7 @@ impl Animator {
             let phase = keep.then_some(self.lower.t);
             self.lower.set(rig, s, false, restart && up_action, phase);
         }
+        let previous_upper = self.upper_clip();
         if let Some(s) = up {
             // A movement clip starts on the upper body at the legs' phase.
             let phase = (!up_action && mv.is_some()).then_some(self.lower.t);
@@ -1232,6 +1242,14 @@ impl Animator {
         self.lower
             .advance(clips, dt * if legs { rate } else { walk }, rig.game);
 
+        let jump_pose = matches!(
+            body,
+            Body::Special(Special::Jump | Special::Fall | Special::Landing(_))
+        );
+        if rig.game == Game::Bf1 && jump_pose && previous_upper != self.upper_clip() {
+            self.upper.secs = 0.0;
+        }
+
         let snap = self.kept.is_none();
         let pose = self.kept.get_or_insert_with(|| Pose::bind(skel));
         let cx = Ctx {
@@ -1239,7 +1257,17 @@ impl Animator {
             clips,
             skel,
             dt,
-            factor: self.aim.layer_factor(rig.game),
+            factor: self.jump.fade_factor()
+                * if jump_pose {
+                    1.0
+                } else {
+                    self.aim.layer_factor(rig.game)
+                },
+            blend_updates: if jump_pose || self.jump.fading() {
+                jump::BLEND_UPDATES
+            } else {
+                BF1_UPDATES
+            },
         };
         self.lower.apply(pose, &cx, false, snap);
         self.upper.apply(pose, &cx, true, snap);
@@ -1353,6 +1381,7 @@ impl Animator {
         self.action = None;
         self.twist = 0.0;
         self.aim = aim::Aim::default();
+        self.jump = jump::Jump::default();
     }
 
     /// Is the soldier posed by a seat ([`Animator::seat`])?
@@ -1388,5 +1417,6 @@ pub fn find_clip(clips: &[Clip], name: &str) -> Option<usize> {
 
 pub mod aim;
 pub mod census;
+mod jump;
 #[cfg(test)]
 mod tests;

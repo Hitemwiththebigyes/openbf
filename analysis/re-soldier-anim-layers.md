@@ -641,3 +641,36 @@ ids; BF2 combo (melee) sets; the rotation order and handedness of the aim pose a
 speed-mode reading for BF2's run choice was not re-read; BF2 `sanm`'s BlendTimeTo lists and SyncType groups were
 decoded but only Loop, AimType and the two blend times were compared with RAM by the lead. Not built or compared
 on screen: no PCSX2 picture pair was taken in this session - the build cards carry that.
+
+## 9. BF1's jump is a timed pose sequence (2026-10-25) [O] UNAUDITED
+
+The maintainer reported a frozen clone jump on BF1 Geonosis and explicitly requested BF1's PS2 sequence.
+The one-frame counts in `re-anim-banks.md` 3.1 describe individual clips, not the entire jump's motion.
+The previous port held the `jump` clip throughout `Stance::Jump` and omitted the landing clip. [D]
+
+Re-read directly from the maintainer's `SWBFRONT.ELF` on the BF1 ISO, copied only into the ignored scratch
+directory `engine/artifacts/lead_tmp/jump-reference/`. The main executable is `/SWBFRONT.ELF`, not the small
+`/SLUS_208.98` loader. ELF addresses below use file offset `VA - 0x160000 + 0x1000`.
+
+- `FUN_0022a0a8`: state 4 dispatches through `0x534b10 + 4*4` to `0x22a35c`, which clears state time +0x80
+  and selects special 0, `jump`. The pose driver's table at `0x534b50` sends special 0 and 1 to `0x22ad3c`.
+  There, `0x22ad3c..0x22ad60` compares +0x80 strictly above the immediate `0x3e99999a` (0.3 s) and changes
+  special +0x78 to 4, `fall`; `0x22ad7c` plays the resulting special. The soldier remains in jump state.
+  Time +0x80 advances after posing, at `0x22bb24..0x22bb30`. [V]
+- On return to a posture, `0x22a1b8..0x22a230` selects `landsoft` (id 2), or `landhard` (id 3) when the old
+  airborne state's +0x80 is strictly above 2.0 s (`0x40000000`, `0x22a1fc`). [V]
+- `0x22b12c..0x22b168` plays the landing until the lower clip completes. `FUN_0022c7f0` returns completion
+  from lower clip seconds >= frames/30 at `0x22cba8..0x22cbf0`. A soft landing may yield to locomotion after
+  0.15 s when planar displacement/dt is above 1 m/s (`0x22b16c..0x22b1f4`); it then sets the state fade to
+  0.3 s. The clone's lower clips are 17-frame `landsoft` and 34-frame `landhard`. [V]
+- Special playback resets the lower clip clock and advances it on the first update (`0x22c85c..0x22c894`).
+  A changed upper clip starts its clock at zero and synchronizes to the lower phase
+  (`0x22c8cc..0x22c918`). Both use the growing clip blend, with factor 1, through `FUN_0022bbf0`
+  (`0x22c998..0x22c9e4`). Applying two 60 Hz pulls per original 30 Hz update makes these transitions too fast;
+  the jump sequence now uses one original pull per 1/30 s, with fractional pulls between updates. [V/D]
+
+The runtime fix keeps those BF1 clips and restores their timed sequence, blending and landing interruption.
+It changes presentation only. The rejected `thrown_flail` substitution is removed; BF2's jump is not borrowed.
+Tests exercise the real clone's changing bone poses, clip names, landing duration and repeat jump, plus synthetic
+checks of both body layers' original blend weights and soft/hard landing interruption. No live jump picture pair
+was obtained in this session; keyboard injection into the isolated PCSX2 comparison did not trigger a jump.
