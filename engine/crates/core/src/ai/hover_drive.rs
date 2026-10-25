@@ -1,3 +1,4 @@
+//! CWAIT pickup holds run in `ride` before route progress.
 //! A bot at a hover's pilot seat (card VDROP): the sticks the PS2's hover AI
 //! writes, transcribed from `analysis/re-hover-ai.md` [O] (B2 FUN_00220528 →
 //! the shared steering FUN_002a54d8 → FUN_002a45a0; BF1 FUN_001eedc0), and
@@ -482,17 +483,13 @@ pub(super) fn drive(
         aim_origin: pos,
         aim_dir: fwd,
     };
-    let ([mut thr, mut strafe, turn, _], began2, ended) =
+    let ([thr, strafe, turn, _], began2, ended) =
         sticks(&k, &body, &order, &mut ai.state, &mut ai.fwd0);
     if began2 {
         ai.state2_at = sim.tick;
     }
     if ended {
         ai.ended_at = Some(sim.tick);
-    }
-    // A teammate walking up to a gunner seat: hold the throttle for it.
-    if super::ride::gunner_coming(sim, m.vehicle) {
-        (thr, strafe) = (0.0, 0.0);
     }
     let r = st.ride.unwrap_or_default();
     st.ride = Some(RideState {

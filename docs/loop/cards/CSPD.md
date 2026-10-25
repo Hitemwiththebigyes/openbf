@@ -4,15 +4,17 @@ title: BF2 per-stance ControlSpeed: every BF2 team class inherits com_inf_defaul
 milestone: M3
 value: 3
 phase: build
-status: todo
+status: blocked
 deps:
 files: engine/crates/core/src/soldier.rs, engine/crates/game/src/roster.rs
 declares: sim; sweep
-needs:
+needs: Restore BF2 primary turn-reader evidence, class RONs and runtime validation inputs
+effort:
 branch:
-resume:
+resume: 20261024_2336: blocked build; restore +0x7bc reader and real BF2 class chain, then implement row replay preserving sprint turn 0.6 and BF1 table; see engine/artifacts/loop/reports/20261024_2336_card_CSPD.md
 created: 2026-09-29
 defer: post-alpha
+tries: 1
 ---
 ## Why
 UAUD2 (analysis/unit-audit-bf2.md §3.6). A BF2 soldier on the PS2 turns at 0.35 x MaxTurnSpeed while sprinting, jumping and

@@ -14,6 +14,21 @@ use game::viewer::{camera_from, upload_scene, upload_unit_cube, SceneGpu};
 use game::walk::WalkSim;
 use render::{Camera, DrawCmd, Renderer};
 
+/// Keep feed statistics current even without a HUD consumer. Presentation
+/// output has no reader in that mode, so discard it after each sim tick.
+fn tick_event_feed(
+    feed: &mut game::event_feed::EventFeed,
+    sim: &core::sim::Sim,
+    player: core::unit::UnitHandle,
+    hud: bool,
+) {
+    feed.tick(sim, player);
+    if !hud {
+        drop(feed.take());
+        drop(feed.take_ambush());
+    }
+}
+
 /// Headless frame with the HUD painted on top (captures / goldens).
 #[allow(clippy::too_many_arguments)]
 fn render_headless_hud(
@@ -109,8 +124,7 @@ impl ReplayFrame {
         // Replay presentation uses elapsed sim time, independent of capture cadence.
         r.time = (walk.sim.tick as f32 * core::TICK_DT) % render::TIME_WRAP;
         r.water_time = walk.sim.tick as f64 / f64::from(core::TICK_HZ);
-        let clock = game::water_anim::clock(r.water_time);
-        gpu.animate_water(r, clock, cam.position)?;
+        gpu.animate_water_live(r, cam.position)?;
         gpu.pose_doors(&walk.sim.doors);
         gpu.pose_turrets(&walk.sim, &walk.vehicle_seats);
         gpu.pose_stations(&walk.sim);
@@ -214,6 +228,7 @@ fn append_events(csv: &mut String, tick: usize, events: &[core::sim::Event]) {
             Event::TimeUp { winner } => format!("{tick},time_up,{winner},,\n"),
             Event::EnvDeath { unit, cause } => {
                 let what = match cause {
+                    core::sim::DeathCause::Suicide => "suicide",
                     core::sim::DeathCause::DeathRegion => "region",
                     core::sim::DeathCause::Fall => "fall",
                     core::sim::DeathCause::VehicleDestroyed => "vehicle",
@@ -538,7 +553,7 @@ pub(super) fn run_headless(v: &ViewerArgs) -> Result<()> {
             }
             frame.bolts.set_fire_points(frame.vis.fire_points(&walk));
             frame.bolts.update(&walk, core::TICK_DT);
-            frame.feed.tick(&walk.sim, walk.player);
+            tick_event_feed(&mut frame.feed, &walk.sim, walk.player, v.hud);
             if v.events.is_some() {
                 append_events(&mut events_csv, tick, &walk.sim.events);
             }
@@ -683,8 +698,7 @@ pub(super) fn run_headless(v: &ViewerArgs) -> Result<()> {
         };
         // The water at the renderer's clock (0 here) unless
         // OPENBF_WATER_TIME pins it (queue OC).
-        let clock = game::water_anim::clock(r.water_time);
-        gpu.animate_water(&mut r, clock, cam.position)?;
+        gpu.animate_water_live(&mut r, cam.position)?;
         // The map's precipitation at its still state (card WTHR).
         let map = std::path::Path::new(&v.map);
         let assets = map.parent().unwrap_or(std::path::Path::new("."));
@@ -779,8 +793,7 @@ fn capture_orbit(
         let cam = look_at(orbit_eye(o, a, lift), o.center);
         r.time = (k as f32 / 30.0) % render::TIME_WRAP;
         r.water_time = k as f64 / 30.0;
-        let clock = game::water_anim::clock(r.water_time);
-        gpu.animate_water(r, clock, cam.position)?;
+        gpu.animate_water_live(r, cam.position)?;
         r.render(&cam, &gpu.draws, gpu.clear)
             .map_err(|e| anyhow!("render: {e}"))?;
         let (rgba, w, h) = r.capture_rgba().map_err(|e| anyhow!("capture: {e}"))?;
@@ -935,4 +948,74 @@ pub(super) fn run_aim_replay(args: &[String]) -> Result<()> {
     std::fs::write(out.join("motion.csv"), csv)?;
     println!("sim hash after {} ticks: {:016x}", sim.tick, sim.hash());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::tick_event_feed;
+    use core::sim::{Event, PadState, Sim};
+    use core::unit::UnitSpec;
+    use game::event_feed::EventFeed;
+    use glam::Vec3;
+
+    #[test]
+    fn replay_feed_without_hud_drains_each_tick_and_preserves_hud_delivery() {
+        fn run(hud: bool) -> (u64, i32) {
+            let mut sim = Sim::empty(7);
+            let player = sim
+                .spawn(&UnitSpec::player_in_slot(0, 0, Vec3::ZERO))
+                .unwrap();
+            let mut feed = EventFeed::default();
+            let mut reference = EventFeed::default();
+            let mut expected_messages = Vec::new();
+            let mut expected_edges = Vec::new();
+            let mut delivered = 0;
+            // A minute of hits and a human kill line every five seconds:
+            // beyond the same-line suppression window, across many captures.
+            for tick in 0..1800 {
+                sim.step(&[PadState::default()]);
+                if tick % 150 == 0 {
+                    sim.events.push(Event::Kill {
+                        shooter: player,
+                        victim: player,
+                    });
+                }
+                sim.events.push(Event::Hit {
+                    shooter: player,
+                    victim: player,
+                    damage: 0.0,
+                    age: 0.0,
+                    health_left: 100.0,
+                    dir: Vec3::X,
+                });
+                let hash = sim.hash();
+                reference.tick(&sim, player);
+                expected_messages.extend(reference.take().into_iter().map(|m| (m.text, m.color)));
+                expected_edges.extend(reference.take_ambush());
+                tick_event_feed(&mut feed, &sim, player, hud);
+                assert_eq!(sim.hash(), hash, "feed must not alter the sim");
+                if hud && (tick % 17 == 0 || tick == 1799) {
+                    let messages: Vec<_> =
+                        feed.take().into_iter().map(|m| (m.text, m.color)).collect();
+                    delivered += messages.len();
+                    assert_eq!(messages, expected_messages);
+                    assert_eq!(feed.take_ambush(), expected_edges);
+                    expected_messages.clear();
+                    expected_edges.clear();
+                }
+            }
+            if hud {
+                assert_eq!(delivered, 12);
+            } else {
+                assert_eq!(expected_messages.len(), 12);
+                assert_eq!(expected_edges.len(), 1800);
+                assert_eq!(feed.take().len(), 0, "HUD-off retained messages");
+                assert_eq!(feed.take_ambush().len(), 0, "HUD-off retained hits");
+            }
+            let stats = feed.stats(&sim, player);
+            assert_eq!(stats.points, reference.stats(&sim, player).points);
+            (sim.hash(), stats.points)
+        }
+        assert_eq!(run(false), run(true));
+    }
 }

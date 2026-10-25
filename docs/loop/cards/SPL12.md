@@ -4,15 +4,16 @@ title: Split: core/src/sim/step.rs (1,767 lines, 990 of them its inline tests fr
 milestone: M0
 value: 2
 phase: cleanup
-status: todo
+status: done
 deps:
-files: engine/crates/core/src/sim/spawn.rs
+files: engine/crates/core/src/sim/spawn.rs, engine/crates/core/src/sim/spawn/runtime.rs, engine/crates/core/src/sim/spawn/tests.rs, engine/crates/core/src/sim/spawn/tests/screens.rs
 declares:
 needs:
 effort:
 branch:
-resume: 2026-10-24 14:22 UTC: Current source: step.rs 1011 with external step/tests.rs 1231 already extracted on main. Active split is spawn.rs 2947 only. Do not re-extract step tests. Preserve strict/map/current counts and unchanged sim/test acceptance; complete runtime gates after restore. reports/20261024_1422_planner.md; lead_tmp/planner_20261024_1417/next_prompt.md.
+resume:
 created: 2026-10-09
+tries: 1
 ---
 ## Why
 Cleanse 14 (2026-10-09): both files are over the 1,500-line cap with neither a split card nor a line in scripts/size_waivers.txt. step.rs grew 1,385 -> 1,767 through card ZOOM (its tests). engine/artifacts/briefs/SPLIT_RECIPE.md: one file, one session, a pure move.

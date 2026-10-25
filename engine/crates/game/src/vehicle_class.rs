@@ -212,7 +212,8 @@ fn section_scope(value: &str) -> Scope {
 /// turret's `BuildingSection` and a walker's `WalkerSection` (B2
 /// FUN_00263f68 B2:182865-182869, card WALK) open the same scopes as
 /// `FLYERSECTION`; inside a `WalkerSection` only the props the turret setter
-/// claims ([`walker::TURRET_CLAIMS`]) are the section's, the rest the body's.
+/// chain claims ([`walker::turret_claims`]) are the section's, the rest the
+/// body's.
 fn scoped(def: &ClassDef) -> Vec<(Scope, u32, &str)> {
     let (flyer, building, chunk) = (h("FLYERSECTION"), h("BuildingSection"), h("CHUNKSECTION"));
     let walker = h("WalkerSection");
@@ -225,11 +226,7 @@ fn scoped(def: &ClassDef) -> Vec<(Scope, u32, &str)> {
             by_walker = *k == walker;
         } else if *k == chunk {
             scope = Scope::Chunk;
-        } else if by_walker
-            && matches!(scope, Scope::Turret(_))
-            && !walker::TURRET_CLAIMS.contains(k)
-            && !is_seat_pose_key(*k)
-        {
+        } else if by_walker && matches!(scope, Scope::Turret(_)) && !walker::turret_claims(*k) {
             // The walker setter gives the turret setter first refusal
             // (B2:182865-182869); what it does not claim is the walker's.
             out.push((Scope::Body, *k, v.as_str()));
@@ -633,25 +630,6 @@ pub enum GunnerDraw {
     Drawn,
     Hidden,
     NoSoldier,
-}
-
-/// The seat setter's pose keys, which a walker's turret section keeps (card
-/// VRIDE): BF2's MountedTurret setter falls through to the Controllable
-/// seat setter `FUN_002f6eb8` and returns its claim (B2:191723-191731), so
-/// the AT-TE's main gunner keeps his `PilotAnimation` and the walker's
-/// pilot gets none (re-vehicle-riders 1: hidden). PROVISIONAL scope: the
-/// seat setter's other keys (`PilotType`, `EyePointOffset`, the camera's)
-/// still fall to the walker's body here - they reach the sim, a later card.
-fn is_seat_pose_key(k: u32) -> bool {
-    [
-        "PilotPosition",
-        "AnimatedPilotPosition",
-        "PilotAnimation",
-        "Pilot9Pose",
-        "IsPilotExposed",
-    ]
-    .iter()
-    .any(|n| h(n) == k)
 }
 
 /// Where a vehicle seat's drawn rider hangs in the vehicle's model frame
@@ -1130,11 +1108,20 @@ pub fn seats(db: &ClassDb, class: &str) -> Vec<SeatSpec> {
 mod tests {
     use super::*;
 
-    // WSEAT preparation: synthetic parser contract, not PS2/class-census evidence.
-    // After the BF1 setter twin is verified, include WalkerSection here too.
+    fn fixture_db(tag: &str, defs: Vec<ClassDef>) -> ClassDb {
+        let path = std::env::temp_dir().join(format!("openbf-{tag}-{}.ron", std::process::id()));
+        std::fs::write(&path, ron::to_string(&defs).unwrap()).unwrap();
+        let mut db = ClassDb::default();
+        db.load(&path).unwrap();
+        std::fs::remove_file(path).unwrap();
+        db
+    }
+
+    /// Card WSEAT: every section kind keeps its seat's keys, a walker's too
+    /// (the turret setter chain, [`walker::turret_claims`]).
     #[test]
     fn wseat_explicit_sections_keep_independent_seat_values() {
-        for section in ["FLYERSECTION", "BuildingSection"] {
+        for section in ["FLYERSECTION", "BuildingSection", "WalkerSection"] {
             let mut props = Vec::new();
             for (scope, pilot, n) in [
                 ("BODY", "vehicle", 1),
@@ -1160,12 +1147,7 @@ mod tests {
                 base: "hover".into(),
                 props,
             };
-            let path = std::env::temp_dir()
-                .join(format!("openbf-wseat-{}-{section}.ron", std::process::id()));
-            std::fs::write(&path, ron::to_string(&vec![def]).unwrap()).unwrap();
-            let mut db = ClassDb::default();
-            db.load(&path).unwrap();
-            std::fs::remove_file(path).unwrap();
+            let db = fixture_db(&format!("wseat-{section}"), vec![def]);
             let ring = seats(&db, "wseat_fixture");
             assert_eq!(
                 ring.len(),
@@ -1189,8 +1171,88 @@ mod tests {
         }
     }
 
+    /// Card WSEAT: inside a `WalkerSection` the aimer, camera, seat and
+    /// turn keys stay on the section through a child's BASE chain; the
+    /// walker's own keys after a section still reach the body, and a
+    /// `BODY` value closes the section.
+    #[test]
+    fn a_walker_section_keeps_its_aimer_camera_and_seat_keys() {
+        let def = |name: &str, base: &str, props: &[(&str, &str)]| ClassDef {
+            name: name.into(),
+            kind: "entc".into(),
+            base: base.into(),
+            props: props.iter().map(|(k, v)| (h(k), v.to_string())).collect(),
+        };
+        let parent = def(
+            "wseat_walker_parent",
+            "walker",
+            &[
+                ("EyePointOffset", "0 9 0"),
+                ("FirePointName", "hp_pilot_gun"),
+                ("WalkerSection", "TURRET1"),
+                ("PilotType", "remote"),
+                ("EyePointOffset", "1 2 3"),
+                ("TrackCenter", "0 3 -7"),
+                ("ThirdPersonFOV", "55"),
+                ("AimerNodeName", "aimer_gun"),
+                ("AimerYawLimits", "-35 110"),
+                ("FirePointName", "hp_fire_gun"),
+                ("TurnRate", "0.75"),
+                ("PitchRate", "0.5"),
+                ("MaxSpeed", "7"),
+                ("LegPairCount", "1"),
+            ],
+        );
+        let child = def(
+            "wseat_walker_child",
+            "wseat_walker_parent",
+            &[
+                ("WalkerSection", "TURRET1"),
+                ("ThirdPersonFOV", "60"),
+                ("WalkerSection", "BODY"),
+                ("TiltValue", "4"),
+            ],
+        );
+        let db = fixture_db("wseat-walker", vec![child, parent]);
+        let ring = seats(&db, "wseat_walker_child");
+        assert_eq!(ring.len(), 2, "pilot + TURRET1");
+        let (pilot, gun) = (&ring[0], &ring[1]);
+        assert_eq!(gun.kind, SeatKind::Gunner(0));
+        assert_eq!(pilot.pilot_type, SeatSpec::new(SeatKind::Pilot).pilot_type);
+        assert_eq!(gun.pilot_type, PilotType::Remote);
+        assert_eq!(pilot.eye_point_offset, Some([0.0, 9.0, 0.0]));
+        assert_eq!(gun.eye_point_offset, Some([1.0, 2.0, 3.0]));
+        assert_eq!(
+            (pilot.track_center, gun.track_center),
+            (None, Some([0.0, 3.0, -7.0]))
+        );
+        assert_eq!(
+            (pilot.third_person_fov, gun.third_person_fov),
+            (None, Some(60.0))
+        );
+        assert_eq!(pilot.fire_point.as_deref(), Some("hp_pilot_gun"));
+        assert_eq!(gun.fire_point.as_deref(), Some("hp_fire_gun"));
+        assert_eq!(
+            (pilot.aimer_node.as_deref(), gun.aimer_node.as_deref()),
+            (None, Some("aimer_gun"))
+        );
+        assert_eq!(gun.aimer_yaw_limits, Some([-35.0, 110.0]));
+        assert_eq!((pilot.turn_speed, gun.turn_speed), (None, Some(0.75)));
+        assert_eq!((pilot.pitch_rate, gun.pitch_rate), (None, Some(0.5)));
+        // After `WalkerSection BODY` the camera key is the pilot's.
+        assert_eq!((pilot.tilt_value, gun.tilt_value), (Some(4.0), None));
+        // The walker's own keys inside the section are the body's.
+        let body: Vec<u32> = scoped(db.get("wseat_walker_parent").unwrap())
+            .into_iter()
+            .filter(|(s, _, _)| *s == Scope::Body)
+            .map(|(_, k, _)| k)
+            .collect();
+        assert!(body.contains(&h("MaxSpeed")) && body.contains(&h("LegPairCount")));
+        assert!(!body.contains(&h("AimerNodeName")) && !body.contains(&h("PilotType")));
+    }
+
     /// Card VRIDE: the seat setter's pose keys by the hashes it compares
-    /// (B2 `FUN_002f6eb8`, re-vehicle-riders 2.1).
+    /// (B2 `FUN_002f6eb8`, re-vehicle-riders 2.1), a walker section's.
     #[test]
     fn the_seat_pose_keys_are_the_setters_hashes() {
         for (n, want) in [
@@ -1201,9 +1263,11 @@ mod tests {
             ("IsPilotExposed", 0x2b60e217),
         ] {
             assert_eq!(h(n), want, "{n}");
-            assert!(is_seat_pose_key(want));
+            assert!(walker::turret_claims(want));
         }
-        assert!(!is_seat_pose_key(h("PilotType")));
+        for n in ["MaxSpeed", "LegPairCount", "WalkerLegPair", "DamageEffect"] {
+            assert!(!walker::turret_claims(h(n)), "{n} is the walker's");
+        }
     }
 
     /// Card VTURG (re-turret-draw.md 3.1): a seat's pose key and

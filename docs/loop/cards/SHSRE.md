@@ -4,15 +4,16 @@ title: Where does the PS2 keep what SHASH hashes? Feasibility RE before PSHASH: 
 milestone: M0
 value: 3
 phase: re
-status: todo
+status: blocked
 deps: SHASH
 files:
 declares:
-needs:
+needs: references — restore SHSRE corpora/ELFs, PCSX2 reader/session tools and reload-separated states; see engine/artifacts/loop/reports/20261024_2043_card_SHSRE.md
 effort:
 branch:
-resume:
+resume: 2026-10-24 20:43 UTC prerequisite hold; RE incomplete. engine/artifacts/loop/reports/20261024_2043_card_SHSRE.md records missing inputs, inherited A5 timing leads and the current SHASH field contract. Restore primary inputs, verify BF1 first, then BF2 only on BF1 go; do not repeat unchanged-input preflight.
 created: 2026-10-08
+tries: 1
 ---
 
 ## Why
@@ -39,3 +40,4 @@ PSHASH reads these fields from a running PCSX2; if some group cannot be found, c
 
 ## Notes
 RE job (max effort). Memory-capped scopes for any PCSX2 session as for every PXC card (see `engine/artifacts/pcsx2/README.md`, Concurrency). BF1 first, BF2 only if BF1 is a go.
+

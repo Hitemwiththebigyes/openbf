@@ -11,9 +11,10 @@ declares: sim; arena
 needs:
 effort:
 branch: ssela
-resume: landed 8729cae3 2026-10-20
+resume: (private workflow note omitted)
 created: 2026-10-20
 alpha: yes
+domain: sim
 ---
 ## Why
 The maintainer (2026-10-19, INBOX; Reddit's top ask after the release): at the start of a level the player picks a side (or random),
@@ -89,3 +90,4 @@ the field alive at once, and a dead player respawns by himself when the 4.0 s ti
   arena_tat2_1.txt`), so the move is exactly this rule: declared `arena`.
 - NOT run: the windowed shell battle with a pad (the game is pad-only; Xvfb's xkey cannot press Cross). The maintainer's first
   shell battle is the check: the side list, then the map, then the class, X each.
+

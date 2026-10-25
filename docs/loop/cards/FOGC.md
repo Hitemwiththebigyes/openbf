@@ -4,16 +4,18 @@ title: The PS2's fog curve beyond the fogspread diagonal: in the fogged bins BF1
 milestone: M1
 value: 3
 phase: re
-status: todo
+status: blocked
 deps:
 files:
 declares:
-needs:
+needs: restore BF1 fog primary evidence and one FOGC research route; original paired states/frames/depths and real rendering inputs before validation
+effort:
 branch:
-resume:
+resume: 20261025_0330 input hold; 57 inventoried paths missing. Restore inputs before retry; engine/artifacts/loop/reports/20261025_0330_card_FOGC.md and private continuation below. Diagonal remains PROVISIONAL; Acceptance unchanged.
 created: 2026-09-29
 defer: post-alpha
 value_pre_alpha: 4
+tries: 1
 ---
 
 ## Why
@@ -54,3 +56,4 @@ not a function of f alone. Use these poses as the FOGC test set.
 
 ## Planner note (2026-09-30, M-ALPHA)
 `defer: post-alpha` — not needed for the alpha's six showcase maps or its checklist. Value 4 → 3 until the alpha (restore from `value_pre_alpha`).
+

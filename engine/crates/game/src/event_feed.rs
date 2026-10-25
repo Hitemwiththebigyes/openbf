@@ -654,7 +654,7 @@ impl EventFeed {
     }
 
     /// `None`: the viewer had no part in `team`'s capture of `cp`.
-    /// `Some(true)`: nobody of that team was in the region longer.
+    /// `Some(true)`: positive residence and nobody of that team was there longer.
     fn capture_credit(&self, sim: &Sim, viewer: UnitHandle, cp: u32, team: u8) -> Option<bool> {
         let me = &sim.units[viewer.index as usize];
         let (_, since) = self
@@ -668,7 +668,7 @@ impl EventFeed {
                 && i != viewer.index as usize
                 && matches!(self.inside.get(i), Some(Some((at, s))) if *at == cp && *s < since)
         });
-        Some(!longer)
+        Some(since < sim.tick && !longer)
     }
 
     /// The lines made since the last call, oldest first.
@@ -1188,6 +1188,76 @@ mod tests {
             (st.captures, st.points),
             (2, points::CAPTURE + points::CAPTURE_ASSIST)
         );
+    }
+
+    /// CAPCR: being counted on the completing tick still earns an assist,
+    /// but full credit requires positive residence (re-event-messages §9.1).
+    #[test]
+    fn capture_arrival_on_completing_tick_is_an_assist() {
+        let mut s = scene();
+        let me = s.me;
+        s.sim.units[me.index as usize].soldier.pos = s.sim.cps[0].def.pos;
+        happen(&mut s, &[Event::Captured { cp: 0, team: 1 }]);
+        let stats = s.feed.stats(&s.sim, me);
+        assert_eq!((stats.captures, stats.points), (1, points::CAPTURE_ASSIST));
+        s.feed.tick(&s.sim, me);
+        assert!(s.feed.take().is_empty());
+        assert_eq!(s.feed.stats(&s.sim, me), stats);
+    }
+
+    #[test]
+    fn capture_prior_tick_residence_retains_full_credit_and_ties() {
+        // No teammate present, or a teammate entering on the same prior tick:
+        // neither has longer residence than the viewer.
+        for tied_teammate in [false, true] {
+            let mut s = scene();
+            let me = s.me;
+            let at_post = s.sim.cps[0].def.pos;
+            s.sim.units[me.index as usize].soldier.pos = at_post;
+            if tied_teammate {
+                s.sim.units[s.mate.index as usize].soldier.pos = at_post;
+            }
+            happen(&mut s, &[]);
+            happen(&mut s, &[Event::Captured { cp: 0, team: 1 }]);
+            let stats = s.feed.stats(&s.sim, me);
+            assert_eq!((stats.captures, stats.points), (1, points::CAPTURE));
+        }
+    }
+
+    #[test]
+    fn capture_sim_step_arrival_on_completing_tick_is_an_assist() {
+        let mut s = scene();
+        let (me, mate) = (s.me, s.mate);
+        for unit in &mut s.sim.units {
+            unit.controller = Controller::Idle;
+        }
+        s.sim.cps[0].owner = None;
+        let at_post = s.sim.cps[0].def.pos;
+        s.sim.units[mate.index as usize].soldier.pos = at_post;
+        let limit = s.sim.cps[0].def.capture_time;
+        for _ in 0..1000 {
+            if s.sim.cps[0].capture + core::TICK_DT > limit {
+                break;
+            }
+            s.sim.step(&[]);
+            s.feed.tick(&s.sim, me);
+            s.feed.take();
+            assert_eq!(s.sim.cps[0].owner, None);
+        }
+        assert!(s.sim.cps[0].capture + core::TICK_DT > limit);
+        s.sim.units[mate.index as usize].soldier.pos = Vec3::ZERO;
+        s.sim.units[me.index as usize].soldier.pos = at_post;
+        s.sim.step(&[]);
+        assert!(s
+            .sim
+            .events
+            .iter()
+            .any(|event| matches!(event, Event::Captured { cp: 0, team: 1 })));
+        s.feed.tick(&s.sim, me);
+        let stats = s.feed.stats(&s.sim, me);
+        assert_eq!((stats.captures, stats.points), (1, points::CAPTURE_ASSIST));
+        s.feed.tick(&s.sim, me);
+        assert_eq!(s.feed.stats(&s.sim, me), stats);
     }
 
     /// A post with no name on the disc is the PS2's "Command Post", and a

@@ -23,7 +23,6 @@ pub fn listener(walk: &WalkSim) -> Listener {
 /// `play(name, pos)` for each sound this tick's events start, heard from
 /// `ears`.
 pub fn each(walk: &WalkSim, ears: Vec3, mut play: impl FnMut(&str, Vec3)) {
-    let me = &walk.sim.units[walk.player.index as usize];
     let wc_of = |h: core::unit::UnitHandle| {
         &walk.sim.weapon_classes[walk.sim.units[h.index as usize].weapon_class]
     };
@@ -68,6 +67,15 @@ pub fn each(walk: &WalkSim, ears: Vec3, mut play: impl FnMut(&str, Vec3)) {
                     .impact
                     .as_ref();
                 boom(look.and_then(|l| l.explosion.as_ref()), *pos, &mut play);
+                // The contact owns its weapon and position, even after the
+                // shooter switches weapons or its splash damages other units
+                // (re-weapon-sounds.md §5.5; card HITSND).
+                if let Some(n) = &walk.sim.weapon_classes[*weapon_class as usize]
+                    .ordnance
+                    .collision_sound
+                {
+                    play(n, *pos);
+                }
             }
             Event::StickyBlast { pos, weapon_class } => {
                 let sticky = &walk.sim.weapon_classes[*weapon_class as usize]
@@ -171,16 +179,6 @@ pub fn each(walk: &WalkSim, ears: Vec3, mut play: impl FnMut(&str, Vec3)) {
                     play(n, walk.sim.units[unit.index as usize].soldier.pos);
                 }
             }
-            Event::Hit {
-                shooter, victim, ..
-            } => {
-                if let Some(n) = &wc_of(*shooter).ordnance.collision_sound {
-                    play(
-                        n,
-                        walk.sim.units[victim.index as usize].soldier.pos + Vec3::Y,
-                    );
-                }
-            }
             // DRV: the door's ODF sounds on its trigger's edges, at the door
             // (`re-bf2-doors.md` §2 hop 5).
             Event::DoorOpened { door } | Event::DoorClosed { door } => {
@@ -193,16 +191,6 @@ pub fn each(walk: &WalkSim, ears: Vec3, mut play: impl FnMut(&str, Vec3)) {
                 };
                 if let Some(n) = name {
                     play(n, d.origin);
-                }
-            }
-            Event::BoltExpired { pos, struck: true } => {
-                // Retail rifles share imp_weap_ord_exp; the player's weapon
-                // class stands in for the (unrecorded) shooter.
-                if let Some(n) = &walk.sim.weapon_classes[me.weapon_class]
-                    .ordnance
-                    .collision_sound
-                {
-                    play(n, *pos);
                 }
             }
             // The player's own line (card SQACK, re-squad-orders.md section 2):
@@ -602,7 +590,7 @@ impl SoundLog {
 }
 
 #[cfg(test)]
-mod tests {
+mod tick_tests {
     use super::*;
     use crate::bolt_vis::BoltVis;
     use crate::fx::Fx;
@@ -706,6 +694,7 @@ mod tests {
         let mut walk = WalkSim::new(42, Vec3::ZERO, None);
         let mut w = WeaponClass::bf1_rifle();
         w.change_sound = Some("equip".into());
+        w.ordnance.collision_sound = None;
         w.ordnance.impact.as_mut().unwrap().explosion = Some(ExplosionLook {
             sound: Some("a_exp".into()),
             ..ExplosionLook::default()
@@ -713,6 +702,7 @@ mod tests {
         let loud = walk.sim.add_weapon_class(w) as u32;
         let mut w = WeaponClass::bf1_rifle();
         w.change_sound = None;
+        w.ordnance.collision_sound = None;
         w.ordnance.impact.as_mut().unwrap().explosion = Some(ExplosionLook::default());
         let quiet = walk.sim.add_weapon_class(w) as u32;
         let at = Vec3::new(3.0, 0.0, 4.0);
@@ -857,3 +847,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod tests;

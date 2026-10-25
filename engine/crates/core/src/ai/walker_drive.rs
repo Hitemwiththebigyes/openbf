@@ -1,3 +1,4 @@
+//! CWAIT pickup holds run in `ride` before route progress.
 //! A bot at a walker's pilot seat (card WAI): the sticks the PS2's walker AI
 //! writes, transcribed from `analysis/re-walker-ai.md` [O] (B2 FUN_00262248 →
 //! the shared steering FUN_002a54d8 → FUN_002a45a0), and the port's driver
@@ -324,8 +325,7 @@ pub(super) fn drive(
         let d = to.normalize_or_zero();
         to += Vec3::new(-d.z, 0.0, d.x) * (f32::from(r.sidestep.signum()) * SIDESTEP_OFFSET);
     }
-    // A teammate walking up to a gunner seat: stand for it.
-    let order = (!super::ride::gunner_coming(sim, m.vehicle)).then_some(pos + to);
+    let order = Some(pos + to);
     let (p2, p3) = sticks(crate::TICK_DT, &Class::of(wp), &body, order, true, seen);
     let r = st.ride.unwrap_or_default();
     st.ride = Some(RideState {

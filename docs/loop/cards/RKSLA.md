@@ -5,13 +5,13 @@ milestone: M3
 value: 4
 phase: build
 status: blocked
-deps:
+deps: RKPRF,RKMAR
 files: engine/crates/core/src/sim/step.rs, engine/crates/core/src/ai/gunner_foot.rs, engine/crates/core/src/sim/combat.rs, engine/crates/core/src/projectile.rs, engine/crates/core/src/weapon.rs, engine/crates/game/src/fx.rs
 declares: sim; sweep; arena
 needs:
 effort:
 branch:
-resume: Cloud preflight 20261024_0816: blocked before implementation; restore audit-rkslf tools/raw runs, PS2 corpora/discs, baked assets/missions and GPU; reproduce current-main AUDIT_RKH baseline, then implement and run all card acceptance plus CI/gates. Report engine/artifacts/loop/reports/20261024_0816_card_RKSLA.md.
+resume: RKMAR splits only existing aim/release +1m margin regression tests after omission survives core869; RKPRF immediate/human tests implemented. Keep all original target-kind, surface-normal, long-charge and audit-kit Acceptance. reports/20261025_1014_planner.md
 created: 2026-10-20
 alpha: yes
 ---
@@ -26,3 +26,4 @@ AUDIT RKSLF 2026-10-20 (engine/artifacts/loop/audits.md; evidence engine/artifac
 - Held-charge spells over 3 s on the 32-map sweep, seeds 1-8 (the audit's observer, `tools/audit_rk.rs` + `obs_patch.py`, AUDIT_RKH runs): 102 -> 20 or fewer, with on-foot rocket blast self + mate kills not above 11 and on-foot AI exploding shots a round not below 170.
 ## Notes
 Also fix: step.rs's comment "as the PS2's put-away cancels one" (the PS2 also cancels a latched salvo when the clip is short, B1:211403); gunner_foot's test note "No roster soldier carries a charge weapon today" (the mortars do). Not built: a deflected bolt neither damages nor explodes on the PS2 (B1 FUN_00276810 returns before both, B1:197917; B2:304600) - only if the port deflects bolts.
+

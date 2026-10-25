@@ -74,7 +74,7 @@
 //!   body wins. The candidate list is sorted, by index; nothing else is. The three queries that walk a mesh's BVH
 //!   THEMSELVES — [`CollisionWorld::wall_sweep`]'s per-triangle CAST pass
 //!   (A.3), the per-triangle PENETRATION pass it now pairs with
-//!   (`walls::penetration_block`, A.4) and `walls::mesh_contact` — break their ties in
+//!   (`walls::queries::penetration_block`, A.4) and `walls::queries::mesh_contact` — break their ties in
 //!   traversal order, which is fixed for a fixed mesh (built once in
 //!   [`trimesh`], never rebuilt).
 //! - The world is immutable after construction and is NOT fed into
@@ -100,7 +100,7 @@
 //!
 //! CONSEQUENCE FOR THIS MODULE: `parry3d::query::contact` is NEVER called on a
 //! composite shape ([`Shape::Mesh`]) anywhere in `core`. Meshes go through
-//! `walls::mesh_contact`, which is `contact_with_shape`'s own loop with the pose the
+//! `walls::queries::mesh_contact`, which is `contact_with_shape`'s own loop with the pose the
 //! bug inverts; primitives (`Ball`, `Cylinder`, `Cuboid`) are convex, not
 //! composite, and keep parry's `contact`. Unaffected, and left alone: the
 //! shape-CAST twin (`shape_cast_composite_shape_shape.rs`) passes `pos12`
@@ -109,7 +109,7 @@
 //!
 //! parry's `master` already passes `pose12` straight through, so a release
 //! will fix this and the workaround can then be dropped (delete
-//! `walls::mesh_contact`, call `contact` on the mesh again). THE DETECTOR is the
+//! `walls::queries::mesh_contact`, call `contact` on the mesh again). THE DETECTOR is the
 //! unit test `mesh_contact_is_not_mirrored`, which asserts that RAW parry is
 //! still mirrored and fails loudly when it stops being. parry is deliberately
 //! NOT upgraded here: PLAN's P9 audit pinned 0.22.1's transcendental-free

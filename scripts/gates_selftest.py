@@ -521,5 +521,7 @@ check("land.undeclared: an ADAPTER LOST row reads as such (not a move, even with
 
 check("RE arithmetic fixture referee", subprocess.run(["bash", os.path.join(HERE, "re_calc_selftest.sh")]).returncode == 0)
 
+check("first-divergence trace differ", subprocess.run([sys.executable, os.path.join(HERE, "fdiff.py"), "--self-test"]).returncode == 0)
+
 print("gates_selftest:", "PASS" if not bad else f"{bad} FAILED")
 sys.exit(1 if bad else 0)

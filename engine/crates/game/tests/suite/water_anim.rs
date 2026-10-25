@@ -3,7 +3,8 @@
 //! the lattice the ocean's patch is instanced over, and the ocean's foam
 //! (queue OCF). CPU only, except
 //! `both_kam1_bakes_lay_out_as_one_patch_per_160_m_cell`, which reads the two
-//! baked KAM1 water meshes and skips when they are not baked.
+//! baked KAM1 water meshes and skips when they are not baked, and
+//! `the_live_water_steps_on_the_unwrapped_clock`, which also needs a GPU.
 
 use std::f32::consts::TAU;
 
@@ -668,4 +669,72 @@ fn ocean_and_foam_continue_across_the_material_clock_wrap() {
         foam.advance(&o, t - 0.02);
         assert_eq!(foam.advance(&o, t + 0.02), 1, "foam restarted at {t}");
     }
+}
+
+/// The game loop's frame step (`main/windowed.rs`): the material clock wraps,
+/// the water clock runs on.
+#[test]
+fn the_frame_clock_wraps_the_materials_but_not_the_water() {
+    let wrap = render::TIME_WRAP;
+    assert_eq!(
+        render::advance_clocks(wrap - 0.5, f64::from(wrap) - 0.5, 1.0),
+        (0.5, f64::from(wrap) + 0.5)
+    );
+    let dt = 1.0f32 / 30.0;
+    let (mut time, mut water) = (0.0f32, 0.0f64);
+    let frames = 3 * 60_000 + 7;
+    for _ in 0..frames {
+        (time, water) = render::advance_clocks(time, water, dt);
+        assert!((0.0..wrap).contains(&time), "material clock {time}");
+    }
+    let want = frames as f64 * f64::from(dt);
+    assert!(
+        (water - want).abs() < 1e-6,
+        "water clock {water}, want {want}"
+    );
+}
+
+/// Data-gated (BF2 KAM1 baked, a GPU): the loop's `animate_water_live`
+/// draws the sea at the renderer's unwrapped water clock, not at its wrapped
+/// material clock — one frame past the wrap, the frame equals the sea fixed
+/// at 2000.5 s and differs from the sea at 0.5 s.
+#[test]
+fn the_live_water_steps_on_the_unwrapped_clock() {
+    if std::env::var_os("OPENBF_WATER_TIME").is_some() {
+        eprintln!("SKIP: OPENBF_WATER_TIME pins the water clock");
+        return;
+    }
+    let root = game::assets::baked_root();
+    let Ok(scene) = game::assets::load_scene(&root.join("bf2_kam1")) else {
+        eprintln!("SKIP: bf2_kam1 not baked");
+        return;
+    };
+    let Ok(mut r) = render::Renderer::new_headless(160, 90) else {
+        eprintln!("SKIP: no GPU");
+        return;
+    };
+    let cam = game::viewer::camera_from((0.0, 30.0, -420.0, 180.0, -32.0));
+    let (time, water) = render::advance_clocks(render::TIME_WRAP - 0.5, 1999.5, 1.0);
+    let mut shot = |fixed: Option<f64>| {
+        let mut gpu = game::viewer::upload_scene(&mut r, &scene).expect("upload");
+        assert!(gpu.water_motion.as_ref().is_some_and(|w| w.is_ocean()));
+        r.time = time;
+        r.water_time = water;
+        match fixed {
+            None => gpu.animate_water_live(&mut r, cam.position),
+            Some(t) => gpu.animate_water(&mut r, t, cam.position),
+        }
+        .expect("water");
+        r.render(&cam, &gpu.draws, gpu.clear).expect("render");
+        r.capture_rgba().expect("capture").0
+    };
+    let live = shot(None);
+    assert!(
+        live == shot(Some(2000.5)),
+        "the live sea is not the sea at 2000.5 s"
+    );
+    assert!(
+        live != shot(Some(0.5)),
+        "the live sea is the sea at the wrapped 0.5 s"
+    );
 }

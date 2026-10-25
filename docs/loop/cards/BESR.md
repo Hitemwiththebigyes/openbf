@@ -4,16 +4,17 @@ title: BF1 Bespin Platforms after HUBP: a bot that reaches hub 35 / 101 / 25 off
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: blocked
 deps: HUBP,OBST,MOVR,MOUTH
 files: engine/crates/core/src/ai/route.rs,engine/crates/core/src/ai/mover.rs
 declares: sim; sweep; arena
-needs:
+needs: validation — restore baked maps/missions and remeasure current-main BESR legs before source work
 effort:
 branch:
-resume:
+resume: (private workflow note omitted)
 created: 2026-10-06
 defer: post-alpha
+tries: 1
 ---
 ## Why
 Card HUBP (2026-10-06) made BF1 Bespin Platforms worse while it made every other map better: 8 seeds, deaths under
@@ -97,3 +98,4 @@ passed only because they all arrived at the hub's centre from one side.
   `lead_tmp/mouth/build/deaths/`), and over whole rounds 156 -> 39 in 24 seeds (`build/sw/j_00`, `j_MH`; 58 -> 11 in
   seeds 1-8 against this card's bar of 147). Recycles 28 -> 28. Re-measure this card's legs (`35->4`, `101->62`,
   `25->2`) on today's main before any work: `58->59` and `51->61` were MOUTH's defect.
+

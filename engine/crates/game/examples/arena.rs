@@ -277,7 +277,7 @@ impl Fold {
 /// Is the map arm's slot 0 a BOT this run? `SWEEP_SLOT0` (env) is the SAME
 /// switch `round_to_outcome` reads, and this example defaults the OTHER way:
 /// `bot`/`1` opts in, anything else — and UNSET — keeps the idle player.
-/// The published arena tables (PLAN §WHERE THINGS STAND) were baselined with
+/// The historical arena tables (analysis/PLAN_LOG_2026.md) were baselined with
 /// the human in slot 0 and a tier row is only comparable to the rows beside
 /// it, so the default cannot move without the lead re-baselining all eight.
 /// The flat arena has no player at all and is unaffected either way.

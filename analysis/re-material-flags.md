@@ -210,6 +210,41 @@ alpha test is **0x5100b (AFAIL FB_ONLY)** where BF2 uses 0x5000b (KEEP) — see 
 the Normal class; (v) BF1 0x10 = "two floats follow", BF2 0x10 = dim-immune; (vi) the BF1 force-translucent draw
 flag is 0x400000 (BF2 0x800000); (vii) BF1 0x10000 unread (BF2: 0x800800 gate).
 
+### §5.1 BFC scope reconciliation (2026-10-25; research incomplete)
+
+The BFC poses report a dark surface where the reference sees a room, floor or
+fog. The cause remains **[H]**. This section records current port source and
+the limits of the earlier notes; it supplies no new verified PS2 cull rule.
+
+- **Current port source:** `render/src/pipelines.rs:672–677` constructs a
+  triangle-list pipeline with `cull_mode: None`. Its mixed-winding comment is
+  not a measured count of flipped submeshes.
+- **Current conversion path:** `mungefs/src/model.rs:403–443` finds strip
+  boundaries from flagged pairs, masks the high index bit, drops repeated-index
+  triangles and alternates winding by the strip triangle offset. The GLB writer
+  flattens those triangles (`bake/src/glb.rs:114–115`) and writes the alpha
+  record's flags (`:125`; `bake/src/alpha.rs:482–488,519–528` copies the raw
+  segment flags); the runtime keeps flags per primitive
+  (`game/src/assets/mesh.rs:316–323`). This does not establish authored facing,
+  the PS2's strip seed/ADC behavior, or a shipped winding census.
+- **Historical evidence, not re-derived here:** [re-vu1-cull.md](re-vu1-cull.md)'s
+  lead header explicitly excludes its VU1 reading from verification. Its body
+  describes a conditional cull rule, calls plain opaque segments two-sided and
+  leaves the facing convention open. This document's BF1 Normal and BF2 draw
+  sections also describe different gates. BFC's blanket BF1 culling premise
+  cannot be promoted from those summaries. Re-read both games' callers, class
+  dispatch, defaults/writers and VU1 output before specifying a per-draw rule.
+- **Unresolved competing cause:** `render/src/camera.rs:39` defaults near to
+  0.1 m; `game/examples/pose_render.rs:226–235` inherits it in the ordinary pose
+  path (the zoom path can supply another camera). The RULES note from AUDIT
+  VTURZ requires distinguishing a near-band surface from a culling difference.
+  At each BFC pose, identify the occluding draw and its eye-space depth, then
+  measure the reference camera/near plane and test the causes separately.
+
+The original BFC pixel/parity bars remain unmeasured. A build specification and
+golden move list require the affected-draw and winding census first.
+
+
 ## §6 Q6 — the named checks under the ELF rule
 
 | check | word / class | ELF GS state | port v2 | agree? |

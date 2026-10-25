@@ -185,7 +185,7 @@ pub fn frame_scale(size: [f32; 2]) -> [f32; 2] {
     ]
 }
 
-/// `[ours]` Hor+: how far right of the 4:3 box's own place an element whose
+/// PROVISIONAL `[ours]` Hor+ thirds: how far right of the 4:3 box's own place an element whose
 /// origin sits at frame fraction `fx` is drawn — nothing for the left third,
 /// the whole extra width for the right third, half of it between.
 pub fn anchor_shift(fx: f32, size: [f32; 2]) -> f32 {

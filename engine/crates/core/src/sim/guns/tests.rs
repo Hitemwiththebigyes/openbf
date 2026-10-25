@@ -1,7 +1,7 @@
 //! Seat guns on flat ground: a skiff-like hover whose pilot seat has no gun
 //! and whose three gunner seats carry the BF1 rifle at the skiff's fire
 //! points (the baked `hp_firel` / `hp_fire` / `hp_firer`, rounded) with
-//! TURRET1..3's limits.
+//! TURRET1..3's limits. STCHG checks charge-tenure reset on a real seat switch.
 
 use crate::sim::tests::flat_ground;
 use crate::sim::{buttons, Event, PadState, Sim};
@@ -111,8 +111,14 @@ fn switch_walks_the_ring_to_the_next_free_seat() {
         SeatKind::Gunner(2),
         SeatKind::Pilot,
     ] {
+        s.units[p.index as usize].ai.charge_until = 999;
         tap(&mut s, buttons::SWITCH_WEAPON);
         assert_eq!(seat(&s, p), want);
+        assert_eq!(
+            s.unit(p).unwrap().ai.charge_until,
+            0,
+            "seat switch charge tenure"
+        );
     }
     // A held button is one edge.
     s.step(&[pad(buttons::SWITCH_WEAPON)]);
@@ -560,4 +566,29 @@ fn a_building_turrets_muzzle_rests_at_its_fire_point() {
     assert!(g.muzzle((0.0, 0.0)).distance(g.fire_point) < 1e-5);
     let m = g.muzzle((90.0 * DEG, 0.0));
     assert!(m.distance(Vec3::new(3.372, 3.388, -1.281)) < 1e-3, "{m}");
+}
+
+/// STCHG: the shared AI policy never substitutes its sampled deadline for a
+/// human seat trigger. A human's held charge fires only on their release.
+#[test]
+fn human_seat_charge_keeps_the_human_release_edge() {
+    let (mut s, p, v) = world(true);
+    s.weapon_classes[0].max_pressed_time = 1.5;
+    s.weapon_classes[0].trigger_single = true;
+    tap(&mut s, buttons::ACTION);
+    for _ in 0..10 {
+        s.step(&[pad(buttons::FIRE)]);
+        let w = &s.vehicle(v).unwrap().guns[0].as_ref().unwrap().weapons[0];
+        assert!(w.fire_cmd > 0);
+        assert_eq!(w.shots_fired, 0);
+        assert_eq!(s.unit(p).unwrap().ai.charge_until, 0);
+    }
+    s.step(&[pad(0)]);
+    let w = &s.vehicle(v).unwrap().guns[0].as_ref().unwrap().weapons[0];
+    assert_eq!(w.fire_cmd, -1);
+    assert_eq!(w.shots_fired, 1);
+    assert!(s
+        .events
+        .iter()
+        .any(|e| matches!(e, Event::Shot { unit, weapon_class: 0, .. } if *unit == p)));
 }

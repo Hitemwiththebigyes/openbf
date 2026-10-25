@@ -5379,7 +5379,9 @@ check's numbers reproduced and its logic marked PARTLY (folded into the text).
   death (1 m back / 1.5 m up, 5 m past it), eased by t = timer / 1.0; after an ENEMY kill, from 1.5 s, phase 2 moves
   onto the body and looks at the killer (`E+0x190`, his member record; his unit's or vehicle's +0xd0 = feet + 1.70 m),
   following him. Suicides (no killer) and hero classes (none passed) stay in phase 1. It sets no base FOV: tan 0.40237
-  = one 65 -> 48 deg ease step of the player camera (CFOVM's FEL1 state). [L] 10 enemy kills on Kamino with 16 AI a side
+  = one 65 -> 48 deg ease step of the player camera [D], matching CFOVM's reported FEL1 tangent; identifying that
+  particular state's moment remains [H] pending its own JSON/save-state read (re-spawn-flow §6.5).
+  [L] 10 enemy kills on Kamino with 16 AI a side
   (phase 2 in all 7 with rows), 3 suicides, 1 explosion kill. Workflow verifier: 21 verdicts, 17 SUPPORTED, 4 PARTLY
   (narrowed), 0 NOT SUPPORTED; the second reader overturned none.
 
@@ -5728,3 +5730,20 @@ check's numbers reproduced and its logic marked PARTLY (folded into the text).
   caught, 2 untestable on the session's flat rows, 1 equivalent there - the upper clip's speed, caught on the
   auditor's pistol rows) and `audit-sprcl-verify2` (2 separate readers of 9 new claims: 18 verdicts, 10 SUPPORTED /
   8 PARTLY on scope or line range, none refuted). Card SPRCL (build) carries the build changes.
+
+
+## 2026-10-24 — BLEED: retain ticket-shortfall repair [O] UNAUDITED
+
+See [re-bleed-reachability.md](re-bleed-reachability.md): current Rust CP bleed
+preserves the live ceiling at 30 Hz, including Elite; a legal mission extra
+death drain reaches `tick_bleed` repair with zero bleed. Keep the loop and its
+Sim despawn consumer. Runtime admission/death/step regression and clamp matrix;
+this is a port control-flow result, with original-game evidence unchanged.
+
+## 2026-10-25 — BFC scope reconciliation; PS2 research incomplete
+
+[re-material-flags.md §5.1](re-material-flags.md#51-bfc-scope-reconciliation-2026-10-25-research-incomplete)
+records the current pipeline/strip/flags path and pose camera default. The
+earlier VU1 reading remains provisional; the cause at the BFC poses stays [H].
+Separate the occluding draw, near-plane difference and facing/ADC rule before
+writing a culling build specification. No fresh [O] PS2 finding.

@@ -309,7 +309,7 @@ a post with no capture region is not read [H].
 
 ## 10. For the build
 
-Port today (`core/src/sim/spawn.rs`, `core/src/cp.rs`, `game/src/walk.rs`): `Sim::spawn_points(team)` pools the spawn
+Port today (`core/src/sim/spawn/runtime.rs`, `core/src/cp.rs`, `game/src/walk.rs`): `Sim::spawn_points(team)` pools the spawn
 nodes of every post the team owns and a respawn draws one node uniformly; the opening wave walks the pool round-robin;
 `game/src/main/battle.rs` `spawn_model` lists `spawnable_by` posts (the cursor does not steer the respawn yet — card
 SPSEL). No vehicle contributes. The class RONs already carry the two keys (hashes 844603213 and 2691158341 in

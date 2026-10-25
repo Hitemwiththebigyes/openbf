@@ -432,14 +432,20 @@ impl MapStatic {
 
 /// A minimap with no battle behind it, for captures and goldens: the
 /// soldiers' 50 m view from `eye` looking along `yaw` (the camera's), the
-/// posts as the map authors them (team 1 the viewer's), no units.
+/// conquest mission's surviving posts and starting owners (team 1 the viewer),
+/// or the world posts when no valid mission resolves; no units.
 pub fn still(scene: &crate::assets::Scene, eye: Vec3, yaw: f32) -> MapModel {
+    still_map(scene, eye, yaw, false)
+}
+
+fn still_map(scene: &crate::assets::Scene, eye: Vec3, yaw: f32, numbered: bool) -> MapModel {
     let m = &scene.manifest;
-    let layout = crate::layout::MapLayout::from_manifest(m);
+    let mission = crate::point_light::still_mission(scene);
+    let cps = crate::point_light::still_posts(m, mission.as_ref());
+    let numbers = post_numbers(m);
     let sheet_dir = scene.dir.join("textures");
     let (sy, cy) = core::fmath::sin_cos(yaw);
-    let posts: Vec<MapIcon> = layout
-        .cps
+    let posts: Vec<MapIcon> = cps
         .iter()
         .map(|cp| MapIcon {
             pos: [cp.pos.x, cp.pos.z],
@@ -447,7 +453,11 @@ pub fn still(scene: &crate::assets::Scene, eye: Vec3, yaw: f32) -> MapModel {
             scale: 2.5,
             color: [NEUTRAL, FRIEND, ENEMY][usize::from(cp.team.min(2))],
             heading: None,
-            number: None,
+            number: if numbered {
+                numbers.get(&cp.name.to_ascii_lowercase()).copied()
+            } else {
+                None
+            },
         })
         .collect();
     let (centre, extent) = mapbounds(m).map(bounds_of).unwrap_or_else(|| {
@@ -485,13 +495,7 @@ pub fn still(scene: &crate::assets::Scene, eye: Vec3, yaw: f32) -> MapModel {
 /// [`still`]'s posts on the spawn map page (card SSELB's golden): the
 /// Spawn view with each post's number and the ring on post `select`.
 pub fn spawn_still(scene: &crate::assets::Scene, select: Option<usize>) -> MapModel {
-    let numbers = post_numbers(&scene.manifest);
-    let layout = crate::layout::MapLayout::from_manifest(&scene.manifest);
-    let mut map = still(scene, Vec3::ZERO, 0.0);
-    for (p, cp) in map.posts.iter_mut().zip(&layout.cps) {
-        p.number = numbers.get(&cp.name.to_ascii_lowercase()).copied();
-    }
-    map.spawn_view(select)
+    still_map(scene, Vec3::ZERO, 0.0, true).spawn_view(select)
 }
 
 #[cfg(test)]
@@ -565,5 +569,204 @@ mod tests {
         );
         assert!(m.units.is_empty());
         assert_eq!(m.select, None, "no pick yet");
+    }
+
+    struct Fixture {
+        root: PathBuf,
+        scene: crate::assets::Scene,
+    }
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.root).unwrap();
+        }
+    }
+    fn fixture(mission: Option<&str>) -> Fixture {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "openbf-stillcp-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        let dir = root.join("assets_baked/__planner_still_probe");
+        std::fs::create_dir_all(&dir).unwrap();
+        let manifest: manifest::Manifest = ron::from_str(r#"(
+        map: "__planner_still_probe", source_game: "bf2",
+        terrain_name: None, sky_name: None, terrain_glb: None,
+        models: [], textures: [], classes: [], geometries: [], regions: [],
+        instances: [
+            (class: "cp", name: "CP1", rotation: ((1,0,0),(0,1,0),(0,0,1)),
+             translation: (0,0,0), props: [(2734521612,"1"),(3334562297,"capture"),(HUD_INDEX,"1")]),
+            (class: "cp", name: "CP2", rotation: ((1,0,0),(0,1,0),(0,0,1)),
+             translation: (100,0,0), props: [(2734521612,"2"),(3334562297,"capture"),(HUD_INDEX,"2")]),
+            (class: "cp", name: "CP6", rotation: ((1,0,0),(0,1,0),(0,0,1)),
+             translation: (1000,0,0), props: [(2734521612,"2"),(3334562297,"capture"),(HUD_INDEX,"6")]),
+        ],
+    )"#.replace("HUD_INDEX", &HUD_INDEX.to_string()).as_str()).unwrap();
+        if let Some(fields) = mission {
+            let missions = root.join("missions");
+            std::fs::create_dir_all(&missions).unwrap();
+            std::fs::write(
+                missions.join("__planner_still_probe_con.ron"),
+                format!(
+                    r#"(
+            map: "__planner_still_probe", mode: "con", source_game: "bf2",
+            teams: [(faction: "imp", units: 16, tickets: 150),
+                    (faction: "all", units: 16, tickets: 150)],
+            ai_alive_cap: 16, spawn_delay: 10.0, spawn_interval: 0.25,
+            {fields}
+        )"#
+                ),
+            )
+            .unwrap();
+        }
+        let scene = crate::assets::Scene {
+            dir,
+            manifest,
+            meshes: HashMap::new(),
+            terrain: None,
+            water: None,
+            lowres: None,
+            terrain_layers: None,
+            textures: HashMap::new(),
+            collision: HashMap::new(),
+            cutters: Vec::new(),
+        };
+        assert_eq!(
+            crate::point_light::still_mission(&scene).is_some(),
+            mission.is_some(),
+            "legal mission fixture must resolve"
+        );
+        Fixture { root, scene }
+    }
+
+    fn check_posts(
+        scene: &crate::assets::Scene,
+        expected: &[(f32, u32, [u8; 3])],
+        bounds: ([f32; 2], f32),
+    ) {
+        let map = still(scene, Vec3::ZERO, 0.0);
+        assert_eq!(
+            map.posts
+                .iter()
+                .map(|p| (p.pos, p.color))
+                .collect::<Vec<_>>(),
+            expected
+                .iter()
+                .map(|(x, _, c)| ([*x, 0.0], *c))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!((map.centre, map.extent), bounds);
+        let spawn = spawn_still(scene, Some(1));
+        assert_eq!(
+            spawn
+                .posts
+                .iter()
+                .map(|p| (p.pos, p.number, p.color))
+                .collect::<Vec<_>>(),
+            expected
+                .iter()
+                .map(|(x, n, c)| ([*x, 0.0], Some(*n), *c))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!((spawn.centre, spawn.extent), bounds);
+        assert_eq!((spawn.eye, spawn.radius), bounds);
+        assert_eq!(spawn.select, Some(1));
+    }
+
+    #[test]
+    fn still_mission_kills_and_reowns_posts() {
+        let f = fixture(Some(
+            r#"posts: ["cp1","CP2","cp6"], killed: ["cP6"], cps: [("cP1",2),("cp2",1)],"#,
+        ));
+        check_posts(
+            &f.scene,
+            &[(0.0, 1, ENEMY), (100.0, 2, FRIEND)],
+            ([50.0, 0.0], 150.0),
+        );
+    }
+
+    #[test]
+    fn spawn_still_uses_mission_posts_and_filtered_bounds() {
+        let f = fixture(Some(
+            r#"posts: ["cp1","cp2","cp6"], killed: ["cP6"], cps: [("cP1",2),("cp2",1)],"#,
+        ));
+        let map = spawn_still(&f.scene, Some(1));
+        assert_eq!(
+            map.posts
+                .iter()
+                .map(|p| (p.pos, p.number, p.color))
+                .collect::<Vec<_>>(),
+            vec![
+                ([0.0, 0.0], Some(1), ENEMY),
+                ([100.0, 0.0], Some(2), FRIEND)
+            ]
+        );
+        assert_eq!((map.centre, map.extent), ([50.0, 0.0], 150.0));
+        assert_eq!(map.select, Some(1));
+    }
+
+    #[test]
+    fn still_mission_roster_removes_middle_without_renumbering() {
+        let f = fixture(Some(r#"posts: ["cp6","cP1"],"#));
+        check_posts(
+            &f.scene,
+            &[(0.0, 1, FRIEND), (1000.0, 6, ENEMY)],
+            ([500.0, 0.0], 600.0),
+        );
+    }
+
+    #[test]
+    fn still_mission_kill_removes_middle_without_renumbering() {
+        let f = fixture(Some(r#"posts: ["cp1","cp2","cp6"], killed: ["cP2"],"#));
+        check_posts(
+            &f.scene,
+            &[(0.0, 1, FRIEND), (1000.0, 6, ENEMY)],
+            ([500.0, 0.0], 600.0),
+        );
+    }
+
+    #[test]
+    fn still_mission_owners_include_neutral() {
+        let f = fixture(Some(
+            r#"posts: ["cp1","cp2","cp6"], cps: [("CP1",2),("cP2",1),("Cp6",0)],"#,
+        ));
+        check_posts(
+            &f.scene,
+            &[(0.0, 1, ENEMY), (100.0, 2, FRIEND), (1000.0, 6, NEUTRAL)],
+            ([500.0, 0.0], 600.0),
+        );
+    }
+
+    #[test]
+    fn still_mission_all_killed_uses_empty_bounds() {
+        let f = fixture(Some(
+            r#"posts: ["cp1","cp2","cp6"], killed: ["CP1","cp2","Cp6"],"#,
+        ));
+        check_posts(&f.scene, &[], ([0.0, 0.0], 100.0));
+    }
+
+    #[test]
+    fn still_mission_preserves_authored_bounds() {
+        let mut f = fixture(Some(r#"posts: ["cp1"],"#));
+        let r = region(
+            [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            [400.0; 3],
+        );
+        let bounds = bounds_of(&r);
+        f.scene.manifest.regions.push(r);
+        check_posts(&f.scene, &[(0.0, 1, FRIEND)], bounds);
+    }
+
+    #[test]
+    fn still_without_mission_keeps_world_posts_for_both_games() {
+        let mut f = fixture(None);
+        for game in ["bf1", "bf2"] {
+            f.scene.manifest.source_game = game.into();
+            check_posts(
+                &f.scene,
+                &[(0.0, 1, FRIEND), (100.0, 2, ENEMY), (1000.0, 6, ENEMY)],
+                ([500.0, 0.0], 600.0),
+            );
+        }
     }
 }

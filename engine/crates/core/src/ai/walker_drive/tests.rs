@@ -1,3 +1,6 @@
+//! WAIT4 also exercises natural boarding, empty/full pickup and expiry under
+//! both source rules; the BF1 AT-ST scene is a port-only control.
+
 //! Card WAI's checks: the stick law against 145 ticks of PS2 RAM, then a bot
 //! at the pilot seat on flat ground — a BF2 AT-ST class (the strafe branch),
 //! a BF1-disc class (no flags, no e08 / e0c) and a BF2 spider class (the
@@ -416,4 +419,153 @@ fn a_command_walkers_pilot_stays_in_at_its_post() {
     assert_eq!(s.nav_stats.ai_dismounts, 0);
     let d = nav::xz_dist(s.vehicle(v).unwrap().pos, post);
     assert!(d <= 8.0 + 1.0, "it stands {d} m from the post");
+}
+
+fn pickup_walker_world(p: WalkerParams, deg: f32) -> (Sim, UnitHandle, VehicleHandle, Vec3) {
+    let mut s = Sim::empty(3);
+    s.heightfield = Some(Heightfield {
+        size: 2,
+        unit: 4000.0,
+        offset_x: 2000.0,
+        offset_z: 2000.0,
+        heights: vec![0.0; 4],
+    });
+    s.walker_params = vec![Some(p)];
+    s.seat_setup = vec![Some(SeatSetup {
+        radius: 3.0,
+        boardable: vec![true; 2],
+        exit_drop: 10.0,
+        ai_size: 8,
+        guns: Vec::new(),
+    })];
+    let right = Vec3::Z.cross(Vec3::Y);
+    let (sn, cs) = deg.to_radians().sin_cos();
+    let post = (Vec3::Z * cs + right * sn) * 150.0;
+    s.add_cp(
+        CpDef {
+            name: "far".into(),
+            pos: post,
+            capture: Region::sphere(post, 8.0),
+            control: None,
+            value_bleed: 100,
+            value_atk: [100, 100],
+            value_def: [100, 100],
+            spawn_nodes: vec![],
+            capture_time: 10.0,
+            neutralize_time: 12.0,
+        },
+        Some(1),
+    );
+    let b = s
+        .spawn(&UnitSpec {
+            controller: Controller::Ai,
+            ..UnitSpec::trooper(0, Vec3::new(0.0, 0.0, -6.0))
+        })
+        .unwrap();
+    let v = s.spawn_vehicle(&VehicleSpec {
+        kind: VehicleKind::Walker,
+        class: 0,
+        home_team: None,
+        neutral_when_empty: true,
+        spawn_pad: None,
+        pos: Vec3::ZERO,
+        yaw: 0.0,
+        max_health: 8000.0,
+        health_type: HealthType::Vehicle,
+        seats: vec![SeatKind::Pilot, SeatKind::Gunner(0)],
+    });
+    (s, b, v, post)
+}
+
+fn pickup_walker_probe(rules: crate::soldier::GroundRules, full: bool) {
+    let (mut s, b, v, _) = pickup_walker_world(atst(), 0.0);
+    s.ground_rules = rules;
+    let mut boarded = None;
+    for _ in 0..300 {
+        s.step(&[]);
+        if s.unit(b).unwrap().mount.is_some() {
+            boarded = Some(s.tick);
+            break;
+        }
+    }
+    let boarded = boarded.expect("natural walker boarding failed");
+    if full {
+        let rider = s.spawn(&UnitSpec::player(0, Vec3::ZERO)).unwrap();
+        assert!(s.enter_vehicle(rider, v, 1));
+    }
+    assert_eq!(s.vehicle(v).unwrap().seats[1].occupant.is_some(), full);
+    let start = s.vehicle(v).unwrap().pos;
+    let mut max_stick: f32 = 0.0;
+    for _ in 0..60 {
+        s.step(&[]);
+        assert!(s.unit(b).unwrap().mount.is_some(), "pilot left");
+        if let Some(sticks) = s.unit(b).unwrap().ai.ride.and_then(|r| r.sticks) {
+            max_stick = max_stick.max(sticks[0].abs()).max(sticks[1].abs());
+        }
+    }
+    let delta = crate::nav::xz_dist(start, s.vehicle(v).unwrap().pos);
+    eprintln!("WAIT WALKER {rules:?} full={full} boarded={boarded} tick={} delta={delta:.6} max_stick={max_stick:.6}",s.tick);
+    if full {
+        assert!(delta > 1.0 && max_stick > 0.0, "full walker departs");
+    } else {
+        assert_eq!(
+            max_stick, 0.0,
+            "new walker driver must wait within four seconds"
+        );
+        assert!(delta < 0.1);
+    }
+    if !full {
+        let w = s.unit(b).unwrap().ai.ride.unwrap().pickup.unwrap();
+        assert_eq!(
+            w.seated + 1,
+            boarded,
+            "successful seat clock survives ai_use_pass"
+        );
+        let expected = if rules == crate::soldier::GroundRules::Bf1 {
+            w.seated
+        } else {
+            w.started.unwrap()
+        } + 120;
+        let mut departure = None;
+        for _ in 0..100 {
+            s.step(&[]);
+            let r = s.unit(b).unwrap().ai.ride.unwrap();
+            let stick = r.sticks.map_or_else(
+                || {
+                    r.hover
+                        .map_or(0.0, |h| h.sticks[0].abs().max(h.sticks[1].abs()))
+                },
+                |x| x[0].abs().max(x[1].abs()),
+            );
+            if stick > 0.0 {
+                departure = Some(s.tick);
+                break;
+            }
+            assert!(crate::nav::xz_dist(start, s.vehicle(v).unwrap().pos) < 0.1);
+            assert!(s.vehicle(v).unwrap().stuck_at.is_none());
+        }
+        let departure = departure.expect("driver must depart after initial window");
+        assert!(
+            (expected..=expected + crate::ai::THINK_PERIOD + 2).contains(&departure),
+            "departure {departure}, deadline {expected}"
+        );
+        assert!(s.unit(b).unwrap().ai.ride.unwrap().pickup.unwrap().complete);
+        eprintln!("PICKUP {rules:?} boarded={boarded} start={:?} deadline={expected} complete/depart={departure} pos={:?}", w.started, s.vehicle(v).unwrap().pos);
+    }
+}
+#[test]
+fn pickup_walker_bf1_empty() {
+    pickup_walker_probe(crate::soldier::GroundRules::Bf1, false);
+}
+#[test]
+fn pickup_walker_bf2_empty() {
+    pickup_walker_probe(crate::soldier::GroundRules::Bf2, false);
+}
+#[test]
+fn pickup_walker_bf1_full_control() {
+    pickup_walker_probe(crate::soldier::GroundRules::Bf1, true);
+}
+#[test]
+fn pickup_walker_bf2_full_control() {
+    pickup_walker_probe(crate::soldier::GroundRules::Bf2, true);
 }

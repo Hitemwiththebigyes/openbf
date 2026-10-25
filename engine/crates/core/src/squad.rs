@@ -1,3 +1,4 @@
+//! Following a mounted leader releases autonomous ground-claim maintenance (CWAIT).
 //! Squad orders (card SQACK): BF1's four D-pad orders on bots, as the PS2 runs
 //! them (`analysis/re-squad-orders.md`; PLAN plays BF1's orders on every map).
 //!
@@ -505,6 +506,7 @@ pub fn steer(
                 // its search cooldown. This order walks to the leader alone.
                 if let Some(r) = st.ride.as_mut() {
                     r.board = None;
+                    r.maintenance = None;
                     r.use_req = false;
                 }
                 if sim.enter_seat(me, vh).is_none() {
@@ -725,7 +727,7 @@ mod tests {
         let spec = sim.units[1].spec.clone();
         assert_eq!(spec.build(9, &sim.weapon_classes).command, None);
         // (The respawn PASS itself needs a mission's spawn waves, which this
-        // bare `Sim::empty` fixture has none of — `sim/spawn.rs`'s respawn tests own
+        // bare `Sim::empty` fixture has none of — `sim/spawn/tests.rs`'s respawn tests own
         // that path; what Phase D adds to it is the line above.)
         assert_eq!(sim.units[1].command, None, "and it stays off while dead");
     }

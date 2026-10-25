@@ -563,8 +563,10 @@ pub const HOVER_NEAREST: bool = false;
 /// VBAIL Part 1, independent of the nearest-hub rule. Disable for paired
 /// null controls (also skips its entropy draw and ride hash extension).
 pub const VEHICLE_BAIL: bool = true;
-/// Card VTAI: a bot pilot holds its throttle this long after a teammate
-/// claims one of its gunner seats, for the gunner to walk up and board.
+/// CWAIT: ground boarding maintenance expires at three seconds
+/// (`analysis/re-driver-wait.md` §§3,7); the original give-up clock is separate.
+pub const BOARD_FRESH: u64 = 3 * crate::TICK_HZ as u64;
+/// Legacy port turret-claim abandonment only; ground claims use maintenance.
 pub const GUNNER_WAIT: u64 = 8 * crate::TICK_HZ as u64;
 
 // ---------------------------------------------------------------------------

@@ -4,17 +4,18 @@ title: BF2 Polis Massa: PS2 soldiers stand 0.57 m above the port's terrain on 95
 milestone: M1
 value: 3
 phase: measure
-status: todo
+status: blocked
 deps:
 files:
 declares:
-needs:
+needs: Restore POL1 disc/bake, original sample tables, collision readers and PS2 state/camera evidence before measurement
 effort:
 branch:
-resume:
+resume: 20261025_0427 UTC input hold: 0/26 minimum paths present; restore and verify inputs per engine/artifacts/loop/reports/20261025_0427_card_POLF.md, then trace one spot and reproduce the 15719-row denominator. Keep measure; no cause established.
 created: 2026-10-02
 defer: post-alpha
 domain: collision
+tries: 1
 ---
 
 ## Why

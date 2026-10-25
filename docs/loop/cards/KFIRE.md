@@ -4,15 +4,17 @@ title: Ambient effects attached to BF1 props that the PS2 draws and the port doe
 milestone: M1
 value: 3
 phase: re
-status: todo
+status: blocked
 deps:
 files:
 declares:
-needs:
+needs: Restore both primary PS2 corpora/ELFs, prop/effect LVLs and original paired states/captures; verify attachment and light rules before a build split.
+effort:
 branch:
-resume:
+resume: 20261025_0406 UTC: RE input hold; 0/60 minimum named inputs present. Restore evidence and reproduce current-main torch/bonfire/fountain/lamp pairs; trace class-to-effect and light chains in both games with independent verification. Preserve B1LL light ownership and DUSTE mist scope. engine/artifacts/loop/reports/20261025_0406_card_KFIRE.md; no unchanged-input retry.
 created: 2026-09-29
 defer: post-alpha
+tries: 1
 ---
 ## Why
 BF1 Kashyyyk: Islands is a night map lit by fire on the PS2; the port draws cold torch poles and an empty fire pit.
@@ -45,3 +47,4 @@ The map also places 31 `kas1_firelight` and one `kas1_fireflies` instance (`engi
 
 ## Planner note (2026-09-30, M-ALPHA)
 `defer: post-alpha` — not needed for the alpha's six showcase maps or its checklist. Value 3 (kept).
+

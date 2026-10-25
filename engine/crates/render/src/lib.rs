@@ -390,6 +390,13 @@ pub struct Renderer {
 /// jump every 1000 s of play).
 pub const TIME_WRAP: f32 = 2000.0;
 
+/// One frame of the renderer's two clocks: [`Renderer::time`] wraps at
+/// [`TIME_WRAP`], [`Renderer::water_time`] does not. Returns the new
+/// `(time, water_time)`.
+pub fn advance_clocks(time: f32, water_time: f64, dt: f32) -> (f32, f64) {
+    ((time + dt) % TIME_WRAP, water_time + f64::from(dt))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

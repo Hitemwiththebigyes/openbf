@@ -5,13 +5,13 @@ milestone: M2
 value: 4
 phase: build
 status: blocked
-deps: VTAI
+deps: VTAI,STCHG
 files: engine/crates/core/src/ai/gunner.rs,engine/crates/core/src/ai/gunner_foot.rs,engine/crates/core/src/sim/guns.rs
 declares: sim; sweep; arena
 needs: environment — Restore HOT1 map/class/seat weapon bakes, missions and VTAT/BRSTU census/PS2 inputs.
 effort:
 branch:
-resume: 2026-10-24 10:33 UTC: planner prerequisite hold; no new implementation/acceptance. Tap is already wired by BRSTU; retake charge failure/default/dispatch census on current main before implementing remaining paths. Keep all three 10 s scene mutations and 8x32 completion/shot census. Exact missing paths: lead_tmp/planner_20261024_1026/preflight.json. Restore or regenerate verified equivalent inputs before clearing hold. reports/20261024_1026_planner.md
+resume: Charge-seat caller repair split to STCHG after both-rule real-step zero-shot failures and diagnostic15/9shots; keep original HOT1/census restoration hold and every Acceptance/default/held-path item. reports/20261025_0940_planner.md
 created: 2026-09-29
 alpha: yes
 ---
@@ -80,3 +80,4 @@ analysis/re-<topic>.md: the PS2 automatic turret's acquisition (range, cone, LOS
 
 ## Current-source reconciliation (2026-10-24 10:33 UTC)
 BRSTU already routes TriggerSingle seat fire through tap (ai/gunner.rs:125-135); the shot predicate still rejects MaxPressedTime > 0 at line 123. Remaining charge/class-default/held-path work follows the 10-21 audit note. The three original scene tests remain required, including tap as a regression control; no fresh PS2 claim or runtime result is inferred here.
+

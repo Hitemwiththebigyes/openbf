@@ -1,18 +1,20 @@
 ---
 id: FOGB
-title: BF1's near models took no fog on the PS2 (KAS2, patched 0..200 m ramp: bamboo 10-40 m and the soldier unchanged, only the far water fogged) - re-fog §0.3 reads every opaque segment fogged in both scenes; and the PS2 fogs by planar view depth, the port by radial distance
+title: BF1's near models took no fog in the KAS2 patched-state control - identify the missing gate; planar fog depth is already implemented by REDB
 milestone: M1
 value: 3
 phase: re
-status: todo
+status: blocked
 deps:
 files:
 declares:
 needs:
+effort:
 branch:
-resume:
+resume: Restore the FOGB primary inputs listed in reports/20261025_0307_card_FOGB.md before retry; identify the BF1 near-model gate with RE and an opaque-prop patched-state pair. Planar fog is already implemented by REDB; no duplicate shader change.
 created: 2026-09-28
 defer: post-alpha
+tries: 1
 ---
 
 ## Why
@@ -24,8 +26,8 @@ fog ramp patched to 0..200 m in EE RAM:
 - only the far-water band fogged.
 
 On BF1 maps with short ramps (END1/YAV1 90..350, BES1 80..430, BES2 80.., HOT1 100..1000), the port may be fogging near
-models the PS2 leaves clear. Separately, the PS2's f uses PLANAR view depth (the fog matrix in RAM = fwd/(far−near)),
-while the port's `view_dist` is radial (`shader.wgsl:143`). That puts more fog at the screen edges in the port.
+models the PS2 leaves clear. The original report also identified radial rather than planar fog depth in the port.
+REDB subsequently implemented planar depth; the source reconciliation below records that part's no-change decision.
 
 ## Evidence
 - `analysis/re-fog.md` §9.3 ([O]).
@@ -52,3 +54,17 @@ the same texture (B1 594618).
 
 ## Planner note (2026-09-30, M-ALPHA)
 `defer: post-alpha` — not needed for the alpha's six showcase maps or its checklist. Value 3 (kept).
+
+## Current source reconciliation (2026-10-25)
+The radial-to-planar request needs no further implementation: REDB records landing 002c99e3, and current
+`render/src/shader.wgsl` assigns `fog_depth = clip_pos.w` in `vs_main` (252), the specular helper (900), and
+`vs_skinned` (992). `shade` passes that depth to `apply_fog` (434), whose `fog_amount` uses it (581–583).
+`render/src/grass.wgsl` does the same at 45/77. `render/src/lighting.rs` documents planar metres at 14–18.
+The radial `view_dist` remains in culling, fades and the water crossover; its presence does not mean fog amount
+uses radial distance. This is source reconciliation, not a fresh PS2 measurement or current pixel-parity pass.
+
+The near-model question stays open: `re-fog` §0.3/§2.2's reading and §9.3's patched-state observation remain
+contested, and `viewer/look.rs`'s BF1 near-scene-fog comment (600–602) does not settle them. Do not disable BF1
+near fog globally from the bamboo/soldier observation alone. Keep opacity, scene/matrix and VU explanations
+open until the original control and a plainly opaque near-prop pair distinguish them. FOGN keeps BF2's scope.
+

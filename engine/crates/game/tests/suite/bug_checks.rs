@@ -1,5 +1,5 @@
 //! BUGX synthetic scenes. These exercise runtime rules without claiming a
-//! baked-map or PS2 reproduction. Suicide-menu and medic/ammo soldier caller
+//! baked-map or PS2 reproduction. Medic/ammo soldier caller
 //! coverage remain separate prerequisites; stations are only a service control.
 use core::cp::CpDef;
 use core::heightfield::Heightfield;
@@ -301,4 +301,264 @@ fn bugx_a_pickups_do_not_heal_or_resupply_a_corpse() {
         }
         assert_eq!(w.sim.pickups.len(), 1, "the corpse took the item");
     }
+}
+
+/// Drive the same navigator and dispatcher called by both windowed input paths.
+fn pause_input(
+    w: &mut WalkSim,
+    menu: &mut game::pause::PauseMenu,
+    paused: &mut bool,
+    input: ui::menu::MenuInput,
+) {
+    let model = ui::menu::MenuModel {
+        cursor: menu.cursor,
+        respawn_confirm: menu.confirm,
+        respawn_label: Some("Respawn".into()),
+        ..Default::default()
+    };
+    let (cursor, actions) = ui::menu::navigate(&model, input);
+    menu.cursor = cursor;
+    for action in actions {
+        game::pause::apply_menu_action(w, action, paused, menu);
+    }
+}
+
+fn request_respawn(w: &mut WalkSim, menu: &mut game::pause::PauseMenu, paused: &mut bool) {
+    let model = ui::menu::MenuModel {
+        respawn_label: Some("Respawn".into()),
+        ..Default::default()
+    };
+    menu.cursor = ui::menu::rows(&model)
+        .iter()
+        .position(|r| *r == ui::menu::Row::Respawn)
+        .unwrap();
+    pause_input(
+        w,
+        menu,
+        paused,
+        ui::menu::MenuInput {
+            confirm: true,
+            ..Default::default()
+        },
+    );
+    assert!(menu.confirm);
+    assert_eq!(menu.cursor, 0, "confirmation defaults to No");
+}
+
+#[test]
+fn bugx_d_suicide_menu_cancel_accept_delay_and_spawn_flow() {
+    let mut w = scene();
+    w.sim.spawn_screens = true;
+    // Respawn remains a deliberate kill even during invincibility.
+    w.sim.cheats.invincible = true;
+    let first = w.player;
+    let tickets = w.sim.battle.teams[0].reinforcements;
+    let mut menu = game::pause::PauseMenu::default();
+    let mut paused = true;
+    // An unconfirmed action cannot kill.
+    game::pause::apply_menu_action(
+        &mut w,
+        ui::menu::MenuAction::Respawn,
+        &mut paused,
+        &mut menu,
+    );
+    assert!(w.sim.unit(first).is_some());
+    request_respawn(&mut w, &mut menu, &mut paused);
+    // Confirm the default No.
+    pause_input(
+        &mut w,
+        &mut menu,
+        &mut paused,
+        ui::menu::MenuInput {
+            confirm: true,
+            ..Default::default()
+        },
+    );
+    assert!(!menu.confirm);
+    assert!(paused);
+    assert!(w.sim.unit(first).is_some());
+    assert_eq!(w.sim.battle.teams[0].reinforcements, tickets);
+    request_respawn(&mut w, &mut menu, &mut paused);
+    pause_input(
+        &mut w,
+        &mut menu,
+        &mut paused,
+        ui::menu::MenuInput {
+            back: true,
+            ..Default::default()
+        },
+    );
+    assert!(w.sim.unit(first).is_some());
+    assert_eq!(w.sim.battle.teams[0].reinforcements, tickets);
+    request_respawn(&mut w, &mut menu, &mut paused);
+    let killed_at = w.sim.tick;
+    pause_input(
+        &mut w,
+        &mut menu,
+        &mut paused,
+        ui::menu::MenuInput {
+            down: true,
+            confirm: true,
+            ..Default::default()
+        },
+    );
+    assert!(!paused);
+    assert!(!menu.confirm);
+    assert!(
+        w.sim.unit(first).is_some(),
+        "queued until the next sim tick"
+    );
+    w.advance_with(0.0, &[PadState::default()], |_| panic!("no tick expected"));
+    assert!(
+        w.sim.unit(first).is_some(),
+        "zero-tick frame retains command"
+    );
+    w.step_tick(&[PadState::default()]);
+    let corpse = &w.sim.units[first.index as usize];
+    assert!(!corpse.alive);
+    assert_eq!(corpse.deaths, 1);
+    let ready = killed_at + (w.sim.respawn_delay * core::TICK_HZ as f32) as u64;
+    assert_eq!(corpse.respawn_at, Some(ready));
+    assert_eq!(w.sim.battle.teams[0].reinforcements, tickets - 1.0);
+    assert_eq!(w.sim.events.iter().filter(|e| matches!(e, Event::EnvDeath {unit, cause: DeathCause::Suicide} if *unit == first)).count(), 1);
+    // Duplicate dispatch, and even a newly confirmed request on the corpse,
+    // cannot charge another death. Sim::unit rejects the dead generation.
+    game::pause::apply_menu_action(
+        &mut w,
+        ui::menu::MenuAction::Respawn,
+        &mut paused,
+        &mut menu,
+    );
+    paused = true;
+    game::pause::apply_menu_action(
+        &mut w,
+        ui::menu::MenuAction::RequestRespawn,
+        &mut paused,
+        &mut menu,
+    );
+    assert!(!menu.confirm);
+    game::pause::apply_menu_action(
+        &mut w,
+        ui::menu::MenuAction::Respawn,
+        &mut paused,
+        &mut menu,
+    );
+    assert_eq!(w.sim.units[first.index as usize].deaths, 1);
+    assert_eq!(w.sim.battle.teams[0].reinforcements, tickets - 1.0);
+    while w.sim.tick < ready {
+        assert_eq!(w.sim.spawn_stage[0], SpawnStage::Accepted, "death delay");
+        w.step_tick(&[PadState::default()]);
+        assert_eq!(w.player, first);
+    }
+    // The normal screen update processes expiry on the following tick.
+    for _ in 0..3 {
+        w.step_tick(&[PadState::default()]);
+    }
+    assert_eq!(w.sim.spawn_stage[0], SpawnStage::Map);
+    tap(&mut w, buttons::SPAWN_ACCEPT);
+    assert_eq!(w.sim.spawn_stage[0], SpawnStage::Class);
+    tap(&mut w, buttons::SPAWN_ACCEPT);
+    assert_eq!(w.sim.spawn_stage[0], SpawnStage::Accepted);
+    assert_eq!(w.player.gen, first.gen + 1);
+    assert!(w.player_on_foot());
+    assert_eq!(
+        w.sim.battle.teams[0].reinforcements,
+        tickets - 1.0,
+        "no second charge at spawn"
+    );
+    // The one-tick command is spent: the new life is not killed again.
+    let second = w.player;
+    for _ in 0..30 {
+        w.step_tick(&[PadState::default()]);
+    }
+    assert!(w.sim.unit(second).is_some(), "new life killed again");
+    assert_eq!(w.sim.units[second.index as usize].deaths, 1);
+    assert_eq!(w.sim.battle.teams[0].reinforcements, tickets - 1.0);
+}
+
+#[test]
+fn bugx_d_suicide_last_ticket_refuses_spawn() {
+    let mut w = scene();
+    w.sim.spawn_screens = true;
+    w.sim.battle.teams[0].reinforcements = 1.0;
+    let first = w.player;
+    let mut menu = game::pause::PauseMenu::default();
+    let mut paused = true;
+    request_respawn(&mut w, &mut menu, &mut paused);
+    pause_input(
+        &mut w,
+        &mut menu,
+        &mut paused,
+        ui::menu::MenuInput {
+            down: true,
+            confirm: true,
+            ..Default::default()
+        },
+    );
+    w.step_tick(&[PadState::default()]);
+    assert_eq!(w.sim.battle.teams[0].reinforcements, 0.0);
+    for _ in 0..200 {
+        tap(&mut w, buttons::SPAWN_ACCEPT);
+    }
+    assert_eq!(w.player, first);
+    assert!(!w.sim.units[first.index as usize].alive);
+    assert_ne!(w.sim.spawn_stage[0], SpawnStage::Map);
+    assert_eq!(w.sim.units[first.index as usize].deaths, 1);
+    assert_eq!(w.sim.battle.teams[0].reinforcements, 0.0);
+}
+
+#[test]
+fn bugx_d_suicide_menu_command_matches_replayed_pad() {
+    let mut menu_run = scene();
+    let mut replay = scene();
+    let mut menu = game::pause::PauseMenu::default();
+    let mut paused = true;
+    request_respawn(&mut menu_run, &mut menu, &mut paused);
+    pause_input(
+        &mut menu_run,
+        &mut menu,
+        &mut paused,
+        ui::menu::MenuInput {
+            down: true,
+            confirm: true,
+            ..Default::default()
+        },
+    );
+    let log = core::sim::InputLog {
+        seed: 42,
+        slots: 1,
+        ticks: vec![
+            PadState {
+                buttons: buttons::RESPAWN,
+                ..Default::default()
+            },
+            PadState::default(),
+        ],
+    };
+    for pad in &log.ticks {
+        menu_run.step_tick(&[PadState::default()]);
+        replay.step_tick(&[*pad]);
+        assert_eq!(
+            menu_run.sim.hash(),
+            replay.sim.hash(),
+            "menu pulse and recorded command follow the same tick path"
+        );
+    }
+    assert_eq!(menu_run.sim.units[menu_run.player.index as usize].deaths, 1);
+}
+
+/// The Respawn row's label comes from the disc's own text-table key.
+#[test]
+fn bugx_d_suicide_respawn_label_key_is_the_discs() {
+    let root = std::env::var_os("OPENBF_ASSETS")
+        .map_or_else(game::assets::baked_root, std::path::PathBuf::from);
+    if !root.join("common_bf2/locl/english.ron").is_file() {
+        eprintln!("skip: no baked BF2 text table");
+        return;
+    }
+    let texts = game::event_feed::Texts::load(&root, "bf2");
+    assert_eq!(
+        texts.bf2_text(game::pause::RESPAWN_LABEL_KEY),
+        Some("Respawn")
+    );
 }

@@ -1,16 +1,16 @@
 ---
 id: WSEAT
-title: A walker's turret section keeps every seat key, as BF2's MountedTurret setter claims them through the seat setter FUN_002f6eb8 (B2:191723-191731): today PilotType, EyePointOffset, TrackCenter/TrackOffset, TiltValue and ThirdPersonFOV authored in a walker TURRET section fall onto the walker's own pilot seat (vehicle_class::scoped, walker::TURRET_CLAIMS); card VRIDE kept only the pose keys
+title: A walker's turret section keeps every seat key, as BF2's MountedTurret setter claims them through the seat setter FUN_002f6eb8 (B2:191723-191731): today PilotType, EyePointOffset, TrackCenter/TrackOffset, TiltValue and ThirdPersonFOV authored in a walker TURRET section fall onto the walker's own pilot seat (vehicle_class::scoped, walker::turret_claims); card VRIDE kept only the pose keys
 milestone: M2
 value: 3
 phase: build
-status: blocked
+status: parked
 deps:
 files: engine/crates/game/src/vehicle_class.rs,engine/crates/game/src/vehicle_class/walker.rs
 declares:
 needs: (private workflow note omitted)
 effort:
-branch:
+branch: wseat-route-20261024
 resume: (private workflow note omitted)
 created: 2026-10-15
 tries: 1

@@ -27,6 +27,20 @@ fn aim(s: &Sim) -> (f32, f32) {
 }
 
 #[test]
+fn mouse_aim_keeps_the_player_alive_until_explicit_respawn() {
+    let mut s = foot();
+    let player = s.handle(0);
+    let pad = mouse(0.3, -0.1);
+    s.step(&[pad]);
+    assert!(s.unit(player).is_some());
+    s.step(&[PadState {
+        buttons: pad.buttons | buttons::RESPAWN,
+        ..pad
+    }]);
+    assert!(s.unit(player).is_none());
+}
+
+#[test]
 fn mouse_look_turns_by_its_angle_past_the_turn_rate() {
     let mut s = foot();
     let cap = s.units[0].consts.max_turn_speed * crate::TICK_DT;

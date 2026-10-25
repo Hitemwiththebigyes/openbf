@@ -4,7 +4,7 @@
 //! endgame) and an idle enemy that does not die. One scene a rule: the offer
 //! (attack and defence clauses, with their controls), the post's cap, each
 //! of the five exits, the turret closed after leaving and after a walk that
-//! did not reach it.
+//! did not reach it. STCHG adds charge timing, ownership and lifecycle controls.
 
 use super::*;
 use crate::cp::CpDef;
@@ -78,8 +78,7 @@ fn bot_at(s: &mut Sim, pos: Vec3) -> UnitHandle {
 }
 
 /// The scene: the bot at `bot`, the enemy at `enemy` (both on the ground),
-/// the turret's gun firing class `weapon` (0 the rifle, 1 a charge rifle a
-/// bot never fires) over `yaw`.
+/// the turret's gun firing class `weapon` (0 the rifle, 1 a charge rifle) over `yaw`.
 fn scene(bot: Vec3, enemy: Vec3, weapon: usize, yaw: Option<[f32; 2]>) -> Scene {
     scene_with(bot, enemy, gun_setup(weapon, yaw))
 }
@@ -422,25 +421,41 @@ fn exit_1_ten_seconds_with_nothing_to_hit_and_closed_for_twenty() {
     assert!(again, "never offered again");
 }
 
-/// Exit 2: a gunner whose gun it never fires (a charge weapon) with an enemy
-/// it can hit in front sits 45 s and gets out by rule 2; with the rifle it
-/// fires and stays.
+/// Exit 2: a depleted gun with a reachable enemy sits 45 s and exits by
+/// rule 2; the otherwise equal loaded gun fires and stays.
 #[test]
 fn exit_2_forty_five_seconds_with_no_shot_in_twenty() {
-    for (weapon, leaves) in [(1, true), (0, false)] {
-        let mut sc = scene(
+    for leaves in [true, false] {
+        let mut gun = gun_setup(2, None);
+        gun.weapons[0].infinite = !leaves;
+        gun.weapons[0].spare_clips = 0;
+        let mut sc = scene_classes(
             Vec3::new(3.0, 0.0, 10.0),
             Vec3::new(4.0, 0.0, 30.0),
-            weapon,
-            None,
+            gun,
+            &[WeaponClass {
+                rounds_per_clip: 3,
+                ..WeaponClass::bf1_rifle()
+            }],
         );
         sit(&mut sc);
-        let (b, v) = (sc.bot, sc.v);
         let sat = sc.s.tick;
+        // Let the real weapon consume its finite clip; no injected silence.
+        if leaves {
+            let empty = until(&mut sc.s, 20 * HZ, |s| {
+                s.vehicle(sc.v).unwrap().guns[0].as_ref().is_some_and(|g| {
+                    let w = &g.weapons[0];
+                    w.clip == 0 && w.spare == 0 && w.shots_fired > 0
+                })
+            });
+            assert!(empty.is_some(), "finite gun must actually deplete");
+        }
+        let (b, v) = (sc.bot, sc.v);
         let out = until(&mut sc.s, 50 * HZ, |s| !seated(s, b, v));
         if leaves {
             let out = out.expect("never left");
             assert!(out - sat >= MAN_LONG, "left after {} ticks", out - sat);
+            assert!(out - sc.s.unit(b).unwrap().last_shot_tick >= MAN_NO_SHOT);
             assert_eq!(
                 sc.s.nav_stats.man_codes[2], 1,
                 "{:?}",
@@ -1182,4 +1197,275 @@ fn a_burst_whose_n_costs_a_full_meter_is_drawn_again() {
             "{rules:?}: a {longest}-tick wait: {runs:?}"
         );
     }
+}
+
+/// STCHG: actual seat dispatch from an idle weapon, both source rules and
+/// both TriggerSingle values. Every cycle must use the foot skill draw,
+/// keep its deadline, hold FIRE, and produce an owned shot on release.
+#[test]
+fn seat_charge_holds_then_releases_on_its_drawn_deadline() {
+    use crate::ai::draw::{unit_unit, SALT_CHARGE};
+    use crate::soldier::GroundRules::{Bf1, Bf2};
+    for (rules, duration, level) in [(Bf1, 1.5, 1), (Bf2, 2.0, 20)] {
+        for single in [true, false] {
+            let wc = WeaponClass {
+                max_pressed_time: duration,
+                trigger_single: single,
+                rounds_per_clip: 0,
+                heat_per_shot: 0.0,
+                ..WeaponClass::bf1_rifle()
+            };
+            let mut sc = seat_gun_scene(wc, true, rules);
+            sc.s.units[sc.bot.index as usize].skill = level;
+            assert_eq!(sc.s.unit(sc.bot).unwrap().ai.charge_until, 0);
+            assert!(sc
+                .s
+                .vehicle(sc.v)
+                .unwrap()
+                .guns
+                .first()
+                .is_none_or(Option::is_none));
+            let mut deadline = 0;
+            let mut starts = 0;
+            let mut releases = 0;
+            let mut shots = 0;
+            for _ in 0..10 * HZ {
+                let tick = sc.s.tick;
+                sc.s.step(&[]);
+                let u = sc.s.unit(sc.bot).unwrap();
+                assert!(u.mount.is_some());
+                let until = u.ai.charge_until;
+                let w = &sc.s.vehicle(sc.v).unwrap().guns[0]
+                    .as_ref()
+                    .unwrap()
+                    .weapons[0];
+                if starts == 0 && until == 0 {
+                    assert_eq!(w.shots_fired, 0, "no carried foot FIRE may count");
+                    assert!(w.fire_cmd <= 0, "fresh seat weapon must remain idle");
+                }
+                if deadline == 0 && until != 0 {
+                    let skill = sc.s.difficulty_of(u.team).skill_at(level);
+                    let draw = unit_unit(sc.bot.index, tick, sc.bot.gen, SALT_CHARGE);
+                    let fraction = crate::ai::CHARGE_MIN
+                        + (skill.charge_hi - crate::ai::CHARGE_MIN).max(0.0) * draw;
+                    let ticks = (fraction * duration * crate::TICK_HZ as f32)
+                        .round()
+                        .max(1.0) as u64;
+                    assert_eq!(until, tick + ticks, "skill/class duration draw");
+                    deadline = until;
+                    starts += 1;
+                    eprintln!("STCHG {rules:?} single={single} start={tick} deadline={until} FIRE={} fire_cmd={}", w.fire_cmd > 0, w.fire_cmd);
+                }
+                if deadline > tick {
+                    assert_eq!(until, deadline, "uninterrupted charge deadline changed");
+                    assert!(w.fire_cmd > 0, "charge must hold FIRE");
+                } else if deadline != 0 {
+                    assert_eq!(tick, deadline, "release tick");
+                    assert_eq!(until, 0);
+                    assert_eq!(w.fire_cmd, -1, "release edge");
+                    assert_eq!(w.shots_fired, shots + 1, "release must fire");
+                    assert!(
+                        sc.s.events.iter().any(|e| matches!(e,
+                            crate::sim::Event::Shot { unit, weapon_class: 2, .. } if *unit == sc.bot
+                        )),
+                        "release shot owner/class"
+                    );
+                    eprintln!("STCHG {rules:?} single={single} shot={tick} owner={:?} class=2 fire_cmd={}", sc.bot, w.fire_cmd);
+                    releases += 1;
+                    deadline = 0;
+                }
+                shots = w.shots_fired;
+            }
+            assert!(
+                starts >= 2 && releases >= 2,
+                "must charge, release and repeat: {rules:?} single={single}"
+            );
+        }
+    }
+}
+
+/// The otherwise equal noncharge tap callers remain live in both rules.
+#[test]
+fn seat_charge_uncharged_tap_controls() {
+    for rules in [
+        crate::soldier::GroundRules::Bf1,
+        crate::soldier::GroundRules::Bf2,
+    ] {
+        let mut sc = seat_gun_scene(
+            WeaponClass {
+                trigger_single: true,
+                rounds_per_clip: 0,
+                heat_per_shot: 0.0,
+                ..WeaponClass::bf1_rifle()
+            },
+            true,
+            rules,
+        );
+        let trace = gun_ticks(&mut sc, 10 * HZ);
+        let shots: u64 = trace.iter().map(|t| t.0).sum();
+        eprintln!("STCHG tap {rules:?} shots={shots}");
+        assert!(shots >= 2);
+    }
+}
+
+/// Entry, exit/reboard, a different seat, and ai_use_pass must discard the
+/// previous weapon's deadline. Failed entry leaves the live tenure intact.
+#[test]
+fn seat_charge_lifecycle_resets_at_successful_boundaries() {
+    let mut sc = scene(
+        Vec3::new(3.0, 0.0, -3.0),
+        Vec3::new(2.0, 0.0, 35.0),
+        1,
+        None,
+    );
+    // Keep autonomous boarding closed while the foot weapon really charges.
+    sc.s.seat_setup[0].as_mut().unwrap().boardable[0] = false;
+    sc.s.weapon_classes[0].max_pressed_time = 2.0;
+    sc.s.units[sc.bot.index as usize].soldier.yaw = std::f32::consts::PI;
+    let bot = sc.bot;
+    let charging = |s: &Sim| s.unit(bot).unwrap().ai.charge_until > s.tick + 2;
+    assert!(
+        until(&mut sc.s, 10 * HZ, charging).is_some(),
+        "real foot charge"
+    );
+    assert!(sc.s.unit(bot).unwrap().weapon.fire_cmd > 0);
+    sc.s.seat_setup[0].as_mut().unwrap().boardable[0] = true;
+    assert!(sc.s.enter_vehicle(bot, sc.v, 0));
+    assert_eq!(sc.s.unit(bot).unwrap().ai.charge_until, 0, "foot to seat");
+    assert!(
+        until(&mut sc.s, 10 * HZ, charging).is_some(),
+        "real seat charge"
+    );
+    let deadline = sc.s.unit(bot).unwrap().ai.charge_until;
+    assert!(!sc.s.enter_vehicle(bot, sc.v, 0));
+    assert_eq!(
+        sc.s.unit(bot).unwrap().ai.charge_until,
+        deadline,
+        "refused entry"
+    );
+    sc.s.exit_vehicle(bot);
+    assert_eq!(sc.s.unit(bot).unwrap().ai.charge_until, 0, "exit");
+    assert!(sc.s.enter_vehicle(bot, sc.v, 0));
+    assert_eq!(sc.s.unit(bot).unwrap().ai.charge_until, 0, "reboard");
+    sc.s.exit_vehicle(bot);
+    sc.s.seat_setup[0].as_mut().unwrap().boardable[0] = false;
+    sc.s.units[bot.index as usize].soldier.pos = Vec3::new(3.0, 0.0, -3.0);
+    sc.s.units[bot.index as usize].soldier.yaw = std::f32::consts::PI;
+    assert!(
+        until(&mut sc.s, 10 * HZ, charging).is_some(),
+        "foot charge before AI boarding"
+    );
+    sc.s.seat_setup[0].as_mut().unwrap().boardable[0] = true;
+    let ai = &mut sc.s.units[bot.index as usize].ai;
+    ai.ride = Some(crate::ai::RideState {
+        board: Some(sc.v),
+        use_req: true,
+        ..Default::default()
+    });
+    sc.s.ai_use_pass();
+    assert!(
+        sc.s.unit(bot).unwrap().mount.is_some(),
+        "AI public boarding path"
+    );
+    assert_eq!(
+        sc.s.unit(bot).unwrap().ai.charge_until,
+        0,
+        "local AI writeback"
+    );
+}
+
+/// STCHG's preserved deadline also reaches the ordinary mobile-gunner
+/// dispatch, with an occupied pilot seat, through real simulation steps.
+#[test]
+fn seat_charge_mobile_gunner_dispatch_and_seat_switch() {
+    let mut sc = seat_gun_scene(
+        WeaponClass {
+            max_pressed_time: 2.0,
+            trigger_single: true,
+            rounds_per_clip: 0,
+            heat_per_shot: 0.0,
+            ..WeaponClass::bf1_rifle()
+        },
+        true,
+        crate::soldier::GroundRules::Bf2,
+    );
+    sc.s.exit_vehicle(sc.bot);
+    let setup = sc.s.seat_setup[0].as_mut().unwrap();
+    let gun = setup.guns[0].clone();
+    setup.guns = vec![None, gun];
+    setup.boardable = vec![true, true];
+    let pilot = sc.s.spawn(&UnitSpec::trooper(0, Vec3::ZERO)).unwrap();
+    let v = sc.s.vehicle_mut(sc.v).unwrap();
+    v.kind = VehicleKind::Hover;
+    v.seats = vec![
+        crate::vehicle::Seat {
+            kind: SeatKind::Pilot,
+            occupant: None,
+        },
+        crate::vehicle::Seat {
+            kind: SeatKind::Gunner(0),
+            occupant: None,
+        },
+    ];
+    v.guns.clear();
+    assert!(sc.s.enter_vehicle(pilot, sc.v, 0));
+    sc.s.units[sc.bot.index as usize].ai.charge_until = 999;
+    assert!(sc.s.enter_vehicle(sc.bot, sc.v, 1));
+    assert_eq!(
+        sc.s.unit(sc.bot).unwrap().ai.charge_until,
+        0,
+        "different seat's tenure"
+    );
+    let mut held = false;
+    let mut release = false;
+    for _ in 0..10 * HZ {
+        sc.s.step(&[]);
+        assert_eq!(sc.s.unit(sc.bot).unwrap().mount.unwrap().seat, 1);
+        let w = &sc.s.vehicle(sc.v).unwrap().guns[1]
+            .as_ref()
+            .unwrap()
+            .weapons[0];
+        held |= w.fire_cmd > 0;
+        release |= held && w.fire_cmd == -1 && w.shots_fired > 0;
+    }
+    assert!(
+        held && release,
+        "mobile gunner must hold and fire on release"
+    );
+}
+
+/// Losing the visible target uses the foot policy: release immediately,
+/// clearing the deadline, even though this can fire a release weapon.
+#[test]
+fn seat_charge_lost_target_uses_foot_release_policy() {
+    let mut sc = seat_gun_scene(
+        WeaponClass {
+            max_pressed_time: 2.0,
+            trigger_single: true,
+            rounds_per_clip: 0,
+            heat_per_shot: 0.0,
+            ..WeaponClass::bf1_rifle()
+        },
+        true,
+        crate::soldier::GroundRules::Bf2,
+    );
+    let bot = sc.bot;
+    assert!(
+        until(&mut sc.s, 5 * HZ, |s| s.unit(bot).unwrap().ai.charge_until
+            > s.tick + 2)
+        .is_some()
+    );
+    let mut st = sc.s.unit(bot).unwrap().ai;
+    st.target = None;
+    let mut pad = crate::sim::PadState::default();
+    crate::ai::gunner::aim(
+        &sc.s,
+        bot,
+        &mut st,
+        &mut pad,
+        crate::ai::gunner::Look::Seat,
+        None,
+    );
+    assert_eq!(st.charge_until, 0);
+    assert_eq!(pad.buttons & crate::sim::buttons::FIRE, 0);
 }

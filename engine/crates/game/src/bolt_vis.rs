@@ -38,7 +38,8 @@
 //!   reverse of the flight for any other surface, PROVISIONAL — the sim
 //!   keeps no hit normal) for one update, or for as long as a `FadeOutTime`
 //!   remnant lives. The sim drops the bolt on the reaching tick, so both
-//!   steps are the remnant's first two updates. The lights go to the
+//!   steps are the remnant's first two updates. Same-tick hits retain the
+//!   matching impact event's surface identity. The lights go to the
 //!   terrain through [`crate::bolt_light`]. BF1 bolts make none.
 //! - **Textures**: the class's `LaserTexture` and `lightglow` from the
 //!   common layer (`common_bf1` / `common_bf2`). BF1's remote droid names
@@ -382,13 +383,13 @@ impl BoltVis {
                 u.mount.is_none(),
                 self.fire_point(unit.index),
             );
-            let terrain = sim
-                .heightfield
-                .as_ref()
-                // Near the terrain ray's own accuracy: one bisection of its
-                // 0.5 m step leaves the hit up to 0.25 m along the ray
-                // (`ray_heightfield`), less in height on all but a steep bolt.
-                .is_some_and(|h| (h.height_at(p.x, p.z) - p.y).abs() < 0.2);
+            // Impact and BoltExpired share the bolt's end. Match its class
+            // and flight direction too: another hit this tick may be terrain.
+            let terrain = sim.events.iter().any(|e| matches!(e,
+                Event::Impact { pos, dir: impact_dir, weapon_class, surface: core::impact::Surface::Terrain, .. }
+                    if *pos == p && *weapon_class as usize == class
+                        && impact_dir.abs_diff_eq(*dir, 1e-6)
+            ));
             self.remnants.push(Remnant {
                 class,
                 head: p,
@@ -578,6 +579,273 @@ impl BoltVis {
 mod tests {
     use super::*;
     use core::weapon::WeaponClass;
+
+    use core::impact::Surface;
+    use core::sim::{buttons, Event, PadState};
+
+    fn surface_walk(slope: f32, building: bool, heightfield: bool, pitch: usize) -> WalkSim {
+        let h = core::heightfield::Heightfield {
+            size: 33,
+            unit: 8.0,
+            offset_x: 128.0,
+            offset_z: 128.0,
+            heights: (0..33 * 33)
+                .map(|i| slope * ((i / 33) as f32 * 8.0 - 128.0))
+                .collect(),
+        };
+        let mut walk = WalkSim::new(42, Vec3::ZERO, heightfield.then_some(h));
+        if building {
+            walk.sim.collision = core::collision::CollisionWorld::new(
+                vec![core::collision::Body::new(
+                    glam::Mat4::from_translation(Vec3::new(0.0, -0.4, 0.0)),
+                    core::collision::Shape::Box {
+                        half: Vec3::new(128.0, 0.5, 128.0),
+                    },
+                )],
+                vec![],
+            );
+        }
+        // The built-in rifle with the existing BF2 light, as in the flat control.
+        for w in &mut walk.sim.weapon_classes {
+            if let Some(l) = w.ordnance.laser.as_mut() {
+                l.light_color = [148, 25, 25, 255];
+                l.light_radius = 4.0;
+            }
+        }
+        for _ in 0..pitch {
+            walk.step_tick(&[PadState {
+                ry: -32767,
+                ..PadState::default()
+            }]);
+        }
+        walk.step_tick(&[PadState {
+            buttons: buttons::FIRE,
+            ..PadState::default()
+        }]);
+        walk
+    }
+
+    fn lit_vis() -> BoltVis {
+        BoltVis::new(Path::new("unused-fixture-assets"), "bf2")
+    }
+
+    fn visual_update(vis: &mut BoltVis, walk: &WalkSim) {
+        let hash = walk.sim.hash();
+        let events = walk.sim.events.clone();
+        vis.update(walk, core::TICK_DT);
+        let _ = vis.omni_lights(walk);
+        assert_eq!(
+            walk.sim.hash(),
+            hash,
+            "visual update preserves simulation hash"
+        );
+        assert_eq!(walk.sim.events, events, "visual update preserves events");
+    }
+
+    fn impact(walk: &WalkSim, expected: Surface) -> Vec3 {
+        let hits: Vec<_> = walk
+            .sim
+            .events
+            .iter()
+            .filter_map(|e| match e {
+                Event::Impact { pos, surface, .. } if *surface == expected => Some(*pos),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            hits.len(),
+            1,
+            "legal fixture must hit {expected:?}: {:?}",
+            walk.sim.events
+        );
+        hits[0]
+    }
+
+    fn check_same_tick(mut walk: WalkSim, surface: Surface) {
+        let head = impact(&walk, surface);
+        assert!(walk.sim.bolts.is_empty(), "actual first-tick impact");
+        let mut vis = lit_vis();
+        visual_update(&mut vis, &walk);
+        assert_eq!(vis.remnant_count(), 1);
+        let prev = vis.remnants[0].prev;
+        let lights = vis.omni_lights(&walk);
+        assert_eq!(lights.len(), 1);
+        assert!(lights[0].pos.abs_diff_eq((head + prev) * 0.5, 1e-4));
+        vis.lights = false;
+        assert!(vis.omni_lights(&walk).is_empty(), "BF1 no-light control");
+        vis.lights = true;
+        let normal = if surface == Surface::Terrain {
+            Vec3::from(
+                walk.sim
+                    .heightfield
+                    .as_ref()
+                    .unwrap()
+                    .normal_at(head.x, head.z),
+            )
+        } else {
+            -vis.remnants[0].dir
+        };
+        walk.step_tick(&[PadState::default()]);
+        visual_update(&mut vis, &walk);
+        let lights = vis.omni_lights(&walk);
+        assert_eq!(lights.len(), 1);
+        assert!(
+            lights[0].pos.abs_diff_eq(head + normal * 0.5, 1e-4),
+            "surface={surface:?} head={head:?} actual={:?} expected={:?}",
+            lights[0].pos,
+            head + normal * 0.5
+        );
+        walk.step_tick(&[PadState::default()]);
+        visual_update(&mut vis, &walk);
+        assert_eq!(vis.remnant_count(), 0);
+        assert!(vis.omni_lights(&walk).is_empty());
+    }
+
+    #[test]
+    fn same_tick_steep_terrain_uses_actual_surface() {
+        for pitch in 18..=22 {
+            check_same_tick(surface_walk(-2.0, false, true, pitch), Surface::Terrain);
+        }
+    }
+
+    #[test]
+    fn same_tick_near_ground_building_uses_actual_surface() {
+        for pitch in 19..=22 {
+            check_same_tick(surface_walk(0.0, true, true, pitch), Surface::Building);
+        }
+    }
+
+    #[test]
+    fn same_tick_surface_controls() {
+        check_same_tick(surface_walk(0.0, false, true, 22), Surface::Terrain);
+        check_same_tick(surface_walk(-0.5, false, true, 20), Surface::Terrain);
+        // Also exercise the renderer without a heightfield after a real hit.
+        let mut no_heightfield = surface_walk(0.0, true, true, 22);
+        no_heightfield.sim.heightfield = None;
+        check_same_tick(no_heightfield, Surface::Building);
+    }
+
+    #[test]
+    fn tracked_multitick_terrain_keeps_surface() {
+        let mut walk = surface_walk(0.0, false, true, 10);
+        assert_eq!(walk.sim.bolts.len(), 1, "fixture starts in flight");
+        let mut vis = lit_vis();
+        visual_update(&mut vis, &walk);
+        assert_eq!(vis.tracked.len(), 1);
+        for _ in 0..30 {
+            walk.step_tick(&[PadState::default()]);
+            visual_update(&mut vis, &walk);
+            if vis.remnant_count() == 0 {
+                continue;
+            }
+            let head = impact(&walk, Surface::Terrain);
+            assert_eq!(vis.remnant_count(), 1);
+            assert!(vis.omni_lights(&walk)[0]
+                .pos
+                .abs_diff_eq((vis.remnants[0].prev + head) * 0.5, 1e-4));
+            walk.step_tick(&[PadState::default()]);
+            visual_update(&mut vis, &walk);
+            assert!(vis.omni_lights(&walk)[0]
+                .pos
+                .abs_diff_eq(head + Vec3::Y * 0.5, 1e-4));
+            walk.step_tick(&[PadState::default()]);
+            visual_update(&mut vis, &walk);
+            assert_eq!(vis.remnant_count(), 0);
+            return;
+        }
+        panic!("tracked fixture must reach terrain");
+    }
+
+    #[test]
+    fn same_tick_fade_preserves_duration_and_light_offset() {
+        let mut walk = surface_walk(-2.0, false, true, 20);
+        let head = impact(&walk, Surface::Terrain);
+        let normal = Vec3::from(
+            walk.sim
+                .heightfield
+                .as_ref()
+                .unwrap()
+                .normal_at(head.x, head.z),
+        );
+        for w in &mut walk.sim.weapon_classes {
+            if let Some(l) = w.ordnance.laser.as_mut() {
+                l.fade_out_rate = 10.0;
+            }
+        }
+        let mut vis = lit_vis();
+        visual_update(&mut vis, &walk);
+        for tick in 1..=4 {
+            walk.step_tick(&[PadState::default()]);
+            visual_update(&mut vis, &walk);
+            if tick < 3 {
+                assert_eq!(vis.remnant_count(), 1);
+                assert!(
+                    (vis.remnants[0].fade - (1.0 - tick as f32 * core::TICK_DT * 10.0)).abs()
+                        < 1e-6
+                );
+                assert!(vis.omni_lights(&walk)[0]
+                    .pos
+                    .abs_diff_eq(head + normal * 0.5, 1e-4));
+            }
+        }
+        assert_eq!(vis.remnant_count(), 0);
+        assert!(vis.omni_lights(&walk).is_empty());
+    }
+
+    // Supplemental event controls deliberately put a terrain decoy before the
+    // real building impact. Each input must independently reject that decoy.
+    fn decoy_case(field: usize) {
+        let mut walk = surface_walk(0.0, true, true, 22);
+        let head = impact(&walk, Surface::Building);
+        let mut decoy = *walk
+            .sim
+            .events
+            .iter()
+            .find(|e| matches!(e, Event::Impact { .. }))
+            .unwrap();
+        if let Event::Impact {
+            pos,
+            dir,
+            weapon_class,
+            surface,
+            ..
+        } = &mut decoy
+        {
+            *surface = Surface::Terrain;
+            match field {
+                0 => *pos += Vec3::X,
+                1 => *dir = -*dir,
+                2 => *weapon_class += 1,
+                _ => unreachable!(),
+            }
+        }
+        walk.sim.events.insert(0, decoy);
+        let mut vis = lit_vis();
+        visual_update(&mut vis, &walk);
+        assert_eq!(vis.remnant_count(), 1);
+        let dir = vis.remnants[0].dir;
+        walk.step_tick(&[PadState::default()]);
+        visual_update(&mut vis, &walk);
+        assert!(
+            vis.omni_lights(&walk)[0]
+                .pos
+                .abs_diff_eq(head - dir * 0.5, 1e-4),
+            "decoy field {field} must not select terrain"
+        );
+    }
+
+    #[test]
+    fn impact_decoy_position() {
+        decoy_case(0);
+    }
+    #[test]
+    fn impact_decoy_direction() {
+        decoy_case(1);
+    }
+    #[test]
+    fn impact_decoy_weapon_class() {
+        decoy_case(2);
+    }
 
     /// A BF1 rifle bolt 2 m out draws 1 m of core and 2 m of glow; at 10 m
     /// the core 1 m and the glow 3 m (GlowLength), whatever BlurLength's cap.

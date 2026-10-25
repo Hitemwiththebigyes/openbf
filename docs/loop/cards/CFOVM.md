@@ -4,16 +4,17 @@ title: The PS2 camera FOV in the spawn-select and death cameras (the soldier cam
 milestone: M1
 value: 3
 phase: re
-status: todo
+status: blocked
 deps:
 files:
 declares:
-needs:
+needs: environment — restore original FEL1 cp3_cp3_1_postA_v3 JSON and its referenced save state, PCSX2 readers and supporting SSEL evidence
 effort:
 branch:
-resume:
+resume: 2026-10-25: reported tangent matches SSEL's one-step ease, but FEL1's own moment remains unverified. Restore the exact JSON/referenced archive and state readers; read active camera, member/unit/death fields and spawn display before closing. reports/20261025_0051_card_CFOVM.md; wait for inputs, no unchanged retry.
 created: 2026-09-28
 defer: post-alpha
+tries: 1
 ---
 
 ## Why
@@ -41,3 +42,4 @@ Split from CFOV by the planner 2026-09-28. Vehicle cameras are VSEAT's (ThirdPer
 - planner 2026-10-20 05:20: SSEL's second pass (`analysis/re-spawn-flow.md` §6.5) explains the FEL1 state's tan_v 0.40237 [D]
   as one 65 -> 48 deg ease step frozen by the death camera's switch. Left open (deferred): closing needs the FEL1 state's
   own moment read (a dead player or a spawn screen). SSELC's build can settle it on the way; close then.
+

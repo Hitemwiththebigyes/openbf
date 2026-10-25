@@ -394,6 +394,7 @@ here. Do not leave a lesson only as JOURNAL prose.
 - A delete rule also keeps what a running session is writing: test recency (a file changed in the last 3 hours), not only names, branches and cards - `cleanse_delete.sh` listed a running audit's `lead_tmp/audit-flnk/smoke` (CLN15).
 
 ## Planner and recent measurement lessons (2026-10-24)
+- Before a per-map visual policy change, preflight its original paired camera/state inputs as well as the map bake; path existence alone does not verify pair identity (FARS).
 - Reconcile an older card's active acceptance with later landed authorized deviations before requesting parity changes; retain its unmeasured cases and numeric bars, and distinguish source-game trials from port-only behavior (STHOP2, SRAD).
 - Check an incomplete audit's previous prerequisite inventory before retrying the same target; unchanged missing inputs keep it UNAUDITED with an explicit restoration handoff, never a fabricated verdict. Persistent briefing holds and retry fixtures belong to AUDPRE (AUDIT re-seat-hud.md).
 - Before assigning a restored card, verify its named branch, baked maps/missions and cited raw evidence exist in this checkout; encode a required prior landing in deps. A historical receipt is not a current pass (TCOL, AITHK).
@@ -402,3 +403,5 @@ here. Do not leave a lesson only as JOURNAL prose.
 - A timing-dependent mutation can be checked directly at a pure rule when that proves the rule; retain a scene for the caller inputs and reachable behaviour (BRSTT).
 - A fit needs trials that distinguish every named factor: differing upper/lower clips, off-axis travel and a class on the fallback (AUDIT SPRCL).
 - Before refusing a corner inside a barrier, measure its depth and trace one shallow case on main; an edge may cover walkable floor (CORN).
+- Before a pure split, preflight the canonical proof helper as well as runtime inputs; record a direct comparison separately when it is absent, never as that helper's PASS (SPL12).
+- Before deleting an invariant-repair loop, trace every writer that can create a shortfall and test a legally admitted runtime witness (BLEED).

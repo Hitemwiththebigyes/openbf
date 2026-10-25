@@ -4,17 +4,18 @@ title: BF2 0x04 segments blend by texture alpha and BF1 Normal-class 0x04 words 
 milestone: M1
 value: 3
 phase: build
-status: todo
+status: blocked
 deps: ELFR
 files: engine/crates/bake/src/alpha.rs,engine/crates/bake/src/map.rs
 declares: rebake=maps; goldens=(census the BF2 materials whose verdict changes first)
-needs:
+needs: inputs — original material census, discs, PS2 captures and graphics validation
 effort:
 branch:
-resume:
+resume: Restore census and original PS2 controls; first settle BF1 KAM1 crate/interior and RHN1 floor; census all BF2 changed draws before implementation. See reports/20261025_0056_card_ELFR2.md.
 created: 2026-09-29
 defer: post-alpha
 value_pre_alpha: 4
+tries: 1
 ---
 ## Why
 BF2's per-segment draw (`FUN_0058ed70`) composites every segment whose MTRL word has bit 0x04 (or c.a != 0xff, or draw
@@ -84,3 +85,4 @@ blended; the risky ones: `kam_crate` 0x05 (§0.6(a), grime alpha mid 0.55 — th
 `defer: post-alpha` — not needed for the alpha's six showcase maps or its checklist. Value 4 → 3 until the alpha (restore from `value_pre_alpha`).
 
 Both halves have their own acceptance above; land them as two commits on one branch, one `land.py`.
+

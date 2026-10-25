@@ -64,6 +64,9 @@ pub mod buttons {
     /// The spawn screens' back (the PS2's Triangle): class -> spawn map;
     /// nothing on the spawn map (offline) or on the side screen.
     pub const SPAWN_BACK: u32 = 1 << 21;
+    /// One-tick command from the confirmed pause-menu Respawn action (BUGX).
+    /// Recorded/replayed with the other pad bits; no physical button maps to it.
+    pub const RESPAWN: u32 = 1 << 23;
     pub const MOUSE_AIM: u32 = 1 << 22;
 }
 

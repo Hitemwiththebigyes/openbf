@@ -4,15 +4,17 @@ title: Heroes and lightsabers (M4, PLAN §Heroes): playable BF2 heroes and BF1 A
 milestone: M4
 value: 2
 phase: re
-status: todo
+status: blocked
 deps:
 files:
 declares:
-needs:
+needs: Restore matching BF1/BF2 decompilations, ELFs and disc mission/class data; restore live hero reference tools/states for spawn, health and saber trials.
+effort:
 branch:
-resume:
+resume: (private workflow note omitted)
 created: 2026-09-28
 defer: post-alpha
+tries: 1
 ---
 
 ## Why
@@ -22,6 +24,17 @@ all content; always killable; BF2's hero health pool from the disc, shrinking on
 ## Acceptance
 - RE ([O]): hero spawn/possession flow (BF2), NPC hero behaviour (BF1), the disc's hero health and kill-heal values,
   saber combat (melee, block, throw). Split into build cards. M4: not before M1/M2/M3.
+
+## Evidence leads to reconcile
+
+These are historical pointers, not fresh primary verification. UAUD1/UAUD2's class defaults and empty hero
+populations do not establish live hero health, kill-heal or spawn rules. Their September statements about the
+port's single weapon predate its current slot handling; recheck through the actual roster before planning a repair.
+`analysis/re-powerups.md` §3.5 names an `AcceptHero` removal site at 0x18d0bc: trace its caller, replacement unit
+and score/drop suppression alongside ANNC's `FUN_003e6cf8` manager. §5.3 and `analysis/re-powerup-station.md` §4
+describe a hero-specific health refusal; an ordinary pickup/station heal is not evidence of the kill-heal rule.
+`analysis/re-spawn-flow.md` §1's hero-class replacement branch is another possession/return-flow lead.
+None of these pointers supplies the still-owed saber melee/block/throw derivation.
 
 ## Notes
 - Created 2026-09-28 by the planner.
@@ -47,3 +60,4 @@ all content; always killable; BF2's hero health pool from the disc, shrinking on
   `..._AcquiredTarget`): the event rule is card UVO2's.
 
 - ANNC RE 2026-09-30 (`analysis/re-announcer.md` §2.6, [D]/[H]): BF2 hero voice and music. Class properties: `SoldierMusic` (0xf5b46be4, class+0x1264, e.g. `all_hero_Luke_lp`), 0xe4dee4ee (class+0x1258, `hero_<n>_spawn`), 0xd3a93472 / 0xef9e29f7 (class+0x125c / +0x1260, `hero_<n>_exhausted`), class+0x1254 (a fourth line); parser `FUN_00252bb0`. The hero HUD resolves them per team (`FUN_00383208` B2 381077-381083); the hero manager `FUN_003e6cf8` plays them through `FUN_00382580` / `FUN_003825c8` (spawn line at the hero + a HUD message) / `FUN_00382880` (exhausted). Gates `ScriptCB_EnableHeroVO` / `EnableHeroMusic` (`DAT_005fd083` / `DAT_005fd082`, default 1, read in the soldier spawn `FUN_002360c8`; only `tat2g_eli` clears them). When each fires is NOT traced. They are 2-D lines on `global_vo_slow`, i.e. the same voice queue as the commander's (ANNC builds that queue).
+

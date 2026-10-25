@@ -315,7 +315,7 @@ mod front;
 use front::FrontShell;
 #[path = "windowed/menu_actions.rs"]
 mod menu_actions;
-use menu_actions::{apply_menu_action, persist_setting};
+use menu_actions::persist_setting;
 #[path = "windowed/mouse.rs"]
 mod mouse;
 
@@ -370,7 +370,7 @@ struct App {
     /// The message box's lines (kills, posts, the player's orders).
     feed: game::event_feed::EventFeed,
     paused: bool,
-    menu_cursor: usize,
+    pause_menu: game::pause::PauseMenu,
     /// Placeholder muzzle/impact effects (visual only — `game::fx`).
     fx: game::fx::Fx,
     /// The map's precipitation and wind (visual only — `game::weather`).
@@ -607,7 +607,7 @@ impl App {
             overlay: None,
             feed: game::event_feed::EventFeed::default(),
             paused: false,
-            menu_cursor: 0,
+            pause_menu: game::pause::PauseMenu::default(),
             quit_clicked: false,
             frame_profile: None,
             profile,
@@ -1345,8 +1345,7 @@ impl winit::application::ApplicationHandler for App {
                 // (a map's water). Wrapped so `uv + velocity * time` keeps
                 // its f32 precision in a long session — see Renderer::time.
                 if let Some(r) = self.renderer.as_mut() {
-                    r.time = (r.time + dt) % render::TIME_WRAP;
-                    r.water_time += f64::from(dt);
+                    (r.time, r.water_time) = render::advance_clocks(r.time, r.water_time, dt);
                 }
 
                 self.sync_grab();
@@ -1383,6 +1382,8 @@ impl winit::application::ApplicationHandler for App {
                 };
                 if self.walk.is_some() && edges & 64 != 0 {
                     self.paused = !self.paused;
+                    self.pause_menu.confirm = false;
+                    self.pause_menu.cursor = 0;
                 }
                 self.sync_grab();
                 let camera = if self.walk.is_some() {
@@ -1427,7 +1428,15 @@ impl winit::application::ApplicationHandler for App {
                                 .map_or(self.profile.settings.music_volume, |m| m.volume),
                             mouse_sensitivity: self.profile.settings.mouse_sensitivity,
                             invert_y: self.profile.settings.invert_y,
-                            cursor: self.menu_cursor,
+                            cursor: self.pause_menu.cursor,
+                            respawn_confirm: self.pause_menu.confirm,
+                            // The disc's key; English fallback is §7's label.
+                            respawn_label: (walk.sim.outcome.is_none()
+                                && walk.sim.unit(walk.player).is_some())
+                            .then(|| {
+                                self.feed
+                                    .screen_text(game::pause::RESPAWN_LABEL_KEY, "Respawn")
+                            }),
                             in_shell: None,
                             outcome_line: walk.sim.outcome.map(|w| match w {
                                 core::sim::OUTCOME_DRAW => "Time up — both teams win".to_string(),
@@ -1460,10 +1469,15 @@ impl winit::application::ApplicationHandler for App {
                             self.feed
                                 .say(line, ui::hud::message_color::YELLOW, walk.sim.tick);
                         }
-                        self.menu_cursor = cursor;
+                        self.pause_menu.cursor = cursor;
                         let mut quit = false;
                         for a in actions {
-                            apply_menu_action(walk, a, &mut self.paused);
+                            game::pause::apply_menu_action(
+                                walk,
+                                a,
+                                &mut self.paused,
+                                &mut self.pause_menu,
+                            );
                             persist_setting(&mut self.profile, a, walk);
                             quit |= a == ui::menu::MenuAction::Quit;
                             self.kbm.follow(&self.profile.settings);
@@ -1479,7 +1493,8 @@ impl winit::application::ApplicationHandler for App {
                             self.quit_clicked = true;
                         }
                         menu = Some(ui::menu::MenuModel {
-                            cursor: self.menu_cursor,
+                            cursor: self.pause_menu.cursor,
+                            respawn_confirm: self.pause_menu.confirm,
                             cheats: walk.sim.cheats.entries().to_vec(),
                             assist_intensity: walk.sim.assist_intensity,
                             ai_alive_cap: walk.sim.ai_alive_cap,
@@ -1723,8 +1738,7 @@ impl winit::application::ApplicationHandler for App {
 
                 if let (Some(r), Some(gpu)) = (&mut self.renderer, &mut self.gpu) {
                     // The water moves on the renderer's clock (queue OC).
-                    let clock = game::water_anim::clock(r.water_time);
-                    if let Err(e) = gpu.animate_water(r, clock, camera.position) {
+                    if let Err(e) = gpu.animate_water_live(r, camera.position) {
                         eprintln!("water: {e:#}");
                     }
                     // The drawn doors ride the sim's (queue DRV), the bolts
@@ -1846,7 +1860,12 @@ impl winit::application::ApplicationHandler for App {
                             }
                             if let Some((walk, _)) = self.walk.as_mut() {
                                 for a in clicked {
-                                    apply_menu_action(walk, a, &mut self.paused);
+                                    game::pause::apply_menu_action(
+                                        walk,
+                                        a,
+                                        &mut self.paused,
+                                        &mut self.pause_menu,
+                                    );
                                     persist_setting(&mut self.profile, a, walk);
                                     if a == ui::menu::MenuAction::Quit {
                                         self.quit_clicked = true;

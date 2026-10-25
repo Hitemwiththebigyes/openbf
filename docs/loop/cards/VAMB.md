@@ -4,15 +4,17 @@ title: BF1 vehicles (non-static models with a shdw volume) are lit by SkyInfo Ve
 milestone: M2
 value: 3
 phase: build
-status: todo
+status: blocked
 deps: CAMB
 files: engine/crates/bake/src/lighting.rs, engine/crates/manifest/src/lib.rs, engine/crates/render/src/shader.wgsl, engine/crates/game/src/viewer/vehicles.rs
 declares:
-needs:
+needs: restore BF1 raw shdw census inputs and paired vehicle PS2 reference before retry
+effort:
 branch:
-resume:
+resume: 20261025_0503 input hold 0/38; no source change; restore inputs and run census/vehicle comparison; see engine/artifacts/loop/reports/20261025_0503_card_VAMB.md
 created: 2026-09-28
 defer: post-alpha
+tries: 1
 ---
 ## Why
 BF1's light-set builder FUN_00493cf0 gives a NON-static model with a shadow volume (model +0xb8, the modl loader FUN_00497150 stores the shdw chunk there) DAT_0069c580 = SkyInfo VehicleAmbientColor (analysis/re-model-lighting.md §12, [O]). CAMB (landed) gave soldiers and held weapons CharacterAmbientColor; vehicles still take AmbientColor.
@@ -27,3 +29,4 @@ A BF1 vehicle within a few levels of a PS2 frame; world props and soldiers unmov
 
 ## Planner note (2026-09-30, M-ALPHA)
 `defer: post-alpha` — not needed for the alpha's six showcase maps or its checklist. Value 3 (kept).
+

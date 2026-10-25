@@ -8,7 +8,7 @@ status: blocked
 deps:
 files: engine/crates/bake/src/vehicle.rs, engine/crates/bake/src/bind_pose.rs, engine/crates/game/src/vehicle_class.rs, engine/crates/bake/src/map.rs
 declares: rebake=tat1; ci=+5
-needs: a real-data M4-list/chunk-geometry prim test (fixtures only kill M4/N6 today); the tat1 rebake through gates (declares rebake=tat1, sheets inspected); no PS2 RAM ref of the skiff's collision bodies yet
+needs: apply the proven real-data M4/N6 prim test (lead_tmp/cloudval/RKHULT/fix.patch, tests only); the maintainer's go-ahead for the tat1 rebake through gates (declares rebake=tat1; changes the skiff's collision); no PS2 RAM ref of the skiff's collision bodies yet
 effort:
 branch:
 resume: (private workflow note omitted)

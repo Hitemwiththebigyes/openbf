@@ -398,6 +398,8 @@ pub enum DeathCause {
     /// for `crate::ai` `RECYCLE_AFTER` (card RCYC): the last resort, and
     /// every use is a defect to close.
     Stalled,
+    /// Confirmed pause-menu Respawn (analysis/re-spawn-flow §7).
+    Suicide,
 }
 
 impl DeathCause {

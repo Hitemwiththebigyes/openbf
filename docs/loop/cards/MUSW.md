@@ -4,17 +4,18 @@ title: BF2 MUS1's control-room windows are shut in the port: at cp6 (Lava Bridge
 milestone: M1
 value: 3
 phase: re
-status: todo
+status: blocked
 deps:
 files:
 declares:
-needs:
+needs: Restore matching primary PS2 corpora/ELFs, MUS1 source/bake and original cp5_cp6 b000 state/camera/images plus capture tools; remeasure after the existing door/bind work.
 effort:
 branch:
-resume:
+resume: 20261025_0420 UTC RE input hold, 0/29 minimum paths present. Recheck current-main window7/window8 against the original state; distinguish closed still-render pose from battle door state before any alpha/segment edit. reports/20261025_0420_card_MUSW.md; no unchanged-input retry.
 created: 2026-09-29
 defer: post-alpha
 alpha: 
+tries: 1
 ---
 ## Why
 PXWB (2026-09-29): `engine/artifacts/pcsx2/ref/bf2_mus1/walk/pairs/cp5_cp6__sheet.png` b000 (crop
@@ -36,3 +37,4 @@ panelled wall there.
 
 ## Planner note (2026-09-30, M-ALPHA)
 `defer: post-alpha` — not needed for the alpha's six showcase maps or its checklist. Value 3 (kept).
+

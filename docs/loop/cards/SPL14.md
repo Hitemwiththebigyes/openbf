@@ -6,13 +6,14 @@ value: 2
 phase: cleanup
 status: todo
 deps:
-files: engine/crates/game/src/soldier_vis.rs, engine/crates/core/src/ai/state.rs, engine/crates/game/src/walk.rs, engine/crates/bake/src/soldier.rs, engine/crates/core/src/sim/bounds.rs
+files: engine/crates/game/src/soldier_vis.rs, engine/crates/game/src/soldier_vis/runtime.rs, engine/crates/game/src/soldier_vis/tests.rs, engine/crates/core/src/ai/state.rs, engine/crates/game/src/walk.rs, engine/crates/bake/src/soldier.rs, engine/crates/core/src/sim/bounds.rs
 declares:
-needs:
+needs: the four remaining splits (ai/state.rs, walk.rs, bake/soldier.rs; sim/bounds.rs now at 1,500), then every gate PASS as written
 effort:
 branch:
-resume:
+resume: (private workflow note omitted)
 created: 2026-10-20
+tries: 1
 ---
 
 ## Why
@@ -21,3 +22,4 @@ Cleanse 19 (2026-10-20, card CLN14): `scripts/size_report.sh --strict` exits 1 o
 ## Acceptance
 - `scripts/size_report.sh`: soldier_vis.rs not in the over-1,500 list, and its waiver line deleted; `--check-map` exit 0 with the new files in engine/CRATES.md; `--strict` exit 0.
 - Every gate PASS, nothing declared; goldens unchanged and the test count (gates.toml [ci] passed) unchanged.
+

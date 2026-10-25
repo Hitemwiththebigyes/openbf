@@ -4,16 +4,18 @@ title: BF1 Kamino and Bespin Platforms have NO terrain floor on the PS2 (Terrain
 milestone: M3
 value: 3
 phase: re
-status: todo
+status: blocked
 deps: KOC
 files: engine/crates/game/src/assets.rs,engine/crates/core/src/sim
 declares:
-needs:
+needs: primary input restoration - PS2 corpora/ELFs, BF1 KAM1/BES1 LVLs, PCSX2 toolkit/states and real bakes/missions
+effort:
 branch:
-resume:
+resume: Restore inputs in reports/20261025_0014_card_TENS.md before retry; re-kill-floor.md sections 2.2/2.6 already derive BES1 world death, not a new live measurement. Re-read all 12 flag readers and FUN_00381408 alias, default/writers and ELF bytes; independently verify. Log uncheated BF1 BES1/KAM1 edge falls to death with clock/player identity/xyz/vy/health/flag/sink/region. Keep phase re until addendum plus live evidence pass; then build BF1-only heightfield opt-out with sentinel/kill-floor trace and declare sweep.
 created: 2026-09-28
 defer: post-alpha
 value_pre_alpha: 4
+tries: 1
 ---
 
 ## Why
@@ -53,3 +55,4 @@ risk on both platform maps. The port's AI, projectiles and flyers use the same f
 The floor census (`lead_tmp/kamr/tools/floor_census.rs`, 0.5 m cells) on BF1 KAM1: 609,483 reachable points
 (152,371 m2) of walkable y = 0 heightfield with nothing drawn within 0.3 m; BF1 BES1 at 1 m cells: 265,324 m2.
 `analysis/re-kamino.md` §4.1. The maintainer's "invisible floors" on BF1 Kamino is this card.
+

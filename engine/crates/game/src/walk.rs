@@ -442,6 +442,8 @@ pub struct WalkSim {
     pub sim: Sim,
     /// The local player's unit — player SLOT 0 (`Sim::players[0]`).
     pub player: UnitHandle,
+    /// Pending menu input, retained across render frames with no sim tick.
+    respawn_requested: bool,
     pub teams: [TeamTemplate; 2],
     /// World boxes the chase camera must not enter (visual only — never read
     /// by the sim, so it cannot affect determinism). Set by the caller once
@@ -513,19 +515,6 @@ pub struct WalkSim {
     pub blend: crate::render_blend::Blend,
     accum: f32,
 }
-
-/// The one map [`WalkSim::rescue_spawn`] must not move a grounded player on
-/// (`MapLayout::map`, the disc's name — the baked directory is `tat1` too).
-///
-/// `main.rs`'s `--spawn` default `(-140, 230)` was picked on this map in P3,
-/// and the two recorded input logs the replay referees drive
-/// (`engine/artifacts/p3_walk/{walk,aim}_demo.ron` through
-/// `scripts/sim_gates.sh`) were recorded walking from it with no `--spawn`
-/// flag: the logs are pad frames, not positions, so a different start replays
-/// them into different terrain and the referee stops measuring what it was
-/// built to measure. On TAT1 the default is also the only map's own start it
-/// IS, so keeping it costs nothing else.
-const HISTORIC_WALK_START_MAP: &str = "tat1";
 
 /// A command post's spawn nodes as `(position, yaw)`, with the fallback
 /// [`WalkSim::setup_conquest`] has always used when the post names no path or
@@ -601,6 +590,7 @@ impl WalkSim {
         Self {
             sim,
             player,
+            respawn_requested: false,
             camera_blockers: CameraBlockers::default(),
             vehicle_geometry: Vec::new(),
             vehicle_seats: Vec::new(),
@@ -774,11 +764,8 @@ impl WalkSim {
     /// as team 2 (measured), because on that map ownership is the MISSION's to
     /// re-author (`MapLayout::apply_mission`) and this path has no mission.
     ///
-    /// **The one exception is [`HISTORIC_WALK_START_MAP`]**: there a player
-    /// who already has ground keeps the default point, because that point is
-    /// the map's own historic walk start and the recorded input logs replay
-    /// from it (see the constant). A groundless player is still moved, on that
-    /// map as on any other.
+    /// Recorded walk replays pin their start with `--spawn`; the caller skips
+    /// this rule for any explicit spawn, on every map.
     ///
     /// Returns the post ONLY when the authored point had NO GROUND — the case
     /// the caller announces, in its own words, since before this rule existed.
@@ -787,9 +774,6 @@ impl WalkSim {
     pub fn rescue_spawn(&mut self, layout: &MapLayout) -> Option<(String, f32)> {
         let grounded =
             self.sim.ground_under(self.soldier().pos, false) > core::collision::NO_GROUND;
-        if grounded && layout.map == HISTORIC_WALK_START_MAP {
-            return None;
-        }
         let (post, y) = self.move_to_friendly_post(layout)?;
         if grounded {
             println!("spawn: no mission — starting at command post {post} (y {y:.2})");
@@ -902,10 +886,24 @@ impl WalkSim {
         self.blend = blend;
     }
 
+    /// Queue the confirmed pause-menu command for the next fixed tick.
+    pub fn request_respawn(&mut self) {
+        self.respawn_requested = true;
+    }
+
     /// One fixed tick (also the headless/replay entry — no accumulator).
     /// `pads` is indexed by player slot; slot 0 is [`WalkSim::player`].
     pub fn step_tick(&mut self, pads: &[PadState]) {
-        self.sim.step(pads);
+        if std::mem::take(&mut self.respawn_requested) {
+            let mut requested = pads.to_vec();
+            if requested.is_empty() {
+                requested.push(PadState::default());
+            }
+            requested[0].buttons |= core::sim::buttons::RESPAWN;
+            self.sim.step(&requested);
+        } else {
+            self.sim.step(pads);
+        }
         // A respawn gives the player's slot a new generation
         // (`Sim::respawn_slot`): follow it, or every `sim.unit(self.player)`
         // reads None from the first death on (zoom, sprint latch, scope body,
@@ -1639,24 +1637,22 @@ mod tests {
         assert_eq!(w.soldier().yaw, 1.25);
     }
 
-    /// The two ways the rule must do nothing: the historic walk start (TAT1,
-    /// where the replay referees run) with ground under it, and a map whose
-    /// friendly posts are all over the void.
+    /// TAT1 follows the same friendly-post rule as every other map.
     #[test]
-    fn rescue_spawn_leaves_tat1_and_a_hopeless_map_alone() {
-        // Byte for byte the test above, except the map's name.
+    fn rescue_spawn_moves_a_grounded_tat1_player_to_the_post() {
         let mut w = WalkSim::new(1, Vec3::new(100.0, 0.0, 100.0), None);
         w.sim.collision = island_world();
         w.sim.units[w.player.index as usize].soldier.pos = Vec3::new(100.0, 6.0, 100.0);
         let mut tat1 = rescue_layout();
-        tat1.map = super::HISTORIC_WALK_START_MAP.to_string();
-        assert_eq!(w.rescue_spawn(&tat1), None, "the historic start stands");
-        assert_eq!(
-            w.soldier().pos,
-            Vec3::new(100.0, 6.0, 100.0),
-            "not moved to the post"
-        );
+        tat1.map = "tat1".to_string();
+        assert_eq!(w.rescue_spawn(&tat1), None, "moved silently");
+        assert_eq!(w.soldier().pos, Vec3::new(110.0, 6.0, 110.0));
+        assert_eq!(w.soldier().yaw, 1.25);
+    }
 
+    /// A map whose friendly posts are all over the void cannot rescue a player.
+    #[test]
+    fn rescue_spawn_leaves_a_hopeless_map_alone() {
         let mut v = WalkSim::new(1, Vec3::ZERO, None);
         v.sim.collision = island_world();
         let mut layout = rescue_layout();

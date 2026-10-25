@@ -4,7 +4,8 @@
 //! cheats. No wall-clock, no OS randomness: `SimRng` (SCE rand) + `GameLcg`
 //! (inline gameplay LCG) are the only entropy, both seeded from the log.
 //!
-//! Tick order (one `step`): 0a the spawn screen's class choice → 0 respawns
+//! Tick order (one `step`): confirmed Respawn command →
+//! 0a the spawn screen's class choice → 0 respawns
 //! (member timer, spawn wave, alive-AI cap) → 0b squad commands (Phase D) →
 //! 1 the commander (Phase B) → 1b controllers → per-unit pads → 1c the use
 //! input (enter / exit, VSEAT) → 2 player aim assist → doors → 3 soldier movement (a human's zoom press first, card ZOOM; a

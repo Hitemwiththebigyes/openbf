@@ -4,16 +4,17 @@ title: Hovers float on water (re-hover §4 S3): the sim gets the map's WMAP wet 
 milestone: M2
 value: 3
 phase: build
-status: todo
+status: blocked
 deps: HOVX
 files: engine/crates/core/src/vehicle/hover.rs,engine/crates/core/src/sim/vehicles.rs,engine/crates/game/src/vehicle_class.rs,engine/crates/manifest/src/lib.rs,engine/crates/bake/src/map.rs
 declares: sweep; rebake=maps
-needs:
+needs: restore water-map LVLs/bakes, paired ride evidence and both-disc primary spring-query evidence before retry
 effort:
 branch:
-resume:
+resume: 20261025_0450 prerequisite hold; 0/47 inputs present; no implementation or acceptance; restore inputs then build S3 with per-spring damping and BF1 ungated rule; reports/20261025_0450_card_HWAT.md
 created: 2026-09-28
 defer: post-alpha
+tries: 1
 ---
 ## Why
 Split from HOVX (2026-09-28). A hover driven onto water sinks to the bottom in the port; on the PS2 its spring spheres compress on the water surface (FUN_005613c8) and it skims.
@@ -36,3 +37,4 @@ FUN_004768f0 (a water grid present DAT_005648dc, the cell clamp, the wet test FU
 on every spring every tick and raises E+0x2170+32i by max, with the same v.y *= 0.5 / v.xz, omega *= 0.9 overshoot rule;
 BF2 gates it on K+0xe76 (FloatsOnWater). Read by me and by both HSTEP-audit verifiers (`lead_tmp/audit-hstep/wf/V1`,
 `V2`). Build the BF1 rule ungated (by the class's game), not BF2's flag for both.
+

@@ -11,9 +11,10 @@ declares: sim; sweep; arena
 needs:
 effort: high
 branch: tposr
-resume: landed 28d42d46 2026-10-20
+resume: landed 28d42d46 2026-10-20; audit INCOMPLETE/UNAUDITED 2026-10-25: restore held inputs and verified history; see private note
 created: 2026-10-19
 alpha: yes
+domain: ai
 ---
 
 ## Why
@@ -98,3 +99,4 @@ Numbers on the landing's code: 32 maps x 8 seeds, a per-tick observer, a switch 
 - planner 2026-10-20 05:20: value 4 -> 5, and TCMP now `deps += TPOSR`. TPOS's audit (PARTLY) found the reservation lapse;
   TCMP gives Elite the cover the Tactician runs, so the fix goes in before TCMP builds on it (both edit behave.rs).
   Undo: `loopctl.py set TPOSR value=4`; `loopctl.py set TCMP deps=BOTD,TIER,TPOS,GRAI,ARVS`.
+

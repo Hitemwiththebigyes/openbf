@@ -1,8 +1,9 @@
 //! The command posts and how the round ends: [`Sim::add_cp`] registers a
 //! post, and `update_cps` — step 6 — counts each post's occupants, applies
-//! the conquest bleed and D12's Elite team handicap, sheds the AI the bleed
-//! takes, and decides the outcome (a team at 0 tickets, domination, or the
-//! time limit). The capture, defeat, handicap and time-limit tests live here.
+//! the conquest bleed and D12's Elite team handicap, sheds excess AI after
+//! mission death drains, and decides the outcome (a team at 0 tickets,
+//! domination, or the time limit). The capture, defeat, handicap and time-limit
+//! tests live here.
 
 use super::state::{Event, Sim, OUTCOME_DRAW};
 use crate::cp::{self, CommandPost, CpChange, CpDef};
@@ -316,6 +317,131 @@ mod tests {
         assert_eq!(s.battle.teams[1].tickets(), 0);
         for t in &s.battle.teams {
             assert!(t.invariant_holds());
+        }
+    }
+
+    /// BLEED: exercise the actual CP clamp and Elite handicap through fixed
+    /// sim ticks, with legal admissions at the last free ticket.
+    #[test]
+    fn conquest_bleed_stops_before_shedding_live_ai() {
+        for team in 0..2u8 {
+            for difficulty in Difficulty::ALL {
+                for handicap in [false, true] {
+                    for human in [false, true] {
+                        let mut s = Sim::empty(4);
+                        s.heightfield = Some(flat_ground());
+                        s.battle = Battle::new([4, 4]);
+                        s.difficulty = difficulty;
+                        s.team_handicap_on = handicap;
+                        // The enemy owns 2/3 of the bleed value; neither
+                        // side dominates and the units cannot capture here.
+                        for i in 0..3 {
+                            s.add_cp(
+                                sphere_cp(
+                                    "cp",
+                                    Vec3::new(100.0 + i as f32 * 50.0, 0.0, 0.0),
+                                    8.0,
+                                    false,
+                                ),
+                                Some(if i == 0 { team } else { 1 - team }),
+                            );
+                        }
+                        for i in 0..3 {
+                            let pos = Vec3::new(i as f32 * 3.0, 0.0, 0.0);
+                            let mut spec = if human && i == 0 {
+                                UnitSpec::player(team, pos)
+                            } else {
+                                UnitSpec::trooper(team, pos)
+                            };
+                            spec.controller = Controller::Idle;
+                            s.spawn(&spec).unwrap();
+                        }
+                        for tick in 0..120 {
+                            s.step(&[PadState::default()]);
+                            let t = &s.battle.teams[team as usize];
+                            assert_eq!(t.alive(), 3);
+                            assert_eq!(t.tickets(), 3);
+                            assert!(t.reinforcements > 3.0 && t.reinforcements < 4.0);
+                            assert!(t.invariant_holds());
+                            assert!(s.units.iter().all(|u| u.alive));
+                            assert!(!s.events.iter().any(|e| matches!(e, Event::Despawn { .. })));
+                            assert_eq!(t.bleed_per_sec > 0.0, tick == 0);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// BLEED: Death Star's extra drain reaches the repair loop from valid
+    /// spawns, even with no CP majority. Keep both counters and units in sync.
+    #[test]
+    fn mission_death_drain_sheds_ai_through_step_without_cp_bleed() {
+        for extra in [0, 1] {
+            let mut s = Sim::empty(4);
+            s.heightfield = Some(flat_ground());
+            s.battle = Battle::new([3, 100]);
+            s.battle.death_drain[0][0] = extra;
+            for team in 0..2 {
+                s.add_cp(
+                    sphere_cp(
+                        "cp",
+                        Vec3::new(100.0 + team as f32 * 50.0, 0.0, 0.0),
+                        8.0,
+                        false,
+                    ),
+                    Some(team),
+                );
+            }
+            let player = s.spawn(&UnitSpec::player(0, Vec3::ZERO)).unwrap();
+            let survivor = s
+                .spawn(&UnitSpec::trooper(0, Vec3::new(3.0, 0.0, 0.0)))
+                .unwrap();
+            let victim = s
+                .spawn(&UnitSpec::trooper(0, Vec3::new(6.0, 0.0, 0.0)))
+                .unwrap();
+            assert!(s.battle.teams[0].invariant_holds());
+            assert_eq!(s.battle.teams[0].alive(), 3);
+            s.death_regions.push(crate::region::Region::sphere(
+                s.unit(victim).unwrap().soldier.pos,
+                0.5,
+            ));
+            s.step(&[PadState::default()]);
+            let t = &s.battle.teams[0];
+            assert_eq!(t.bleed_per_sec, 0.0);
+            assert_eq!(t.tickets(), 2 - extra, "shedding spends no ticket");
+            assert_eq!(t.alive_players, 1);
+            assert_eq!(t.alive_ai, 1 - extra);
+            assert!(t.invariant_holds());
+            assert!(s.unit(player).unwrap().alive, "players are never shed");
+            let survivor_state = &s.units[survivor.index as usize];
+            assert_eq!(survivor_state.gen, survivor.gen);
+            assert_eq!(survivor_state.alive, extra == 0);
+            if extra > 0 {
+                assert_eq!(survivor_state.respawn_at, None);
+            }
+            let deaths: Vec<_> = s
+                .events
+                .iter()
+                .filter_map(|e| match e {
+                    Event::EnvDeath {
+                        unit,
+                        cause: crate::sim::DeathCause::DeathRegion,
+                    } => Some(*unit),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(deaths, vec![victim]);
+            let despawned: Vec<_> = s
+                .events
+                .iter()
+                .filter_map(|e| match e {
+                    Event::Despawn { unit } => Some(*unit),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(despawned, if extra > 0 { vec![survivor] } else { vec![] });
+            assert_eq!(s.outcome, None);
         }
     }
 

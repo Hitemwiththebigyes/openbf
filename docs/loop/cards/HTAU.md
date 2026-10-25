@@ -4,16 +4,17 @@ title: BF1 Hoth's far tauntauns: two pads sit beside a trench the claimer cannot
 milestone: M2
 value: 3
 phase: measure
-status: todo
+status: blocked
 deps:
 files:
 declares:
-needs:
+needs: Restore BF1 HOT1 bake/mission, WAI2 PS2 soldier CSV and claim census, raw disc/corpus and capture toolkit
 effort:
 branch:
-resume:
+resume: 20261025_0445: measure input hold, 0/16 prerequisite paths; restore and verify inputs, then trace all give-ups on seeds42/1/2/3 and identify five rebel spawn paths; engine/artifacts/loop/reports/20261025_0445_card_HTAU.md
 created: 2026-10-02
 defer: post-alpha
+tries: 1
 ---
 ## Why
 Card WAI2 (a582462, 2026-10-02) left three BF1 Hoth items as notes on a closed card (its 'NOT met / open' 2, 3 and 5);

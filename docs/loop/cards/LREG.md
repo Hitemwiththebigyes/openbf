@@ -4,15 +4,17 @@ title: Light regions: both games dim the sun and blend the ambient of non-static
 milestone: M1
 value: 3
 phase: re
-status: todo
+status: blocked
 deps:
 files: analysis/re-light-regions.md
 declares:
-needs:
+needs: Restore matching primary PS2 corpora/ELFs, FOLGL RAM tools and original MUS1/UTA1 paired states/captures; verify both games' region rules before build.
+effort:
 branch:
-resume:
+resume: 20261025_0413 UTC: RE input hold; 0/48 minimum paths present. Restore evidence, trace list writers and volume weights in both games, census draw/class defaults and run list-empty/restored PS2 controls with independent verification. engine/artifacts/loop/reports/20261025_0413_card_LREG.md; no unchanged-input retry.
 created: 2026-09-28
 defer: post-alpha
+tries: 1
 ---
 ## Why
 Both games dim NON-static models inside light regions:
@@ -61,3 +63,4 @@ on a dim scene). The state `ref/states/bf1_geo1_walk_cp0_cp6_b000.p2s` is kept f
 - FUN_00597e98 gives a model inside such a region the light, weighted by FUN_005adc48. The set holds at most 2
   directionals in all, Light1 / Light2 first.
 - The weight function and which models sit in the regions are this card's to read.
+

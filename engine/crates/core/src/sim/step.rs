@@ -115,6 +115,18 @@ impl Sim {
         // moved one, or installed a new world, since the last tick.
         self.sync_hulls();
 
+        // Confirmed pause-menu Respawn runs inside the tick so its death
+        // event reaches every normal observer (re-spawn-flow §7/§6).
+        if self.outcome.is_none() {
+            for (slot, pad) in pads.iter().enumerate() {
+                if pad.pressed(buttons::RESPAWN) {
+                    if let Some(Some(h)) = self.players.get(slot) {
+                        self.kill_environment(*h, DeathCause::Suicide);
+                    }
+                }
+            }
+        }
+
         // 0a. The spawn screen's CLASS choice, before the respawn loop below
         //     can act on it.
         self.spawn_select(pads);

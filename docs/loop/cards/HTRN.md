@@ -4,16 +4,17 @@ title: BF1 Hoth: rebels pace against the trench props east of cp4 and are recycl
 milestone: M3
 value: 3
 phase: measure
-status: todo
+status: blocked
 deps:
 files:
 declares:
-needs:
+needs: restore real BF1 Hoth bake, mission, classes, raw plan and traced-case inputs before retry
 effort:
 branch:
-resume:
+resume: 20261024_2344 input hold; no current recycle measurement or classification; restore named inputs then run 32 seeds; engine/artifacts/loop/reports/20261024_2344_card_HTRN.md
 created: 2026-10-09
 defer: post-alpha
+tries: 1
 ---
 ## Why
 **Correction, same day:** the counts in the title are of parent ff68507. On BSPN's branch rebased over FGHTA (b75d36b) the gate's seeds 1-8 give BF1 Hoth 3 recycles (`lead_tmp/bspn/land/branch/fidelity`). The traced stall below is real; its rate today has to be re-measured first (32 seeds on main).
@@ -30,3 +31,4 @@ Card BSPN's sweep (the PS2's spawn draw) took BF1 Hoth's recycles from 6 to 37 o
 - After the fix: BF1 Hoth recycles over 32 seeds (`sweep_seeds.py --seeds 1-32 --maps bf1_hot1`) at or under 5, from 56; the 8-seed sweep's other maps unchanged or declared.
 
 - 2026-10-09 12:45 planner. `defer: post-alpha`: BF1 Hoth is not a showcase map (BF2 Hoth is), value 3, and the rise that filed it was gone after the rebase over FGHTA (the BSPN report). Undo: `loopctl.py set HTRN defer=`.
+

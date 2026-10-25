@@ -4,14 +4,14 @@ title: Game findings of cleanse 16: the seat leaves the animator's yaw / legs fr
 milestone: M0
 value: 3
 phase: build
-status: blocked
-deps:
-files: engine/crates/game/src/animator.rs, engine/crates/game/src/roster.rs, engine/crates/game/src/minimap.rs, engine/crates/game/src/event_feed.rs, engine/crates/game/src/blackbox.rs, engine/crates/game/src/blackbox/rotating.rs, engine/crates/game/src/main/headless.rs, engine/crates/game/src/unit_probe.rs, engine/crates/game/src/main/windowed.rs, engine/CRATES.md, engine/crates/game/src/bolt_vis.rs
+status: parked
+deps: CAPCR, STILLCP, BOLTSURF
+files: engine/crates/game/src/animator.rs, engine/crates/game/src/animator/tests.rs, engine/CRATES.md
 declares:
-needs: (private workflow note omitted)
+needs: findings 4/5/10 via STILLCP/CAPCR/BOLTSURF acceptance, a legal finding-8 wrong-floor witness, and the maintainer's live windowed F9/quit/panic check (finding 6)
 effort:
-branch:
-resume: (private workflow note omitted)
+branch: gcl16-seat-20261025
+resume: Findings4/5 implemented by STILLCP/CAPCR; full checks pending. Finding10 split to BOLTSURF after slope/world caller failures.8 still lacks legal wrong-floor witness. Keep parked for all prior rider/manual/replay/full gates; reports/20261025_0646_planner.md.
 created: 2026-10-15
 ---
 
