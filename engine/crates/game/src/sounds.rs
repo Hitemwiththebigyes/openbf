@@ -2174,17 +2174,17 @@ mod tests {
     fn a_layered_sound_starts_each_layer_at_its_delay() {
         let mut sl = lib();
         let got = play(&mut sl, "com_weap_inf_ordnance_exp", 1.0);
-        let at: Vec<(u32, &str)> = got
+        let at: Vec<(u32, &Path)> = got
             .iter()
-            .map(|(t, s)| ((t * 60.0).round() as u32, s.path.to_str().unwrap()))
+            .map(|(t, s)| ((t * 60.0).round() as u32, s.path.as_path()))
             .collect();
         assert_eq!(
             at,
             [
-                (0, "sounds/b/1.wav"),
-                (0, "sounds/b/2.wav"),
-                (6, "sounds/b/1.wav"),
-                (12, "sounds/b/1.wav")
+                (0, Path::new("sounds/b/1.wav")),
+                (0, Path::new("sounds/b/2.wav")),
+                (6, Path::new("sounds/b/1.wav")),
+                (12, Path::new("sounds/b/1.wav"))
             ]
         );
         assert_eq!(sl.waiting(), 0);
