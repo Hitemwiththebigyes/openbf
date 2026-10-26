@@ -6,7 +6,7 @@ value: 2
 phase: re
 status: todo
 deps:
-files: engine/crates/core/src/sim/spawn.rs
+files: analysis/re-ai-class-selection.md (new)
 declares:
 needs:
 effort:
@@ -15,6 +15,7 @@ resume: the port rule changed (023e3fd, the maintainer 2026-10-01: weights by wh
 created: 2026-09-30
 defer: post-alpha
 value_pre_alpha: 3
+public_issue: https://github.com/sprucey149/openbf/issues/9
 ---
 ## Why
 Cleanse CLNC (2026-09-30): two PROVISIONAL rules in `core/src/sim/spawn.rs` named an open RE question ('HOLD FOR FABLE') that no card or analysis section owned. The unit mix on the field is player-visible on every map (how many rocketeers, snipers, pilots a team fields, and whether the mix drifts over a battle).

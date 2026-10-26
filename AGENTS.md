@@ -1,6 +1,26 @@
 # openbf - notes for every agent session
 
 
+## Coordination and automated commits
+
+Public issues describe a player-facing feature, reproducible bug or concrete
+investigation: explain what a player sees, the intended result, bounded scope
+and completion evidence. Use readable titles; keep card IDs and implementation
+details in optional references. Consolidate related implementation slices under
+the same feature; keep routine refactor checks, audits and maintenance in their
+existing records instead of creating a public issue for every internal card.
+State when code already exists so nobody duplicates implementation work.
+
+Agree on a task's scope and ownership with the maintainer before implementation.
+Honor assigned issues and tasks claimed by another contributor. Keep each feature
+on its own branch and PR, with tests and before/after evidence; agree on wider
+refactors or shared-system changes first.
+
+Maintainer-run agents may commit and push fully reviewed, validated work on the
+maintainer's behalf. One integration coordinator publishes to upstream main;
+other workers and contributors use their own branches and PRs. A partial check or
+skipped original-game requirement does not make a task complete.
+
 Read `PLAN.md` next (short; its moved sections are pointed to inside, and `grep analysis/INDEX.md` before starting any RE), then `engine/artifacts/loop/STATUS.md`. The autoloop (cards in `engine/artifacts/loop/cards/`,
 `scripts/loopctl.py`) is how work lands; the maintainer steers it through `engine/artifacts/loop/INBOX.md`.
 

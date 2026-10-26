@@ -15,6 +15,7 @@ resume: Source checkpoint on current main; eight actual-button repairs and forty
 created: 2026-10-25
 alpha: yes
 tries: 1
+public_issue: https://github.com/sprucey149/openbf/issues/7
 ---
 
 ## Why
@@ -105,4 +106,3 @@ as usual. No gate/oracle/baseline/golden/threshold/approval edits.
    any original GUNWT/UTALK/WAIT4/HWAIT/CWAIT/GUNWH acceptance/dependency/hold.
    GUNWT still owes BF1 call timing/reissue, answer-to-board/allocation,
    original primary verification and UTALK TAT1/NAB1 rate census.
-

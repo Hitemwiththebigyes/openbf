@@ -14,6 +14,7 @@ branch: main
 resume: Source417ced9 on main;12/12actual-step matrix,90ride/955core/395game+2ignored/fmt/Clippy/build pass;8compiled mutants caught. Full Acceptance1–5 and parent gates pending; restore real inputs and unreachable/stuck approach validation. reports/20261026_0115_card_WGORD.md
 created: 2026-10-26
 alpha: yes
+public_issue: https://github.com/sprucey149/openbf/issues/4
 ---
 
 ## Why and evidence
@@ -95,4 +96,3 @@ turrets, velocity hypothesis and full UTALK rates remain GUNWT.
    every round finishes; sort boarding/stall changes normally. Full unchanged
    CI/map/protect/sim/sweep/arena/leak/bake/GPU/golden/parity/behavior gates
    and all GUNWT/GBOARD/WGCAL/WGOUT/WGSEAT/UTALK original bars remain required.
-

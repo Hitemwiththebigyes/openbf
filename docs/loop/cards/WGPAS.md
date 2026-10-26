@@ -14,6 +14,7 @@ branch: main
 resume: Sourced77258e on main;48/48 actual-step seats,98ride/963core/395game+2ignored/fmt/Clippy/build and11caught mutants; protect PASS, map8inherited absent paths/0unmapped/0stale. Full Acceptance1-5 and parent holds pending. reports/20261026_0348_card_WGPAS.md
 created: 2026-10-26
 alpha: yes
+public_issue: https://github.com/sprucey149/openbf/issues/4
 ---
 
 ## Why and evidence
@@ -93,4 +94,3 @@ the velocity hypothesis remain GUNWT. Preserve all original parent acceptance.
    Normal/Hard, all finish; classify boarding/stall changes normally. All full
    unchanged CI/map/protect/sim/sweep/arena/leak/bake/GPU/golden/parity/behavior
    gates and original GUNWT/UTALK rates/restoration holds remain required.
-
