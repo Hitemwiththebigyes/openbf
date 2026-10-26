@@ -10,7 +10,7 @@ rasterisation held against the PS2's own measured gain, and a port prototype sco
 Scratch, scripts, pictures: `engine/artifacts/lead_tmp/bprl/` (`pen_ram.py`, `setpool.py`, `vu_guard.py`,
 `dea1_cp6.py`, `penterm.py`, `gsraster.py`, `uta_pred.py`, `pred.py`, `par_*/`, `verify/CLAIMS.md`,
 `verify/VERDICTS.md`). B2 = `analysis/SWBFRNT2.ELF-decomp.c`; VU1 = the main program, read with
-`lead_tmp/re/specular/vu1dis.py`; VU[n] = quadword n of VU1 data memory. "Half-widths / half-heights" = clip x/w, y/w
+`scripts/tools/vu1dis.py`; VU[n] = quadword n of VU1 data memory. "Half-widths / half-heights" = clip x/w, y/w
 with the screen edge at 1. Tags: [V] read or measured, [D] derived, [H] guess; load-bearing claims also [O].
 
 ## 0. The answer

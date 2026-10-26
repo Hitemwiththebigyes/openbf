@@ -299,7 +299,7 @@ impl Sim {
     /// which seat (§5's cone, team and PilotType rules) is `super::seats`'
     /// (VSEAT); this only keeps the bookkeeping whole.
     pub fn seat_unit(&mut self, u: UnitHandle, vh: VehicleHandle, seat: u8) -> bool {
-        if !self.unit(u).is_some_and(|x| x.mount.is_none()) {
+        if self.unit(u).is_none_or(|x| x.mount.is_some()) {
             return false;
         }
         let team = self.units[u.index as usize].team;
@@ -319,6 +319,8 @@ impl Sim {
         self.units[u.index as usize].ai.pending_board = None;
         if let Some(r) = self.units[u.index as usize].ai.ride.as_mut() {
             r.board = None;
+            r.called_board = None;
+            r.ordered_call = false;
             r.maintenance = None;
         }
         // STCHG: successful seating begins a new AI charge tenure.
@@ -359,6 +361,12 @@ impl Sim {
         if !unit.alive {
             unit.ai.pending_board = None;
             if let Some(r) = unit.ai.ride.as_mut() {
+                if r.ordered_call || r.called_board.is_some() {
+                    r.board = None;
+                    r.called_board = None;
+                    r.ordered_call = false;
+                    r.use_req = false;
+                }
                 r.maintenance = None;
             }
         }
@@ -372,6 +380,8 @@ impl Sim {
         if let Some(r) = unit.ai.ride.as_mut() {
             r.pickup = None;
             r.board = None;
+            r.called_board = None;
+            r.ordered_call = false;
             r.maintenance = None;
             r.bail_draw = None;
             r.bail_seen = false;
@@ -568,6 +578,7 @@ impl Sim {
                 u.ai.pending_board = None;
             }
             if let Some(r) = u.ai.ride.as_mut().filter(|r| r.board == Some(h)) {
+                r.called_board = None;
                 r.maintenance = None;
             }
         }

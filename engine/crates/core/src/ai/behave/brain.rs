@@ -1,4 +1,4 @@
-//! GBOARD call targets are consumed only at scheduled thinks.
+//! GBOARD/WGORD call targets are consumed only at scheduled thinks over retained orders.
 //! Foot-bot tick priority chain, valid boarding maintenance (CWAIT), and failed-walk recovery.
 
 use crate::ai::draw::{stance_hold, unit_unit, SALT_DODGE};
@@ -102,7 +102,23 @@ pub fn think(sim: &Sim, me: UnitHandle, st: &mut AiState) -> (PadState, NavTick)
             (_, None, Some(p)) => super::route::retarget_board(sim, me, st, p, &mut nt),
             _ => retarget(sim, me, st, hunt.map(|(_, p)| p), &mut nt),
         }
-        super::ride::deliver_call(sim, me, u, st);
+        if nt.released != 0
+            && (st.pending_board.is_some() || st.ride.is_some_and(|r| r.ordered_call))
+        {
+            st.pending_board = None;
+            st.cmd_clear();
+        } else {
+            super::ride::deliver_call(sim, me, u, st);
+        }
+        if st.ride.is_some_and(|r| r.ordered_call) {
+            if let Some(at) = super::ride::board_point(sim, st) {
+                if st.ride.is_some_and(|r| r.since == sim.tick) {
+                    st.route = None;
+                    nt.claim = NavTick::CLAIM_NEW;
+                }
+                super::route::retarget_board(sim, me, st, at, &mut nt);
+            }
+        }
         // Card VAI: a bot on foot in the commander's pool may go for a
         // vehicle (`ride::claim`); an ordered one stays with its order.
         if u.mount.is_none() && u.command.is_none_or(|c| c.in_pool()) {
@@ -389,7 +405,7 @@ pub fn think(sim: &Sim, me: UnitHandle, st: &mut AiState) -> (PadState, NavTick)
     let ring = ring_walk(sim, st)
         .filter(|_| ret.is_none() && flee.is_none() && boarding.is_none() && st.cmd.is_none());
     let goal = match ring {
-        Some(p) if !st.route.is_some_and(|r| !r.is_last()) => Some(p),
+        Some(p) if st.route.is_none_or(|r| r.is_last()) => Some(p),
         _ => goal,
     };
     let at_ring = ring.filter(|p| goal == Some(*p));
@@ -399,7 +415,7 @@ pub fn think(sim: &Sim, me: UnitHandle, st: &mut AiState) -> (PadState, NavTick)
         ret.is_none() && flee.is_none() && boarding.is_none() && st.cmd.is_none() && ring.is_none()
     });
     let goal = match spot {
-        Some(p) if !st.route.is_some_and(|r| !r.is_last()) => Some(p),
+        Some(p) if st.route.is_none_or(|r| r.is_last()) => Some(p),
         _ => goal,
     };
     let at_spot = spot.filter(|p| goal == Some(*p));

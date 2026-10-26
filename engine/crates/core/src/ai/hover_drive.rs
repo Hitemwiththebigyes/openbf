@@ -1,3 +1,4 @@
+//! WGOUT marks the first accepted route goal after pickup as departure.
 //! CWAIT pickup holds run in `ride` before route progress.
 //! A bot at a hover's pilot seat (card VDROP): the sticks the PS2's hover AI
 //! writes, transcribed from `analysis/re-hover-ai.md` [O] (B2 FUN_00220528 →
@@ -264,7 +265,7 @@ fn steer(k: &Class, m: &Body, o: &Order, goal: Option<Vec3>) -> [f32; 4] {
     // The tail: toward the aim point (type 2: along the travel outside R,
     // else ahead) when stopped, fading with a strafe speed, or standing.
     let (turn, pitch) = match goal {
-        Some(g) if !no_goal && !(slowing && has_strafe) && !o.stand => stick_to(k, m, g),
+        Some(g) if !(no_goal || o.stand || (slowing && has_strafe)) => stick_to(k, m, g),
         _ => {
             let d = goal.map_or(Vec3::ZERO, |g| g - m.pos);
             let p = if goal.is_some() && r * r < d.x * d.x + d.z * d.z {
@@ -428,6 +429,8 @@ pub(super) fn drive(
         nt.stuck_run = st.route.map_or(0, |r| r.stuck_run);
         return (pad, nt);
     };
+
+    super::ride::set_out(sim, m, st);
 
     // The segment: from the node last reached, or from here when the route
     // began or changed under the driver. The node is compared on the ground

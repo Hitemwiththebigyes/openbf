@@ -15,7 +15,7 @@ Opus verifier on the claim list: **27 SUPPORTED, 3 PARTLY, 0 NOT SUPPORTED** of 
 
 Scratch, scripts, frames, states, renders and score files: `engine/artifacts/lead_tmp/b1dk/` (below `b1dk/`). B1 =
 `analysis/SWBFRONT.ELF-decomp.c`, B2 = `analysis/SWBFRNT2.ELF-decomp.c`; VU1 = each game's main microprogram, read with
-`lead_tmp/re/specular/vu1dis.py`; "GS units" = 0x80 is 1.0; "display units" = the frame's own 0..255 values. A box is
+`scripts/tools/vu1dis.py`; "GS units" = 0x80 is 1.0; "display units" = the frame's own 0..255 values. A box is
 (x0,y0,x1,y1) on the 640x480 frame, mean R/G/B. Tags: [V] read (lines cited) or measured (files cited), [V-RAM] read out
 of PS2 RAM, [V-PS2] measured on PCSX2 frames, [D] derived, [H] hypothesis; load-bearing claims are also [O]. The port is
 main 35c93e6.

@@ -411,7 +411,7 @@ Scratch `engine/artifacts/lead_tmp/foly/`: `h.py` / `crc.py` (the two name hashe
    (`checks/fn_b2.txt`); each is in the function named beside it in this file (the verifier re-checked each).
 2. **absent** - `re_check.py absent b1 0x1da4` -> 2 hits (`FUN_00205000` 115859, `FUN_0020f2e0` 123004);
    `absent b2 0x1160` -> the read 157504, the copy 169922, the parse 172001 and three unrelated functions;
-   `absent b1 FUN_00368a78 FUN_00368b00` -> only their own headers; `lead_tmp/sqack/refs.py` (every `jal` / `j` /
+   `absent b1 FUN_00368a78 FUN_00368b00` -> only their own headers; `scripts/tools/refs.py` (every `jal` / `j` /
    data word of an address in the ELF) for the getters, the step functions, the collider update and the loader
    (`checks/refs_b1.txt`, `refs_b2.txt`); `/usr/bin/grep -a -i foleyfx` over every world LVL -> 0 files, with
    `soundspace` 17 / 25 and `deathregion` 6 / 16 files as the sanity hits; record kinds and sample presence by

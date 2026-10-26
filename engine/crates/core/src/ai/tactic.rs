@@ -954,9 +954,9 @@ pub(super) fn choose(
             let bit = sector_pair(d);
             let cov = covers(q);
             // In the open only a step away: spacing, not a walk.
+            let reach = if cover_only { COVER_REACH } else { OPEN_REACH };
             if (cover_only && !cov)
-                || (cover_only && travel > COVER_REACH)
-                || (!cover_only && travel > OPEN_REACH)
+                || travel > reach
                 || (!cov && (q.pos.y - pos.y).abs() > STEP)
                 || (travel <= OPEN_REACH && !no_drop(sim, pos, q.pos))
             {
@@ -1268,8 +1268,7 @@ pub(super) fn fight(
         let timer = st.fight.mode == FightState::COVER && now >= st.tpos.next_at;
         // At an open position a covered one is looked for every RETRY (ours:
         // the open spot was kept 5-12 s while cover came within reach).
-        if !(round || hit || off_band || timer)
-            && !st.tpos.covered
+        if !(round || hit || off_band || timer || st.tpos.covered)
             && st.fight.mode == FightState::COVER
             && now >= st.tpos.retry_at
         {

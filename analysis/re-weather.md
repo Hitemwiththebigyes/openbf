@@ -11,7 +11,7 @@ the build), `out/` (disassemblies, overlays), `agents/` (two readers' reports, r
 `checks.txt`, `VERDICTS.md`, `verify/` (the verifier's scratch). Tags: [V] read (lines cited), [V-RAM] read out of PS2
 RAM (PCSX2 save states, `engine/artifacts/pcsx2/ref/states/`), [V-PS2] measured on PS2 frames, [D] derived, [H]
 hypothesis. B2 = `analysis/SWBFRNT2.ELF-decomp.c`, B1 = `analysis/SWBFRONT.ELF-decomp.c`; "VU 0x…" = a VU1 micro
-address of BF2 (`lead_tmp/re/specular/vu1dis.py`; the sprite overlay: `lead_tmp/audit-sund/verify/vuoverlay.py bf2
+address of BF2 (`scripts/tools/vu1dis.py`; the sprite overlay: `lead_tmp/audit-sund/verify/vuoverlay.py bf2
 1899`). Names hash as FNV-1a-32 with every byte OR 0x20 (B2 `FUN_00539308`) — an underscore hashes as 0x7f, so
 `fx_snow` is 0x6f1bd9e7 [V-RAM].
 

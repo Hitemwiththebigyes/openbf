@@ -2770,7 +2770,7 @@ Quirks, all faithful:
 Census: BF1 179 records (class 0x20), BF2 469 (bit 0x80; none with 0x100 or 0x02; 22 with 0x04). Every
 load-bearing claim is `[O]`: one Opus pass plus one Opus verifier agent (23 of 30 claims SUPPORTED, 7 PARTLY —
 folded in — none NOT SUPPORTED), no Fable audit. It also found that the s12/s17 VU1 decoder mislabels every
-A = 0x100·k instruction and swaps `SQ` operands (the fresh decoder: `lead_tmp/re/specular/vu1dis.py`). Ported:
+A = 0x100·k instruction and swaps `SQ` operands (the fresh decoder: `scripts/tools/vu1dis.py`). Ported:
 nothing yet; queue **SPEC** (the world pass) and **SPEC2** (soldiers and weapons, skinned).
 
 ## 2026-09-25 (loop lane 1, queue WSE's [RE] half) — BF2's `SpecularEnable` and `OscillationEnable` default to 1 → `analysis/re-water-flags.md`

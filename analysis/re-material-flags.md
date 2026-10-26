@@ -323,8 +323,8 @@ sed -n 712818,712828p analysis/SWBFRNT2.ELF-decomp.c; sed -n 712862,712870p anal
 sed -n 724209,724232p analysis/SWBFRNT2.ELF-decomp.c; sed -n 724334,724336p analysis/SWBFRNT2.ELF-decomp.c
 sed -n 724811,724826p analysis/SWBFRNT2.ELF-decomp.c; sed -n 724860p analysis/SWBFRNT2.ELF-decomp.c
 sed -n 717178,717188p analysis/SWBFRNT2.ELF-decomp.c        # TEX0 TCC/TFX (BF2)
-python3 engine/artifacts/lead_tmp/tools/re_sky/elfrd.py extracted/bf2/SWBFRNT2.ELF 64feb0 6   # slot 3 = 0057cf60
-python3 engine/artifacts/lead_tmp/tools/re_sky/elfrd.py extracted/bf2/SWBFRNT2.ELF 60c64c 1   # AREF 0x60
+python3 scripts/tools/elfrd.py extracted/bf2/SWBFRNT2.ELF 64feb0 6   # slot 3 = 0057cf60
+python3 scripts/tools/elfrd.py extracted/bf2/SWBFRNT2.ELF 60c64c 1   # AREF 0x60
 grep -n "0xc0) + 0xc))" analysis/SWBFRNT2.ELF-decomp.c | wc -l                                # 36 callers
 sed -n 568105,568160p analysis/SWBFRONT.ELF-decomp.c        # BF1 class by flag bits
 sed -n 568925,568951p analysis/SWBFRONT.ELF-decomp.c        # BF1 mode/prim from flags
@@ -332,8 +332,8 @@ sed -n 594259p analysis/SWBFRONT.ELF-decomp.c; sed -n 594346,594373p analysis/SW
 sed -n 572568p analysis/SWBFRONT.ELF-decomp.c; sed -n 572594,572602p analysis/SWBFRONT.ELF-decomp.c
 sed -n 573363,573374p analysis/SWBFRONT.ELF-decomp.c; sed -n 573452,573454p analysis/SWBFRONT.ELF-decomp.c
 sed -n 562030,562040p analysis/SWBFRONT.ELF-decomp.c        # TEX0 TCC/TFX (BF1)
-python3 engine/artifacts/lead_tmp/tools/re_sky/elfrd.py extracted/bf1/SWBFRONT.ELF 559408 4   # Scroll vt: +0xc = 4b0c48
-python3 engine/artifacts/lead_tmp/tools/re_sky/elfrd.py extracted/bf1/SWBFRONT.ELF 55e310 4   # Normal vt: +0xc = 4cf6f0
+python3 scripts/tools/elfrd.py extracted/bf1/SWBFRONT.ELF 559408 4   # Scroll vt: +0xc = 4b0c48
+python3 scripts/tools/elfrd.py extracted/bf1/SWBFRONT.ELF 55e310 4   # Normal vt: +0xc = 4cf6f0
 # Ghidra (3 runs, outputs kept in mtrl_scratch/): bf2 5901b0-590328, bf2 5909c0-590a80, bf1 4ac780-4ac800
 ```
 

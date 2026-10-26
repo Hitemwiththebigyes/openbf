@@ -36,9 +36,9 @@ windowed renderer cannot read its frame back, so the picture is the maintainer's
   ear, the take's length, voices sounding, the take's file under `engine/assets_baked/` - and an `OVERLOAD` line for
   every tick of the 60 s whose starts sum over 1.0 ("N starts, sum G: names", the nearest, and the largest sum over
   ONE take: equal takes add up sample for sample, different ones do not). Name the sound from those rows, `ffplay`
-  its take, and render what he heard with `python3 engine/artifacts/lead_tmp/sndx/mix.py <snapshot> engine/assets_baked
+  its take, and render what he heard with `python3 scripts/tools/mix.py <snapshot> engine/assets_baked
   --wav out.wav` (peak against full scale; no pan, engine loops or music in it). The rows need a sound device: a
-  headless round and `win_run.sh`'s default (no device) write none.
+  headless round and `scripts/tools/win_run.sh`'s default (no device) write none.
 - **Use it yourself** when chasing a bot or sim bug: a headless run writes the same file — `BLACKBOX_AT=<tick>` or
   `BLACKBOX_ON=lost|recycle|stuck[:<ticks>]` on `round_to_outcome` writes
   `engine/artifacts/playtest/headless/<map>_s<seed>.json` (`BLACKBOX_DIR` moves it; never the maintainer's own `last.json`).
@@ -69,6 +69,14 @@ controller-only replays must stay bit-identical. The rules:
   so the drawn view is where the next tick's aim lands.
 - Bindings are one table (`game/src/kbm.rs`, `Bindings::pc_default`). Pointer lock follows the battle: it is taken on a
   click, and freed on pause, in the shell and spawn screens, on focus loss and on exit.
+
+## Shared tools (`scripts/tools/`)
+Small helpers the notes and cards cite, runnable from any directory (paths resolve from the repo root; the RE tools
+read your own `extracted/bf1/SWBFRONT.ELF` / `extracted/bf2/SWBFRNT2.ELF`): `mix.py` (render a black-box snapshot's
+sounds to a WAV), `elfrd.py` (ELF words by virtual address), `refs.py` (every jal / j / data reference to an address),
+`eedis.py` / `eedis2.py` / `vu1dis.py` (R5900 and VU disassembly), `pure_move_check.py` (prove a file split only moved
+code), `win_run.sh` + `xkey.py` (the windowed game on its own Xvfb display, driven by keys). Usage is in each file's
+header and in `scripts/tools/README.md`. `scripts/re_check.py` (fn / callers / word) is the main RE checker.
 
 ## Bots (the maintainer's top concern, 2026-10-02)
 "If the bots suck, the whole game is worthless." The plan is cards JITR, FFLN, BOTM, SAIR (RE the PS2 foot soldier's own

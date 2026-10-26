@@ -59,7 +59,7 @@ post: the rule is built round the player (`analysis/re-unit-chatter.md` 3, 5 `[O
 - The census (headless `SOUND_LOG`, 8 seeds, UTA1 and MYG1): the player parked at his post - at most 1 line a
   minute; parked beside a front-line team-mate (the capture's follow rule: the team-mate nearest an enemy, every
   20 s) - lines a minute and AcquiredTarget a minute within 30 % of the rows above.
-- The mixer: no `OVERLOAD` line these lines cause in a 10-minute round; `lead_tmp/sndx/mix.py` under full scale.
+- The mixer: no `OVERLOAD` line these lines cause in a 10-minute round; `scripts/tools/mix.py` under full scale.
 
 ## Notes
 - [H] in the RE: whether HeadshotKill needs a headshot (build it on a head hit, PROVISIONAL); NotShootingCriticalHit's

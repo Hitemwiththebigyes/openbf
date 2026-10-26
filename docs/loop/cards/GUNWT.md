@@ -5,13 +5,13 @@ milestone: M3
 value: 4
 phase: build
 status: blocked
-deps: UTALK,WAIT4,CWAIT,WPOKE,GBOARD,WGCAL
+deps: UTALK,WAIT4,CWAIT,WPOKE,GBOARD,WGCAL,WGOUT,WGSEAT,WGORD,WGPAS,WGMUL,WGNXT
 files: engine/crates/core/src/ai/ride.rs, engine/crates/core/src/sim/seats.rs, engine/crates/core/src/ai/hover_drive.rs, engine/crates/core/src/ai/walker_drive.rs, engine/crates/core/src/ai/behave.rs, engine/crates/core/src/sim/step.rs, engine/crates/core/src/ai.rs, engine/crates/core/src/ai/state.rs, engine/crates/core/src/squad.rs
 declares: sim; sweep
 needs: environment restoration — baked game data/missions plus UTALK census kit and GUNWT raw reference evidence
 effort:
 branch:
-resume: GBOARD48b1066 implemented with real checks pending; WGCAL queues initial BF1 wait-start call timing after six actual-step failures/40controls. Preserve call reissue/seat policy/ordered goals/allocation and full original restoration/Acceptance. reports/20261025_2259_planner.md
+resume: WGMULc6a8878 implemented/full acceptance pending. WGNXT isolates later BF1 command-walker post departures:6actual-step missing calls/42controls, diagnostic48/48. Combat/other reissues, velocity and original restoration/Acceptance remain. engine/artifacts/loop/reports/20261026_0512_planner.md
 created: 2026-10-16
 alpha: yes
 ---

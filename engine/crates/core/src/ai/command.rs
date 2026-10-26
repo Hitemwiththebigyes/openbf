@@ -19,8 +19,20 @@ impl AiState {
     /// re-plans from scratch instead of finishing a leg it was given as part
     /// of a plan it is no longer in — and the follower scratch state
     /// ([`CmdState`]), so the next order starts in no follow state and with no
-    /// release count.
+    /// release count. WGORD also cancels the active temporary boarding goal;
+    /// explicit pending delivery is canceled by actual order writers, not pool expiry.
     pub fn cmd_clear(&mut self) {
+        if let Some(r) = self
+            .ride
+            .as_mut()
+            .filter(|r| r.ordered_call || r.called_board.is_some())
+        {
+            r.board = None;
+            r.called_board = None;
+            r.ordered_call = false;
+            r.maintenance = None;
+            r.use_req = false;
+        }
         self.route = None;
         self.target_cp = None;
         self.cmd = None;

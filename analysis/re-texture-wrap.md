@@ -103,7 +103,7 @@ TEX0/TEX1 (pairs 2/6) are stored through base vi1 from the same vf2; how vi1 rel
 resolved (see §Not closed) — it does not affect pair 3, whose base and data are both via vi2.
 **Resolved 2026-09-24 (queue SPEC's RE, lane 1, `[O]`; `analysis/re-specular-pass.md` conventions):** the
 "vi1" was a decoder slip. `vudis2.py` prints `SQ` as `vf{it}, (vi{is})`, but the encoding is `SQ.dest fs(15–11),
-imm(it 20–16)`. Re-decoded (`lead_tmp/re/specular/vu1dis.py bf2 0x4c4 0x4e9`), every pair goes through vi2:
+imm(it 20–16)`. Re-decoded (`scripts/tools/vu1dis.py bf2 0x4c4 0x4e9`), every pair goes through vi2:
 - 0x4c9 `SQ.yzw vf1,0(vi2)` (the GIFtag);
 - 0x4ca `SQ.xy vf2,1(vi2)` = slot[0].xy → ALPHA_1;
 - 0x4cf `SQ.xy vf1,2(vi2)` = slot[1].xy → TEX0_1;

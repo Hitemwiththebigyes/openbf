@@ -943,7 +943,7 @@ pitch is 0.
   `engine/artifacts/lead_tmp/aima/checks.txt` (109 lines checked).
 - **Check 2 (absence / callers)**: 0x359d5227, 0x5e3171cc and 0x41568c97 occur only in the two section setters;
   FUN_00204748 and FUN_0023ecb8 have two callers each by text and by a `jal` / data-word scan
-  (`lead_tmp/sqack/refs.py`); FUN_0026cdf0's four callers are all in FUN_00204748.
+  (`scripts/tools/refs.py`); FUN_0026cdf0's four callers are all in FUN_00204748.
 - **Check 3 (the twin)**: BF2's FUN_0023ecb8 was read beside BF1's, branch by branch; its callers and its tables'
   writer are named above; the HUD and camera twins are FUN_0038e598 and FUN_001cef68.
 - **Check 4 (bytes)**: 0.4 at 0x5174d8; `lui 0x4270` (60.0) 0x204df4 / 0x23f4d0; `lui 0x4000` (2.0) 0x204dd4 /

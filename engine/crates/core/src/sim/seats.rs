@@ -1,5 +1,7 @@
+//! WGMUL reconciles explicit BF1 claim budgets after think write-back, before entry.
 //! WGCAL keeps non-ground entry calls here; ground calls follow wait start in step.
-//! GBOARD stores uncommanded BF1 answerers' next-think vehicle targets.
+//! WGSEAT ground call eligibility is independent of gun seats; admission is unchanged.
+//! GBOARD/WGORD store BF1 answerers' next-think targets over retained orders.
 //! Entry, exit and follower write-back discard ground-claim maintenance (CWAIT).
 //! Enter, drive, exit (card VSEAT, `analysis/re-vehicles.md` §5 [O],
 //! `analysis/re-hover.md` §5.2 [O]): the use input's pick and seat choice,
@@ -203,6 +205,7 @@ impl Sim {
     /// place re-plans on its next think; a failed entry blocks new claims
     /// for `ai::BOARD_BLOCK`.
     pub(crate) fn ai_use_pass(&mut self) {
+        crate::ai::called_claim_pass(self);
         // VBAIL: collect the pilot's order before changing ANY seat, so a
         // gunner at a lower unit index exits on the same pass. Player seats
         // never receive an AI get-out order. Preserve the normal exit path.
@@ -262,6 +265,7 @@ impl Sim {
                     let r = u.ai.ride.get_or_insert_default();
                     r.use_req = true;
                     r.board = None;
+                    r.called_board = None;
                     r.maintenance = None;
                     self.nav_stats.ai_bail_occupants += 1;
                 }
@@ -278,7 +282,8 @@ impl Sim {
             // CanEnter in unit order so two followers never take one seat.
             // PROVISIONAL: served every tick on reaching the port's boarding
             // radius, rather than the PS2 board agent's queued think.
-            let follow_target = crate::squad::follow_vehicle(self, u);
+            let follow_target = crate::squad::follow_vehicle(self, u)
+                .filter(|_| !u.ai.ride.is_some_and(|r| r.ordered_call));
             let following = follow_target.filter(|&vh| crate::ai::in_reach(self, u, vh));
             if follow_target.is_some() && following.is_none() {
                 continue;
@@ -312,6 +317,7 @@ impl Sim {
                 self.exit_vehicle(h);
                 r.pickup = None;
                 r.board = None;
+                r.called_board = None;
                 r.maintenance = None;
                 r.bail_draw = None;
                 r.bail_seen = false;
@@ -319,14 +325,24 @@ impl Sim {
                 r.block_until = self.tick + crate::ai::BOARD_BLOCK;
                 true
             } else if let Some(vh) = r.board.take() {
+                r.ordered_call = false;
                 r.maintenance = None;
                 let near = crate::ai::in_reach(self, &self.units[i], vh);
                 let seat = if following == Some(vh) {
                     self.enter_seat(h, vh)
                 } else {
-                    crate::ai::claim_seat(self, h, vh)
+                    crate::ai::claimed_seat(
+                        self,
+                        h,
+                        vh,
+                        crate::ai::RideState {
+                            board: Some(vh),
+                            ..r
+                        },
+                    )
                 }
                 .filter(|_| near);
+                let called = r.called_board.take().is_some();
                 let entered = seat.is_some_and(|k| self.enter_vehicle(h, vh, k));
                 if entered {
                     // Preserve seat_unit's clock, zero driver output and draw
@@ -354,6 +370,7 @@ impl Sim {
                         pilots.push((h, vh));
                     }
                 } else {
+                    r.call_blocked |= called;
                     let until = self.tick + crate::ai::BOARD_BLOCK;
                     r.block_until = if following.is_some() {
                         r.block_until.max(until)
@@ -386,20 +403,20 @@ impl Sim {
 
     /// Card UTALK, BF1's need-gunner call (re-squad-orders.md 1, 5; a
     /// BF2-rule sim asks none): an AI
-    /// that has just taken `vh`'s pilot seat, with a seat that has a gun
-    /// still free, issues the vehicle order (type 4) with chance
+    /// pilot issues the vehicle order (type 4) with chance
     /// [`NEED_GUNNER_CHANCE`] (B1 `FUN_0024d020` 167039 -> `FUN_002613f8`):
     /// its line, and then every friendly AI soldier on foot within
     /// [`crate::squad::ORDER_REACH`] (3-D, no cap, no sight) answers "yes"
     /// ([`Call::Yes`]) - the order is delivered whether or not the issuer's
     /// line passes its sound gates (`FUN_00260f38` 181702-181793).
-    /// Ground pilots issue once when the pickup wait starts (WGCAL,
-    /// `re-driver-wait.md` §§1/2/4/8), after all AI write-backs. Other vehicle
-    /// kinds retain entry timing. The free armed-gun gate remains the port's
-    /// existing boundary; full/unarmed console policy belongs to GUNWT.
+    /// Ground pilots attempt once at pickup-wait start and first routed departure
+    /// (WGCAL/WGOUT, `re-driver-wait.md` §§1/2/4/8), after all AI write-backs. Other vehicle
+    /// kinds retain entry timing and the existing free armed-gun gate. Ground
+    /// calls do not test seats (WGSEAT, `re-driver-wait.md` §§4/7); receivers
+    /// still pass ordinary boarding admission at their next think.
     /// The answers come on the issue tick, not at each receiver's
-    /// next think. GBOARD gives uncommanded ground-vehicle receivers goal 5
-    /// at their next think (RE 4.4); ordered-goal stacking remains GUNWT.
+    /// next think. GBOARD/WGORD give ground-vehicle receivers goal 5
+    /// at their next think (RE 4.4), retaining prior Hold/Follow (WGORD).
     ///
     /// [`NEED_GUNNER_CHANCE`]: super::state::NEED_GUNNER_CHANCE
     /// [`Call::Yes`]: super::state::Call::Yes
@@ -421,7 +438,7 @@ impl Sim {
             v.seats.iter().enumerate().skip(1).any(|(k, seat)| {
                 seat.occupant.is_none() && guns.get(k).is_some_and(Option::is_some)
             });
-        if !free_gun {
+        if !ground && !free_gun {
             return;
         }
         let draw = crate::ai::unit_unit(h.index, self.tick, 0, crate::ai::SALT_NEED_GUNNER);
@@ -449,9 +466,9 @@ impl Sim {
             .collect();
         for unit in yes {
             let u = &mut self.units[unit.index as usize];
-            // Keep the issue-tick acknowledgement list intact. Ordered
-            // recipients retain their player order (GUNWT owns stacking).
-            if ground && u.command.is_none_or(|c| c.in_pool()) {
+            // WGORD: every ground recipient receives the explicit goal;
+            // Hold/Follow remains installed behind boarding.
+            if ground {
                 u.ai.pending_board = Some((unit, vh));
             }
             self.events.push(Event::Call {
@@ -540,7 +557,7 @@ impl Sim {
         };
         let held = target.occupant;
         if held.is_some_and(|occupant| {
-            !unit.is_player || !self.unit(occupant).is_some_and(|rider| !rider.is_player)
+            !unit.is_player || self.unit(occupant).is_none_or(|rider| rider.is_player)
         }) {
             return false;
         }

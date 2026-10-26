@@ -18,7 +18,7 @@ measurements back it:
 
 Scratch, tools, frames and sheets: `engine/artifacts/lead_tmp/re/terl/`. Conventions:
 - B2 = `analysis/SWBFRNT2.ELF-decomp.c`, B1 = `analysis/SWBFRONT.ELF-decomp.c`.
-- VU1 = the main program in `.vutext`, decoded with `lead_tmp/re/specular/vu1dis.py` (dumps `terl/vu1_bf{1,2}_full.txt`).
+- VU1 = the main program in `.vutext`, decoded with `scripts/tools/vu1dis.py` (dumps `terl/vu1_bf{1,2}_full.txt`).
 - "GS units": 0x80 = 1.0. "c5" = one 5-bit COLR channel.
 
 ## 0. The answer

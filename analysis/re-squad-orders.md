@@ -404,7 +404,7 @@ and the commander's spread rule) is still in the code and no pad reaches it.
 ```
 python3 engine/artifacts/lead_tmp/sqack/cite.py b1|b2                 # the citation table
 python3 engine/artifacts/lead_tmp/sqack/rtti.py b1 0x536a58 0x536b68 0x536c70   # Follow / Hold / Random
-python3 engine/artifacts/lead_tmp/sqack/refs.py b2 0x2e2480 0x391c90  # BF2's dead twin
+python3 scripts/tools/refs.py b2 0x2e2480 0x391c90  # BF2's dead twin
 python3 engine/artifacts/lead_tmp/sqack/segs.py extracted/bf1/sound/DATA/_LVL_PS2/SOUND/TAT.LVL _tac_yes
 python3 engine/artifacts/lead_tmp/sqack/locl.py bf1 game.squadcommand.field.up game.squadcommand.field.left
 engine/artifacts/pcsx2/pcsx2_session.py start iso/SWBF1.iso --name sqack --state engine/artifacts/pcsx2/ref/states/bf1_nab1_sideselect.p2s --boot-wait 14 --renderer sw

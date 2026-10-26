@@ -35,7 +35,7 @@ So the VU program's fog coordinate is not a plain per-pixel (f, f). This matters
 
 ## Acceptance
 - The PS2's fog amount as a function of what it really depends on, from one of:
-  - (a) the VU1 path that turns the fog matrix into the GS's (s, t, q) — `lead_tmp/re/specular/vu1dis.py`, VU instr
+  - (a) the VU1 path that turns the fog matrix into the GS's (s, t, q) — `scripts/tools/vu1dis.py`, VU instr
     i < 0x100 at `.vutext+0x10+8i`;
   - (b) a kept state with the fogspread CLUT (GS VRAM block 0x3950) patched to an index ramp, reading the sampled
     texel back per pixel;

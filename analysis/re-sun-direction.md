@@ -46,7 +46,7 @@ Method: the loop's RE discipline. The hops below, the five self-checks, ONE Opus
 
 Scratch lives in `engine/artifacts/lead_tmp/re/sund/` (the disc reader `discsun/`, notes, renders). Conventions:
 B1 = `analysis/SWBFRONT.ELF-decomp.c`, B2 = `analysis/SWBFRNT2.ELF-decomp.c`. VU1 is decoded with
-`lead_tmp/re/specular/vu1dis.py` and EE code with `specular/eedis.py`. L = the direction the light TRAVELS (sun →
+`scripts/tools/vu1dis.py` and EE code with `scripts/tools/eedis.py`. L = the direction the light TRAVELS (sun →
 scene), l = −L. "GS units" means 0x80 = 1.0. Tags: [V] read or measured, [D] derived, [H] guess. Load-bearing claims
 are also [O].
 

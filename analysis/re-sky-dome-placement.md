@@ -342,8 +342,8 @@ grep -n "0x82681057\|0x14c8d3ca\|0xfd58fbfa" analysis/SWBFRNT2.ELF-decomp.c anal
 sed -n 425825,425884p analysis/SWBFRNT2.ELF-decomp.c     # y lerp, rotation gate, scale, row3
 sed -n 280205,280277p analysis/SWBFRONT.ELF-decomp.c     # BF1 equivalent
 # ELF bytes: vtable slot, DAT_005ffd78, camera scale default
-python3 re_sky/elfrd.py extracted/bf2/SWBFRNT2.ELF 632750 8      # slot +0x18 = 003cb918
-python3 re_sky/elfrd.py extracted/bf2/SWBFRNT2.ELF 5ffd78 1      # 00000001
+python3 scripts/tools/elfrd.py extracted/bf2/SWBFRNT2.ELF 632750 8      # slot +0x18 = 003cb918
+python3 scripts/tools/elfrd.py extracted/bf2/SWBFRNT2.ELF 5ffd78 1      # 00000001
 # Ghidra listing of the gate (JAVA_HOME=tools/jdk-21.0.12.1+1)
 tools/ghidra_12.1.3_PUBLIC/support/analyzeHeadless ghidra-proj bf2 -process -noanalysis -readOnly \
   -scriptPath re_sky -postScript DisasAt.java out.txt 3cbb00 3cbc10

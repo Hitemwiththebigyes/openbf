@@ -109,7 +109,7 @@ sample-bank 3-D one-shots that need no voice queue and are the most frequent unp
 - Cooldown and radius: a test per rule (a second ask inside the interval is silent; a speaker beyond the template's
   far distance is not started), mutation-checked.
 - **The mixer (card SNDB's overload rule):** a 10-minute round with a sound device and the slice on writes NO
-  `OVERLOAD` line that the slice's lines cause (the black box's digest), and `lead_tmp/sndx/mix.py` on its snapshot
+  `OVERLOAD` line that the slice's lines cause (the black box's digest), and `scripts/tools/mix.py` on its snapshot
   peaks under full scale. Chatter on the voice stream goes through `core::announcer::VoiceQueue::ask`.
 
 ## RE done (2026-10-13, lane 2) - `analysis/re-unit-chatter.md` `[O]`, docs 4d57f9c

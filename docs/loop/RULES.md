@@ -123,6 +123,7 @@ here. Do not leave a lesson only as JOURNAL prose.
 - Before a new PCSX2 recording of an effect, re-run an existing sampler that already produces it with a longer record time (GTHRW's throw sampler, 7.5 s, caught the thermal detonation in 2 minutes) (FXP4).
 - Read a manifest instance's rotation ROWS as the model's axes (the third row = +Z = the PS2 entity matrix row E+0x140 / BF1 E+0x220, 0.00 deg on 289 turrets); the third column reads up to 180 deg off (TSLG).
 ## Verification and gates
+- Exercise recipients on both sides of the issuer's unit index when testing side effects emitted from deferred AI state write-backs (WGCAL).
 - Put a pure rule's INPUTS in the mutation attack set: build the struct the caller fills from live state wrong (current health for max, a halved speed, a fixed key) - 9 of HVYW's 13 mutations survived there while the pure function's own test was exhaustive (AUDIT HVYW).
 - Read a card's standing bar in seconds and at 10 s as well as at its 20 s spell bar: HVYW's 20 s+ spells fell 8 -> 6 while standing seconds at riders doubled (AUDIT HVYW).
 - Before scoring a "lane" or "range" for a bot behaviour, print the perception sight that bounds it (49 m standing at Normal): a lane longer than the bot can see is not a lane (SNPR).
@@ -200,7 +201,7 @@ here. Do not leave a lesson only as JOURNAL prose.
 - After a rebase over a mixer change, grep the card's own play sites for the old gain / pan call (`log10(gain)`, `pan_for`): git merges them silently outside the conflict hunks (UCRY).
 - A metric whose denominator changes moves BOTH ways: compute the new value per map before writing "the rows go down" on a card (FOFG: removing riders RAISED off-graph on 15 of 19 seat maps).
 - Read a per-map count from an 8-seed sweep against the rounds' length before calling it a behaviour move (Kashyyyk's rides 482 -> 347 were 8 of 8 shorter rounds; 52.2 vs 51.0 over 40 seeds) (AUDIT HSTEP).
-- Compare a PS2 call / sound rate per PROPERTY (split the capture's rows by name): a map's PS2 total can hold a faction the port does not field (NAB1's Gungans were 2.75 of 7.75 acquired a minute). `sndx/mix.py` reads WAV only - a snapshot with streamed lines needs `lead_tmp/ucall/win/mix_ogg.py` (UCALL).
+- Compare a PS2 call / sound rate per PROPERTY (split the capture's rows by name): a map's PS2 total can hold a faction the port does not field (NAB1's Gungans were 2.75 of 7.75 acquired a minute). `scripts/tools/mix.py` decodes Ogg takes (streamed lines) through ffmpeg since 2026-10-25 (it used to read WAV only, so a snapshot with streamed lines crashed it).
 - Before committing a landing an approval lets through, split the approved metric by behaviour on the gate's own samples (`lead_tmp/snpr/tools/stand20_beh.py`): the approval covers the move the card intends, not a defect inside the same number (SNPR: 10 snipers standing 120 s in `travel` under perches).
 - Before tuning a bar like B12 (a share of time in a chosen state), probe in the query how often a qualifying candidate exists at all, and judge the bar against that ceiling (TPOS: a covered candidate in 9-48 % of queries). Run the maintainer's Kamino scene (`lead_tmp/tpos/tools/scene_seeds.sh`) on any change to where a FIGHTING bot walks before the first sweep table - the six-map sweep looked fine with 12 bots pinballing (TPOS).
 - When a card changes how the world shader sums light, grep every other WGSL file that lights per vertex (grass.wgsl's leaves, water, speckle) and move it too or label it a deviation (CLN12, from LSUM). A bake that adds geometry to a model: grep the tests that measure the baked GLB's bounds (AIM_SIZE) and decide whether the part belongs to "the model" before gating (CLOTH).
@@ -405,3 +406,7 @@ here. Do not leave a lesson only as JOURNAL prose.
 - Before refusing a corner inside a barrier, measure its depth and trace one shallow case on main; an edge may cover walkable floor (CORN).
 - Before a pure split, preflight the canonical proof helper as well as runtime inputs; record a direct comparison separately when it is absent, never as that helper's PASS (SPL12).
 - Before deleting an invariant-repair loop, trace every writer that can create a shortfall and test a legally admitted runtime witness (BLEED).
+
+- Measure each receiver's real `next_think` when testing claim arbitration; unit-index phases diverge after their first think (WGOUT).
+- Identify initial and departure calls by their actual source transitions; a full vehicle can produce both on one tick (WGSEAT).
+- Preserve commands in their authoritative fields during temporary boarding; cancel explicit state at actual order writers, not generic pool expiry (WGORD).

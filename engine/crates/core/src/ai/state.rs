@@ -3,7 +3,7 @@
 //! the leg's [`RouteSource`] — plus [`NavTick`], what one think had to fall
 //! back on (a diagnostic output, not hashed). Ride state includes the initial
 //! pickup window, release time and vehicle identity (WAIT4/WPOKE), claim
-//! freshness (CWAIT), and next-think call targets (GBOARD). The AI-hash test lives here.
+//! freshness (CWAIT), first routed departure (WGOUT), and next-think call targets (GBOARD). The AI-hash test lives here.
 
 use super::command::CmdState;
 use super::{DETOUR_MAX, ERR_NO_TARGET};
@@ -677,8 +677,15 @@ pub struct RideState {
     pub bail_draw: Option<u8>,
     /// This ride has been counted among pilots exposed to <20% health.
     pub bail_seen: bool,
-    /// The vehicle it is walking to, to take its pilot seat.
+    /// The vehicle it is walking to, to take an admitted seat.
     pub board: Option<crate::vehicle::VehicleHandle>,
+    /// WGORD: explicit boarding over a retained player Hold/Follow command.
+    /// The command and its scratch remain in their ordinary, hashed fields.
+    pub ordered_call: bool,
+    /// WGPAS: exact receiver of an explicit BF1 ground call, only while claiming.
+    pub called_board: Option<crate::unit::UnitHandle>,
+    /// A terminated called approach must respect the existing boarding cooldown.
+    pub call_blocked: bool,
     /// The tick that claim began (the give-up clock).
     pub since: u64,
     /// CWAIT: last valid ground-boarding think; independent of `since`.
@@ -722,6 +729,8 @@ pub struct PickupWait {
     /// BF1 release order time: effective expiry is two seconds before this.
     pub released: Option<u64>,
     pub complete: bool,
+    /// WGOUT: first valid BF1 routed departure consumed its call attempt.
+    pub departed: bool,
 }
 
 /// Card TURR: what a bot in a building turret's seat carries (`man`): the
@@ -1326,6 +1335,7 @@ impl RideState {
             started: None,
             released: None,
             complete: false,
+            departed: false,
         });
     }
 
@@ -1337,6 +1347,10 @@ impl RideState {
         }
         if let Some(w) = self.pickup {
             eat(&[12, u8::from(w.complete)]);
+            // Keep the old stream for idle/BF2 tenures. Departure changes the future.
+            if w.departed {
+                eat(&[15]);
+            }
             eat(&w.vehicle.index.to_le_bytes());
             eat(&w.vehicle.gen.to_le_bytes());
             eat(&w.seated.to_le_bytes());
@@ -1351,6 +1365,17 @@ impl RideState {
                 }
                 None => eat(&[0]),
             }
+        }
+        if self.ordered_call {
+            eat(&[16]);
+        }
+        if let Some(owner) = self.called_board {
+            eat(&[17]);
+            eat(&owner.index.to_le_bytes());
+            eat(&owner.gen.to_le_bytes());
+        }
+        if self.call_blocked {
+            eat(&[18]);
         }
         match self.board {
             Some(v) => {
@@ -1903,6 +1928,7 @@ mod tests {
             |w| w.started = Some(12),
             |w| w.released = Some(12),
             |w| w.complete = true,
+            |w| w.departed = true,
         ] {
             let mut other = r;
             mutate(other.pickup.as_mut().unwrap());

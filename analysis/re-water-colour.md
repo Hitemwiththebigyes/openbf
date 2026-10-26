@@ -9,7 +9,7 @@ draw taken apart in PCSX2 (patched save states, §2) and the port's draw taken a
 instrument, §3). Scratch, scripts, frames and the verifier's files: `engine/artifacts/lead_tmp/re/wcol/`
 (`claims.md`, `verify/VERDICTS.md`, `ps2exp/`, `renders/`, `sheets/wcol_<map>.png`).
 Conventions: BF1 = `analysis/SWBFRONT.ELF-decomp.c`, BF2 = `analysis/SWBFRNT2.ELF-decomp.c`; ELF file offset = va −
-0x15f000 (both); VU1 instructions decoded with the fresh `lead_tmp/re/specular/vu1dis.py` (the verifier's own decoder
+0x15f000 (both); VU1 instructions decoded with the fresh `scripts/tools/vu1dis.py` (the verifier's own decoder
 agrees on all 126 overlay instructions); VU1 relative branches wrap in the 11-bit PC; "GS units" = the colour byte the GS
 reads, 0x80 = 1.0 in MODULATE and in the alpha blend. Tags [V] read / measured, [D] derived, [H] guess; every
 load-bearing claim is also [O].

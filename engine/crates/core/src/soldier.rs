@@ -1086,6 +1086,10 @@ impl Soldier {
     ///   not ported: the port's bots press JUMP like a human.
     /// - **BF1** (FUN_00208b78): vy = the jump velocity; + the facing x the
     ///   jump velocity x the forward stick x [`BF1_JUMP_PUSH`].
+    ///   DEVIATION (the maintainer, 2026-10-25; FEEL_NOTES): the port ADDS the jump
+    ///   velocity on BF1 maps too, as BF2 does, so a running jump up a ramp
+    ///   clears it on every map (one jump rule for the merged game). The
+    ///   planar push stays BF1's for now (card JUNI).
     fn take_off(&mut self, fwd_in: f32, c: &SoldierConstants, rules: GroundRules) {
         let (sy, cy) = fmath::sin_cos(self.yaw);
         let fwd_axis = Vec2::new(-sy, -cy); // -Z at yaw 0
@@ -1105,7 +1109,7 @@ impl Soldier {
                 self.vel.z = fwd_axis.y * f2 - sy * s2;
             }
             GroundRules::Bf1 => {
-                self.vel.y = c.jump_vy;
+                self.vel.y += c.jump_vy;
                 let push = c.jump_vy * fwd_in * BF1_JUMP_PUSH;
                 self.vel.x += fwd_axis.x * push;
                 self.vel.z += fwd_axis.y * push;

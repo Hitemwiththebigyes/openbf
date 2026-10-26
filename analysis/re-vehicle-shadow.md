@@ -7,7 +7,7 @@ FUN_00592668), what light vector it uses, how the GS darkens (passes, colour, am
 changes - enough to build the faithful vehicle shadow.
 
 Corpora: B1 = `analysis/SWBFRONT.ELF-decomp.c`, B2 = `analysis/SWBFRNT2.ELF-decomp.c`, both ELFs, the BF1 VU1 main
-program (`lead_tmp/re/specular/vu1dis.py`), every disc `shdw` chunk, PCSX2 RAM of four save states and one live
+program (`scripts/tools/vu1dis.py`), every disc `shdw` chunk, PCSX2 RAM of four save states and one live
 PCSX2 poke run (BF1 NAB1). Tags: [V] read (line checked with `re_check.py fn`), [D] derived, [H] hypothesis, [M]
 measured on the PS2. Load-bearing claims carry [O].
 

@@ -17,7 +17,8 @@
 //!   `crate::perception` owns contact memory and target acquisition.
 //! - `command` applies squad orders; `team` coordinates roles; `ride`,
 //!   `gunner`, `hover_drive`, `walker_drive` and `man` own seated behavior.
-//!   GBOARD delivers uncommanded BF1 call targets through `ride` at a scheduled think.
+//!   GBOARD/WGORD deliver BF1 call targets through `ride` at a scheduled think;
+//!   WGPAS carries explicit unarmed-secondary admission through entry.
 //! - `state` owns AI state and its hash; `draw` owns per-unit hash draws.
 //!   This facade retains re-exports, shared tuning and test fixtures.
 //!
@@ -113,7 +114,7 @@ pub use state::{
 };
 pub use steer::{rotate_xz, way_ahead, Stop, StopKind};
 
-pub(crate) use ride::{claim_seat, in_reach, vehicle_bail_allowed};
+pub(crate) use ride::{called_claim_pass, claimed_seat, in_reach, vehicle_bail_allowed};
 pub(crate) use route::{hub_on_level, mover, plan_leg, start_hub};
 
 // ---------------------------------------------------------------------------

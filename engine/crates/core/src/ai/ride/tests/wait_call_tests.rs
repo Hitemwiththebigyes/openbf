@@ -27,10 +27,18 @@ fn scene(kind: VehicleKind, phase: u64, mode: u8) -> bool {
         let h = s.spawn(&UnitSpec::player(0, Vec3::ZERO)).unwrap();
         assert!(s.enter_vehicle(h, v, 1));
     }
-    let (mut actual, mut expected, mut answers) = (Vec::new(), Vec::new(), Vec::new());
+    let (mut actual, mut expected, mut answers, mut expected_answers) =
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     let (mut entry, mut start) = (s.unit(p).unwrap().mount.map(|_| s.tick), None);
     for _ in 0..90 {
         let tick = s.tick;
+        let was_departed = s
+            .unit(p)
+            .unwrap()
+            .ai
+            .ride
+            .and_then(|r| r.pickup)
+            .is_some_and(|w| w.departed);
         s.step(&[]);
         let u = s.unit(p).unwrap();
         if u.mount.is_some() {
@@ -42,11 +50,24 @@ fn scene(kind: VehicleKind, phase: u64, mode: u8) -> bool {
             .is_some_and(|w| w.started == Some(tick))
         {
             start = Some(tick);
-            if mode <= 1
+            if mode != 2
                 && crate::ai::unit_unit(p.index, tick, 0, crate::ai::SALT_NEED_GUNNER) < 0.3
             {
                 expected.push(tick);
             }
+        }
+        if mode != 2
+            && !was_departed
+            && u.ai.ride.and_then(|r| r.pickup).is_some_and(|w| w.departed)
+            && crate::ai::unit_unit(p.index, tick, 0, crate::ai::SALT_NEED_GUNNER) < 0.3
+        {
+            expected.push(tick);
+        }
+        let recipient = s.unit(receiver).unwrap();
+        if recipient.mount.is_none()
+            && recipient.soldier.pos.distance_squared(u.soldier.pos) <= 30. * 30.
+        {
+            expected_answers.extend(expected.iter().filter(|&&t| t == tick).copied());
         }
         for e in &s.events {
             if matches!(e,Event::Call{unit,call:Call::NeedGunner} if *unit==p) {
@@ -59,7 +80,7 @@ fn scene(kind: VehicleKind, phase: u64, mode: u8) -> bool {
     }
     assert!(entry.is_some(), "natural pilot");
     eprintln!("WAITCALL {kind:?} phase{phase} mode{mode} entry{entry:?} start{start:?} actual{actual:?} expected{expected:?} answers{answers:?}");
-    actual == expected && answers == expected
+    actual == expected && answers == expected_answers
 }
 #[test]
 fn wgcal_wait_calls_at_start() {
@@ -261,8 +282,8 @@ fn wgcal_failed_roll_and_delayed_think_never_retry() {
                 completed |= tick > 120 && s.unit(p).unwrap().mount.is_none();
                 assert_eq!(
                     calls(&s, p, Call::NeedGunner),
-                    0,
-                    "failed/late transition attempted once"
+                    usize::from(phase == 11 && tick == 121),
+                    "failed initial roll stays spent; WGOUT departure is independent"
                 );
             }
             assert_eq!(started, phase <= 120, "expired wait cannot start late");
@@ -348,7 +369,7 @@ fn wgcal_bailout_preempts_start_and_player_orders_keep_priority() {
             assert_eq!(calls(&s, p, Call::NeedGunner), 0);
         }
         assert!(s.unit(p).unwrap().mount.is_none());
-        let (mut s, p, a, _) = public_scene(kind, false, 10);
+        let (mut s, p, a, vh) = public_scene(kind, false, 10);
         let human = s
             .spawn(&UnitSpec::player(0, Vec3::new(12.0, 0.0, -20.0)))
             .unwrap();
@@ -364,15 +385,15 @@ fn wgcal_bailout_preempts_start_and_player_orders_keep_priority() {
         );
         assert_eq!(
             s.unit(a).unwrap().ai.pending_board,
-            None,
-            "player goal wins"
+            Some((a, vh)),
+            "WGORD retains the earlier player goal behind explicit boarding"
         );
         assert!(s.unit(a).unwrap().command.is_some());
     }
 }
 
 #[test]
-fn wgcal_unaffected_foot_bf2_and_unarmed_traces() {
+fn wgcal_foot_bf2_controls_and_affected_unarmed_traces() {
     for case in 0..3 {
         let (mut s, p, vh) = pickup_world(VehicleKind::Hover);
         match case {

@@ -3,7 +3,7 @@
 
 Corpora: B1 = `analysis/SWBFRONT.ELF-decomp.c`, B2 = `analysis/SWBFRNT2.ELF-decomp.c`. ELFs `extracted/bf{1,2}/*.ELF`, one
 PT_LOAD each at va 0x160000 / file 0x1000, so **file offset = va − 0x15f000**; every ELF address below was read as
-instruction words (`engine/artifacts/lead_tmp/re/wse/eedis.py`). Key hashes are FNV-1a 32 over each byte `| 0x20`:
+instruction words (`scripts/tools/eedis.py`). Key hashes are FNV-1a 32 over each byte `| 0x20`:
 SpecularEnable 0xd4ddec5f, OscillationEnable 0x12e39af3, DisableLowRes 0xa01d9243, OceanEnable 0xa69c431a,
 "Water" 0x49c69a10, "Lightning" 0xe812f405, "shell" 0x11e1fc01, "mission" 0x8ff60339. Tags: [V] read at the line or
 word / measured, [D] derived (from what is said), [H] open. Every load-bearing claim is `[O]`. Scratch, tools, the

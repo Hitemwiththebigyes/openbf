@@ -20,7 +20,7 @@ scene. Preimages closed: 0x6d9b436e = `TextureScale`, 0x3f2e0eaf = `DetailTextur
 # RE: the low-res terrain sheet `LOWR` — what the PS2 draws past the near scene (HOLD 10(i))
 
 Corpora: `analysis/SWBFRONT.ELF-decomp.c` (BF1, "B1:"), `analysis/SWBFRNT2.ELF-decomp.c` (BF2, "B2:"), ELF bytes via
-`engine/artifacts/lead_tmp/tools/re_sky/elfrd.py`, disc bytes read by `lowr_census.py`, sky records from
+`scripts/tools/elfrd.py`, disc bytes read by `lowr_census.py`, sky records from
 `lead_tmp/s12/re/fog_scratch/skydump_all.txt`. Hashes = fnv1a over `byte|0x20` (`classdb.rs::fnv1a_lowercase`).
 Tags: [V] read in the decomp/ELF/disc, [D] derived, [H] hypothesis.
 
@@ -232,8 +232,8 @@ sed -n 706497,706508p analysis/SWBFRNT2.ELF-decomp.c; sed -n 694474,694488p anal
 sed -n 416042,416042p analysis/SWBFRNT2.ELF-decomp.c; sed -n 416064,416067p analysis/SWBFRNT2.ELF-decomp.c  # BF2 defaults
 sed -n 703198,703199p analysis/SWBFRNT2.ELF-decomp.c; sed -n 703210,703221p analysis/SWBFRNT2.ELF-decomp.c
 grep -n '558d98\|64fc88' analysis/SWBFRONT.ELF-stringrefs.txt analysis/SWBFRNT2.ELF-stringrefs.txt        # fogspread
-python3 engine/artifacts/lead_tmp/tools/re_sky/elfrd.py extracted/bf1/SWBFRONT.ELF 5229c4 1                 # = 1
-python3 engine/artifacts/lead_tmp/tools/re_sky/elfrd.py extracted/bf1/SWBFRONT.ELF 522a7c 1                 # = 0.9
+python3 scripts/tools/elfrd.py extracted/bf1/SWBFRONT.ELF 5229c4 1                 # = 1
+python3 scripts/tools/elfrd.py extracted/bf1/SWBFRONT.ELF 522a7c 1                 # = 0.9
 python3 engine/artifacts/lead_tmp/s14/re/lowr/lowr_census.py                                                # the census
 ```
 

@@ -37,7 +37,7 @@ Filed by the planner from INBOX 2026-10-03 07:10 (report `reports/20261003_0710_
    its first live check; a session here with a free PCSX2 slot may run it and drop the label.
 
 ## Acceptance
-- `engine/artifacts/playtest/tools/win_run.sh` on BF1 Naboo Plains with a scripted spawn (no sound device): the
+- `scripts/tools/win_run.sh` on BF1 Naboo Plains with a scripted spawn (no sound device): the
   window's log shows `music ... start all_nab_amb_start` at the first spawn and the change to `..._amb_middle` when
   the reinforcements pass the threshold, at the same game times (within 0.1 s) as `MUSIC_LOG=2` on `round_to_outcome`
   for the same seed and team. Paste both logs' music lines into the report.

@@ -187,8 +187,8 @@ if want side; then
   # So is the thermal detonator's (card WHELD: drawn in the hand while a
   # throw is wound up and before HideOnFire hides it), every side's
   # `*_weap_inf_thermaldetonator` naming `com_weap_inf_grenadethermal`.
-  "$BAKE" weapon  "$A1"              com_weap_inf_torpedo,com_weap_inf_grenadethermal "$OUT/side_bf1"
-  "$BAKE" weapon  "$B2/INGAME.LVL"   com_weap_inf_torpedo,com_weap_inf_grenadethermal "$OUT/side_bf2"
+  "$BAKE" weapon  "$A1"              com_weap_inf_torpedo,com_weap_inf_grenadethermal,com_weap_inf_grenadethermal_ord "$OUT/side_bf1"
+  "$BAKE" weapon  "$B2/INGAME.LVL"   com_weap_inf_torpedo,com_weap_inf_grenadethermal,com_weap_inf_grenadethermal_ord "$OUT/side_bf2"
   # Every vehicle class of the four sides (card VBAKE): models (every LOD),
   # destruction chunks, collision, textures -> side_<game>/vehicles/<side>/.
   for s in all cis imp rep; do

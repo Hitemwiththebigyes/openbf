@@ -286,10 +286,10 @@ cd <repo>; S=engine/artifacts/lead_tmp/s12/re/droideka_scratch
 grep -n "walkerdroid" analysis/SWBFRONT.ELF-stringrefs.txt analysis/SWBFRNT2.ELF-stringrefs.txt
 sed -n 15588,15590p analysis/SWBFRONT.ELF-decomp.c; sed -n 16399,16401p analysis/SWBFRNT2.ELF-decomp.c
 python3 $S/vtdump.py extracted/bf1/SWBFRONT.ELF 52ffc8 40 analysis/SWBFRONT.ELF-functions.txt   # droideka ctrl vt; +0x80 = 0023e8f0
-python3 engine/artifacts/lead_tmp/tools/re_sky/elfrd.py extracted/bf1/SWBFRONT.ELF 23e8e8 12   # jr ra stubs
+python3 scripts/tools/elfrd.py extracted/bf1/SWBFRONT.ELF 23e8e8 12   # jr ra stubs
 python3 $S/vtdump.py extracted/bf2/SWBFRNT2.ELF 61ba60 52 analysis/SWBFRNT2.ELF-functions.txt   # +0xac = 001ff238
-python3 engine/artifacts/lead_tmp/tools/re_sky/elfrd.py extracted/bf1/SWBFRONT.ELF 517588 112   # BF1 transition table
-python3 engine/artifacts/lead_tmp/tools/re_sky/elfrd.py extracted/bf2/SWBFRNT2.ELF 5fccc8 112   # BF2 (identical)
+python3 scripts/tools/elfrd.py extracted/bf1/SWBFRONT.ELF 517588 112   # BF1 transition table
+python3 scripts/tools/elfrd.py extracted/bf2/SWBFRNT2.ELF 5fccc8 112   # BF2 (identical)
 sed -n 105115,105165p analysis/SWBFRNT2.ELF-decomp.c   # BF2 ball jump; 108096,108098 its call
 sed -n 78078,78158p analysis/SWBFRONT.ELF-decomp.c     # BF1 transform events
 sed -n 112458,113211p analysis/SWBFRNT2.ELF-decomp.c | awk -f $S/loadmap.awk | sort   # BF2 hash->field

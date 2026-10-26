@@ -11,7 +11,8 @@ declares:
 needs:
 effort:
 branch: ucry
-resume: landed 53a9d7e0 2026-10-16
+resume: landed 53a9d7e0 2026-10-16; audit incomplete 2026-10-26 — restore all held primary inputs and verified landing/parent history; reports/20261026_0343_audit_UCRY.md
+domain: audio
 created: 2026-10-13
 alpha: yes
 ---
@@ -51,7 +52,7 @@ by far and need no voice queue (`analysis/re-unit-chatter.md` 2.7, 3.6, 5 `[O]`)
   1.0; and the per-minute rows above printed beside the port's with the port's hits and kills a minute - within
   30 % where the PS2 reads 5 or more, a miss named as the port's hit rate or the card's own, with the numbers.
 - The mixer (card SNDB's rule): a 10-minute round with a sound device writes no `OVERLOAD` line these cries cause
-  (the black box digest) and `python3 engine/artifacts/lead_tmp/sndx/mix.py <snapshot> engine/assets_baked` peaks
+  (the black box digest) and `python3 scripts/tools/mix.py <snapshot> engine/assets_baked` peaks
   under full scale.
 
 ## Notes
@@ -68,7 +69,7 @@ The mixer clause's cause is fixed on main: the PS2's per-ear law + bus gains + a
 5 fight logs without cries (main has none): per-ear frames over full scale 0.0004-0.0011 % (BF2) and 0.035 / 0.072 %
 (NAB1 / TAT1) by the law alone, 0 through the limiter (`lead_tmp/mixh/census/summary*.txt`). To re-measure WITH the cries:
 rebase ucry on main, rebuild ucry-census-scratch with its follow patch, run `census/run.sh fight ...`, then
-`lead_tmp/sndx/mix.py <log> engine/assets_baked --limit` (take rows now carry `|left|right`; `--law old` = pre-MIXH).
+`scripts/tools/mix.py <log> engine/assets_baked --limit` (take rows now carry `|left|right`; `--law old` = pre-MIXH).
 ## Note (2026-10-16 04:40, lane 2, land session)
 Rebased on main 1763d73 (MIXH + AMBS): conflicts in game/src/sounds.rs (struct fields: ambient + cries both kept) and CRATES.md;
 `play_cry` / `play_cries` now go through MIXH's `Start::ears` (gain x the property's bus, per-ear law) and `mixer_pair`, and
@@ -76,3 +77,4 @@ Rebased on main 1763d73 (MIXH + AMBS): conflicts in game/src/sounds.rs (struct f
 UTA1 s3/s4 (`lead_tmp/ucry/census/rebased/summary*.txt`): hurt cries per qualifying hit 1457 / 1723 = 0.846, death 542 / 542;
 frames over full scale before the limiter with / without cries 4877/3662 (1.33x), 4258/2850 (1.49x), 324/193 (1.68x),
 185/102 (1.81x); through the limiter peak 1.00 and 0 frames over in all 8 renders; under -3 dB at most 0.34 % (NAB1 s1, 0.28 % without cries).
+

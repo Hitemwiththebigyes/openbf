@@ -2,10 +2,16 @@
 //! and walks to ([`claim`], [`board_goal`]), the pad a seated driver makes
 //! ([`drive`]) and when it gets out. `think` hands a seated bot here; step 1c
 //! (`Sim::ai_use_pass`) carries out the enter / exit it asks for.
-//! GBOARD delivers BF1 uncommanded call targets at the next scheduled think,
-//! retaining ordinary route/seat checks and the port's claim arbitration.
+//! GBOARD/WGORD deliver BF1 call targets at the next scheduled think,
+//! retaining Hold/Follow behind explicit boarding and ordinary seat arbitration.
+//! WGMUL bounds concurrent explicit BF1 claims by seats minus player-held seats,
+//! counting fresh same-team claims in since/index order after think write-backs.
+//! WGPAS admits unarmed secondary seats only for those explicit BF1 recipients;
+//! claim upkeep, maintained pickup and physical entry share that provenance.
 //! WGCAL publishes the initial BF1 ground call at PickupWait.started, once,
 //! after all think write-backs; wait clocks and driver precedence stay here.
+//! WGOUT consumes one first routed departure attempt per pickup tenure,
+//! independently of wait-start success, after all AI write-backs.
 //! STCHG preserves a seat gun's charge deadline through this dispatch.
 //!
 //! The PS2's side, as far as it is read (`analysis/re-vehicles.md` §5, RE_LOG
@@ -84,6 +90,25 @@ use glam::Vec3;
 /// the team — a gunner seat with a gun (card VTAI). Card TURR: a building
 /// turret (no pilot seat) when CanEnter gives a seat with a gun.
 pub(crate) fn claim_seat(sim: &Sim, me: UnitHandle, vh: VehicleHandle) -> Option<u8> {
+    claim_seat_policy(sim, me, vh, false)
+}
+
+/// Admission for an existing claim; autonomous search always uses `claim_seat`.
+pub(crate) fn claimed_seat(
+    sim: &Sim,
+    me: UnitHandle,
+    vh: VehicleHandle,
+    r: RideState,
+) -> Option<u8> {
+    claim_seat_policy(
+        sim,
+        me,
+        vh,
+        r.board == Some(vh) && r.called_board == Some(me),
+    )
+}
+
+fn claim_seat_policy(sim: &Sim, me: UnitHandle, vh: VehicleHandle, called: bool) -> Option<u8> {
     let v = sim.vehicle(vh)?;
     let class = v.class as usize;
     let armed = |k: u8| {
@@ -105,7 +130,13 @@ pub(crate) fn claim_seat(sim: &Sim, me: UnitHandle, vh: VehicleHandle) -> Option
         return None;
     }
     let k = sim.enter_seat(me, vh)?;
-    (k == 0 || armed(k)).then_some(k)
+    let explicit = called
+        && sim.ground_rules == GroundRules::Bf1
+        && matches!(v.kind, VehicleKind::Hover | VehicleKind::Walker)
+        && sim
+            .unit(me)
+            .is_some_and(|u| u.controller == crate::unit::Controller::Ai && u.mount.is_none());
+    (k == 0 || armed(k) || explicit).then_some(k)
 }
 
 /// Is `u` near enough to board `vh`? A vehicle: within the vehicle's radius
@@ -197,6 +228,8 @@ pub(super) fn claim(sim: &Sim, me: UnitHandle, u: &Unit, st: &mut AiState) {
     if let Some((_, vh)) = best {
         st.ride = Some(RideState {
             board: Some(vh),
+            called_board: None,
+            ordered_call: false,
             since: sim.tick,
             maintenance: None,
             ..r
@@ -205,10 +238,11 @@ pub(super) fn claim(sim: &Sim, me: UnitHandle, u: &Unit, st: &mut AiState) {
 }
 
 /// Consume a call once, at the receiver's scheduled think. Only the exact
-/// live receiver may take it. A player order or an existing claim wins;
+/// live receiver may take it. A newer player order or an existing claim wins;
 /// repeated delivery cannot restart arbitration or the give-up clock.
 /// Unlike autonomous search, this explicit target needs neither a long trip
-/// nor an expired search cooldown (`re-driver-wait.md` §§3/4/7).
+/// nor an expired search cooldown (`re-driver-wait.md` §§3/4/7). WGORD keeps
+/// earlier Hold/Follow installed: their explicit vehicle needs no autonomous post.
 pub(super) fn deliver_call(sim: &Sim, me: UnitHandle, u: &Unit, st: &mut AiState) {
     let Some((owner, vh)) = st.pending_board.take() else {
         return;
@@ -217,26 +251,33 @@ pub(super) fn deliver_call(sim: &Sim, me: UnitHandle, u: &Unit, st: &mut AiState
         || !u.alive
         || u.controller != crate::unit::Controller::Ai
         || u.mount.is_some()
-        || u.command.is_some_and(|c| !c.in_pool())
-        || st.ride.is_some_and(|r| r.board.is_some())
+        || sim.ground_rules != GroundRules::Bf1
+        || st
+            .ride
+            .is_some_and(|r| r.board.is_some() || (r.call_blocked && sim.tick < r.block_until))
     {
         return;
     }
+    let ordered = u.command.is_some_and(|c| !c.in_pool());
     let Some(v) = sim.vehicle(vh) else { return };
     if !matches!(v.kind, VehicleKind::Hover | VehicleKind::Walker)
         || v.stuck_at
             .is_some_and(|p| nav::xz_dist(p, v.pos) < STUCK_MOVED)
-        || claim_seat(sim, me, vh).is_none()
-        || !st
-            .target_cp
-            .and_then(|i| sim.cps.get(i as usize))
-            .is_some_and(|cp| routes_to(sim, vh, cp))
+        || claim_seat_policy(sim, me, vh, true).is_none()
+        || (!ordered
+            && !st
+                .target_cp
+                .and_then(|i| sim.cps.get(i as usize))
+                .is_some_and(|cp| routes_to(sim, vh, cp)))
     {
         return;
     }
     st.ride = Some(RideState {
         board: Some(vh),
         since: sim.tick,
+        ordered_call: ordered,
+        called_board: Some(me),
+        call_blocked: false,
         maintenance: None,
         ..st.ride.unwrap_or_default()
     });
@@ -290,6 +331,93 @@ fn routes_to(sim: &Sim, vh: VehicleHandle, cp: &crate::cp::CommandPost) -> bool 
     }
 }
 
+/// BF1 explicit ground goals share the source claim budget, independent of
+/// empty physical seats (re-driver-wait §§3/4/7). Ordinary goals retain their
+/// one-winner policy. Existing since/index priority also resolves simultaneous
+/// scratch thinks; the post-write-back pass below sees all of them.
+fn claim_preempted(sim: &Sim, me: UnitHandle, u: &Unit, r: RideState, vh: VehicleHandle) -> bool {
+    let explicit = sim.ground_rules == GroundRules::Bf1
+        && r.called_board == Some(me)
+        && sim
+            .vehicle(vh)
+            .is_some_and(|v| matches!(v.kind, VehicleKind::Hover | VehicleKind::Walker));
+    if !explicit {
+        return sim.units.iter().enumerate().any(|(i, o)| {
+            o.alive
+                && o.mount.is_none()
+                && o.ai.ride.is_some_and(|x| {
+                    x.board == Some(vh) && (x.since, i) < (r.since, me.index as usize)
+                })
+        });
+    }
+    let Some(v) = sim.vehicle(vh) else {
+        return true;
+    };
+    let players = v
+        .seats
+        .iter()
+        .filter(|s| {
+            s.occupant
+                .and_then(|h| sim.unit(h))
+                .is_some_and(|o| matches!(o.controller, crate::unit::Controller::Player { .. }))
+        })
+        .count();
+    let slots = v.seats.len().saturating_sub(players);
+    let preceding = sim
+        .alive_units()
+        .filter(|(h, o)| {
+            *h != me
+                && o.team == u.team
+                && o.controller == crate::unit::Controller::Ai
+                && o.mount.is_none()
+                && o.ai.ride.is_some_and(|x| {
+                    x.board == Some(vh)
+                        && (x.since, h.index) < (r.since, me.index)
+                        && x.called_board.is_none_or(|owner| owner == *h)
+                        && sim.tick < x.since + BOARD_GIVEUP
+                        && x.maintenance.map_or(sim.tick < x.since + BOARD_FRESH, |c| {
+                            c.owner == *h && c.tick <= sim.tick && sim.tick < c.tick + BOARD_FRESH
+                        })
+                })
+        })
+        .count();
+    preceding >= slots
+}
+
+/// Thinks read one snapshot. Referee explicit claims after every write-back,
+/// before any physical entry, including same-tick contenders in either order.
+/// No clocks are refreshed here; ordinary claims are never changed by this pass.
+pub(crate) fn called_claim_pass(sim: &mut Sim) {
+    if sim.ground_rules != GroundRules::Bf1 {
+        return;
+    }
+    for i in 0..sim.units.len() {
+        let me = sim.handle(i);
+        let u = &sim.units[i];
+        let Some(r) = u.ai.ride.filter(|r| r.called_board == Some(me)) else {
+            continue;
+        };
+        let Some(vh) = r.board else { continue };
+        if !u.alive
+            || u.controller != crate::unit::Controller::Ai
+            || u.mount.is_some()
+            || !sim
+                .vehicle(vh)
+                .is_some_and(|v| matches!(v.kind, VehicleKind::Hover | VehicleKind::Walker))
+            || !claim_preempted(sim, me, u, r, vh)
+        {
+            continue;
+        }
+        let r = sim.units[i].ai.ride.as_mut().unwrap();
+        r.board = None;
+        r.called_board = None;
+        r.ordered_call = false;
+        r.maintenance = None;
+        r.use_req = false;
+        r.block_until = sim.tick;
+    }
+}
+
 /// Every tick, a bot on foot: where its claim sends it, or `None`. A claim
 /// that can no longer be boarded, no longer routes to the bot's post, or has
 /// run [`BOARD_GIVEUP`], is dropped (and blocked for [`BOARD_BLOCK`]); one
@@ -308,13 +436,7 @@ pub(super) fn board_goal(
     let vh = r.board?;
     let at = sim.vehicle(vh).map(|v| v.pos);
     let reach = in_reach(sim, u, vh);
-    let older = sim.units.iter().enumerate().any(|(i, o)| {
-        o.alive
-            && o.mount.is_none()
-            && o.ai
-                .ride
-                .is_some_and(|x| x.board == Some(vh) && (x.since, i) < (r.since, me.index as usize))
-    });
+    let older = claim_preempted(sim, me, u, r, vh);
     // The post can change under a claim (the commander re-plans), so the
     // vehicle must still route to the CURRENT one. Card TURR: a turret is
     // claimed for itself, not for a post - but not in the endgame.
@@ -327,7 +449,9 @@ pub(super) fn board_goal(
             .vehicle(vh)
             .and_then(|v| v.seats.first())
             .is_some_and(|s| s.occupant.is_some());
-    let routes = if turret {
+    let routes = if r.ordered_call {
+        u.command.is_some_and(|c| !c.in_pool())
+    } else if turret {
         !super::man::endgame(sim, u.team)
     } else {
         st.target_cp
@@ -340,7 +464,7 @@ pub(super) fn board_goal(
             .maintenance
             .is_some_and(|c| c.owner != me || c.tick > sim.tick)
             || sim.tick >= r.maintenance.map_or(r.since, |c| c.tick) + BOARD_FRESH);
-    if older || left || stale || late || !routes || claim_seat(sim, me, vh).is_none() {
+    if older || left || stale || late || !routes || claimed_seat(sim, me, vh, r).is_none() {
         nt.claim = if older || left || stale {
             NavTick::CLAIM_LOST
         } else if late {
@@ -348,7 +472,10 @@ pub(super) fn board_goal(
         } else {
             0
         };
+        r.call_blocked |= r.called_board.is_some() && !older;
+        r.called_board = None;
         r.board = None;
+        r.ordered_call = false;
         r.maintenance = None;
         r.use_req = false;
         r.block_until = if older {
@@ -374,6 +501,9 @@ pub(super) fn board_goal(
 pub(super) fn give_up(sim: &Sim, st: &mut AiState, nt: &mut NavTick) {
     if let Some(mut r) = st.ride {
         let vh = r.board.take();
+        r.call_blocked |= r.called_board.is_some();
+        r.called_board = None;
+        r.ordered_call = false;
         r.maintenance = None;
         r.use_req = false;
         r.block_until = sim.tick + BOARD_BLOCK;
@@ -418,6 +548,8 @@ pub(super) fn request_exit(st: &mut AiState) {
     st.ride = Some(RideState {
         use_req: true,
         board: None,
+        called_board: None,
+        ordered_call: false,
         maintenance: None,
         ..r
     });
@@ -520,6 +652,25 @@ pub(super) fn drive(
         return (pad, nt);
     };
     super::hover_drive::drive(sim, me, m, hp, st, nt)
+}
+
+/// A ground driver's route branch has accepted a driving goal after pickup.
+/// Turning toward that goal is departure too; speed and wait expiry alone
+/// cannot identify it. Failed rolls consume this tenure's attempt as well.
+pub(super) fn set_out(sim: &Sim, m: Mount, st: &mut AiState) {
+    if sim.ground_rules == GroundRules::Bf1
+        && sim
+            .vehicle(m.vehicle)
+            .is_some_and(|v| matches!(v.kind, VehicleKind::Hover | VehicleKind::Walker))
+    {
+        // WGSEAT: the source is independent of vehicle armament/capacity
+        // (re-driver-wait.md §§4/7). A failed publication roll is consumed too.
+        if let Some(w) = st.ride.as_mut().and_then(|r| r.pickup.as_mut()) {
+            if w.vehicle == m.vehicle && w.complete {
+                w.departed = true;
+            }
+        }
+    }
 }
 
 /// Initial window, BF2 human precedence, then maintained AI claims (CWAIT).
@@ -653,7 +804,9 @@ fn maintained_boarder(sim: &Sim, m: Mount) -> bool {
                         c.owner == h && c.tick <= sim.tick && sim.tick < c.tick + BOARD_FRESH
                     })
             })
-            && claim_seat(sim, h, m.vehicle).is_some()
+            && u.ai
+                .ride
+                .is_some_and(|r| claimed_seat(sim, h, m.vehicle, r).is_some())
     })
 }
 
@@ -1112,11 +1265,10 @@ mod tests {
     }
 
     /// Card UTALK, BF1's need-gunner call (re-squad-orders.md 1, 5): an AI
-    /// that takes the pilot seat of a vehicle whose gun seat is free calls
+    /// ground pilot calls independently of the vehicle's gun seats
     /// with chance 0.3, and every friendly AI soldier on foot within 30 m
     /// (3-D) answers "yes" - not one at 35 m, not an enemy, not a human, not
-    /// the caller. No call with the gun seat taken, or with no gun on it, or
-    /// on a BF2-rule sim.
+    /// the caller. BF2 remains silent; boarding admission is independent.
     #[test]
     fn a_seated_ai_calls_for_a_gunner_and_the_ai_near_it_answer() {
         use crate::sim::{Call, Event};
@@ -1160,8 +1312,9 @@ mod tests {
             (calls, yes)
         };
         let (calls, yes) = tally(&mut s);
-        assert!(calls == 0, "no gun on the free seat: {calls}");
-        assert!(yes.is_empty());
+        assert!((250..=350).contains(&calls), "unarmed ground call: {calls}");
+        assert_eq!(yes.len(), calls);
+        assert!(yes.iter().all(|&u| u == near));
         arm_gunner_seat(&mut s);
         let (calls, yes) = tally(&mut s);
         assert!((250..=350).contains(&calls), "chance 0.3: {calls} of 1000");
@@ -1175,7 +1328,7 @@ mod tests {
         assert_eq!(tally(&mut s).0, 0, "BF2");
         s.ground_rules = crate::soldier::GroundRules::Bf1;
         assert!(s.enter_vehicle(near, v, 1));
-        assert_eq!(tally(&mut s).0, 0, "the gun seat taken");
+        assert_eq!(tally(&mut s).0, calls, "full ground vehicle still calls");
     }
     fn pickup_probe(rules: GroundRules, full: bool) {
         let (mut s, b, v) = world();
@@ -1529,6 +1682,10 @@ mod tests {
         assert!(s.unit(b).unwrap().ai.ride.is_none());
         assert_eq!(rng, s.rng.state(), "turret has no wait or boarding draw");
     }
+    #[path = "seat_call_tests.rs"]
+    mod seat_call_tests;
+    #[path = "setout_call_tests.rs"]
+    mod setout_call_tests;
     #[path = "wait_call_tests.rs"]
     mod wait_call_tests;
 

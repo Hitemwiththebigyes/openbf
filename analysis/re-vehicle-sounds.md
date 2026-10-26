@@ -176,7 +176,7 @@ with `health` -> Gain (0.1, 2) (0.3, 2) (0.4, 1.5) (0.5, 1) (0.85, 0) (1, 0) - s
 ## 4. What each class feeds (BF1)
 
 Six `jal`s to the update exist in the ELF (0x1d1de4, 0x1db814, 0x1edbf8, 0x207388, 0x21a9c0 and the turn-on's own
-0x366184; `sqack/refs.py`): the five class updates below.
+0x366184; `scripts/tools/refs.py`): the five class updates below.
 
 | class (B1 function) | on while | `speed` | `acceleration` | `health` | `height` | `strain` |
 |---|---|---|---|---|---|---|
@@ -414,7 +414,7 @@ Read by the second reader (`AGENT_STEPS_TURRET.md`); B1 `FUN_00216b30` was read 
 `engine/artifacts/lead_tmp/vsnd/checks/`: `fn_b1.txt` (136 cited B1 lines, each in the function named),
 `fn_b1_agentB.txt` (48), `fn_b2.txt` (75 B2 lines), `callers_b1_engine.txt` (`re_check.py callers` of the 15 engine
 entry points), `words_refs_b1.txt` (`re_check.py word b1 0x547e00 11`: the 11 parameter hashes; `0x547e38` = `"%s %f
-%d"`, `0x547e48` = `"%f"`; `sqack/refs.py b1`: update 6 jal, turn-on 7, turn-off 7, collision 5, stop 2, wind-up 2,
+%d"`, `0x547e48` = `"%f"`; `scripts/tools/refs.py b1`: update 6 jal, turn-on 7, turn-off 7, collision 5, stop 2, wind-up 2,
 wind-down 2 - the decomp's caller counts, no data word), `dis_b1_callsites.txt` (`eedis2.py`: the hover 0x1eda60-
 0x1edc08, the walker 0x21a930-0x21a9d0, the flyer, the droideka, the soldier). `re_check.py word b2 0x6392c0 12`:
 BF1's 11 words + 0xbb0169a2; `refs.py b2 0x44c650`: 6 jal; `0x44da60`: 5. Names: `foly/h.py` on every name in this

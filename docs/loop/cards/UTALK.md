@@ -46,7 +46,7 @@ Dune Sea the "yes" answer alone is 12 of 32 lines a minute, on Naboo the Gungans
 - The census (headless `SOUND_LOG`, 8 seeds, NAB1 and TAT1, the player parked as in the captures): the rows above
   per event within 30 % where the PS2 reads 5 or more, and the voice slot's lines a minute in all (PS2 32) with
   cards UCALL and this one both on.
-- The mixer: no `OVERLOAD` line these lines cause in a 10-minute round; `lead_tmp/sndx/mix.py` under full scale.
+- The mixer: no `OVERLOAD` line these lines cause in a 10-minute round; `scripts/tools/mix.py` under full scale.
 
 ## Notes
 - The AI's orders are behaviour as well as sound (bots board the caller's vehicle): `re-squad-orders.md` 4.4, 5 and

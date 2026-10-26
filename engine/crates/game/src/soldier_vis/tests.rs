@@ -611,6 +611,8 @@ fn the_feet_keep_to_the_ground() {
                     dead: false,
                     set: 0,
                     fired: false,
+                    throw: None,
+                    throw_windup: 0.0,
                     reloading: false,
                     reload_time: 0.0,
                     alert: false,

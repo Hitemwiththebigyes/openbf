@@ -600,9 +600,10 @@ fn a_running_jump_takes_off_by_each_games_rule() {
 /// feet came down at vy -1.0695 took off at 6.9355,
 /// `bf2_run_release_2.csv` rows 18-19), BF1 sets it. In the port a
 /// grounded soldier has a vy walking a ramp: down the 34.3 deg KAM1 ramp
-/// BF2's jump is weaker by it, BF1's is not.
+/// BF2's jump is weaker by it; BF1's was not. The port adds on BF1 maps too
+/// (named deviation, the maintainer 2026-10-25: one jump rule for the merged game).
 #[test]
-fn bf2_adds_the_jump_to_the_vertical_speed_and_bf1_sets_it() {
+fn the_jump_adds_to_the_vertical_speed_in_both_games() {
     let c = trial_class(GroundRules::Bf2);
     let mut s = Soldier::new(Vec3::ZERO);
     s.vel = Vec3::new(0.0, -1.0695, 0.0);
@@ -624,10 +625,7 @@ fn bf2_adds_the_jump_to_the_vertical_speed_and_bf1_sets_it() {
         };
         tick_on(&mut s, &pad, &c, rules, n, &floor);
         assert_eq!(s.stance, Stance::Jump);
-        match rules {
-            GroundRules::Bf2 => assert!(s.vel.y < c.jump_vy - 1.0, "vy {}", s.vel.y),
-            GroundRules::Bf1 => assert_eq!(s.vel.y, c.jump_vy),
-        }
+        assert!(s.vel.y < c.jump_vy - 1.0, "{rules:?}: vy {}", s.vel.y);
     }
 }
 
@@ -766,10 +764,19 @@ fn a_press_within_three_tenths_of_losing_the_floor_still_jumps() {
 
     // BF1: 5 s in the stance (150 ticks, with margin), else nothing.
     for off in 0..=12 {
-        let (old, _) = press_off_the_floor(GroundRules::Bf1, false, 160, off);
+        let (old, vy) = press_off_the_floor(GroundRules::Bf1, false, 160, off);
         assert_eq!(old.stance == Stance::Jump, off <= 9, "BF1 old: off {off}");
-        if old.stance == Stance::Jump {
+        // The take-off adds (the merged game's rule, as BF2): off the floor
+        // the jump rides on the fall already under way.
+        if old.stance == Stance::Jump && off == 0 {
             assert_eq!(old.vel.y, 8.0);
+        } else if old.stance == Stance::Jump {
+            let want = vy - GRAVITY * DT + 8.0;
+            assert!(
+                (old.vel.y - want).abs() < 1e-4,
+                "BF1 off {off}: vy {}",
+                old.vel.y
+            );
         }
         let (young, _) = press_off_the_floor(GroundRules::Bf1, false, 40, off);
         assert_eq!(young.stance == Stance::Jump, off == 0, "BF1 young: {off}");

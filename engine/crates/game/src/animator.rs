@@ -120,6 +120,7 @@ pub fn move_rate(speed: f32, clip_speed: f32) -> f32 {
 /// The updates a second BF1's per-update pull is written for (§3.3): the
 /// weight is turned into one that gives the same pose at any frame rate.
 const BF1_UPDATES: f32 = 60.0;
+const BF1_THROW_WINDUP: f32 = 0.3;
 
 /// The share of the root twist's distance to its target kept each update at
 /// 30 updates a second: BF1 `twist + (angle - twist) * 0.25`, BF2
@@ -190,6 +191,8 @@ pub struct AnimInput {
     pub set: usize,
     /// A shot left the weapon this update.
     pub fired: bool,
+    pub throw: Option<u8>,
+    pub throw_windup: f32,
     pub reloading: bool,
     /// The weapon's reload time (s): BF2 fits the reload clip to it.
     pub reload_time: f32,
@@ -542,6 +545,7 @@ pub fn stance_of(i: &AnimInput, game: Game) -> Result<usize, Special> {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ActionKind {
     Shoot,
+    Throw(u8),
     Reload,
 }
 
@@ -793,6 +797,7 @@ impl Rig {
             (Game::Bf1, Some(t)) => {
                 let k = match kind {
                     ActionKind::Shoot => 1,
+                    ActionKind::Throw(variant) => usize::from(variant.min(2)) + 1,
                     ActionKind::Reload => 5,
                 };
                 // The legs play the same clip, its blend 0.5 s longer (§3.2).
@@ -806,6 +811,7 @@ impl Rig {
             (Game::Bf2, _) => {
                 let k = match kind {
                     ActionKind::Shoot => 0,
+                    ActionKind::Throw(variant) => 2 + usize::from(variant > 0),
                     ActionKind::Reload => 5,
                 };
                 let p = bf2::action_pair(s, k);
@@ -986,6 +992,7 @@ pub struct Animator {
     kept: Option<Pose>,
     action: Option<Action>,
     was_reloading: bool,
+    set: Option<usize>,
     /// The movement clip last chosen and BF2's speed mode ([`choose`]).
     legs: Legs,
     /// The body state of the last update.
@@ -1097,11 +1104,17 @@ impl Animator {
         } else {
             1.0
         };
+        if self.set != Some(i.set) {
+            self.action = None;
+            self.set = Some(i.set);
+        }
         // The action: a shot (re)starts shoot, a reload's first update
         // starts reload; it ends with its clip, or in a special state.
         let mut restart = false;
         if let Ok(s) = stance {
-            let kind = if i.fired {
+            let kind = if let Some(variant) = i.throw {
+                Some(ActionKind::Throw(variant))
+            } else if i.fired {
                 Some(ActionKind::Shoot)
             } else if i.reloading && !self.was_reloading {
                 Some(ActionKind::Reload)
@@ -1143,8 +1156,7 @@ impl Animator {
             dt,
             arm: (i.alert || shot) && rig.alerts(i.set),
             shot,
-            // The aim from the legs: the facing's, less the root twist.
-            aim: (wrap(i.aim.0 - self.twist), i.aim.1),
+            aim: i.aim,
             prone: stance == Ok(2),
             feet: stance.is_ok(),
         };
@@ -1235,7 +1247,17 @@ impl Animator {
                 .map_or(1.0, |v| move_rate(i.speed() / scale, v)),
             _ => 1.0,
         };
-        let rate = self.action.map_or(1.0, |a| a.rate);
+        let rate = self.action.map_or(1.0, |a| {
+            if rig.game == Game::Bf1
+                && a.kind == ActionKind::Throw(2)
+                && self.upper.t * clips[a.upper.clip].frames as f32 / 30.0 < BF1_THROW_WINDUP
+                && i.throw_windup > 0.0
+            {
+                BF1_THROW_WINDUP / i.throw_windup
+            } else {
+                a.rate
+            }
+        });
         self.upper
             .advance(clips, dt * if up_action { rate } else { walk }, rig.game);
         let legs = self.action.is_some_and(|a| a.legs);
@@ -1403,7 +1425,7 @@ impl Animator {
             // About the model's up axis: the root has no parent.
             r.rotation = glam::Quat::from_rotation_y(self.twist) * r.rotation;
         }
-        self.aim.apply(&mut pose, skel);
+        self.aim.apply(&mut pose, skel, self.twist);
         pose
     }
 }

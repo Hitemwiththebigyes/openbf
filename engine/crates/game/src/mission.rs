@@ -492,10 +492,12 @@ mod tests {
             })
             .collect();
         maps.sort();
+        let mut mission_count = maps.len();
         let (mut cw, mut gcw, mut cross, mut seat1) = (0, 0, 0, 0);
         for map in &maps {
             let default = MissionDef::load(&missions_dir().join(format!("{map}_con.ron"))).unwrap();
             let other = MissionDef::load(&missions_dir().join(format!("{map}_con_cw.ron"))).ok();
+            mission_count += usize::from(other.is_some());
             for a in ARMIES {
                 for b in ARMIES {
                     let p = pick(missions_dir(), map, "con", [a, b]).unwrap();
@@ -540,12 +542,10 @@ mod tests {
              pair, {cross} the default as a cross-era pair; player on team 1 in {seat1}",
             maps.len()
         );
-        // 25 two-era maps x the CW pair in both orders.
-        assert_eq!(cw, 50);
-        // 32 default missions x their own pair in both orders.
-        assert_eq!(gcw, 64);
+        assert_eq!(cw, (mission_count - maps.len()) * 2);
+        assert_eq!(gcw, maps.len() * 2);
         assert_eq!(cw + gcw + cross, maps.len() * 16);
-        assert_eq!(seat1, 57);
+        assert_eq!(seat1, mission_count);
         assert!(pick(missions_dir(), "bf1_nomap", "con", ["all", "imp"]).is_none());
     }
 

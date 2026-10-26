@@ -11,7 +11,7 @@ load-bearing lines. The PS2 was also taken apart: patched save states under PCSX
 Scratch, scripts, frames and sheets: `engine/artifacts/lead_tmp/bpnt/`. That covers `lights.py` (the RAM light list),
 `lght_census.py`, `turn.py` / `mk.py` / `run.py` / `diff.py` (the knock-outs), `frames/sheet_*.png`, `verify/CLAIMS.md`
 and `verify/VERDICTS.md`. B2 = `analysis/SWBFRNT2.ELF-decomp.c`. VU1 = the BF2 main program, read with
-`lead_tmp/re/specular/vu1dis.py`. "GS units" means 0x80 = 1.0. Tags: [V] read or measured, [D] derived, [H] guess.
+`scripts/tools/vu1dis.py`. "GS units" means 0x80 = 1.0. Tags: [V] read or measured, [D] derived, [H] guess.
 Load-bearing claims are also [O].
 
 ## 0. The answer
@@ -347,7 +347,7 @@ I-pairing rule.
 None of this section went through the verifier.
 
 - **The spot's test against a model** (§5's "vtable +0x1c" = 0x59c3a8; the decomp has no function there, read from the
-  asm with `lead_tmp/audit-sund/verify/eedis2.py bf2 0x59c3a8 0x59c570`) [V asm].
+  asm with `scripts/tools/eedis2.py bf2 0x59c3a8 0x59c570`) [V asm].
   - Inputs: the model's sphere (c, R); the spot's apex V (+0x80) and axis D (+0x70); +0x54 and +0x5c, two trig values
     of half the OUTER cone (FUN_0059bff8, 731913–731924), whose product is used as the sine [D]; the `Bidirectional`
     byte +0xd1.

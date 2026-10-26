@@ -3,7 +3,7 @@
 # RE: the sky pass — camera scale `S`, projection, Z, and where the dome ends up (2026-09-03, Fable s12, analysis only)
 
 Corpora: `analysis/SWBFRNT2.ELF-decomp.c` (BF2, line numbers below are its lines unless marked BF1),
-`analysis/SWBFRONT.ELF-decomp.c` (BF1), raw ELFs via `engine/artifacts/lead_tmp/tools/re_sky/elfrd.py`,
+`analysis/SWBFRONT.ELF-decomp.c` (BF1), raw ELFs via `scripts/tools/elfrd.py`,
 one Ghidra listing `engine/artifacts/lead_tmp/s12/re/skyproj_scratch/disas_58efa0.txt` (BF2 0x58efa0–0x58f060).
 Tags: [V] verified in decomp lines / ELF bytes, [D] derived from [V] facts, [H] hypothesis.
 GS register words decoded with the PS2 GS layouts (TEST: ATE b0, ATST b1-3, AREF b4-11, AFAIL b12-13, ZTE b16, ZTST b17-18;
@@ -242,7 +242,7 @@ grep -n "FUN_0057b890(" analysis/SWBFRNT2.ELF-decomp.c      # 64545 64896(lerp) 
 sed -n 64744,64752p analysis/SWBFRNT2.ELF-decomp.c; sed -n 64890,64900p analysis/SWBFRNT2.ELF-decomp.c
 # one projection, far 10000
 grep -n "FUN_00580728(" analysis/SWBFRNT2.ELF-decomp.c; sed -n 715603,715660p analysis/SWBFRNT2.ELF-decomp.c
-python3 engine/artifacts/lead_tmp/tools/re_sky/elfrd.py extracted/bf2/SWBFRNT2.ELF 60c288 4   # 10000.0
+python3 scripts/tools/elfrd.py extracted/bf2/SWBFRNT2.ELF 60c288 4   # 10000.0
 # pass ranges → cull only
 sed -n 746672,746760p analysis/SWBFRNT2.ELF-decomp.c; sed -n 745226,745262p analysis/SWBFRNT2.ELF-decomp.c
 sed -n 746620,746660p analysis/SWBFRNT2.ELF-decomp.c        # FUN_005b0330 near·S < d-2r
@@ -256,7 +256,7 @@ sed -n 719860,719960p analysis/SWBFRNT2.ELF-decomp.c        # FUN_00588968 compo
 sed -n 721041,721200p analysis/SWBFRNT2.ELF-decomp.c        # FUN_0058a598 kick order
 sed -n 698515,698561p analysis/SWBFRNT2.ELF-decomp.c        # FUN_00564638: FUN_00582248 before the tick loop
 sed -n 722590,722720p analysis/SWBFRNT2.ELF-decomp.c        # descriptors (FRAME/ZBUF words)
-for a in 60c230 60c250 60c2c7 60c2a8 60c4e8 746028; do python3 engine/artifacts/lead_tmp/tools/re_sky/elfrd.py extracted/bf2/SWBFRNT2.ELF $a 4; done
+for a in 60c230 60c250 60c2c7 60c2a8 60c4e8 746028; do python3 scripts/tools/elfrd.py extracted/bf2/SWBFRNT2.ELF $a 4; done
 # sky TEST selection (decomp + bytes)
 sed -n 723411,723480p analysis/SWBFRNT2.ELF-decomp.c
 JAVA_HOME=tools/jdk-21.0.12.1+1 tools/ghidra_12.1.3_PUBLIC/support/analyzeHeadless ghidra-proj bf2 -process -noanalysis \
@@ -266,7 +266,7 @@ JAVA_HOME=tools/jdk-21.0.12.1+1 tools/ghidra_12.1.3_PUBLIC/support/analyzeHeadle
 sed -n 554177,554200p analysis/SWBFRONT.ELF-decomp.c; grep -n "FUN_00491048(" analysis/SWBFRONT.ELF-decomp.c
 sed -n 587412,587470p analysis/SWBFRONT.ELF-decomp.c; sed -n 572588,572600p analysis/SWBFRONT.ELF-decomp.c
 sed -n 567043,567110p analysis/SWBFRONT.ELF-decomp.c
-python3 engine/artifacts/lead_tmp/tools/re_sky/elfrd.py extracted/bf1/SWBFRONT.ELF 522ac0 4
+python3 scripts/tools/elfrd.py extracted/bf1/SWBFRONT.ELF 522ac0 4
 # GS word decoder used above (TEST/ZBUF/FRAME/TEX0/ALPHA) and Z table: see skyproj_scratch/ (python one-liners in this file's §2.1)
 ```
 

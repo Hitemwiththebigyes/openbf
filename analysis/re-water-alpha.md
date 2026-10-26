@@ -5,7 +5,7 @@ first clause of `analysis/re-water.md` §8 / HANDOFF HOLD 21. Method: `engine/ar
 §5 — the four self-checks, then ONE Opus verifier agent given the citations alone (its one NOT SUPPORTED
 verdict is §7, reproduced by the lead before it was accepted). Scratch, census binaries and raw measurements:
 `engine/artifacts/lead_tmp/re/water-alpha/`. Corpora: `analysis/SWBFRONT.ELF-decomp.c` (BF1),
-`analysis/SWBFRNT2.ELF-decomp.c` (BF2); ELF words by `lead_tmp/tools/re_sky/elfrd.py`, instructions by this
+`analysis/SWBFRNT2.ELF-decomp.c` (BF2); ELF words by `scripts/tools/elfrd.py`, instructions by this
 item's `lead_tmp/re/water-alpha/mipsdis.py`. Tags: [V] read at the line / measured, [D] derived, [H] guess;
 every load-bearing claim also carries [O] — Opus-only, unaudited.
 

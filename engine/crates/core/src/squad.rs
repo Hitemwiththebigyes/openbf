@@ -31,9 +31,9 @@
 //! seat, other orders to bots in vehicles, the AI's own orders' effect - card UTALK
 //! speaks them (a
 //! trooper's "follow me" / "move out" order nobody on the PS2 either; a new
-//! pilot's need-gunner call, `Sim::need_gunner_call`, is answered "yes" but
-//! nobody boards). `Disperse` is the earlier port's own order and no pad
-//! reaches it any more.
+//! pilot's need-gunner call, `Sim::need_gunner_call`, temporarily boards
+//! recipients over their retained Hold/Follow order, WGORD). `Disperse` is the
+//! earlier port's own order and no pad reaches it any more.
 
 use crate::unit::UnitHandle;
 use glam::Vec3;
@@ -400,6 +400,7 @@ impl crate::sim::Sim {
             Order::MoveOut | Order::AtEase => {
                 let released = has.is_some_and(|c| !c.in_pool() && c.issuer == p.issuer);
                 if released {
+                    self.units[i].ai.pending_board = None;
                     self.units[i].command = None;
                     self.units[i].ai.cmd_clear();
                 }
@@ -498,6 +499,7 @@ impl crate::sim::Sim {
                 self.units[i].order = None;
             }
             if self.units[i].command.is_some_and(|c| c.issuer == slot) {
+                self.units[i].ai.pending_board = None;
                 self.units[i].command = None;
                 self.units[i].ai.cmd_clear();
                 n = n.saturating_add(1);
@@ -571,6 +573,18 @@ pub fn steer(
     };
     let lp = l.soldier.pos;
     let d = (pos - lp).length();
+    // WGORD: retain the ordinary release clock while the explicit board goal
+    // runs. Do not advance Follow's approach/stand scratch or its route.
+    if st.ride.is_some_and(|r| r.ordered_call) || st.pending_board.is_some() {
+        if d > LEAVE_DIST {
+            c.far_ticks = c.far_ticks.saturating_add(crate::ai::THINK_PERIOD as u16);
+        }
+        if c.far_ticks >= LEAVE_TICKS {
+            nt.released = 1;
+        }
+        st.cmd = Some(c);
+        return;
+    }
     match cmd.kind {
         CommandKind::Follow(_) => {
             // SQVEH, RE §4.3: walk to the leader's vehicle, rather than
@@ -581,6 +595,7 @@ pub fn steer(
                 // its search cooldown. This order walks to the leader alone.
                 if let Some(r) = st.ride.as_mut() {
                     r.board = None;
+                    r.called_board = None;
                     r.maintenance = None;
                     r.use_req = false;
                 }
@@ -626,7 +641,7 @@ pub fn steer(
                 let cur = g.and_then(|g| crate::ai::start_hub(sim, g, me));
                 match (g, cur, dest) {
                     (Some(g), Some(cu), Some(de)) if g.reachable(cu, de, m.ty) => {
-                        if !st.route.is_some_and(|r| r.dest_hub == de) {
+                        if st.route.is_none_or(|r| r.dest_hub != de) {
                             st.route = crate::ai::plan_leg(sim, st, me, cu, de, None, nt);
                         }
                     }

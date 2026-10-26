@@ -1,3 +1,4 @@
+//! WGOUT marks the first accepted route goal after pickup as departure.
 //! CWAIT pickup holds run in `ride` before route progress.
 //! A bot at a walker's pilot seat (card WAI): the sticks the PS2's walker AI
 //! writes, transcribed from `analysis/re-walker-ai.md` [O] (B2 FUN_00262248 →
@@ -318,6 +319,8 @@ pub(super) fn drive(
         nt.stuck_run = st.route.map_or(0, |r| r.stuck_run);
         return (pad, nt);
     };
+
+    super::ride::set_out(sim, m, st);
 
     let mut to = Vec3::new(gp.x - pos.x, 0.0, gp.z - pos.z);
     // The contact side-step offsets the target as it does on foot.

@@ -295,7 +295,7 @@ capture behaviour → the at-post helper → the owner-change hook; then BF1's t
 
 - Check 1 (`re_check.py fn`): the first and last line of every cited range, both corpora (74 BF2 and 26 BF1 line
   numbers; all in the named functions).
-- Check 2 (absences): `re_check.py absent` plus the raw ELF (`lead_tmp/sqack/refs.py`, the verifier's `vrefs.py`):
+- Check 2 (absences): `re_check.py absent` plus the raw ELF (`scripts/tools/refs.py`, the verifier's `vrefs.py`):
   `FUN_002e80b0` two `jal`s; `FUN_002e8260` four, all in `FUN_002e80b0`; `FUN_00350658` and `FUN_002b6568` one each;
   `FUN_002e7708` one; the goal's update and assign slots dispatched only from the manager's tick and the two updates;
   no other builder of a type-8 order among the 58 calls of the order ctor; no distance / count term in the draw.

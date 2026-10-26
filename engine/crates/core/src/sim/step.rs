@@ -1,7 +1,7 @@
 //! [`Sim::step`] itself — one fixed tick, in the order `sim.rs`'s module
 //! header lists — and `separate_units`, its step 3b. The helpers the other
 //! stages call live with the feature they serve (`spawn`, `input`, `combat`,
-//! `round`). WGCAL publishes initial BF1 ground wait-start calls after all
+//! `round`). WGCAL/WGOUT publish BF1 wait-start and first routed departure calls after all
 //! AI write-backs, before use/entry and movement. The movement (unit separation, the A.4 step, the wall pass),
 //! stamina-cheat and AI-fire (D9's spread multiplier, the fairness rule)
 //! tests live here, and a human's shot (card AIMA, `re-aim-assist.md` §10.2:
@@ -242,7 +242,8 @@ impl Sim {
         let mut recycled: Vec<(usize, DeathCause)> = Vec::new();
         // Card TPOS: positions taken this tick, granted in unit-index order.
         let mut granted: Vec<glam::Vec3> = Vec::new();
-        // WGCAL: derive the one-shot transition from the existing wait clock.
+        // WGCAL/WGOUT: wait-start and first routed departure are independent.
+        // Both publish in unit order, then source order, after every write-back.
         // Publish only after every scratch AiState has been written back, so
         // neither index ordering can erase a receiver's pending target.
         let mut wait_calls = Vec::new();
@@ -257,7 +258,14 @@ impl Sim {
                                 && old.started.is_none()
                         })
                     {
-                        wait_calls.push((self.handle(i), w.vehicle));
+                        wait_calls.push((self.handle(i), w.vehicle, w.seated));
+                    }
+                    if w.departed
+                        && previous.is_some_and(|old| {
+                            old.vehicle == w.vehicle && old.seated == w.seated && !old.departed
+                        })
+                    {
+                        wait_calls.push((self.handle(i), w.vehicle, w.seated));
                     }
                 }
             }
@@ -362,12 +370,16 @@ impl Sim {
             let h = self.handle(i);
             self.kill_environment(h, cause);
         }
-        for (pilot, vehicle) in wait_calls {
+        for (pilot, vehicle, seated) in wait_calls {
             // Recycled units and stale seating tenures cannot issue a call.
             if self.unit(pilot).is_some_and(|u| {
                 u.alive
                     && u.controller == Controller::Ai
                     && u.mount.is_some_and(|m| m.vehicle == vehicle && m.seat == 0)
+                    && u.ai
+                        .ride
+                        .and_then(|r| r.pickup)
+                        .is_some_and(|w| w.vehicle == vehicle && w.seated == seated)
             }) && self.vehicle(vehicle).is_some_and(|v| {
                 matches!(
                     v.kind,
@@ -677,9 +689,13 @@ impl Sim {
             // get-up and the lock after it hold the trigger off too (card
             // KNOCK, re-knockback §2: the PS2 zeroes the trigger bytes;
             // PROVISIONAL: the port skips the fire processing, so a held
-            // charge is neither fired nor lost).
-            let blocked =
-                self.units[i].soldier.stance == Stance::Roll || self.units[i].soldier.no_fire();
+            // charge is neither fired nor lost). So does a jump: B1
+            // FUN_00205cc8 sends states 4-6 (jump, thrown, fall) through
+            // 0x532980 to 0x207980, which zeroes both channels' trigger
+            // bytes; B2 FUN_00240bf8 cases 4 / 8 / 9 likewise. (The fall
+            // state is not blocked here yet.)
+            let blocked = matches!(self.units[i].soldier.stance, Stance::Roll | Stance::Jump)
+                || self.units[i].soldier.no_fire();
             // A soldier with more slots than the one in its hands (GREN):
             // the channels decide whether FIRE reaches the primary.
             let mut fire_held = if self.units[i].held.is_empty() {

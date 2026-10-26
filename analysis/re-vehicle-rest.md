@@ -258,7 +258,7 @@ Commands (outputs in `lead_tmp/vrest/checks.txt`):
 - `re_check.py word b1 0x526690 6` → +0xc 0x00163008, +0x10 0x001971c8; `word b1 0x531448 6` → +0xc 0x001f2268, +0x10
   0x001971c8; `word b2 0x60f048 5` → +0xc 0x00163450, +0x10 0x001af7e8; `word b2 0x61cd98 5` → +0xc 0x00224de0;
   `word b2 0x61ca80 6` → +0xc 0x002245d0, +0x10 0x001af7e8.
-- `re_check.py callers b1 FUN_001d7eb8` → 1 (B1:83962); `sqack/refs.py b1 0x1d7eb8` → jal [0x1d7a38], no data word.
+- `re_check.py callers b1 FUN_001d7eb8` → 1 (B1:83962); `scripts/tools/refs.py b1 0x1d7eb8` → jal [0x1d7a38], no data word.
   `callers b2 FUN_00200a98` → 2 (B2:35522, 114490); `refs.py b2 0x200a98` → jal [0x1906ec, 0x20031c].
   `refs.py b1 0x163008` → data [0x52669c] only; `refs.py b2 0x163450` → data [0x60f054] only.
 - `re_check.py writers b1 DAT_0066ef00` → one store, the static initialiser `FUN_00445fa8` (B1:505277); RAM gives the

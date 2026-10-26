@@ -11,7 +11,7 @@ Method: the loop's RE discipline. The hops below, the five self-checks, then ONE
 
 Scratch, scripts, frames and sheets are in `engine/artifacts/lead_tmp/re/lite/`. Conventions: B2 = `analysis/SWBFRNT2.ELF-decomp.c`,
 B1 = `analysis/SWBFRONT.ELF-decomp.c`. VU1 is the main program in `.vutext`, decoded with
-`lead_tmp/re/specular/vu1dis.py`. "GS units" means 0x80 = 1.0 (MODULATE). Tags: [V] read or measured, [D] derived, [H] guess.
+`scripts/tools/vu1dis.py`. "GS units" means 0x80 = 1.0 (MODULATE). Tags: [V] read or measured, [D] derived, [H] guess.
 Load-bearing claims are also [O].
 
 ## 0. The answer

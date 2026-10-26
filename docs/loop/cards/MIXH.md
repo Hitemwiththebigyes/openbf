@@ -36,7 +36,7 @@ which the port does not apply (+4 dB more). PS2 front-line fights recorded off P
   Mutation-check them.
 - The own-shot reference: BF1 Naboo blaster at gain 0.7012, level 0.8603, centred -> 0.3016 per ear (the PS2's save state
   `lead_tmp/mixh/ps2/shot1.p2s`, register 0x134d).
-- SOUND_LOG `take` rows carry per-ear gains; `lead_tmp/sndx/mix.py` renders stereo. UCRY's 5 fight logs re-run on the
+- SOUND_LOG `take` rows carry per-ear gains; `scripts/tools/mix.py` renders stereo. UCRY's 5 fight logs re-run on the
   branch (`lead_tmp/ucry/census/run.sh`, cries removed): per-ear frames over full scale <= 0.03 % on each (the PS2-law
   render of the PS2's own fights reads <= 0.02 %, before this card the port read 0.03-0.43 % mono). Paste the table.
 - A lone shot's level is the PS2's (above), so no pumping question arises; a master limiter only if a log still fails,
@@ -55,7 +55,7 @@ which the port does not apply (+4 dB more). PS2 front-line fights recorded off P
 
 ## Why (conversion text, kept)
 Card UCRY's mixer check (2026-10-16, `engine/artifacts/lead_tmp/ucry/census/mix/summary.txt`): the port's event
-sounds rendered by `lead_tmp/sndx/mix.py` from headless SOUND_LOG take rows, the player held beside the team-mate
+sounds rendered by `scripts/tools/mix.py` from headless SOUND_LOG take rows, the player held beside the team-mate
 nearest an enemy every 20 s (a scratch `SOUND_LOG_FOLLOW` patch, `lead_tmp/ucry/census/run.sh`), the cry takes
 REMOVED (`census/nocry.py`; UCRY does not touch the sim, so this is main's own sound for that battle):
 peak UTA1 s4 3.52 x full scale (0.40 % of frames over), UTA1 s3 2.22 (0.05 %), NAB1 s1 1.80 (0.03 %), TAT1 s2 2.23

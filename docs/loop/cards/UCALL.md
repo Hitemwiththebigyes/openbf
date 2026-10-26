@@ -56,7 +56,7 @@ them (`analysis/re-unit-chatter.md` 1, 2, 5 `[O]`).
   lines per minute per event beside the PS2 rows above, within 30 % where the PS2 reads 5 or more; chatter enters
   through `core::announcer::VoiceQueue::ask`, a commander line still plays ahead of it.
 - The mixer: a 10-minute round with a sound device writes no `OVERLOAD` line these lines cause;
-  `lead_tmp/sndx/mix.py` on its snapshot peaks under full scale.
+  `scripts/tools/mix.py` on its snapshot peaks under full scale.
 
 ## Notes
 - The take lock is a bake change (`rebake` of the sound groups): the segment's third and fourth values

@@ -251,7 +251,7 @@ PROVISIONAL for code: the frame box of section 4 (ELF and RAM constants combined
    `commandPost.`, `cpdisputebar`, `barsegmented`, 0x4b4bf31a: 0 in B1 and in BF1's ELF (BF2 stores 0x4b4bf31a as
    the segmented bar's type tag in `FUN_003a0240`, B2:397602).
 3. The twin: both games' functions opened side by side (the table of section 3); callers by `re_check.py callers`
-   and `sqack/refs.py` (the two updates are reached through their vtable slots alone).
+   and `scripts/tools/refs.py` (the two updates are reached through their vtable slots alone).
 4. `re_check.py word`: 0x62d8a8 = 0x0037e200, 0x62d8ac = 0x0037e400; 0x53f950 = 0x002bd9e0, 0x53f954 = 0x002bdc30;
    0x53f938 = "hud_flag_timer", 0x53f968 = "14CaptureDisplay"; the six event format strings at 0x631c50..0x631d00;
    0x62e568 = "ifs_pausemenu". Immediates (`tools/constscan.py`): 0x621cb6df at 0x37e284 and 0x37e2a4, 0x7f0688e4

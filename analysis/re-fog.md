@@ -306,8 +306,8 @@ sed -n 723610,723680p analysis/SWBFRNT2.ELF-decomp.c; sed -n 594585,594625p anal
 grep -i fogspread analysis/SWBFRNT2.ELF-stringrefs.txt analysis/SWBFRONT.ELF-stringrefs.txt
 awk 'NR>=690000&&NR<=760000&&/0x3d[,;)]/' analysis/SWBFRNT2.ELF-decomp.c   # no FOGCOL
 # ELF bytes
-python3 engine/artifacts/lead_tmp/tools/re_sky/elfrd.py extracted/bf1/SWBFRONT.ELF 6ef3dc 2
-python3 engine/artifacts/lead_tmp/tools/re_sky/elfrd.py extracted/bf2/SWBFRNT2.ELF 64feb0 6   # RedModel vtable
+python3 scripts/tools/elfrd.py extracted/bf1/SWBFRONT.ELF 6ef3dc 2
+python3 scripts/tools/elfrd.py extracted/bf2/SWBFRNT2.ELF 64feb0 6   # RedModel vtable
 # disc bytes, all maps
 python3 engine/artifacts/lead_tmp/s12/re/fog_scratch/skydump.py $(cat engine/artifacts/lead_tmp/s12/re/fog_scratch/maps.txt)
 python3 engine/artifacts/lead_tmp/s12/re/fog_scratch/fogtable.py
