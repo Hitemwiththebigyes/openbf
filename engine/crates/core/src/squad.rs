@@ -1,3 +1,5 @@
+//! GBOARD pending call goals yield when a player order is installed, not on pool expiry.
+//! BF1 release orders also shorten active ground-pilot pickup windows (WPOKE).
 //! Following a mounted leader releases autonomous ground-claim maintenance (CWAIT).
 //! Squad orders (card SQACK): BF1's four D-pad orders on bots, as the PS2 runs
 //! them (`analysis/re-squad-orders.md`; PLAN plays BF1's orders on every map).
@@ -9,7 +11,7 @@
 //!
 //! | order | reaches (3-D) | a unit that takes it |
 //! |---|---|---|
-//! | MOVE OUT = AT EASE | [`RELEASE_REACH`] 45 m | answers; a follower / holder ordered by this player is released |
+//! | MOVE OUT = AT EASE | [`RELEASE_REACH`] 45 m; active BF1 ground pilots 135 m | answers; a follower / holder ordered by this player is released |
 //! | HOLD POSITION | [`ORDER_REACH`] 30 m | answers; stands where it is and fights from there |
 //! | FOLLOW ME | [`ORDER_REACH`] 30 m | answers; the first [`FOLLOW_CAP`] to think follow the player |
 //!
@@ -26,7 +28,7 @@
 //! so it is 10 s either way; a holder does not look around; the approach also
 //! ends [`APPROACH_BODY`] from the leader himself; beyond [`ROUTE_DIST`] a
 //! follower routes over the hub graph. NOT built: the orders from a vehicle
-//! seat, orders to bots in vehicles, the AI's own orders' effect - card UTALK
+//! seat, other orders to bots in vehicles, the AI's own orders' effect - card UTALK
 //! speaks them (a
 //! trooper's "follow me" / "move out" order nobody on the PS2 either; a new
 //! pilot's need-gunner call, `Sim::need_gunner_call`, is answered "yes" but
@@ -100,6 +102,8 @@ pub struct Pending {
     pub issuer: u8,
     /// The issuer's soldier at the press.
     pub leader: UnitHandle,
+    /// Mounted release delivery is bound to the vehicle generation and tenure.
+    pub pickup: Option<(crate::vehicle::VehicleHandle, u64)>,
 }
 
 impl Pending {
@@ -107,6 +111,12 @@ impl Pending {
         eat(&[2, self.order as u8, self.issuer]);
         eat(&self.leader.index.to_le_bytes());
         eat(&self.leader.gen.to_le_bytes());
+        if let Some((v, seated)) = self.pickup {
+            eat(&[3]);
+            eat(&v.index.to_le_bytes());
+            eat(&v.gen.to_le_bytes());
+            eat(&seated.to_le_bytes());
+        }
     }
 }
 
@@ -296,18 +306,56 @@ impl crate::sim::Sim {
             .collect()
     }
 
+    /// WPOKE's narrow mounted receiver; ordinary in_reach remains on foot.
+    fn pickup_receiver(&self, i: usize) -> Option<(crate::vehicle::VehicleHandle, u64)> {
+        let u = &self.units[i];
+        if self.ground_rules != crate::soldier::GroundRules::Bf1
+            || !u.alive
+            || u.controller != crate::unit::Controller::Ai
+        {
+            return None;
+        }
+        let m = u.mount?;
+        let v = self.vehicle(m.vehicle)?;
+        let w = u.ai.ride?.pickup?;
+        (m.seat == 0
+            && v.seats.first()?.occupant == Some(self.handle(i))
+            && matches!(
+                v.kind,
+                crate::vehicle::VehicleKind::Hover | crate::vehicle::VehicleKind::Walker
+            )
+            && w.vehicle == m.vehicle
+            && !w.complete)
+            .then_some((m.vehicle, w.seated))
+    }
+
     /// The press: every unit in the order's reach has it pending until its
     /// next think. Answers how many.
     pub fn give_order(&mut self, slot: u8, order: Order) -> u8 {
         let Some(leader) = self.players.get(usize::from(slot)).copied().flatten() else {
             return 0;
         };
-        let near = self.in_reach(slot, order.reach());
+        let mut near = self.in_reach(slot, order.reach());
+        if matches!(order, Order::MoveOut | Order::AtEase) {
+            if let Some(issuer) = self.unit(leader).filter(|u| {
+                u.mount.is_none() && u.controller == (crate::unit::Controller::Player { slot })
+            }) {
+                for (i, u) in self.units.iter().enumerate() {
+                    if u.team == issuer.team
+                        && self.pickup_receiver(i).is_some()
+                        && u.soldier.pos.distance(issuer.soldier.pos) <= 3.0 * RELEASE_REACH
+                    {
+                        near.push(i);
+                    }
+                }
+            }
+        }
         for &i in &near {
             self.units[i].order = Some(Pending {
                 order,
                 issuer: slot,
                 leader,
+                pickup: self.pickup_receiver(i),
             });
         }
         near.len().min(255) as u8
@@ -317,6 +365,18 @@ impl crate::sim::Sim {
     /// then the order's own rule. True when the unit now follows or holds by
     /// this order.
     pub(crate) fn take_order(&mut self, i: usize, p: Pending) -> bool {
+        if let Some(target) = p.pickup {
+            let valid_issuer = self.players.get(usize::from(p.issuer)).copied().flatten()
+                == Some(p.leader)
+                && self.unit(p.leader).is_some_and(|u| {
+                    u.mount.is_none()
+                        && u.team == self.units[i].team
+                        && u.controller == (crate::unit::Controller::Player { slot: p.issuer })
+                });
+            if !valid_issuer || self.pickup_receiver(i) != Some(target) {
+                return false;
+            }
+        }
         let has = self.units[i].command;
         let follows = matches!(has.map(|c| c.kind), Some(CommandKind::Follow(_)));
         // The one veto: a follower refuses another FOLLOW ME, with no answer.
@@ -343,7 +403,20 @@ impl crate::sim::Sim {
                     self.units[i].command = None;
                     self.units[i].ai.cmd_clear();
                 }
-                (released, false)
+                let poked = p.pickup.is_some();
+                if poked {
+                    let w = self.units[i]
+                        .ai
+                        .ride
+                        .as_mut()
+                        .unwrap()
+                        .pickup
+                        .as_mut()
+                        .unwrap();
+                    // Store the release time rather than subtracting on an unsigned clock.
+                    w.released = Some(w.released.map_or(self.tick, |t| t.min(self.tick)));
+                }
+                (released || poked, false)
             }
             Order::Hold => {
                 let at = self.units[i].soldier.pos;
@@ -367,6 +440,7 @@ impl crate::sim::Sim {
     }
 
     fn put_command(&mut self, i: usize, kind: CommandKind, issuer: u8) {
+        self.units[i].ai.pending_board = None;
         self.units[i].command = Some(Command {
             kind,
             issuer,
@@ -405,6 +479,7 @@ impl crate::sim::Sim {
                 order,
                 issuer: slot,
                 leader,
+                pickup: None,
             };
             n += u8::from(self.take_order(i, p));
         }

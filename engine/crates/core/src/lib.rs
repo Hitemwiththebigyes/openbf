@@ -1,8 +1,6 @@
 //! Deterministic simulation core: fixed-step loop, seeded RNG, replay,
 //! gameplay. No wall-clock reads inside sim logic (PLAN.md determinism spine).
 
-#![allow(clippy::nonminimal_bool)]
-
 pub mod ai;
 pub mod aim_assist;
 pub mod announcer;

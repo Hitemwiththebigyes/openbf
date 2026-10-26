@@ -5,13 +5,13 @@ milestone: M1
 value: 2
 phase: build
 status: blocked
-deps:
+deps: BOLTM,BOLTR
 files: engine/crates/game/src/bolt_vis.rs, engine/CRATES.md
 declares: ci=+8
 needs: real BF2 HOT1/world-surface content, paired references, GPU and full acceptance gates
 effort:
 branch:
-resume: Source checkpoint implements matching Impact surface for same-tick remnants; real-step principal and all seven mutation assertions verified, restored bolt_vis11/game350/fmt/Clippy pass. Restore actual inputs and run unchanged Acceptance 5 and earlier debts. See reports/20261025_0651_card_BOLTSURF.md.
+resume: BOLTM66d6f9c implements mounted Impact class match; BOLTR97b0319 implements remnant fired-class style/eligibility/step with permanent controls. Both source checkpoints are present, full paired census/GPU/Acceptance5 remain pending. Preserve original restoration hold and every bar. reports/20261025_2149_planner.md
 created: 2026-10-25
 tries: 1
 ---

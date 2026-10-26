@@ -299,9 +299,10 @@ INVENTORY.md for pack-by-pack verdicts/credits). PS2 bake stays gameplay truth
 ### Platform & meta
 - Input: **controller only** (KB/M dropped entirely); PS2 default mapping, full remap;
   on-screen keyboard for text entry.
-  - REVERSED 2026-10-25 (the maintainer): keyboard + mouse is supported as a deliberate deviation. Controller play
-    is unchanged. The mouse aims by angle (`PadState::mx`/`my`, `core/src/sim/look.rs`), under pointer lock,
-    without aim assist; the bindings are one table in `game/src/kbm.rs`. Sensitivity and invert-Y are profile settings.
+  - REVERSED 2026-10-25 (the maintainer, accepting the public repo's pull request #1): keyboard + mouse is supported as a
+    deliberate deviation. Controller play is unchanged. The mouse aims by angle (`PadState::mx`/`my`,
+    `core/src/sim/look.rs`), under pointer lock, without aim assist; the bindings are one table in `game/src/kbm.rs`.
+    Sensitivity and invert-Y are profile settings.
 - Splitscreen co-op: **KEEP** (roadmap: M5, before PACK; local — one sim, N cameras, N input devices, no netcode; NOT
   part of the multiplayer hold, the loop builds it without asking — the maintainer, 2026-09-30 evening; card SSCR).
 - LAN: client-server UDP, **cap 16**, bots server-side. Internet matchmaking: DROP. Held until the maintainer says (M7).

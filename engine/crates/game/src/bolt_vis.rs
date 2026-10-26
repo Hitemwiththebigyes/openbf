@@ -354,13 +354,17 @@ impl BoltVis {
             .collect();
         for e in &sim.events {
             let Event::Shot {
-                unit, origin, dir, ..
+                unit,
+                origin,
+                dir,
+                weapon_class: shot_class,
+                ..
             } = e
             else {
                 continue;
             };
             let Some(u) = sim.unit(*unit) else { continue };
-            let class = u.weapon_class;
+            let class = *shot_class as usize;
             let Some(w) = sim.weapon_classes.get(class) else {
                 continue;
             };
@@ -385,9 +389,10 @@ impl BoltVis {
             );
             // Impact and BoltExpired share the bolt's end. Match its class
             // and flight direction too: another hit this tick may be terrain.
+            // A mounted Shot names the seat gun, not the rider's foot weapon.
             let terrain = sim.events.iter().any(|e| matches!(e,
                 Event::Impact { pos, dir: impact_dir, weapon_class, surface: core::impact::Surface::Terrain, .. }
-                    if *pos == p && *weapon_class as usize == class
+                    if *pos == p && *weapon_class == *shot_class
                         && impact_dir.abs_diff_eq(*dir, 1e-6)
             ));
             self.remnants.push(Remnant {
@@ -607,6 +612,449 @@ mod tests {
             ..PadState::default()
         }]);
         walk
+    }
+
+    // Public seating and real step_tick/FIRE events are the principal witness.
+    // The gun deliberately differs in data as well as class identity.
+    fn mounted_walk(different: bool, building: bool) -> WalkSim {
+        mounted_fixture(different, building, |_, _, _| {})
+    }
+
+    fn mounted_fixture(
+        different: bool,
+        building: bool,
+        before_fire: impl FnOnce(&mut WalkSim, usize, usize),
+    ) -> WalkSim {
+        use core::vehicle::gun::{Aimer, GunSetup, GunWeapon};
+        use core::vehicle::{SeatKind, SeatSetup, VehicleKind, VehicleSpec};
+        let h = core::heightfield::Heightfield {
+            size: 33,
+            unit: 8.0,
+            offset_x: 128.0,
+            offset_z: 128.0,
+            heights: vec![0.0; 33 * 33],
+        };
+        let mut walk = WalkSim::new(42, Vec3::ZERO, Some(h));
+        let rider = walk.sim.unit(walk.player).unwrap().weapon_class;
+        let rifle = &mut walk.sim.weapon_classes[rider];
+        let look = rifle.ordnance.laser.as_mut().unwrap();
+        look.light_color = [148, 25, 25, 255];
+        look.light_radius = 4.0;
+        let gun = if different {
+            let mut gun = rifle.clone();
+            gun.ordnance.velocity *= 1.25;
+            let look = gun.ordnance.laser.as_mut().unwrap();
+            look.light_radius = 9.0;
+            look.light_color = [25, 148, 25, 255];
+            look.width *= 2.0;
+            look.length *= 2.0;
+            walk.sim.add_weapon_class(gun)
+        } else {
+            rider
+        };
+        walk.sim.seat_setup = vec![Some(SeatSetup {
+            radius: 5.0,
+            boardable: vec![true],
+            exit_drop: 0.0,
+            ai_size: 1,
+            guns: vec![Some(GunSetup {
+                weapons: vec![GunWeapon {
+                    class: gun,
+                    infinite: true,
+                    spare_clips: 0,
+                }],
+                fire_point: Vec3::ZERO,
+                pivot: Vec3::ZERO,
+                eye: Vec3::ZERO,
+                aimer: Aimer {
+                    pitch: [-1.57, 1.57],
+                    ..Aimer::default()
+                },
+                pilot: false,
+                turn: None,
+                framed: false,
+            })],
+        })];
+        let vehicle = walk.sim.spawn_vehicle(&VehicleSpec {
+            kind: VehicleKind::Turret,
+            class: 0,
+            home_team: Some(0),
+            neutral_when_empty: false,
+            spawn_pad: None,
+            pos: Vec3::new(0.0, 2.0, 0.0),
+            yaw: 0.0,
+            max_health: 1000.0,
+            health_type: core::weapon::HealthType::Vehicle,
+            seats: vec![SeatKind::Gunner(0)],
+        });
+        assert!(walk.sim.enter_vehicle(walk.player, vehicle, 0));
+        assert!(walk.sim.unit(walk.player).unwrap().mount.is_some());
+        if building {
+            walk.sim.collision = core::collision::CollisionWorld::new(
+                vec![core::collision::Body::new(
+                    glam::Mat4::from_translation(Vec3::new(0.0, -0.4, 0.0)),
+                    core::collision::Shape::Box {
+                        half: Vec3::new(128.0, 0.5, 128.0),
+                    },
+                )],
+                vec![],
+            );
+        }
+        for _ in 0..40 {
+            walk.step_tick(&[PadState {
+                ry: -32767,
+                ..PadState::default()
+            }]);
+        }
+        before_fire(&mut walk, rider, gun);
+        walk.step_tick(&[PadState {
+            buttons: buttons::FIRE,
+            ..PadState::default()
+        }]);
+        let shots: Vec<_> = walk
+            .sim
+            .events
+            .iter()
+            .filter_map(|e| match e {
+                Event::Shot {
+                    unit,
+                    weapon_class,
+                    origin,
+                    dir,
+                    ..
+                } if *unit == walk.player => {
+                    assert_eq!(*weapon_class as usize, gun);
+                    Some((*origin, *dir))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(shots.len(), 1);
+        if !walk.sim.bolts.is_empty() {
+            assert_eq!(walk.sim.bolts.len(), 1);
+            assert!(!walk
+                .sim
+                .events
+                .iter()
+                .any(|e| matches!(e, Event::BoltExpired { .. })));
+            return walk;
+        }
+        let head = impact(
+            &walk,
+            if building {
+                Surface::Building
+            } else {
+                Surface::Terrain
+            },
+        );
+        assert!(walk.sim.events.iter().any(|e| matches!(e,
+            Event::Impact { weapon_class, .. } if *weapon_class as usize == gun)));
+        assert!(walk.sim.events.iter().any(|e| matches!(e,
+            Event::BoltExpired { pos, struck: true } if *pos == head)));
+        assert!(walk.sim.bolts.is_empty(), "actual same-tick gun hit");
+        walk
+    }
+
+    fn mounted_light(mut walk: WalkSim, terrain: bool, label: &str) {
+        let (origin, dir) = walk
+            .sim
+            .events
+            .iter()
+            .find_map(|e| match e {
+                Event::Shot { origin, dir, .. } => Some((*origin, *dir)),
+                _ => None,
+            })
+            .unwrap();
+        let head = walk
+            .sim
+            .events
+            .iter()
+            .find_map(|e| match e {
+                Event::BoltExpired { pos, struck: true } => Some(*pos),
+                _ => None,
+            })
+            .unwrap();
+        let mut vis = lit_vis();
+        visual_update(&mut vis, &walk);
+        assert_eq!(vis.remnant_count(), 1);
+        let lights = vis.omni_lights(&walk);
+        assert_eq!(lights.len(), 1);
+        assert!(
+            lights[0].pos.abs_diff_eq((origin + head) * 0.5, 1e-4),
+            "reaching midpoint"
+        );
+        let normal = if terrain {
+            Vec3::from(
+                walk.sim
+                    .heightfield
+                    .as_ref()
+                    .unwrap()
+                    .normal_at(head.x, head.z),
+            )
+        } else {
+            -dir
+        };
+        walk.step_tick(&[PadState::default()]);
+        visual_update(&mut vis, &walk);
+        let lights = vis.omni_lights(&walk);
+        assert_eq!(lights.len(), 1);
+        assert!(
+            lights[0].pos.abs_diff_eq(head + normal * 0.5, 1e-4),
+            "{label}: actual={:?}, expected={:?}, error={}",
+            lights[0].pos,
+            head + normal * 0.5,
+            lights[0].pos.distance(head + normal * 0.5)
+        );
+        walk.step_tick(&[PadState::default()]);
+        visual_update(&mut vis, &walk);
+        assert_eq!(vis.remnant_count(), 0);
+        assert!(vis.omni_lights(&walk).is_empty());
+    }
+
+    #[test]
+    fn mounted_different_class_terrain_actual_step() {
+        mounted_light(
+            mounted_walk(true, false),
+            true,
+            "valid gun-class terrain impact",
+        );
+    }
+
+    #[test]
+    fn mounted_same_class_terrain_control() {
+        mounted_light(
+            mounted_walk(false, false),
+            true,
+            "same-class terrain control",
+        );
+    }
+
+    #[test]
+    fn mounted_building_control() {
+        mounted_light(mounted_walk(true, true), false, "mounted Building");
+    }
+
+    fn mounted_decoy(field: usize) {
+        let mut walk = mounted_walk(true, true);
+        let rider = walk.sim.unit(walk.player).unwrap().weapon_class;
+        let mut decoy = *walk
+            .sim
+            .events
+            .iter()
+            .find(|e| matches!(e, Event::Impact { .. }))
+            .unwrap();
+        if let Event::Impact {
+            pos,
+            dir,
+            weapon_class,
+            surface,
+            ..
+        } = &mut decoy
+        {
+            *surface = Surface::Terrain;
+            match field {
+                0 => *weapon_class = rider as u32,
+                1 => *pos += Vec3::X,
+                2 => *dir = -*dir,
+                _ => unreachable!(),
+            }
+        }
+        walk.sim.events.insert(0, decoy);
+        mounted_light(
+            walk,
+            false,
+            match field {
+                0 => "reject unrelated rider-class terrain decoy",
+                1 => "reject displaced gun-class terrain decoy",
+                2 => "reject reversed gun-class terrain decoy",
+                _ => unreachable!(),
+            },
+        );
+    }
+
+    #[test]
+    fn mounted_decoy_class() {
+        mounted_decoy(0);
+    }
+    #[test]
+    fn mounted_decoy_position() {
+        mounted_decoy(1);
+    }
+    #[test]
+    fn mounted_decoy_direction() {
+        mounted_decoy(2);
+    }
+
+    #[test]
+    fn mounted_fired_class_appearance() {
+        let walk = mounted_fixture(true, false, |walk, rider, gun| {
+            for (class, width, length, glow, texture, color) in [
+                (rider, 0.1, 0.4, 0.6, "Rider", [200, 20, 20, 100]),
+                (gun, 0.3, 0.8, 1.2, "Gun", [20, 200, 20, 150]),
+            ] {
+                let l = walk.sim.weapon_classes[class]
+                    .ordnance
+                    .laser
+                    .as_mut()
+                    .unwrap();
+                l.width = width;
+                l.length = length;
+                l.glow_length = glow;
+                l.texture = Some(texture.into());
+                l.glow_color = color;
+                l.fade_light = false;
+            }
+        });
+        let gun = walk
+            .sim
+            .events
+            .iter()
+            .find_map(|e| match e {
+                Event::Shot { weapon_class, .. } => Some(*weapon_class as usize),
+                _ => None,
+            })
+            .unwrap();
+        let mut vis = lit_vis();
+        visual_update(&mut vis, &walk);
+        assert_eq!(vis.remnant_count(), 1);
+        let m = &vis.remnants[0];
+        assert_eq!(m.class, gun, "stored fired class");
+        let light = vis.omni_lights(&walk)[0];
+        assert_eq!(light.radius, 9.0, "gun light radius");
+        assert_eq!(light.rgb, [25, 148, 25], "gun light color");
+        assert!(
+            (m.age - m.len / walk.sim.weapon_classes[gun].ordnance.velocity).abs() < 1e-6,
+            "gun flight age"
+        );
+        let look = walk.sim.weapon_classes[m.class]
+            .ordnance
+            .laser
+            .as_ref()
+            .unwrap();
+        assert_eq!(texture_name(look.texture.as_deref().unwrap()), "gun");
+        let draw = bolt_draw(look, m.head, m.dir, m.len, m.age, m.fade, [None, None]);
+        assert_eq!(draw.width, 0.3);
+        assert_eq!(draw.core_len, 0.8);
+        assert_eq!(draw.glow_len, 1.2);
+        assert_eq!(draw.core_color, [255; 4]);
+        assert_eq!(draw.glow_color, [20, 200, 20, 150]);
+    }
+
+    #[test]
+    fn mounted_rider_without_laser() {
+        let walk = mounted_fixture(true, false, |w, rider, _| {
+            w.sim.weapon_classes[rider].ordnance.laser = None;
+        });
+        mounted_light(walk, true, "laser gun with nonlaser rider");
+    }
+
+    #[test]
+    fn mounted_slow_rider() {
+        let walk = mounted_fixture(true, false, |w, rider, _| {
+            w.sim.weapon_classes[rider].ordnance.velocity = 0.1;
+        });
+        mounted_light(walk, true, "gun reach with slow rider");
+    }
+
+    #[test]
+    fn mounted_gun_without_laser() {
+        let walk = mounted_fixture(true, false, |w, _, gun| {
+            w.sim.weapon_classes[gun].ordnance.laser = None;
+        });
+        let mut vis = lit_vis();
+        visual_update(&mut vis, &walk);
+        assert_eq!(vis.remnant_count(), 0, "nonlaser gun has no remnant");
+        assert!(vis.omni_lights(&walk).is_empty());
+    }
+
+    #[test]
+    fn mounted_slower_gun_rejects_distant_expiry() {
+        let mut walk = mounted_fixture(true, false, |w, rider, gun| {
+            w.sim.weapon_classes[rider].ordnance.velocity *= 2.0;
+            w.sim.weapon_classes[gun].ordnance.velocity *= 0.1;
+        });
+        // The real shot has not reached its terrain hit. An unrelated struck
+        // expiry on that ray lies inside only the rider's longer first step.
+        let (origin, dir, gun) = walk
+            .sim
+            .events
+            .iter()
+            .find_map(|e| match e {
+                Event::Shot {
+                    origin,
+                    dir,
+                    weapon_class,
+                    ..
+                } => Some((*origin, *dir, *weapon_class as usize)),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(walk.sim.bolts.len(), 1, "slow gun still in flight");
+        let step = walk.sim.weapon_classes[gun].ordnance.velocity * core::TICK_DT;
+        walk.sim.events.push(Event::BoltExpired {
+            pos: origin + dir * (step * 2.0),
+            struck: true,
+        });
+        let mut vis = lit_vis();
+        visual_update(&mut vis, &walk);
+        assert_eq!(vis.remnant_count(), 0, "gun reach rejects unrelated expiry");
+    }
+
+    #[test]
+    fn mounted_gun_fade_and_bf1_light_control() {
+        for building in [false, true] {
+            let mut walk = mounted_fixture(true, building, |w, rider, gun| {
+                w.sim.weapon_classes[rider]
+                    .ordnance
+                    .laser
+                    .as_mut()
+                    .unwrap()
+                    .fade_out_rate = 60.0;
+                let l = w.sim.weapon_classes[gun].ordnance.laser.as_mut().unwrap();
+                l.fade_out_rate = 6.0;
+                l.fade_light = true;
+                l.fade_start = 0.0;
+                l.fade_duration = 0.05;
+                l.end_light_color = [100, 40, 200, 255];
+                l.end_glow_color = [10, 30, 70, 100];
+            });
+            let mut vis = lit_vis();
+            let mut bf1 = BoltVis::new(Path::new("unused-fixture-assets"), "bf1");
+            visual_update(&mut vis, &walk);
+            visual_update(&mut bf1, &walk);
+            let m = vis.remnants[0].clone();
+            let l = walk.sim.weapon_classes[m.class]
+                .ordnance
+                .laser
+                .as_ref()
+                .unwrap()
+                .clone();
+            assert_eq!(vis.omni_lights(&walk)[0].pos, (m.prev + m.head) * 0.5);
+            assert_eq!(vis.omni_lights(&walk)[0].rgb, l.light(m.age).unwrap().0);
+            assert!(bf1.omni_lights(&walk).is_empty());
+            for tick in 1..=6 {
+                walk.step_tick(&[PadState::default()]);
+                visual_update(&mut vis, &walk);
+                visual_update(&mut bf1, &walk);
+                assert!(bf1.omni_lights(&walk).is_empty());
+                if tick < 5 {
+                    assert_eq!(vis.remnant_count(), 1, "gun fade lifetime tick {tick}");
+                    let r = &vis.remnants[0];
+                    assert!((r.fade - (1.0 - tick as f32 * core::TICK_DT * 6.0)).abs() < 1e-6);
+                    assert_eq!(r.age, m.age, "flight age freezes at hit");
+                    let draw = bolt_draw(&l, r.head, r.dir, r.len, r.age, r.fade, [None, None]);
+                    assert_eq!(draw.glow_color, l.glow_bytes(m.age, r.fade));
+                    assert_eq!(draw.width, l.half_width(r.fade));
+                    let normal = if building { -m.dir } else { Vec3::Y };
+                    assert!(vis.omni_lights(&walk)[0]
+                        .pos
+                        .abs_diff_eq(m.head + normal * 0.5, 1e-4));
+                    assert_eq!(vis.omni_lights(&walk)[0].rgb, l.light(m.age).unwrap().0);
+                }
+            }
+            assert_eq!(vis.remnant_count(), 0, "gun fade expires");
+            assert_eq!(bf1.remnant_count(), 0);
+        }
     }
 
     fn lit_vis() -> BoltVis {

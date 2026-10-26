@@ -5,13 +5,13 @@ milestone: M3
 value: 4
 phase: build
 status: blocked
-deps: UTALK,WAIT4,CWAIT,WPOKE
+deps: UTALK,WAIT4,CWAIT,WPOKE,GBOARD,WGCAL
 files: engine/crates/core/src/ai/ride.rs, engine/crates/core/src/sim/seats.rs, engine/crates/core/src/ai/hover_drive.rs, engine/crates/core/src/ai/walker_drive.rs, engine/crates/core/src/ai/behave.rs, engine/crates/core/src/sim/step.rs, engine/crates/core/src/ai.rs, engine/crates/core/src/ai/state.rs, engine/crates/core/src/squad.rs
 declares: sim; sweep
 needs: environment restoration — baked game data/missions plus UTALK census kit and GUNWT raw reference evidence
 effort:
 branch:
-resume: WAIT4/HWAIT/CWAIT source checkpoints integrated, acceptance pending. WPOKE splits BF1 release-order pickup interruption: eight real-button failures/forty controls on4730708. Original restoration hold, call/reissue/answers/allocation and full Acceptance remain. reports/20261025_1230_planner.md
+resume: GBOARD48b1066 implemented with real checks pending; WGCAL queues initial BF1 wait-start call timing after six actual-step failures/40controls. Preserve call reissue/seat policy/ordered goals/allocation and full original restoration/Acceptance. reports/20261025_2259_planner.md
 created: 2026-10-16
 alpha: yes
 ---

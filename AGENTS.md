@@ -53,7 +53,7 @@ windowed renderer cannot read its frame back, so the picture is the maintainer's
   (its row type, `game/src/unit_probe.rs`, stays — the sweep's `UNIT_SAMPLES` shares it). On with dev mode, which is on by
   default (`OPENBF_DEV=0` turns both off); `OPENBF_BLACKBOX=0` turns only the black box off.
 
-## Keyboard + mouse (the maintainer, 2026-10-25)
+## Keyboard + mouse (the maintainer, 2026-10-25; contributed in the public repo's pull request #1)
 Keyboard and mouse play is a deliberate deviation from the PS2's controller-only input. Controller play, bots and
 controller-only replays must stay bit-identical. The rules:
 - The mouse reaches the sim as `PadState::mx`/`my`: angles in `LOOK_UNIT` (1/65536 rad), applied once, on the

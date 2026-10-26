@@ -4,16 +4,17 @@ title: BF1 MOVE OUT and AT EASE reach a waiting ground pilot and shorten its pic
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: parked
 deps: UTALK
-files: engine/crates/core/src/squad.rs, engine/crates/core/src/ai/ride.rs, engine/crates/core/src/ai/state.rs, engine/crates/core/src/ai/ride/tests/order_wait_tests.rs (new), engine/crates/core/src/sim/seats.rs
+files: engine/crates/core/src/squad.rs, engine/crates/core/src/ai/ride.rs, engine/crates/core/src/ai/state.rs, engine/crates/core/src/ai/ride/tests/order_wait_tests.rs, engine/crates/core/src/sim/vehicles.rs
 declares: sim; sweep
-needs:
+needs: real-content acceptance and pickup regression gates
 effort:
-branch:
-resume: Reproduce eight actual-button current-main failures and forty controls; implement only BF1 active ground-pilot wait interruption, generation-safe deadline/hash/lifecycle and caller mutations. Preserve original GUNWT and prior pickup acceptance. reports/20261025_1230_planner.md
+branch: main
+resume: Source checkpoint on current main; eight actual-button repairs and forty controls, lifecycle/hash/claim referees and 31 compiled mutations pass. Full real-content Acceptance5 remains pending; preserve pass3 decisions and original GUNWT bars. reports/20261025_2055_card_WPOKE.md
 created: 2026-10-25
 alpha: yes
+tries: 1
 ---
 
 ## Why

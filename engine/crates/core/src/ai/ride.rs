@@ -2,6 +2,10 @@
 //! and walks to ([`claim`], [`board_goal`]), the pad a seated driver makes
 //! ([`drive`]) and when it gets out. `think` hands a seated bot here; step 1c
 //! (`Sim::ai_use_pass`) carries out the enter / exit it asks for.
+//! GBOARD delivers BF1 uncommanded call targets at the next scheduled think,
+//! retaining ordinary route/seat checks and the port's claim arbitration.
+//! WGCAL publishes the initial BF1 ground call at PickupWait.started, once,
+//! after all think write-backs; wait clocks and driver precedence stay here.
 //! STCHG preserves a seat gun's charge deadline through this dispatch.
 //!
 //! The PS2's side, as far as it is read (`analysis/re-vehicles.md` §5, RE_LOG
@@ -45,7 +49,9 @@
 //! hold (`analysis/re-driver-wait.md` §§2,3,5,7): four seconds from seating
 //! (BF1) or first think (BF2), extended by fresh same-team AI claims or BF2's
 //! approaching human (15 seconds, before full-seat completion). Completion
-//! lasts this pilot tenure; route/progress work runs only after the hold.
+//! lasts this pilot tenure; BF1 release orders shorten the initial window
+//! by setting expiry to two seconds before the release (WPOKE), below claims.
+//! Route/progress work runs only after the hold.
 //! VBAIL Part 1 (re-walker-ai §8, re-hover-ai §2 H2): under 20% health,
 //! a pilot whose seeded 0..=100 draw has its low two bits clear orders all
 //! AI occupants out. The card's per-boarding draw lifetime is PROVISIONAL
@@ -196,6 +202,44 @@ pub(super) fn claim(sim: &Sim, me: UnitHandle, u: &Unit, st: &mut AiState) {
             ..r
         });
     }
+}
+
+/// Consume a call once, at the receiver's scheduled think. Only the exact
+/// live receiver may take it. A player order or an existing claim wins;
+/// repeated delivery cannot restart arbitration or the give-up clock.
+/// Unlike autonomous search, this explicit target needs neither a long trip
+/// nor an expired search cooldown (`re-driver-wait.md` §§3/4/7).
+pub(super) fn deliver_call(sim: &Sim, me: UnitHandle, u: &Unit, st: &mut AiState) {
+    let Some((owner, vh)) = st.pending_board.take() else {
+        return;
+    };
+    if owner != me
+        || !u.alive
+        || u.controller != crate::unit::Controller::Ai
+        || u.mount.is_some()
+        || u.command.is_some_and(|c| !c.in_pool())
+        || st.ride.is_some_and(|r| r.board.is_some())
+    {
+        return;
+    }
+    let Some(v) = sim.vehicle(vh) else { return };
+    if !matches!(v.kind, VehicleKind::Hover | VehicleKind::Walker)
+        || v.stuck_at
+            .is_some_and(|p| nav::xz_dist(p, v.pos) < STUCK_MOVED)
+        || claim_seat(sim, me, vh).is_none()
+        || !st
+            .target_cp
+            .and_then(|i| sim.cps.get(i as usize))
+            .is_some_and(|cp| routes_to(sim, vh, cp))
+    {
+        return;
+    }
+    st.ride = Some(RideState {
+        board: Some(vh),
+        since: sim.tick,
+        maintenance: None,
+        ..st.ride.unwrap_or_default()
+    });
 }
 
 /// Is `vh` a command walker (card CWSP: a walker whose class authors spawn
@@ -514,7 +558,11 @@ fn pickup_wait(sim: &Sim, m: Mount, st: &mut AiState, thinking: bool) -> bool {
     if !full && maintained_boarder(sim, m) {
         return true;
     }
-    if full || start.is_some_and(|t| sim.tick > t + 4 * u64::from(crate::TICK_HZ)) {
+    // Signed widening models now-minus-two even during the first two seconds.
+    let released = sim.ground_rules == GroundRules::Bf1
+        && w.released
+            .is_some_and(|t| i128::from(sim.tick) > i128::from(t) - 2 * i128::from(crate::TICK_HZ));
+    if full || released || start.is_some_and(|t| sim.tick > t + 4 * u64::from(crate::TICK_HZ)) {
         w.complete = true;
         return false;
     }
@@ -1481,8 +1529,15 @@ mod tests {
         assert!(s.unit(b).unwrap().ai.ride.is_none());
         assert_eq!(rng, s.rng.state(), "turret has no wait or boarding draw");
     }
+    #[path = "wait_call_tests.rs"]
+    mod wait_call_tests;
+
+    #[path = "call_board_tests.rs"]
+    mod call_board_tests;
     #[path = "claim_wait_tests.rs"]
     mod claim_wait_tests;
     #[path = "human_wait_tests.rs"]
     mod human_wait_tests;
+    #[path = "order_wait_tests.rs"]
+    mod order_wait_tests;
 }
