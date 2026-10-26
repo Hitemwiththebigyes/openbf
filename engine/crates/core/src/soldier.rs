@@ -1105,7 +1105,11 @@ impl Soldier {
                 self.vel.z = fwd_axis.y * f2 - sy * s2;
             }
             GroundRules::Bf1 => {
-                self.vel.y = c.jump_vy;
+                self.vel.y = if self.grounded && self.vel.y > 0.0 {
+                    self.vel.y + c.jump_vy
+                } else {
+                    c.jump_vy
+                };
                 let push = c.jump_vy * fwd_in * BF1_JUMP_PUSH;
                 self.vel.x += fwd_axis.x * push;
                 self.vel.z += fwd_axis.y * push;

@@ -67,6 +67,7 @@ pub struct Pose {
     pub vehicles: Vec<VehiclePose>,
     pub zoom_s: f32,
     pub zoom_fov_mix: f32,
+    pub cam_place: Option<(f32, Vec3)>,
 }
 
 impl Pose {
@@ -101,6 +102,7 @@ impl Pose {
             }));
         self.zoom_s = walk.zoom_s;
         self.zoom_fov_mix = walk.zoom_fov_mix;
+        self.cam_place = walk.cam_place;
     }
 
     /// Write this pose into the walk (slots past either length untouched).
@@ -122,6 +124,7 @@ impl Pose {
         }
         walk.zoom_s = self.zoom_s;
         walk.zoom_fov_mix = self.zoom_fov_mix;
+        walk.cam_place = self.cam_place;
     }
 }
 
@@ -190,6 +193,9 @@ pub fn blend(prev: &Pose, cur: &Pose, t: f32) -> Pose {
     }
     out.zoom_s = mix(prev.zoom_s, cur.zoom_s, t);
     out.zoom_fov_mix = mix(prev.zoom_fov_mix, cur.zoom_fov_mix, t);
+    if let (Some(p), Some(c)) = (prev.cam_place, cur.cam_place) {
+        out.cam_place = Some((mix(p.0, c.0, t), mix3(p.1, c.1, t)));
+    }
     out
 }
 
@@ -337,6 +343,7 @@ mod tests {
         let mut w = walk();
         me(&mut w).pos = Vec3::new(1.0, 0.0, 2.0);
         me(&mut w).yaw = 3.0;
+        w.cam_place = Some((1.8, Vec3::new(0.0, 0.0, 3.2)));
         let mut b = Blend {
             on: true,
             ..Default::default()
@@ -344,8 +351,10 @@ mod tests {
         b.before_tick(&w);
         me(&mut w).pos = Vec3::new(2.0, 0.5, 4.0);
         me(&mut w).yaw = -3.0;
+        w.cam_place = Some((1.8, Vec3::new(0.0, 0.0, 4.0)));
         assert!(b.apply(&mut w, 0.5));
         assert!(me(&mut w).pos.abs_diff_eq(Vec3::new(1.5, 0.25, 3.0), 1e-6));
+        assert_eq!(w.cam_place, Some((1.8, Vec3::new(0.0, 0.0, 3.6))));
         let half = std::f32::consts::PI;
         assert!(
             (me(&mut w).yaw.abs() - half).abs() < 1e-4,
@@ -355,6 +364,7 @@ mod tests {
         b.restore(&mut w);
         assert_eq!(me(&mut w).pos, Vec3::new(2.0, 0.5, 4.0));
         assert_eq!(me(&mut w).yaw, -3.0);
+        assert_eq!(w.cam_place, Some((1.8, Vec3::new(0.0, 0.0, 4.0))));
         assert!(!b.applied());
     }
 

@@ -6,6 +6,8 @@ use crate::soldier::GroundRules;
 use crate::unit::UnitSpec;
 use crate::weapon::WeaponClass;
 
+mod ramps;
+
 /// The combat calls `unit` asked over `ticks` steps: (tick, call).
 fn calls_of(s: &mut Sim, ticks: u32) -> Vec<(u64, UnitHandle, Call)> {
     let mut out = Vec::new();
