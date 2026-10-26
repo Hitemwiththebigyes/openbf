@@ -52,16 +52,15 @@ pub fn install_collision(sim: &mut Sim, m: &Manifest, map_dir: &Path, db: &Class
         };
     }
     sim.station_bodies.clear();
-    for s in &mut sim.stations {
+    sim.station_live_collision.clear();
+    for si in 0..sim.stations.len() {
+        let s = &mut sim.stations[si];
         let c = &sim.station_classes[usize::from(s.class)];
         if let Some([x, y, z, r]) = c.sphere {
             s.sphere_centre = s.pose().transform_point3(glam::Vec3::new(x, y, z));
             s.sphere_radius = r;
         }
-        let parts = s
-            .instance
-            .map_or_else(Vec::new, |i| sim.collision.prepare_rotation(i, s.transform));
-        sim.station_bodies.push(parts);
+        sim.prepare_station_collision(si);
     }
     sim.station_wreck_collision = sim
         .station_classes

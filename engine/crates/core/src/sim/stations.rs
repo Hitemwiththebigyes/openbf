@@ -128,6 +128,14 @@ impl Station {
         (feet - self.pos).length_squared() < self.radius * self.radius
     }
 
+    pub(super) fn repair_kind(&self) -> HealthType {
+        if self.destroyed && self.health.health_type == HealthType::Building {
+            HealthType::Building2
+        } else {
+            self.health.health_type
+        }
+    }
+
     pub fn pose(&self) -> glam::Mat4 {
         self.transform * glam::Mat4::from_quat(crate::vehicle::hover::quat_y(self.motion.yaw))
     }
@@ -162,6 +170,26 @@ pub(super) fn give_health(h: &mut Health, amount: f32) -> bool {
 }
 
 impl Sim {
+    pub fn prepare_station_collision(&mut self, station: usize) {
+        let s = self.stations[station];
+        let parts = s
+            .instance
+            .map_or_else(Vec::new, |i| self.collision.prepare_rotation(i, s.pose()));
+        let live = parts
+            .iter()
+            .map(|(index, local)| {
+                let b = &self.collision.bodies()[*index];
+                crate::collision::HullPart::new(*local, b.shape.clone(), b.layers)
+            })
+            .collect();
+        self.station_bodies
+            .resize_with(self.stations.len(), Vec::new);
+        self.station_live_collision
+            .resize_with(self.stations.len(), Vec::new);
+        self.station_bodies[station] = parts;
+        self.station_live_collision[station] = live;
+    }
+
     pub fn damage_station(
         &mut self,
         station: u16,
@@ -201,6 +229,13 @@ impl Sim {
             s.sphere_radius = r;
         }
         if let Some(i) = instance {
+            if self
+                .station_live_collision
+                .get(usize::from(station))
+                .is_none_or(Vec::is_empty)
+            {
+                self.prepare_station_collision(usize::from(station));
+            }
             let parts = self
                 .station_wreck_collision
                 .get(usize::from(class))

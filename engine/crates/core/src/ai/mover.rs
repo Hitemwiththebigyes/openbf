@@ -224,7 +224,7 @@ pub(super) fn run(
             // dropped for the straight line.
             // Card JITR: nor on the way to a held position — that is not
             // the leg the side-step belongs to.
-            let stepping = ret.is_none() && holding.is_none();
+            let stepping = ret.is_none() && holding.is_none() && walk_kind != WalkAsk::PICKUP;
             if let Some(r) = st.route.filter(|r| r.sidestep.abs() > 1 && stepping) {
                 let d = to.normalize_or_zero();
                 if d != Vec3::ZERO {

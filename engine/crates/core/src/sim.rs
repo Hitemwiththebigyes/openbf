@@ -41,6 +41,7 @@ mod input;
 mod look;
 mod ordnance;
 mod pickups;
+mod repair;
 mod round;
 mod seats;
 mod spawn;

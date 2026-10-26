@@ -68,6 +68,9 @@ impl Sim {
         let mut shots = Vec::new();
         for k in 0..self.units[i].held.len() {
             let class = self.units[i].held[k].class;
+            if self.tick_repair_weapon(i, Some(k), Some(k) == cur1 && held1, blocked, dt) {
+                continue;
+            }
             let input = FireInput {
                 held: Some(k) == cur1 && held1,
                 blocked,

@@ -574,3 +574,27 @@ unit leaves a health item; an enemy takes what a unit dropped; §8's battle rati
 - `FUN_002ef6b8`, the test a BF2 bot's detour must pass, and the two visibility tests in the level of detail (§6).
 - The taker of the thrown dual in §7.1.
 - No measurement with a human player: the BF2 detour and the gain effects were read, not watched.
+
+## 12. BF2 bot detours in the port (2026-10-26, B2ITEM)
+
+`core/src/ai/items.rs` implements the section 6 health/ammo item detour. A BF2 foot bot scans up to six nearby
+items every two seconds, tests the actual primary and held-weapon reserve caps, and accepts a useful
+health/ammo item within six metres. A successful search adds four seconds to the next search. The local move
+goes one metre past the item and returns to its starting point, then resumes the existing objective.
+Disappearance or loss of need starts the return early. Scan and detour state are hashed; diagnostics name the
+behavior `pickup` and walk kind 6. BF1's path leaves this state untouched. Service stations are outside this
+search.
+
+Port mechanisms, not newly verified PS2 findings: the human-proximity LOD gate uses 20 m, with LOS required
+beyond 7 m; the two original visibility predicates remain unidentified in section 6. The gate reads the human
+player slots. Reachability uses the existing LOS and standing-body floor-line checks, including the point past
+the item; a blocked candidate does not hide a later reachable candidate. Recovery, boarding, player squad
+orders and grenade escape outrank the detour. A six-second limit and a failed mover window abandon it. These
+use the port's existing movement architecture and are not a claim of bit-identical original AI.
+
+The item search and ammo grants share reserve-cap eligibility in `sim/pickups.rs`. Regression coverage
+includes fixed-step health/ammo collection and return, deterministic repeated inputs, search timing,
+primary/held/infinite reserves, BF1 exclusion, full units, energy/buff-only items, range, mounted units,
+blocked paths, alternative candidates, disappearing items, droid exclusion and all retained hash fields.
+Shared validation results are in `re-build-zones.md` section 10. No new live PCSX2 comparison or full-round
+sweep is claimed.

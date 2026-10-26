@@ -871,6 +871,7 @@ fn water_field_order_is_the_wire_format() {
             "patches",
             "triangles",
             "config",
+            "wet",
         ]
     );
     assert_eq!(

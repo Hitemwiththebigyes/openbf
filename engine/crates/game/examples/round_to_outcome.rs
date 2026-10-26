@@ -1642,7 +1642,7 @@ struct Past {
 
 /// Slots of the per-behaviour counters: one per `core::ai::Behaviour`
 /// (its last variant + 1).
-const N_BEHAVIOURS: usize = core::ai::Behaviour::Man as usize + 1;
+const N_BEHAVIOURS: usize = core::ai::Behaviour::Pickup as usize + 1;
 
 /// The shares line (module header, card RCYC): walking in place, the locus
 /// (of the units on foot, card FOFG) and the steering, from one sample per
@@ -1964,6 +1964,7 @@ impl Shares {
             B::Board,
             B::Follow,
             B::Recover,
+            B::Pickup,
         ]
         .iter()
         .filter(|b| self.stand_by[**b as usize] > 0)
@@ -1979,6 +1980,7 @@ impl Shares {
             B::Board,
             B::Follow,
             B::Recover,
+            B::Pickup,
             B::None,
             B::Overwatch,
         ]

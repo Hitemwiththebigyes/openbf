@@ -183,10 +183,14 @@ fn reserve_cap(spec: &UnitSpec, slot: u8, class: &WeaponClass, state: &WeaponSta
         .saturating_mul(class.rounds_per_clip)
 }
 
+fn needs_clips(w: &WeaponState, class: &WeaponClass, cap: u32) -> bool {
+    !class.infinite_ammo() && w.spare != SPARE_INFINITE && w.spare < cap
+}
+
 /// §5.4 for one weapon: `clips` more in reserve, up to `cap` rounds. A
 /// weapon with an endless reserve is unchanged.
 fn give_clips(w: &mut WeaponState, class: &WeaponClass, clips: u32, cap: u32) -> bool {
-    if clips == 0 || class.infinite_ammo() || w.spare == SPARE_INFINITE {
+    if clips == 0 || !needs_clips(w, class, cap) {
         return false;
     }
     let new = w
@@ -234,6 +238,22 @@ fn touches(u: &Unit, p: &Pickup, c: &ItemClass) -> bool {
 }
 
 impl Sim {
+    pub(crate) fn item_needed(&self, u: &Unit, c: &ItemClass) -> bool {
+        if !matches!(u.health.health_type, HealthType::Person | HealthType::Droid) {
+            return false;
+        }
+        if c.health > 0.0 && u.health.cur < u.health.max {
+            return true;
+        }
+        let lacks = |slot, class: usize, state: &WeaponState| {
+            let wc = &self.weapon_classes[class];
+            needs_clips(state, wc, reserve_cap(&u.spec, slot, wc, state))
+        };
+        c.ammo > 0
+            && (lacks(u.weapon_slot, u.weapon_class, &u.weapon)
+                || u.held.iter().any(|w| lacks(w.slot, w.class, &w.state)))
+    }
+
     /// Register an item class (one entry per name) and return its index.
     pub fn add_item_class(&mut self, c: ItemClass) -> u8 {
         if let Some(i) = self.item_classes.iter().position(|x| x.name == c.name) {

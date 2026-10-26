@@ -725,6 +725,9 @@ impl Sim {
                     self.nav_stats.blast_holds += 1;
                 }
             }
+            if self.tick_repair_weapon(i, None, fire_held, blocked, dt) {
+                continue;
+            }
             let input = FireInput {
                 held: fire_held,
                 blocked,

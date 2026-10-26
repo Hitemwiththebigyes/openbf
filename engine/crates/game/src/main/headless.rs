@@ -180,7 +180,19 @@ fn append_events(csv: &mut String, tick: usize, events: &[core::sim::Event]) {
     use core::sim::Event;
     for e in events {
         let line = match e {
-            // `b` is the weapon class that fired (a rider's: the seat gun).
+            Event::Repair {
+                unit,
+                amount,
+                target,
+                ..
+            } => {
+                let target = match target {
+                    core::projectile::Target::Unit(h) => format!("u{}g{}", h.index, h.gen),
+                    core::projectile::Target::Vehicle(h) => format!("v{}g{}", h.index, h.gen),
+                    core::projectile::Target::Station(i) => format!("s{i}"),
+                };
+                format!("{tick},repair,{},{target},{amount}\n", unit.index)
+            }
             Event::Shot {
                 unit, weapon_class, ..
             } => format!("{tick},shot,{},{weapon_class},\n", unit.index),

@@ -422,7 +422,7 @@ impl CollisionWorld {
         let inverse = pose.inverse();
         let mut parts = Vec::new();
         for (i, body) in self.bodies.iter().enumerate() {
-            if body.instance != Some(instance) {
+            if body.instance != Some(instance) || body.layers == super::Layers::NONE {
                 continue;
             }
             let extent = (body.aabb.min - origin)
@@ -445,15 +445,25 @@ impl CollisionWorld {
 
     pub fn replace_instance(&mut self, instance: u32, parts: &[HullPart], pose: glam::Mat4) {
         self.stations.remove(&instance);
-        for b in &mut self.bodies {
-            if b.instance == Some(instance) {
-                b.layers = super::Layers::NONE;
-            }
+        let slots: Vec<_> = self
+            .bodies
+            .iter()
+            .enumerate()
+            .filter_map(|(i, b)| (b.instance == Some(instance)).then_some(i))
+            .collect();
+        self.envelopes
+            .retain(|(i, _)| !slots.contains(&(*i as usize)));
+        for &i in &slots {
+            self.bodies[i].layers = super::Layers::NONE;
         }
-        for p in parts {
+        for (k, p) in parts.iter().enumerate() {
             let mut b = Body::with_layers(pose * p.local, p.shape.clone(), p.layers);
             b.instance = Some(instance);
-            self.bodies.push(b);
+            if let Some(&i) = slots.get(k) {
+                self.bodies[i] = b;
+            } else {
+                self.bodies.push(b);
+            }
         }
         self.generation += 1;
         self.rebuild_broadphase();

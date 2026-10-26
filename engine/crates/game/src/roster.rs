@@ -571,6 +571,13 @@ pub fn weapon_from_db(db: &ClassDb, weapon: &str) -> Result<WeaponClass> {
     db.get(weapon)
         .with_context(|| format!("weapon class {weapon} not in class db"))?;
     let wsrc = ClassSrc { db, class: weapon };
+    if db.engine_base(weapon) == Some("repair") {
+        let mut w = WeaponClass::from_props(weapon, &wsrc, OrdnanceClass::default());
+        w.repair = Some(core::weapon::Repair::from_props(&wsrc));
+        w.rounds_per_clip = 0;
+        w.flash = None;
+        return Ok(w);
+    }
     let ord_name =
         WeaponClass::ordnance_name(&wsrc).with_context(|| format!("{weapon}: no OrdnanceName"))?;
     db.get(&ord_name)
@@ -646,13 +653,6 @@ pub fn thrown_weapon_from_db(db: &ClassDb, weapon: &str) -> Result<Option<Weapon
     Ok(Some(w))
 }
 
-/// The slots of `soldier` past `primary` that the sim can run today, built
-/// (card GREN): a channel-0 slot as [`weapon_from_db`] builds a primary; a
-/// channel-1 slot only when it is a thrown weapon
-/// ([`thrown_weapon_from_db`]) — dispensers, mines, the recon droid and the
-/// tools wait for their cards (MINE, UORD), and a channel-0 grenade launcher
-/// stays a bolt weapon until UORD. A BF2 award slot (`MedalsTypeToUnlock`
-/// other than −1, re-grenades §2.4) is left out: nothing sets a medal bit.
 pub fn held_slots(db: &ClassDb, soldier: &str, primary: u8) -> Vec<HeldSlot> {
     db.weapon_slots(soldier)
         .into_iter()
@@ -665,7 +665,7 @@ pub fn held_slots(db: &ClassDb, soldier: &str, primary: u8) -> Vec<HeldSlot> {
             {
                 return None;
             }
-            let weapon = if s.channel == 1 {
+            let weapon = if s.channel == 1 && db.engine_base(&name) != Some("repair") {
                 thrown_weapon_from_db(db, &name).ok()??
             } else {
                 weapon_from_db(db, &name).ok()?

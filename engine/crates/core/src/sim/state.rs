@@ -87,6 +87,13 @@ impl Cheats {
 /// audio, traces and Tier-4 artifacts).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Event {
+    Repair {
+        unit: UnitHandle,
+        weapon_class: u32,
+        target: crate::projectile::Target,
+        pos: Vec3,
+        amount: f32,
+    },
     Shot {
         unit: UnitHandle,
         /// The weapon class that fired: the unit's own on foot, the seat
@@ -574,6 +581,7 @@ pub struct Sim {
     pub stations: Vec<super::stations::Station>,
     pub station_bodies: Vec<Vec<(usize, glam::Mat4)>>,
     pub station_wreck_collision: Vec<Vec<crate::collision::HullPart>>,
+    pub station_live_collision: Vec<Vec<crate::collision::HullPart>>,
     pub battle: Battle,
     pub cheats: Cheats,
     /// BF1 DAT_00517508 / BF2 DAT_005fcbe0: the profile's friendly-fire
@@ -923,6 +931,7 @@ impl Sim {
             stations: Vec::new(),
             station_bodies: Vec::new(),
             station_wreck_collision: Vec::new(),
+            station_live_collision: Vec::new(),
             battle: Battle::new([250, 250]),
             cheats: Cheats::default(),
             friendly_fire_scale: 1.0,

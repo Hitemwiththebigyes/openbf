@@ -142,6 +142,11 @@ pub fn each(walk: &WalkSim, ears: Vec3, mut play: impl FnMut(&str, Vec3)) {
                 weapon_class,
                 origin,
                 ..
+            }
+            | Event::Repair {
+                weapon_class,
+                pos: origin,
+                ..
             } => {
                 if let Some(n) = &walk.sim.weapon_classes[*weapon_class as usize].fire_sound {
                     play(n, *origin);

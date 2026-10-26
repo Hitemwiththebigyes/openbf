@@ -83,6 +83,7 @@ mod draw;
 mod gunner;
 mod gunner_foot;
 pub mod hover_drive;
+mod items;
 pub mod man;
 mod mover;
 mod ride;

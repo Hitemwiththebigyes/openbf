@@ -80,11 +80,13 @@ fn pair(src: &dyn PropSource, key: &str) -> Option<[f32; 2]> {
 }
 
 mod ordnance;
+mod repair;
 pub use ordnance::{
     blast_falloff, DamageDesc, ExplosionClass, Falloff, Health, HealthType, OrdKind, OrdnanceClass,
     EXPLOSION_OFFSET, HASH_FALLOFF_DURATION, HASH_FALLOFF_END_DAMAGE, HASH_FALLOFF_START,
     HASH_TEAM_BONUS_SCALE,
 };
+pub use repair::Repair;
 
 // ── Weapon class ──────────────────────────────────────────────────────────
 
@@ -219,6 +221,7 @@ pub struct WeaponClass {
     /// other weapon.
     pub thrown: Option<Thrown>,
     pub offhand_weapon: bool,
+    pub repair: Option<Repair>,
 }
 
 /// What the `grenade` weapon class adds (`analysis/re-grenades.md` §3.1; B1
@@ -357,6 +360,7 @@ impl Default for WeaponClass {
             flash: None,
             thrown: None,
             offhand_weapon: false,
+            repair: None,
         }
     }
 }
@@ -481,6 +485,7 @@ impl WeaponClass {
             // re-muzzle-flash §2's BF1 Alliance rifle row.
             thrown: None,
             offhand_weapon: false,
+            repair: None,
             flash: Some(crate::flash::MuzzleFlashLook {
                 radius: 0.6,
                 length: 0.025,

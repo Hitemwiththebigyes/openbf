@@ -37,6 +37,107 @@ fn world(map: &str) -> Option<(game::assets::Scene, Sim, UnitHandle)> {
 }
 
 #[test]
+fn disc_cutters_are_available_in_both_channels_with_the_original_repair_tables() {
+    let root = game::assets::baked_root().join("classes");
+    for (game, shared, soldier, name, channel, amounts) in [
+        (
+            "bf1",
+            "common",
+            "rep_inf_clone_pilot",
+            "rep_weap_inf_fusioncutter",
+            1,
+            [60.0, 20.0, 30.0],
+        ),
+        (
+            "bf2",
+            "ingame",
+            "rep_inf_ep3_engineer",
+            "rep_weap_inf_fusioncutter",
+            0,
+            [100.0, 50.0, 50.0],
+        ),
+    ] {
+        let mut db = game::classdb::ClassDb::default();
+        for side in [shared, "rep"] {
+            let path = root.join(format!("{game}_{side}.ron"));
+            if !path.exists() {
+                return;
+            }
+            db.load(&path).unwrap();
+        }
+        let cutter = game::roster::weapon_from_db(&db, name).unwrap();
+        assert_eq!(cutter.repair.unwrap().health[4..7], amounts);
+        assert_eq!(cutter.shot_delay, [0.5; 2]);
+        assert!(cutter.infinite_ammo());
+        assert!(cutter.flash.is_none());
+        let slots = db.weapon_slots(soldier);
+        let primary = slots.iter().find(|s| s.channel == 0).unwrap().slot;
+        let held = game::roster::held_slots(&db, soldier, primary);
+        assert!(
+            held.iter()
+                .any(|s| s.channel == channel && s.weapon.repair.is_some()),
+            "{game} {soldier}"
+        );
+    }
+}
+
+#[test]
+fn disc_droid_rebuilding_restores_the_live_collision_sphere_and_service() {
+    for map in ["bf1_bes1", "bf2_hot1"] {
+        for name in ["com_item_healthrecharge", "com_item_weaponrecharge"] {
+            let Some((_, mut sim, owner)) = world(map) else {
+                return;
+            };
+            let i = sim
+                .stations
+                .iter()
+                .position(|s| sim.station_classes[usize::from(s.class)].name == name)
+                .unwrap();
+            let station = sim.stations[i];
+            let sphere = sim.station_classes[usize::from(station.class)]
+                .sphere
+                .unwrap();
+            let live_count = sim.station_live_collision[i].len();
+            let damage = OrdnanceClass {
+                max_damage: 100_000.0,
+                ..Default::default()
+            }
+            .damage_desc(0.0, false);
+            sim.damage_station(i as u16, &damage, 1.0, Some(owner), Some(0));
+            assert!(sim.stations[i].destroyed);
+            sim.repair_station(i as u16, station.health.max - 1.0);
+            assert!(sim.stations[i].destroyed);
+            sim.repair_station(i as u16, 1.0);
+            assert!(!sim.stations[i].destroyed);
+            assert_eq!(
+                sim.collision.station(station.instance.unwrap()),
+                Some(i as u16)
+            );
+            assert_eq!(sim.station_bodies[i].len(), live_count);
+            let rebuilt = sim.stations[i];
+            assert_eq!(rebuilt.sphere_radius, sphere[3]);
+            assert!(
+                rebuilt.sphere_centre.distance(
+                    rebuilt
+                        .pose()
+                        .transform_point3(Vec3::new(sphere[0], sphere[1], sphere[2]))
+                ) < 0.0001
+            );
+            let u = sim.unit_mut(owner).unwrap();
+            u.soldier.pos = station.pos + Vec3::X * 1.5;
+            u.health.cur = 1.0;
+            u.weapon.spare = 0;
+            let mut served = false;
+            for _ in 0..75 {
+                sim.step(&[PadState::default()]);
+                served |= sim.events.iter().any(|e| matches!(e, Event::StationServed { station, .. } if usize::from(*station) == i));
+            }
+            assert!(served, "{map} {name}");
+        }
+    }
+}
+
+#[test]
 fn both_games_use_the_disc_health_wrecks_and_explosions_and_accept_real_collision_hits() {
     for map in ["bf1_bes1", "bf2_hot1"] {
         let mut checked = 0;
