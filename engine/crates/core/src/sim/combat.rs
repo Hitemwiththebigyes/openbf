@@ -131,6 +131,25 @@ impl Sim {
             }
             // A model wall ends the flight exactly as the terrain sheet does:
             // the same event, so the same puff and the same impact sound.
+            Hit::Target(Target::Station(s)) => {
+                if self
+                    .stations
+                    .get(usize::from(s))
+                    .is_none_or(|s| s.destroyed)
+                {
+                    return;
+                }
+                let desc = self.weapon_classes[b.weapon_class]
+                    .ordnance
+                    .damage_desc(b.age, false);
+                self.events.push(Event::BoltExpired {
+                    pos: b.end,
+                    struck: true,
+                });
+                self.push_impact(b, Surface::Building, None);
+                self.damage_station(s, &desc, 1.0, Some(b.owner), Some(b.team));
+                self.bolt_explodes(b);
+            }
             Hit::Terrain | Hit::World => {
                 self.events.push(Event::BoltExpired {
                     pos: b.end,

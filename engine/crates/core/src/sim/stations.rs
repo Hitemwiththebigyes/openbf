@@ -1,27 +1,5 @@
-//! The health, ammo and vehicle droids (`powerupstation`, card PWST,
-//! `analysis/re-powerup-station.md`). Step 5c' of the tick, after the items.
-//!
-//! - The reach (§3): the instance's `Radius` is a sphere at the station's
-//!   origin, fixed at load (the idle turns do not move it); a unit is inside
-//!   while its feet are strictly inside it, in 3-D.
-//! - The pass (§4): each station keeps its own clock; once it reaches the
-//!   class's `PowerupDelay` (the remainder kept, one pass a tick at most) the
-//!   station gives ONCE to every unit inside the class's amount for that
-//!   unit's health type, with the pickups' give rules (health to the cap,
-//!   +N clips to every weapon to its cap; a station passes no dispenser
-//!   skip). No team is read: friend and foe are served alike. Every
-//!   station's clock starts at 0 with the battle (§4, measured).
-//! - The state (§4, §6): a pass that served anyone leaves the station
-//!   SERVING (the game layer's arm swing / bob); a pass that served nobody
-//!   ends it. The animation itself is the game layer's.
-//!
-//! PROVISIONAL (ours): the living only (§12: a corpse inside the sphere is
-//! not checked on the PS2); a rider is not in the world and is not served,
-//! its vehicle is; a vehicle gets health only (a vehicle droid's +1 clip
-//! waits for vehicle reserves, which the port's seat guns do not keep). The
-//! gather's order is the port's slot order, units before vehicles; the
-//! PS2's 64-entity cap is kept. BF2's hero refusal and regeneration test
-//! (§4) wait for those units to exist; no station breaks yet (card PWSTD).
+mod motion;
+pub use motion::StationMotion;
 
 use super::pickups::give_ammo;
 use super::state::{Event, Sim};
@@ -55,13 +33,15 @@ pub struct StationClass {
     pub geometry: String,
     pub powerup_sound: Option<String>,
     pub ambient_sound: Option<String>,
-    /// The idle and serving animation's keys (§2.1, §6), read by the game
-    /// layer only.
     pub anim: StationAnim,
+    pub max_health: f32,
+    pub health_type: HealthType,
+    pub destroyed_geometry: Option<String>,
+    pub explosion: Option<crate::weapon::ExplosionClass>,
+    pub sphere: Option<[f32; 4]>,
+    pub wreck_sphere: Option<[f32; 4]>,
 }
 
-/// A station class's animation keys (§2.1, §6; every default 0 / none,
-/// B1 `FUN_002aa5d8`): the game layer's `viewer::stations` runs them.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct StationAnim {
     /// `IdleRotateSpeed` (rad/s): the idle turn about +Y; 0 = none.
@@ -91,6 +71,12 @@ impl StationClass {
             powerup_sound: None,
             ambient_sound: None,
             anim: StationAnim::default(),
+            max_health: 80.0,
+            health_type: HealthType::Building,
+            destroyed_geometry: None,
+            explosion: None,
+            sphere: None,
+            wreck_sphere: None,
         }
     }
 }
@@ -108,6 +94,14 @@ pub struct Station {
     pub timer: f32,
     /// The last pass served someone (§4: state 3, else 1).
     pub serving: bool,
+    pub health: Health,
+    pub destroyed: bool,
+    pub instance: Option<u32>,
+    pub transform: glam::Mat4,
+    pub team: Option<u8>,
+    pub sphere_centre: Vec3,
+    pub sphere_radius: f32,
+    pub motion: StationMotion,
 }
 
 impl Station {
@@ -118,6 +112,14 @@ impl Station {
             radius,
             timer: 0.0,
             serving: false,
+            health: Health::new(80.0, HealthType::Building),
+            destroyed: false,
+            instance: None,
+            transform: glam::Mat4::from_translation(pos),
+            team: None,
+            sphere_centre: pos,
+            sphere_radius: 0.0,
+            motion: StationMotion::new(1),
         }
     }
 
@@ -126,8 +128,15 @@ impl Station {
         (feet - self.pos).length_squared() < self.radius * self.radius
     }
 
+    pub fn pose(&self) -> glam::Mat4 {
+        self.transform * glam::Mat4::from_quat(crate::vehicle::hover::quat_y(self.motion.yaw))
+    }
+
     pub fn hash_into(&self, eat: &mut impl FnMut(&[u8])) {
+        self.motion.hash_into(eat);
         eat(&[self.class, self.serving as u8]);
+        eat(&[u8::from(self.destroyed)]);
+        eat(&self.health.cur.to_bits().to_le_bytes());
         for v in [self.pos.x, self.pos.y, self.pos.z, self.radius, self.timer] {
             eat(&v.to_bits().to_le_bytes());
         }
@@ -153,6 +162,62 @@ pub(super) fn give_health(h: &mut Health, amount: f32) -> bool {
 }
 
 impl Sim {
+    pub fn damage_station(
+        &mut self,
+        station: u16,
+        desc: &crate::weapon::DamageDesc,
+        scale: f32,
+        attacker: Option<UnitHandle>,
+        team: Option<u8>,
+    ) {
+        let Some(s) = self.stations.get_mut(usize::from(station)) else {
+            return;
+        };
+        if s.destroyed {
+            return;
+        }
+        let friendly = s.team.is_some() && s.team == team;
+        s.health
+            .take_damage(desc, scale, friendly, self.friendly_fire_scale);
+        if s.health.alive() {
+            return;
+        }
+        s.health.cur = 0.0;
+        s.destroyed = true;
+        s.serving = false;
+        let (class, pos, instance, transform) = (s.class, s.pos, s.instance, s.pose());
+        let station_team = s.team;
+        self.events.push(Event::StationDestroyed {
+            station,
+            class,
+            pos,
+            killer: attacker,
+        });
+        let c = &self.station_classes[usize::from(class)];
+        let explosion = c.explosion.clone();
+        if let Some([x, y, z, r]) = c.wreck_sphere {
+            let s = &mut self.stations[usize::from(station)];
+            s.sphere_centre = transform.transform_point3(Vec3::new(x, y, z));
+            s.sphere_radius = r;
+        }
+        if let Some(i) = instance {
+            let parts = self
+                .station_wreck_collision
+                .get(usize::from(class))
+                .map_or(&[][..], Vec::as_slice);
+            self.collision.replace_instance(i, parts, transform);
+        }
+        if let Some(e) = explosion {
+            self.explode_from(
+                &e,
+                pos,
+                None,
+                station_team,
+                Some(super::blast::BlastSource::Station(station)),
+            );
+        }
+    }
+
     /// Register a station class (one entry per name) and return its index.
     pub fn add_station_class(&mut self, c: StationClass) -> u8 {
         if let Some(i) = self.station_classes.iter().position(|x| x.name == c.name) {
@@ -166,18 +231,36 @@ impl Sim {
     pub(super) fn tick_stations(&mut self, dt: f32) {
         for si in 0..self.stations.len() {
             let s = self.stations[si];
+            if s.destroyed {
+                continue;
+            }
             let Some(c) = self.station_classes.get(usize::from(s.class)) else {
                 continue;
             };
             let delay = c.delay;
             let timer = s.timer + dt;
-            if timer < delay {
-                self.stations[si].timer = timer;
-                continue;
+            self.stations[si].timer = timer;
+            if timer >= delay {
+                self.stations[si].timer -= delay;
+                let served = self.station_pass(si);
+                self.stations[si].serving = served;
             }
-            self.stations[si].timer = timer - delay;
-            let served = self.station_pass(si);
-            self.stations[si].serving = served;
+            let c = &self.station_classes[usize::from(s.class)];
+            let s = &mut self.stations[si];
+            let previous_yaw = s.motion.yaw;
+            s.motion.step(&c.anim, s.serving, dt);
+            let pose = s.pose();
+            if let Some([x, y, z, r]) = c.sphere {
+                s.sphere_centre = pose.transform_point3(Vec3::new(x, y, z));
+                s.sphere_radius = r;
+            }
+            if s.motion.yaw != previous_yaw {
+                if let Some(parts) = self.station_bodies.get(si) {
+                    for &(i, local) in parts {
+                        self.collision.move_body(i, pose * local);
+                    }
+                }
+            }
         }
     }
 

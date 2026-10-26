@@ -934,6 +934,20 @@ pub fn station_class_from_db(db: &ClassDb, class: &str) -> Option<StationClass> 
         powerup_sound: sound("PowerupSound"),
         ambient_sound: sound("AmbientSound"),
         anim: station_anim(db, name),
+        sphere: None,
+        wreck_sphere: None,
+        max_health: f("MaxHealth").unwrap_or(0.0),
+        health_type: db
+            .prop(name, "HealthType")
+            .and_then(HealthType::parse)
+            .unwrap_or(HealthType::Building),
+        destroyed_geometry: db
+            .prop(name, "DestroyedGeometryName")
+            .map(|s| s.trim().to_ascii_lowercase())
+            .filter(|s| !s.is_empty()),
+        explosion: db
+            .prop(name, "ExplosionName")
+            .and_then(|s| explosion_class(db, s)),
     })
 }
 
@@ -975,7 +989,7 @@ pub fn add_stations(
 ) -> usize {
     let radius_key = crate::classdb::fnv1a_lowercase("Radius");
     let mut n = 0;
-    for inst in instances {
+    for (instance, inst) in instances.iter().enumerate() {
         let Some(name) = db.resolve(&inst.class).map(str::to_owned) else {
             continue;
         };
@@ -996,11 +1010,23 @@ pub fn add_stations(
             continue;
         }
         let c = sim.add_station_class(class);
-        sim.stations.push(core::sim::Station::new(
-            c,
-            glam::Vec3::from(inst.translation),
-            radius,
-        ));
+        let class = &sim.station_classes[usize::from(c)];
+        let mut s = core::sim::Station::new(c, glam::Vec3::from(inst.translation), radius);
+        s.health = core::weapon::Health::new(class.max_health, class.health_type);
+        s.instance = Some(instance as u32);
+        s.transform = crate::viewer::instance_matrix(inst.rotation, inst.translation);
+        s.team = inst
+            .props
+            .iter()
+            .rev()
+            .find(|(k, _)| *k == crate::classdb::fnv1a_lowercase("Team"))
+            .and_then(|(_, v)| v.trim().parse::<u8>().ok())
+            .filter(|t| (1..=2).contains(t))
+            .map(|t| t - 1);
+        s.motion = core::sim::StationMotion::new(instance as u32 + 1);
+        sim.collision
+            .bind_station(instance as u32, sim.stations.len() as u16);
+        sim.stations.push(s);
         n += 1;
     }
     n

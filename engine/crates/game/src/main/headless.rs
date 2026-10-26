@@ -250,6 +250,9 @@ fn append_events(csv: &mut String, tick: usize, events: &[core::sim::Event]) {
                 shooter.map_or(String::new(), |s| s.index.to_string()),
                 vehicle.index
             ),
+            Event::StationDestroyed { station, class, .. } => {
+                format!("{tick},station_destroyed,{station},{class},\n")
+            }
             Event::VehicleDestroyed {
                 vehicle, killer, ..
             } => format!(

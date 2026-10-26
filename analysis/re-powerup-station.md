@@ -345,3 +345,36 @@ each 2.0 s to max - 1; a destroyed station gives nothing (once stations can brea
   gathered was not checked. The port serves the living only.
 - BF2's engineer repair of a damaged station (§8); who damages a station (MaxHealth 80 / 200) and its explosion.
 - BF2 ammo / energy at a station not measured live (read; BF1's ammo measured).
+
+## 13. Port destruction follow-up (2026-10-26)
+
+The maintainer reported that the FX-7 and gonk on BF1 Bespin Platforms could not be destroyed. The original PWST implementation deliberately omitted destruction (its source named PWSTD); the class loader omitted MaxHealth, DestroyedGeometryName and ExplosionName, station instances had no health, and both projectile targets and explosion victims admitted only soldiers and vehicles.
+
+Original evidence reused [O, UNAUDITED]: sections 2.2 and 7 above, plus `re-build-zones.md` section 1. The EntityBuilding base defaults to HealthType Building. Its death handler switches to the authored destroyed geometry, and a station's update returns while the building state is nonzero. The BF1 death function `FUN_001bfb88` was reread directly in the local original executable's decompilation: its early state guard prevents a second death; it selects the destroyed geometry, updates collision, then calls `FUN_002701a0` for the class's ExplosionName at the building's origin with the building's own entity identity. Accordingly the port's station explosion has the station's team and no soldier owner; the shot that destroys it remains recorded as the destruction event's killer.
+
+The port now loads the disc health/type, destroyed geometry and explosion. Each station's manifest instance is bound to its collision bodies; a predictive bolt remembers the station index and applies the ordinary damage descriptor and BuildingScale. Explosions gather intact stations and apply the existing falloff and terrain/world visibility rules, excluding the target station's own bodies from its visibility ray. Neutral stations remain damageable with friendly fire disabled. A dead station clamps health to zero, stops service, freezes animation, stops its current ambient take and emits one StationDestroyed event. The authored wreck collision is installed before its death blast, whose visibility ray excludes that source instance. The battle view omits all live model/LOD parts and draws the existing wreck model. Health, destruction and motion state enter the simulation hash; station projectile targets have distinct hash tags.
+
+Scope and remaining limits: this implements destruction of already built stations. Fusion-cutter repair/rebuilding and initially unbuilt station activation remain separate work; those weapon/build systems were not added here. The initial bounds-derived blast sphere and render-only idle yaw were replaced after the live comparison in section 14. Existing GLB sphere metadata now carries the original common station model spheres; no new asset format is introduced.
+
+## 14. Live PS2 fidelity check (2026-10-26)
+
+The maintainer pointed to the running emulator in the project's `emulator` junction, targeting `../downhill-cc/emulator`. PCSX2 2.8.2 was running BF1 USA, serial `SLUS-20898`, CRC `503BF9E1`, on Bespin Platforms. The initial paused battle was preserved in state slot 9; the pre-existing slot 1 was left intact. PINE snapshots and the comparison script stay local under `engine/artifacts/lead_tmp/station-fidelity/`.
+
+[V-RAM] `baseline.ram` contains 30 station entities, found through station vtable `0x53eb78` and validated through class vtable `0x53ea48`. The 22 medical/ammo instances all have maximum health 80. Two were already destroyed in the maintainer's initial battle: medical entity `0x1c567e0` at `(114.517, 98.972, 182.409)` and ammo entity `0x1c57940` at `(113.193, 99.012, 184.003)`, both health 0 and building state 1 at entity +0x2a4. Live entities have state 0. This observes native destroyed objects; it is not a controlled count of shots needed to destroy one.
+
+The original COMMON.LVL model SPHR values and the paused game's world-space entity spheres agree exactly in radius, and within 0.00005 m in transformed centre, for all 22 medical/ammo entities. Intact and destroyed model-space measurements:
+
+| Model | Centre x, y, z (m) | Radius (m) |
+| --- | --- | --- |
+| Medical | 0.16547057, 1.10058284, -0.07259896 | 1.38141489 |
+| Medical wreck | -0.22346294, 0.38546023, -0.19447792 | 1.32047153 |
+| Ammo | 0, 0.72729754, 0 | 0.82304257 |
+| Ammo wreck | 0.00046858, 0.24494109, 0.07472894 | 0.67834860 |
+
+RAM fields used: class at entity +0x2d8, current/max health at +0x8/+0xc, matrix at +0x200, sphere cell/index at +0x100/+0x104, cell entry at cell +0x40 +16*index. The original root matrix and off-centre medical sphere change with idle rotation. [O] `FUN_002a9750` calls the entity matrix setter after its idle yaw update. The port now runs that clock in `core::sim::stations::motion`, moves the station's collision bodies, and transforms the model sphere through the same pose. The viewer reads that simulation motion, and destruction preserves the final yaw for both wreck geometry and collision. Motion has its own deterministic generator and is hashed; it does not consume the soldiers' shared generator.
+
+[O] BF1 EntityBuilding death handler `FUN_001bfb88` updates destroyed geometry/collision before calling explosion `FUN_002701a0`. The port follows this order and excludes the dying source instance from its blast's visibility rays. A regression checks that the first wreck can block a second station's chained blast. Original damage path `FUN_001bc190` applies the damage descriptor's health-type scale; the port uses its existing shared damage implementation. BF2 health 200/ammo 80 and authored wreck/explosion properties remain checked against its disc data, not live BF2 RAM in this comparison.
+
+Verification: `compare.py` checks the local RAM against the rebaked model spheres; `game/tests/suite/station_destruction.rs` checks the measured BF1 values, moving collision, frozen wreck transforms, both games' health and actual collision-hit destruction; the GPU check reads back intact and destroyed draws. Both affected common asset groups were rebaked. The previous bake-input stamp was first checked against unchanged inputs plus the HEAD versions of the three common-metadata edits, then advanced after both common bakes succeeded.
+
+Remaining limits: attempted mouse firing through emulator input automation did not produce a verified native damage sequence, so no native shots-to-destroy result is claimed. The port still steps animation at 30 Hz and animates off-screen stations, whereas the original has a visibility gate and updates per rendered frame. The existing predictive-projectile model and general explosion gather ordering remain port-wide approximations. Repair/rebuilding remains outside this destruction change.

@@ -545,7 +545,13 @@ impl Sim {
             .and_then(|b| b.as_ref())
             .and_then(|b| b.explosion.clone());
         if let Some(e) = exp {
-            self.explode_from(&e, pos, pilot, team, Some(h));
+            self.explode_from(
+                &e,
+                pos,
+                pilot,
+                team,
+                Some(super::blast::BlastSource::Vehicle(h)),
+            );
         }
         for u in riders {
             match killer {

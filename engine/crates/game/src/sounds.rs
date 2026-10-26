@@ -451,7 +451,7 @@ pub struct SoundLib {
     cries: HashMap<u32, Cry>,
     /// Each station's ambient handle: sounding until this time on the
     /// library's clock, by station index (card PWST, [`SoundLib::station_ambient`]).
-    station_voices: HashMap<u16, f32>,
+    station_voices: HashMap<u16, Cry>,
     /// Weighted-pick state (audio-only randomness; never touches the sim).
     seed: u32,
     pub played: u64,
@@ -1627,20 +1627,34 @@ impl SoundLib {
         listener: &Listener,
     ) {
         for (unit, s) in self.cries(asks, listener.pos) {
-            if self.sound(audio, &s.path).is_err() {
-                continue;
-            }
-            let pitch = (s.pitch * self.rate_mul).max(0.05);
-            let ears = s.ears(listener);
-            let (db, pan) = mixer_pair(ears);
-            let shot = audio.play_shot(&self.cache[&s.path], db, f64::from(pitch), pan);
+            let shot = self.mix_shot(audio, &s, listener);
             if let Some(c) = self.cries.get_mut(&unit) {
                 c.shot = shot;
             }
-            let dist = (s.pos - listener.pos).length();
-            self.note(s.hash, &s.path, s.gain, ears, pitch, dist);
-            self.played += 1;
         }
+    }
+
+    fn mix_shot(
+        &mut self,
+        audio: &mut audio::Audio,
+        s: &Start,
+        listener: &Listener,
+    ) -> Option<audio::Shot> {
+        self.sound(audio, &s.path).ok()?;
+        let pitch = (s.pitch * self.rate_mul).max(0.05);
+        let ears = s.ears(listener);
+        let (db, pan) = mixer_pair(ears);
+        let shot = audio.play_shot(&self.cache[&s.path], db, f64::from(pitch), pan);
+        self.note(
+            s.hash,
+            &s.path,
+            s.gain,
+            ears,
+            pitch,
+            (s.pos - listener.pos).length(),
+        );
+        self.played += 1;
+        shot
     }
 
     /// A tick's station ambient asks (card PWST, re-ambience-music §5.2):
@@ -1655,7 +1669,7 @@ impl SoundLib {
             if self
                 .station_voices
                 .get(&station)
-                .is_some_and(|t| *t > self.now)
+                .is_some_and(|v| v.ends > self.now)
             {
                 continue;
             }
@@ -1664,7 +1678,13 @@ impl SoundLib {
             if let Some(s) = out.get(from) {
                 let (path, pitch) = (s.path.clone(), (s.pitch * self.rate_mul).max(0.05));
                 let secs = self.decoded(&path).map_or(0.0, |d| d.duration_secs());
-                self.station_voices.insert(station, self.now + secs / pitch);
+                self.station_voices.insert(
+                    station,
+                    Cry {
+                        ends: self.now + secs / pitch,
+                        shot: None,
+                    },
+                );
             }
         }
         out
@@ -1677,8 +1697,16 @@ impl SoundLib {
         asks: &[(u16, u32, Vec3)],
         listener: &Listener,
     ) {
-        let starts = self.station_ambient(asks, listener.pos);
-        self.mix(audio, &starts, listener);
+        self.station_voices
+            .retain(|id, _| asks.iter().any(|(i, _, _)| i == id));
+        for ask in asks {
+            for s in self.station_ambient(std::slice::from_ref(ask), listener.pos) {
+                let shot = self.mix_shot(audio, &s, listener);
+                if let Some(v) = self.station_voices.get_mut(&ask.0) {
+                    v.shot = shot;
+                }
+            }
+        }
     }
 
     /// A take decoded without the mixer, for its length ([`decode_noted`]).

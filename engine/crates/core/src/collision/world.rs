@@ -354,6 +354,7 @@ pub struct CollisionWorld {
     /// grid: a query reads them all, after `bodies`, through its own AABB
     /// test.
     hulls: Vec<Hull>,
+    stations: std::collections::BTreeMap<u32, u16>,
 }
 
 impl CollisionWorld {
@@ -395,12 +396,67 @@ impl CollisionWorld {
             grid,
             envelopes,
             hulls: Vec::new(),
+            stations: std::collections::BTreeMap::new(),
         }
     }
 
     /// The placed bodies, in the order every query's tie-break is defined on.
     pub fn bodies(&self) -> &[Body] {
         &self.bodies
+    }
+
+    pub fn bind_station(&mut self, instance: u32, station: u16) {
+        self.stations.insert(instance, station);
+    }
+
+    pub fn station(&self, instance: u32) -> Option<u16> {
+        self.stations.get(&instance).copied()
+    }
+
+    pub fn prepare_rotation(
+        &mut self,
+        instance: u32,
+        pose: glam::Mat4,
+    ) -> Vec<(usize, glam::Mat4)> {
+        let origin = pose.w_axis.truncate();
+        let inverse = pose.inverse();
+        let mut parts = Vec::new();
+        for (i, body) in self.bodies.iter().enumerate() {
+            if body.instance != Some(instance) {
+                continue;
+            }
+            let extent = (body.aabb.min - origin)
+                .abs()
+                .max((body.aabb.max - origin).abs())
+                .length()
+                + 0.01;
+            let envelope = Aabb {
+                min: origin - glam::Vec3::splat(extent),
+                max: origin + glam::Vec3::splat(extent),
+            };
+            self.envelopes.retain(|(k, _)| *k as usize != i);
+            self.envelopes.push((i as u32, envelope));
+            parts.push((i, inverse * body.to_world));
+        }
+        self.envelopes.sort_by_key(|(i, _)| *i);
+        self.rebuild_broadphase();
+        parts
+    }
+
+    pub fn replace_instance(&mut self, instance: u32, parts: &[HullPart], pose: glam::Mat4) {
+        self.stations.remove(&instance);
+        for b in &mut self.bodies {
+            if b.instance == Some(instance) {
+                b.layers = super::Layers::NONE;
+            }
+        }
+        for p in parts {
+            let mut b = Body::with_layers(pose * p.local, p.shape.clone(), p.layers);
+            b.instance = Some(instance);
+            self.bodies.push(b);
+        }
+        self.generation += 1;
+        self.rebuild_broadphase();
     }
 
     /// Append a body. The broad phase goes stale (every query scans every

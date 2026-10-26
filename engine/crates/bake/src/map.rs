@@ -1032,6 +1032,8 @@ fn bake_content(
                 alpha_usage.record_model(&m, &alphas);
                 let glb = if kind == Content::Map {
                     crate::glb::world_model_to_glb(&m, &alphas, hdr.is_some())?
+                } else if kind == Content::Common && turret_rigs.station_model(&m.name) {
+                    crate::glb::station_model_to_glb(&m, &alphas)?
                 } else if m.name.to_ascii_lowercase().starts_with("hud_") {
                     // A HUD mesh keeps its vertex colours (card BHUD2).
                     crate::glb::hud_model_to_glb(&m, &alphas)?

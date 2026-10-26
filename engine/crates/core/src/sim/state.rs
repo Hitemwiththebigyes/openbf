@@ -255,6 +255,12 @@ pub enum Event {
         vel: Vec3,
         killer: Option<UnitHandle>,
     },
+    StationDestroyed {
+        station: u16,
+        class: u8,
+        pos: Vec3,
+        killer: Option<UnitHandle>,
+    },
     /// A dead soldier dropped an item (card PWUP); `item` indexes
     /// [`Sim::item_classes`].
     ItemDropped {
@@ -566,6 +572,8 @@ pub struct Sim {
     /// The placed health / ammo / vehicle droids, in manifest order. HASHED
     /// when there is one.
     pub stations: Vec<super::stations::Station>,
+    pub station_bodies: Vec<Vec<(usize, glam::Mat4)>>,
+    pub station_wreck_collision: Vec<Vec<crate::collision::HullPart>>,
     pub battle: Battle,
     pub cheats: Cheats,
     /// BF1 DAT_00517508 / BF2 DAT_005fcbe0: the profile's friendly-fire
@@ -912,6 +920,8 @@ impl Sim {
             pickups: Vec::new(),
             station_classes: Vec::new(),
             stations: Vec::new(),
+            station_bodies: Vec::new(),
+            station_wreck_collision: Vec::new(),
             battle: Battle::new([250, 250]),
             cheats: Cheats::default(),
             friendly_fire_scale: 1.0,

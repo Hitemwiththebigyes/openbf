@@ -705,6 +705,10 @@ impl Scene {
     pub fn resolve_model(&self, class: &str) -> Option<&str> {
         let cls = self.resolve_class(class)?;
         let geom = cls.geometry.as_deref()?;
+        self.model_for_geometry(geom)
+    }
+
+    pub fn model_for_geometry<'a>(&'a self, geom: &'a str) -> Option<&'a str> {
         let model = match self
             .manifest
             .geometries

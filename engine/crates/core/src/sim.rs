@@ -69,7 +69,7 @@ pub use state::{
     LETHAL_LANDING_SPEED, OUTCOME_DRAW,
 };
 pub use stations::{
-    Station, StationAnim, StationClass, DELAY_DEFAULT as STATION_DELAY_DEFAULT,
+    Station, StationAnim, StationClass, StationMotion, DELAY_DEFAULT as STATION_DELAY_DEFAULT,
     GATHER_MAX as STATION_GATHER_MAX,
 };
 

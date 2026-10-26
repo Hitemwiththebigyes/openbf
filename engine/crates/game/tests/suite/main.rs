@@ -27,6 +27,7 @@ mod skinned_glb;
 mod skirt_climb;
 mod sound_sublevels;
 mod squad_orders_ps2;
+mod station_destruction;
 mod station_draw;
 mod turret_gunner;
 mod turret_pose;

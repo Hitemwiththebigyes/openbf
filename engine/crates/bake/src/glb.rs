@@ -37,7 +37,11 @@ pub fn model_to_glb(
     alphas: &[crate::alpha::SegmentAlpha],
     vertex_light: bool,
 ) -> Result<Vec<u8>> {
-    write_model(m, alphas, vertex_light, false, None, false)
+    write_model(m, alphas, vertex_light, false, None, false, vertex_light)
+}
+
+pub fn station_model_to_glb(m: &Model, alphas: &[crate::alpha::SegmentAlpha]) -> Result<Vec<u8>> {
+    write_model(m, alphas, false, false, None, false, true)
 }
 
 /// [`model_to_glb`] for a HUD mesh (card BHUD2): each segment's COL0 goes out
@@ -46,7 +50,7 @@ pub fn model_to_glb(
 /// (`render::hud`). The weapon backdrops are shaped by it: grey at 83/128
 /// fading to alpha 0 along the pill.
 pub fn hud_model_to_glb(m: &Model, alphas: &[crate::alpha::SegmentAlpha]) -> Result<Vec<u8>> {
-    write_model(m, alphas, false, false, None, true)
+    write_model(m, alphas, false, false, None, true, false)
 }
 
 /// [`model_to_glb`] for a map bake's world model, `vertex_light` on, on a map
@@ -58,7 +62,7 @@ pub fn world_model_to_glb(
     alphas: &[crate::alpha::SegmentAlpha],
     hdr: bool,
 ) -> Result<Vec<u8>> {
-    write_model(m, alphas, true, hdr, None, false)
+    write_model(m, alphas, true, hdr, None, false, true)
 }
 
 /// [`model_to_glb`], plus — when `joints` is given, one list per segment of
@@ -73,7 +77,7 @@ pub fn model_to_glb_joints(
     vertex_light: bool,
     joints: Option<&[Vec<usize>]>,
 ) -> Result<Vec<u8>> {
-    write_model(m, alphas, vertex_light, false, joints, false)
+    write_model(m, alphas, vertex_light, false, joints, false, vertex_light)
 }
 
 fn write_model(
@@ -83,6 +87,7 @@ fn write_model(
     hdr: bool,
     joints: Option<&[Vec<usize>]>,
     hud_colors: bool,
+    sphere: bool,
 ) -> Result<Vec<u8>> {
     let mut bin = Bin::default();
     let mut primitives = Vec::new();
@@ -195,7 +200,7 @@ fn write_model(
     let mut mesh = json!({"name": m.name, "primitives": primitives});
     // Card BPNT: a world model's sphere, which the PS2 gathers its local
     // lights by (`model_sphere`).
-    if vertex_light {
+    if sphere {
         mesh["extras"] = json!({ "sphere": model_sphere(m) });
     }
     crate::gltf_bin::rigid_glb(bin, mesh, &m.name, Some(json!(materials)))

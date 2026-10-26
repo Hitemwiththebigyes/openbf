@@ -709,6 +709,15 @@ impl Fx {
                         }
                     }
                 }
+                Event::StationDestroyed { class, pos, .. } => {
+                    if let Some(x) = sim
+                        .station_classes
+                        .get(usize::from(*class))
+                        .and_then(|c| c.explosion.as_ref())
+                    {
+                        self.explode(&x.look, *pos);
+                    }
+                }
                 Event::VehicleDestroyed { class, pos, .. } => {
                     let setup = sim
                         .blast_setup

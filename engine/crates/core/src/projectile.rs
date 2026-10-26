@@ -39,6 +39,7 @@ pub enum Hit {
 pub enum Target {
     Unit(UnitHandle),
     Vehicle(crate::vehicle::VehicleHandle),
+    Station(u16),
 }
 
 #[derive(Clone, Debug)]
@@ -109,6 +110,10 @@ impl Bolt {
                 eat(&h.index.to_le_bytes());
                 eat(&h.gen.to_le_bytes());
             }
+            Hit::Target(Target::Station(s)) => {
+                eat(&[5]);
+                eat(&s.to_le_bytes());
+            }
         }
     }
 
@@ -160,7 +165,10 @@ impl Bolt {
                 best_t = h.t;
                 hit = match h.owner {
                     Some(v) => Hit::Target(Target::Vehicle(v)),
-                    None => Hit::World,
+                    None => h
+                        .instance
+                        .and_then(|i| world.station(i))
+                        .map_or(Hit::World, |s| Hit::Target(Target::Station(s))),
                 };
             }
         }
