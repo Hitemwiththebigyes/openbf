@@ -251,12 +251,22 @@ pub struct InHand {
 
 /// [`InHand`] for `u`, its weapon classes `classes`.
 pub fn weapon_in_hand(u: &core::unit::Unit, classes: &[core::weapon::WeaponClass]) -> InHand {
-    let held = (u.active_channel == 1)
+    in_hand(classes, channel_weapon(u))
+}
+
+fn channel_weapon(u: &core::unit::Unit) -> (usize, u8, &core::weapon::WeaponState) {
+    (u.active_channel == 1)
         .then(|| u.held.get(usize::from(u.cur1?)))
-        .flatten();
-    let (class, slot, state) = held.map_or((u.weapon_class, u.weapon_slot, &u.weapon), |h| {
-        (h.class, h.slot, &h.state)
-    });
+        .flatten()
+        .map_or((u.weapon_class, u.weapon_slot, &u.weapon), |h| {
+            (h.class, h.slot, &h.state)
+        })
+}
+
+fn in_hand(
+    classes: &[core::weapon::WeaponClass],
+    (class, slot, state): (usize, u8, &core::weapon::WeaponState),
+) -> InHand {
     let hides = classes
         .get(class)
         .and_then(|c| c.thrown.as_ref())
@@ -353,6 +363,9 @@ pub struct UnitVisual {
     pub shot_tick: Option<u64>,
     /// The weapon class last seen in the unit's hands and the set it picks.
     set: Option<(usize, usize)>,
+    throwing: Option<usize>,
+    pending_throw: Option<u8>,
+    throw_windup: f32,
     /// Card VTURG: a seated gunner's world matrix this frame; `None` when he
     /// is not drawn in a seat.
     seat_model: Option<Mat4>,
@@ -564,6 +577,7 @@ fn rider_now<'a>(
 pub struct SoldierVisuals {
     pub assets: Vec<SoldierAsset>,
     pub weapons: Vec<WeaponAsset>,
+    grenades: Vec<Option<usize>>,
     /// `per_class[team][class]` -> indices into `assets` and `weapons`; a
     /// `None` body = marker box.
     pub per_class: [Vec<ClassDraw>; 2],
@@ -650,6 +664,8 @@ fn model_of(s: &core::soldier::Soldier) -> Mat4 {
     Mat4::from_translation(s.pos) * Mat4::from_rotation_y(s.yaw + std::f32::consts::PI)
 }
 
+mod grenade;
+use grenade::{drawn, drawn_weapon};
 mod runtime;
 
 #[cfg(test)]

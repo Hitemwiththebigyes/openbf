@@ -678,8 +678,8 @@ impl Sim {
             // KNOCK, re-knockback §2: the PS2 zeroes the trigger bytes;
             // PROVISIONAL: the port skips the fire processing, so a held
             // charge is neither fired nor lost).
-            let blocked =
-                self.units[i].soldier.stance == Stance::Roll || self.units[i].soldier.no_fire();
+            let blocked = matches!(self.units[i].soldier.stance, Stance::Roll | Stance::Jump)
+                || self.units[i].soldier.no_fire();
             // A soldier with more slots than the one in its hands (GREN):
             // the channels decide whether FIRE reaches the primary.
             let mut fire_held = if self.units[i].held.is_empty() {

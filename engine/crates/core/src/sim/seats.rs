@@ -540,7 +540,7 @@ impl Sim {
         };
         let held = target.occupant;
         if held.is_some_and(|occupant| {
-            !unit.is_player || !self.unit(occupant).is_some_and(|rider| !rider.is_player)
+            !unit.is_player || self.unit(occupant).is_none_or(|rider| rider.is_player)
         }) {
             return false;
         }

@@ -218,6 +218,7 @@ pub struct WeaponClass {
     /// The `grenade` weapon class's own keys (card GREN); `None` for every
     /// other weapon.
     pub thrown: Option<Thrown>,
+    pub offhand_weapon: bool,
 }
 
 /// What the `grenade` weapon class adds (`analysis/re-grenades.md` §3.1; B1
@@ -355,6 +356,7 @@ impl Default for WeaponClass {
             change_sound: None,
             flash: None,
             thrown: None,
+            offhand_weapon: false,
         }
     }
 }
@@ -448,6 +450,7 @@ impl WeaponClass {
                 team_bonus_scale: 0.0,
                 ordnance_sound: Some("com_weap_inf_ord_hum_sm".into()),
                 collision_sound: Some("imp_weap_ord_exp".into()),
+                geometry: None,
                 // re-bolt §2's BF1 rifle row.
                 laser: Some(crate::laser::LaserLook {
                     texture: Some("redlaser_D".into()),
@@ -477,6 +480,7 @@ impl WeaponClass {
             change_sound: Some("all_weap_inf_equip_med".into()),
             // re-muzzle-flash §2's BF1 Alliance rifle row.
             thrown: None,
+            offhand_weapon: false,
             flash: Some(crate::flash::MuzzleFlashLook {
                 radius: 0.6,
                 length: 0.025,
@@ -516,6 +520,7 @@ impl WeaponClass {
                 team_bonus_scale: 0.25,
                 ordnance_sound: Some("com_weap_inf_ord_hum_sm".into()),
                 collision_sound: Some("imp_weap_ord_exp".into()),
+                geometry: None,
                 // re-bolt §2's BF2 Republic rifle row (red End inherited).
                 laser: Some(crate::laser::LaserLook {
                     texture: Some("com_sfx_laser_blue".into()),
@@ -589,6 +594,9 @@ impl WeaponClass {
         }
         if let Some(v) = pf(src, "TriggerSingle") {
             w.trigger_single = v != 0.0;
+        }
+        if let Some(v) = pf(src, "OffhandWeapon") {
+            w.offhand_weapon = v != 0.0;
         }
         // The zoom keys (`analysis/re-zoom.md` §2): a written 0 reads 1.0
         // (B2:320352-320361, B1:209974-209983), and `ZoomMin` / `ZoomMax`

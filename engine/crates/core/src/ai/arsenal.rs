@@ -265,7 +265,7 @@ pub(super) fn choose<'a>(cands: impl Iterator<Item = Cand<'a>>, ask: &Ask) -> Op
                 if !ask.crowd || ask.d2 <= HEAVY_NEAR * HEAVY_NEAR {
                     continue;
                 }
-            } else if !allowed && !(ask.bf2 && ask.group) {
+            } else if !(allowed || (ask.bf2 && ask.group)) {
                 continue;
             }
             if ask.bf2 {
@@ -332,7 +332,7 @@ pub(super) fn sidearm(
     closing: bool,
     bf2: bool,
 ) -> Option<(u8, bool)> {
-    let usable = |c: &&Cand| !c.empty && !(bf2 && c.busy);
+    let usable = |c: &&Cand| !(c.empty || (bf2 && c.busy));
     let rifle = cands
         .iter()
         .flatten()

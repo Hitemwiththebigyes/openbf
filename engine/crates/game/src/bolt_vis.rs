@@ -488,22 +488,6 @@ impl BoltVis {
                 .and_then(|n| self.texture(r, &texture_name(n)));
             out.push(bolt_draw(look, head, dir, len, age, fade, [core, glow]));
         }
-        // The thrown grenades (card GREN). PROVISIONAL: a short glow where
-        // each one is — the ordnance's own model (`GeometryName`) waits for
-        // an ordnance model bake.
-        for g in &walk.sim.stickies {
-            out.push(BoltDraw {
-                head: g.pos + Vec3::Y * 0.1,
-                dir: Vec3::Y,
-                core_len: 0.0,
-                glow_len: 0.2,
-                width: 0.1,
-                core_texture: None,
-                glow_texture: glow,
-                core_color: [0; 4],
-                glow_color: [255, 160, 60, 255],
-            });
-        }
         out
     }
 

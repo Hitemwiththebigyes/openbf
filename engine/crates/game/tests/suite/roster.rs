@@ -1630,7 +1630,7 @@ fn fielded_classes_hold_their_sidearm_and_grenades() {
             let has = fill.held.iter().any(|h| h.channel == 1);
             assert_eq!(
                 has,
-                !(game == "bf1" && r.faction == "cis") && !(game == "bf2" && r.faction == "cis"),
+                !((game == "bf1" || game == "bf2") && r.faction == "cis"),
                 "{game} {}: {}",
                 r.faction,
                 fill.class

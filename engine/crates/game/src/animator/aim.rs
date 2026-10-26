@@ -12,9 +12,9 @@
 //! * BF2: 2.5 s while armed (`FUN_0024f078`), 0 for the tool and melee
 //!   classes; the UPPER clip's `AimType` (the disc's `sanm`) says Head or
 //!   Torso, faded over that clip's `BlendInTime`.
-//! * The pose: yaw within ±0.6283 rad of the legs, pitch within ±1.0996
-//!   (prone: none downward), eased 15 % an update (BF1) or by min(1, 4.5 dt)
-//!   (BF2). Torso: `bone_a_spine`, `bone_b_spine`, `bone_ribcage` stand at
+//! * The pose: yaw within ±0.6283 rad of the facing less the leg twist,
+//!   pitch within ±1.0996 (prone: none downward), eased 15 % an update (BF1)
+//!   or by min(1, 4.5 dt) (BF2). Torso: `bone_a_spine`, `bone_b_spine`, `bone_ribcage` stand at
 //!   1/8, 4/8 and 8/8 of the angle (BF2's 0.125 + 0.375 + 0.5, cumulative,
 //!   is the same three); head: `bone_neck` 2/8, `bone_head` 5/8.
 //!
@@ -76,7 +76,7 @@ pub struct AimStep {
     pub arm: bool,
     /// A shoot action started this update (BF1 arms on it).
     pub shot: bool,
-    /// (yaw from the legs, pitch) of the aim line, rad.
+    /// (yaw from the facing, pitch) of the aim line, rad.
     pub aim: (f32, f32),
     pub prone: bool,
     /// On his feet: the states that take an aim pose.
@@ -151,9 +151,13 @@ impl Aim {
         (self.torso * self.state, self.head * self.state)
     }
 
-    /// The eased (yaw, pitch).
+    /// The eased (yaw from the facing, pitch).
     pub fn eased(&self) -> (f32, f32) {
         self.eased
+    }
+
+    pub fn turn(&self, twist: f32) -> (f32, f32) {
+        (self.eased.0 - twist, self.eased.1)
     }
 
     /// BF1: the factor on both layers' weight, 0.2 rising to 1 over 0.4 s at
@@ -228,12 +232,11 @@ impl Aim {
     }
 
     /// Turn `pose`'s torso and head onto the eased aim.
-    pub fn apply(&self, pose: &mut Pose, skel: &Skeleton) {
+    pub fn apply(&self, pose: &mut Pose, skel: &Skeleton, twist: f32) {
         let (torso, head) = self.weights();
-        let turn = |share: f32| {
-            Quat::from_rotation_y(self.eased.0 * share)
-                * Quat::from_rotation_x(-self.eased.1 * share)
-        };
+        let (yaw, pitch) = self.turn(twist);
+        let turn =
+            |share: f32| Quat::from_rotation_y(yaw * share) * Quat::from_rotation_x(-pitch * share);
         for (bones, w) in [(&TORSO[..], torso), (&HEAD[..], head)] {
             if w <= 0.0 {
                 continue;
@@ -353,7 +356,7 @@ mod tests {
 
     fn posed(a: &Aim, s: &Skeleton) -> Pose {
         let mut p = Pose::bind(s);
-        a.apply(&mut p, s);
+        a.apply(&mut p, s, 0.0);
         p
     }
 

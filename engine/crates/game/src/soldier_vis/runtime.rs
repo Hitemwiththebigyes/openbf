@@ -1,9 +1,9 @@
 //! Soldier asset loading, animation updates and draw submission.
 
 use super::{
-    fire_point, held_or_primary, model_of, part_groups, part_spec, rider_now, seat_now,
-    weapon_in_hand, with_spec, ClassDraw, DrawPlan, FlashModel, HoverClock, SeatClock,
-    SoldierAsset, SoldierVisuals, UnitVisual, WeaponAsset, CORPSE_SECS,
+    drawn, drawn_weapon, fire_point, held_or_primary, model_of, part_groups, part_spec, rider_now,
+    seat_now, with_spec, ClassDraw, DrawPlan, FlashModel, HoverClock, SeatClock, SoldierAsset,
+    SoldierVisuals, UnitVisual, WeaponAsset, CORPSE_SECS,
 };
 use crate::animator::{AnimInput, Animator, ClassAnim, Rig};
 use crate::assets::{load_skinned_glb, SkinnedAsset};
@@ -23,6 +23,28 @@ impl SoldierVisuals {
         walk: &WalkSim,
     ) -> Self {
         let mut vis = Self::load(r, assets_dir, &scene.manifest.source_game, &walk.teams);
+        let mut cache = HashMap::new();
+        let mut models = HashMap::new();
+        vis.grenades = walk
+            .sim
+            .weapon_classes
+            .iter()
+            .map(|w| {
+                w.ordnance.sticky.as_ref()?;
+                let name = w.ordnance.geometry.as_deref()?;
+                Some(*models.entry(name).or_insert_with(|| {
+                    let index = vis.weapons.len();
+                    vis.weapons.push(Self::load_weapon(
+                        Some(&mut *r),
+                        assets_dir,
+                        &scene.manifest.source_game,
+                        name,
+                        &mut cache,
+                    ));
+                    index
+                }))
+            })
+            .collect();
         vis.set_turrets(tp::rigged_turrets(scene));
         vis.set_walker_rigs(crate::viewer::walker_rigs(
             &scene.manifest,
@@ -207,6 +229,7 @@ impl SoldierVisuals {
         Self {
             assets,
             weapons,
+            grenades: Vec::new(),
             per_class,
             held: plan.held,
             anim: teams
@@ -397,6 +420,7 @@ impl SoldierVisuals {
     /// that steps several ticks calls this after each
     /// (`WalkSim::advance_with`) so an earlier tick's shot still flashes.
     pub fn note_shots(&mut self, walk: &WalkSim) {
+        self.note_throws(walk);
         for e in &walk.sim.events {
             let core::sim::Event::Shot { unit, .. } = e else {
                 continue;
@@ -413,6 +437,21 @@ impl SoldierVisuals {
         }
     }
 
+    pub(super) fn sync_units(&mut self, walk: &WalkSim) {
+        let n = walk.sim.units.len();
+        if self.units.len() < n {
+            self.units.resize_with(n, UnitVisual::default);
+        }
+        for (v, u) in self.units.iter_mut().zip(&walk.sim.units) {
+            if v.gen != u.gen {
+                *v = UnitVisual {
+                    gen: u.gen,
+                    ..Default::default()
+                };
+            }
+        }
+    }
+
     /// Advance every unit's animator from the sim state (`dt` = real seconds).
     pub fn update(&mut self, walk: &WalkSim, dt: f32) {
         self.update_with(walk, dt, None);
@@ -425,10 +464,7 @@ impl SoldierVisuals {
         dt: f32,
         mut census: Option<&mut crate::animator::census::Census>,
     ) {
-        let n = walk.sim.units.len();
-        if self.units.len() < n {
-            self.units.resize_with(n, UnitVisual::default);
-        }
+        self.note_throws(walk);
         self.step_hover_nines(walk);
         let fired: Vec<u32> = walk
             .sim
@@ -447,12 +483,6 @@ impl SoldierVisuals {
             };
             let sa = &self.assets[ai];
             let v = &mut self.units[i];
-            if v.gen != u.gen {
-                *v = UnitVisual {
-                    gen: u.gen,
-                    ..Default::default()
-                };
-            }
             if !u.alive {
                 v.dead_for += dt;
             }
@@ -563,12 +593,7 @@ impl SoldierVisuals {
         dt: f32,
         census: Option<&mut crate::animator::census::Census>,
     ) {
-        // The weapon in hand (channel 1's while it has the soldier) picks
-        // the set.
-        let held = (u.active_channel == 1)
-            .then(|| u.held.get(usize::from(u.cur1?)))
-            .flatten();
-        let (wc, weapon) = held.map_or((u.weapon_class, &u.weapon), |h| (h.class, &h.state));
+        let (wc, _, weapon) = drawn(u, &walk.sim.weapon_classes);
         let class = walk.sim.weapon_classes.get(wc);
         let team = &anim[usize::from(u.team.min(1))];
         let anim = team.get(usize::from(u.spec.class).min(team.len().saturating_sub(1)));
@@ -590,7 +615,9 @@ impl SoldierVisuals {
             root_scale: anim.map_or(1.0, |a| a.root_scale),
             dead: !u.alive,
             set,
-            fired: u.mount.is_none() && fired.contains(&(i as u32)),
+            fired: u.mount.is_none() && v.throwing.is_none() && fired.contains(&(i as u32)),
+            throw: v.pending_throw.take(),
+            throw_windup: v.throw_windup,
             reloading: weapon.reloading(),
             reload_time: class.map_or(0.0, |c| c.reload_time),
             // PROVISIONAL and ours (FEEL_NOTES; the PS2's two soldier
@@ -599,7 +626,7 @@ impl SoldierVisuals {
             alert: u.mount.is_none()
                 && u.alive
                 && (fired.contains(&(i as u32))
-                    || weapon.fire_cmd > 0
+                    || (weapon.fire_cmd > 0 && class.is_none_or(|c| c.thrown.is_none()))
                     || u.ai.target.is_some()
                     || u.spec.player_slot.is_some_and(|p| {
                         walk.sim
@@ -674,7 +701,7 @@ impl SoldierVisuals {
             if u.mount.is_some() {
                 continue;
             }
-            let hand = weapon_in_hand(u, &walk.sim.weapon_classes);
+            let hand = drawn_weapon(u, &walk.sim.weapon_classes);
             if hand.hidden {
                 continue;
             }
@@ -683,6 +710,18 @@ impl SoldierVisuals {
             };
             let m = model * palette[hp] * sa.asset.skeleton.global_bind[hp];
             weapon.part_draws(m, &mut out);
+        }
+        for g in &walk.sim.stickies {
+            let Some(model) = self
+                .grenades
+                .get(g.weapon_class)
+                .copied()
+                .flatten()
+                .and_then(|i| self.weapons.get(i))
+            else {
+                continue;
+            };
+            model.part_draws(Mat4::from_translation(g.pos), &mut out);
         }
         out
     }
@@ -697,7 +736,7 @@ impl SoldierVisuals {
         for (i, sa, model, palette) in self.posed(walk) {
             if let (Some(hp), None) = (sa.hp_weapons, walk.sim.units[i].mount) {
                 let u = &walk.sim.units[i];
-                let in_hand = weapon_in_hand(u, &walk.sim.weapon_classes);
+                let in_hand = drawn_weapon(u, &walk.sim.weapon_classes);
                 let name = walk
                     .sim
                     .weapon_classes
@@ -732,7 +771,7 @@ impl SoldierVisuals {
             let Some(look) = walk
                 .sim
                 .weapon_classes
-                .get(weapon_in_hand(u, &walk.sim.weapon_classes).class)
+                .get(drawn_weapon(u, &walk.sim.weapon_classes).class)
                 .and_then(|w| w.flash.as_ref())
                 .filter(|f| f.draws() && f.model.as_deref() == Some(model.name.as_str()))
             else {
@@ -822,6 +861,8 @@ impl SoldierVisuals {
                 dead: false,
                 set: rig.weapon_set(anim.map_or("human", |a| &a.family), bank),
                 fired: false,
+                throw: None,
+                throw_windup: 0.0,
                 reloading: false,
                 reload_time: 0.0,
                 alert: false,

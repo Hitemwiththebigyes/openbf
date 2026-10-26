@@ -66,6 +66,22 @@ pub fn ps2_soldier_fovs(rules: core::soldier::GroundRules) -> (f32, f32) {
 /// targets by exp(-25 dt) per update (`re-zoom.md` §5).
 pub const ZOOM_EASE_RATE: f32 = 25.0;
 
+const CAMERA_MOVE_TENSION: f32 = 15.0;
+const VIEW_SETTLE_EPSILON: f32 = 1e-4;
+
+fn ease_camera_place(from: (f32, Vec3), to: (f32, Vec3), dt: f32) -> (f32, Vec3) {
+    let k = core::fmath::exp(-CAMERA_MOVE_TENSION * dt);
+    let y = to.0 + (from.0 - to.0) * k;
+    let offset = to.1 + (from.1 - to.1) * k;
+    if (y - to.0).abs() < VIEW_SETTLE_EPSILON
+        && (offset - to.1).abs().max_element() < VIEW_SETTLE_EPSILON
+    {
+        to
+    } else {
+        (y, offset)
+    }
+}
+
 /// The chase camera's vertical FOV (radians) for a manifest's `source_game`.
 /// The port keeps the PS2's VERTICAL framing and widens the horizontal with
 /// the window (Hor+, `render::Camera::fov_y`) — never the 4:3 horizontal.
@@ -484,6 +500,7 @@ pub struct WalkSim {
     /// How far the FOV has eased from the class's third-person FOV (0) to
     /// its first-person one (1), the zoomed view's.
     pub zoom_fov_mix: f32,
+    pub cam_place: Option<(f32, Vec3)>,
     /// The player's FOV option (profile `Settings::fov_scale`), clamped to
     /// [`FOV_SCALE_RANGE`]; 1.0 = the PS2's framing.
     pub fov_scale: f32,
@@ -601,6 +618,7 @@ impl WalkSim {
             fov_y_ps2: ps2_fov_y("bf1"),
             zoom_s: 1.0,
             zoom_fov_mix: 0.0,
+            cam_place: None,
             fov_scale: 1.0,
             voice: None,
             music: None,
@@ -924,7 +942,7 @@ impl WalkSim {
         let k = core::fmath::exp(-ZOOM_EASE_RATE * core::TICK_DT);
         let ease = |v: f32, to: f32| {
             let v = to + (v - to) * k;
-            if (v - to).abs() < 1e-4 {
+            if (v - to).abs() < VIEW_SETTLE_EPSILON {
                 to
             } else {
                 v
@@ -932,6 +950,7 @@ impl WalkSim {
         };
         self.zoom_s = ease(self.zoom_s, zoom.map_or(1.0, |z| z.value));
         self.zoom_fov_mix = ease(self.zoom_fov_mix, if zoom.is_some() { 1.0 } else { 0.0 });
+        self.cam_place = self.next_cam_place();
         // The squad's answers to this tick's orders join the voice queue;
         // the units' combat calls wait for the sound bank's gates
         // (`Commander::gate_calls`).
@@ -941,15 +960,6 @@ impl WalkSim {
         }
     }
 
-    /// Third-person chase camera: the PS2's ideal camera (`core::unit`
-    /// `ideal_camera`, `analysis/re-aim-assist.md` §10.2 step 4) - the track
-    /// centre above the soldier plus the stance's track offset in a frame
-    /// that looks the section's tilt BELOW the aim - then kept out of the
-    /// terrain and (PROVISIONAL) out of world geometry. No smoothing (BF1's
-    /// AimTension 30 and the MoveTension 15 are card CAMS's; the ZOOM
-    /// sections are taken at once on the PS2 too). Zoomed on a scope weapon
-    /// it is the scope's eye, looking along the aim. Framed at
-    /// [`WalkSim::fov_y`].
     pub fn camera(&self) -> Camera {
         if let Some(b) = &self.backdrop {
             return b.camera();
@@ -959,12 +969,43 @@ impl WalkSim {
         }
         let me = &self.sim.units[self.player.index as usize];
         let ideal = me.ideal_camera(self.sim.ground_rules, self.sim.views());
+        let (center, position) = self.drawn_eye(me, &ideal);
         Camera {
-            position: self.settle_camera(ideal.center, ideal.position),
+            position: self.settle_camera(center, position),
             yaw: me.soldier.yaw,
             pitch: core::fmath::atan2(ideal.forward.y, ideal.forward.with_y(0.0).length()),
             fov_y: self.fov_y(),
             ..Camera::default()
+        }
+    }
+
+    fn drawn_eye(&self, me: &core::unit::Unit, ideal: &core::unit::IdealCamera) -> (Vec3, Vec3) {
+        let sec = me.section(self.sim.ground_rules);
+        let Some((eye_y, offset)) = self.cam_place.filter(|_| !me.scoped()) else {
+            return (ideal.center, ideal.position);
+        };
+        if (eye_y, offset) == (sec.eye_y, sec.offset) {
+            return (ideal.center, ideal.position);
+        }
+        let lift = Vec3::Y * (eye_y - sec.eye_y);
+        let d = offset - sec.offset;
+        let right = ideal.forward.cross(ideal.up);
+        (
+            ideal.center + lift,
+            ideal.position + lift + right * d.x + ideal.up * d.y - ideal.forward * d.z,
+        )
+    }
+
+    fn next_cam_place(&self) -> Option<(f32, Vec3)> {
+        let me = self.sim.unit(self.player)?;
+        if self.backdrop.is_some() || me.mount.is_some() || me.scoped() {
+            return None;
+        }
+        let sec = me.section(self.sim.ground_rules);
+        let to = (sec.eye_y, sec.offset);
+        match self.cam_place {
+            Some(from) if me.zoom.is_none() => Some(ease_camera_place(from, to, core::TICK_DT)),
+            _ => Some(to),
         }
     }
 
@@ -1178,570 +1219,4 @@ impl WalkSim {
 }
 
 #[cfg(test)]
-mod tests {
-    /// The five value rows, and the "everything else is Locals" rule that the
-    /// built-in trooper (faction "team") falls into.
-    #[test]
-    fn faction_rows_cover_the_four_mains_and_default_to_locals() {
-        assert_eq!(super::faction_row("all"), 0);
-        assert_eq!(super::faction_row("imp"), 1);
-        assert_eq!(super::faction_row("rep"), 2);
-        assert_eq!(super::faction_row("cis"), 3);
-        assert_eq!(super::faction_row("CIS"), 3, "case-insensitive");
-        assert_eq!(super::faction_row("alliance"), 0);
-        assert_eq!(super::faction_row("team"), 4, "the built-in trooper");
-        assert_eq!(super::faction_row("wookiee"), 4);
-    }
-
-    use super::*;
-    use core::sim::buttons;
-
-    /// The PS2's measured vertical FOVs (FINDINGS F5), and the option scales
-    /// the chase camera's angle within its range and cap.
-    #[test]
-    fn chase_camera_takes_the_ps2_vertical_fov() {
-        let deg = |r: f32| r.to_degrees();
-        assert!((deg(ps2_fov_y("bf1")) - 37.69).abs() < 0.01);
-        assert!((deg(ps2_fov_y("BF2")) - 52.06).abs() < 0.01);
-        let mut w = WalkSim::new(1, Vec3::ZERO, Some(flat_ground()));
-        w.fov_y_ps2 = ps2_fov_y("bf2");
-        assert_eq!(w.camera().fov_y, ps2_fov_y("bf2"));
-        w.fov_scale = 1.5;
-        assert!((w.camera().fov_y - 1.5 * ps2_fov_y("bf2")).abs() < 1e-6);
-        w.fov_scale = 9.0;
-        assert_eq!(w.camera().fov_y, MAX_FOV_Y);
-        w.fov_scale = 0.0;
-        assert!((w.camera().fov_y - FOV_SCALE_RANGE.0 * ps2_fov_y("bf2")).abs() < 1e-6);
-    }
-
-    /// Card ZOOM acceptance 4, the camera's half (`analysis/re-zoom.md` §5):
-    /// S after n ticks of a zoom z is z + (1 - z) exp(-25 n dt) - the PS2's
-    /// rows 1.848, 2.217, 2.377 for the rifle - the settled vertical FOV is
-    /// 15.55 deg in BF1 and 24.24 deg in BF2 (the base FOV eased 65 -> 70
-    /// deg), the camera stands at the ZOOM section, the reticle stays on the
-    /// aim ray, and the zoom out comes back to the plain FOV exactly.
-    #[test]
-    fn the_zoom_eases_the_projection_as_the_ps2_does() {
-        use core::sim::buttons;
-        use core::soldier::GroundRules;
-        let pad = |buttons| PadState {
-            buttons,
-            ..Default::default()
-        };
-        for (game, rules, settled, first) in [
-            ("bf1", GroundRules::Bf1, 15.55, 20.92),
-            ("bf2", GroundRules::Bf2, 24.24, 31.16),
-        ] {
-            let mut w = WalkSim::new(1, Vec3::ZERO, Some(flat_ground()));
-            w.sim.ground_rules = rules;
-            w.fov_y_ps2 = ps2_fov_y(game);
-            let plain = w.camera();
-            w.step_tick(&[pad(buttons::ZOOM)]);
-            let cam = w.camera();
-            // The section is taken at once: 0.4 m to the right, 3.5 deg
-            // under the aim.
-            let me = &w.sim.units[w.player.index as usize];
-            assert!(((cam.position - me.soldier.pos).dot(cam.right()) - 0.4).abs() < 1e-3);
-            assert!(((me.soldier.pitch - cam.pitch).to_degrees() - 3.5).abs() < 0.01);
-            let mut rows = vec![w.zoom_s];
-            let first_fov = cam.fov_y.to_degrees();
-            for n in 2..=40 {
-                w.step_tick(&[pad(0)]);
-                if n <= 4 {
-                    rows.push(w.zoom_s);
-                }
-            }
-            let fov = w.camera().fov_y.to_degrees();
-            println!(
-                "{game}: plain {:.2} deg, S {rows:.4?}, first zoomed tick {first_fov:.2} deg, settled {fov:.2} deg, reticle line {:.1} of 480",
-                plain.fov_y.to_degrees(),
-                w.reticle_y() * 480.0
-            );
-            for (i, s) in rows.iter().enumerate() {
-                let n = (i + 1) as f32;
-                let want = 2.5 + (1.0 - 2.5) * (-25.0 * n * core::TICK_DT).exp();
-                assert!(
-                    (s - want).abs() < 1e-4,
-                    "{game} tick {n}: S {s} want {want}"
-                );
-            }
-            // The PS2's own rows (BF2's 1 / 30 s update; BF1's 33.36 ms
-            // clock reads 1.8486, 2.2171, 2.3772).
-            for (s, ps2) in rows.iter().zip([1.8481, 2.2167]) {
-                assert!((s - ps2).abs() < 2e-3);
-            }
-            assert_eq!(w.zoom_s, 2.5, "S rests at the zoom");
-            assert!((first_fov - first).abs() < 0.02, "{game}: {first_fov}");
-            assert!((fov - settled).abs() < 0.01, "{game}: {fov}");
-            // The reticle is where the aim ray goes (§5 [D]: tan(3.5 deg) x
-            // S / tan of the half height above the centre).
-            let t = (w.camera().fov_y * 0.5).tan();
-            let want = 0.5 - 0.5 * 3.5f32.to_radians().tan() / t;
-            assert!((w.reticle_y() - want).abs() < 2e-3);
-            // Out again: the plain camera, to the bit.
-            w.step_tick(&[pad(buttons::ZOOM)]);
-            for _ in 0..40 {
-                w.step_tick(&[pad(0)]);
-            }
-            assert_eq!(w.camera().fov_y, plain.fov_y);
-            assert_eq!(w.camera().position, plain.position);
-        }
-    }
-
-    /// Card AIMA: the chase camera looks the section's tilt below the aim
-    /// and the reticle sits where the aim ray goes on screen - line 178.5 of
-    /// 480 on a BF1 map, 153.35 on a BF2 map (`re-aim-assist.md` §10.4), at
-    /// every pitch; a wider FOV option moves it toward the centre.
-    #[test]
-    fn the_reticle_sits_where_the_aim_ray_goes_on_screen() {
-        use core::soldier::GroundRules;
-        for (game, rules, line, cam_deg) in [
-            ("bf1", GroundRules::Bf1, 178.5, -9.011),
-            ("bf2", GroundRules::Bf2, 153.35, -14.011),
-        ] {
-            let mut w = WalkSim::new(1, Vec3::ZERO, Some(flat_ground()));
-            w.sim.ground_rules = rules;
-            w.fov_y_ps2 = ps2_fov_y(game);
-            let cam = w.camera();
-            let y = w.reticle_y() * 480.0;
-            println!(
-                "{game}: camera pitch {:.3} deg, {:.3} m up, reticle line {y:.2} of 480",
-                cam.pitch.to_degrees(),
-                cam.position.y
-            );
-            assert!((cam.pitch.to_degrees() - cam_deg).abs() < 0.01);
-            assert!((y - line).abs() < 0.5, "{game}: line {y}");
-            assert!((ps2_reticle_y(game) * 480.0 - line).abs() < 0.5);
-            for pitch in [-0.3, 0.2, 0.6] {
-                w.sim.units[w.player.index as usize].soldier.pitch = pitch;
-                let y = w.reticle_y() * 480.0;
-                assert!((y - line).abs() < 0.5, "{game} pitch {pitch}: line {y}");
-            }
-            w.fov_scale = 1.3;
-            assert!(w.reticle_y() * 480.0 > line + 5.0);
-        }
-    }
-
-    /// Flat ground at y = 0 over ±2 km. A sim with NO heightfield now floors at
-    /// `core::collision::NO_GROUND` (−300) instead of 0, so a test about
-    /// standing on flat ground has to say so.
-    fn flat_ground() -> Heightfield {
-        Heightfield {
-            size: 2,
-            unit: 4000.0,
-            offset_x: 2000.0,
-            offset_z: 2000.0,
-            heights: vec![0.0; 4],
-        }
-    }
-
-    #[test]
-    fn soldier_follows_flat_ground_and_camera_tracks() {
-        let mut w = WalkSim::new(1, Vec3::ZERO, Some(flat_ground()));
-        let fwd = PadState {
-            ly: 32767,
-            ..Default::default()
-        };
-        for _ in 0..90 {
-            w.step_tick(&[fwd]);
-        }
-        assert!(
-            w.soldier().pos.z < -10.0,
-            "walked forward: {}",
-            w.soldier().pos
-        );
-        assert_eq!(w.soldier().pos.y, 0.0);
-        let cam = w.camera();
-        assert!(cam.position.z > w.soldier().pos.z, "camera behind soldier");
-        // The camera looks the section's tilt below the aim, from above the
-        // track centre (card AIMA).
-        assert!((1.8..2.8).contains(&cam.position.y), "{}", cam.position);
-        assert!(cam.pitch < w.soldier().pitch - 0.08);
-    }
-
-    /// The terrain floors a camera filming a soldier above it and caps one
-    /// filming a soldier under it (a cave or a hangar under uncut terrain,
-    /// BF2 GEO1's hangar post): it never lifts the camera through the sheet.
-    #[test]
-    fn camera_stays_on_the_soldiers_side_of_the_terrain() {
-        let w = WalkSim::new(1, Vec3::ZERO, Some(flat_ground()));
-        let open = w.settle_camera(Vec3::new(0.0, 1.5, 0.0), Vec3::new(0.0, 2.5, 4.0));
-        assert_eq!(
-            open,
-            Vec3::new(0.0, 2.5, 4.0),
-            "nothing in the way: untouched"
-        );
-        let above = w.settle_camera(Vec3::new(0.0, 1.5, 0.0), Vec3::new(0.0, -2.0, 4.0));
-        assert!(
-            above.y >= CAMERA_TERRAIN_GAP && above.z < 4.0,
-            "pulled in and floored: {above}"
-        );
-        let cave = w.settle_camera(Vec3::new(0.0, -30.0, 0.0), Vec3::new(0.0, -28.0, 4.0));
-        assert_eq!(cave.y, -28.0, "under the sheet it stays where it was");
-        let roof = w.settle_camera(Vec3::new(0.0, -2.0, 0.0), Vec3::new(0.0, 1.0, 4.0));
-        assert!(
-            roof.y <= -CAMERA_TERRAIN_GAP,
-            "and never rises through it: {roof}"
-        );
-    }
-
-    #[test]
-    fn accumulator_steps_at_thirty_hz() {
-        let mut w = WalkSim::new(1, Vec3::ZERO, None);
-        let pad = PadState::default();
-        assert_eq!(w.advance(1.0 / 60.0, &[pad]), 0); // half a tick: none yet
-        assert_eq!(w.advance(1.0 / 60.0, &[pad]), 1); // second half: one tick
-        let capped = w.advance(1.0, &[pad]);
-        assert!(
-            (2..=3).contains(&capped),
-            "capped at MAX_FRAME_ACCUM_SECS (float rounding): {capped}"
-        );
-    }
-
-    #[test]
-    fn marker_height_follows_stance() {
-        let mut w = WalkSim::new(1, Vec3::ZERO, None);
-        let press = PadState {
-            buttons: buttons::ROLL_STANCE,
-            ..Default::default()
-        };
-        let idle = PadState::default();
-        for _ in 0..20 {
-            w.step_tick(&[idle]);
-        }
-        w.step_tick(&[press]);
-        assert_eq!(w.soldier().stance, Stance::Crouch);
-        assert_eq!(capsule_height(w.soldier().stance), 1.6);
-    }
-
-    /// Aim assist on flat ground: a target 20 m ahead, slightly right of the
-    /// aim; holding fire with a neutral stick pulls yaw toward it — and the
-    /// rifle kills it.
-    #[test]
-    fn fire_magnetism_pulls_yaw_and_shots_kill_the_target() {
-        let mut w = WalkSim::new(1, Vec3::ZERO, None);
-        let t = w
-            .sim
-            .spawn(&UnitSpec::trooper(1, Vec3::new(0.4, 0.0, -20.0)))
-            .unwrap();
-        let fire = PadState {
-            buttons: buttons::FIRE,
-            ..Default::default()
-        };
-        for _ in 0..30 {
-            w.step_tick(&[fire]);
-        }
-        assert_eq!(w.magnet(), Some(t), "target acquired");
-        // Target is to the RIGHT (+X); positive yaw turns left, so the pull
-        // drives yaw negative.
-        assert!(
-            w.soldier().yaw < -0.005,
-            "yaw pulled toward target: {}",
-            w.soldier().yaw
-        );
-        assert!(w.target_draws()[0].health_frac < 1.0, "hits landed");
-        for _ in 0..60 {
-            w.step_tick(&[fire]);
-        }
-        assert!(w.sim.unit(t).is_none(), "five rifle hits kill a trooper");
-        assert!(w.target_draws().is_empty());
-        assert_eq!(w.sim.battle.teams[1].tickets(), 249);
-
-        // Intensity 0 = no pull.
-        let mut w0 = WalkSim::new(1, Vec3::ZERO, None);
-        w0.sim.assist_intensity = 0.0;
-        w0.sim
-            .spawn(&UnitSpec::trooper(1, Vec3::new(0.4, 0.0, -20.0)))
-            .unwrap();
-        for _ in 0..30 {
-            w0.step_tick(&[fire]);
-        }
-        assert_eq!(w0.soldier().yaw, 0.0, "slider at 0 leaves aim untouched");
-    }
-
-    /// Out-of-range or off-cone targets never become magnets
-    /// (`re-aim-assist.md` §3.3): the one at 80 m is past LockOnRange + r
-    /// (64 + 1.42) but inside ExtremeRange (120), so it is the reticle's
-    /// pick and not the magnet. The dummy rig spawns three enemies and the
-    /// pacer moves.
-    #[test]
-    fn acquisition_respects_cone_and_range() {
-        let mut w = WalkSim::new(1, Vec3::ZERO, None);
-        let far = w
-            .sim
-            .spawn(&UnitSpec::trooper(1, Vec3::new(0.0, 0.0, -80.0)))
-            .unwrap();
-        w.sim
-            .spawn(&UnitSpec::trooper(1, Vec3::new(15.0, 0.0, -10.0))) // far off the cone
-            .unwrap();
-        // A level aim: the spawn pitch's ray is in the floor 33 m out.
-        w.sim.units[w.player.index as usize].soldier.pitch = 0.0;
-        w.step_tick(&[PadState::default()]);
-        assert_eq!(w.magnet(), None);
-        assert_eq!(
-            w.sim.reticle_pick[0],
-            Some((core::sim::AimTarget::Unit(far), -1))
-        );
-
-        let mut r = WalkSim::new(1, Vec3::ZERO, None);
-        r.spawn_dummy_targets();
-        assert_eq!(r.target_draws().len(), 3);
-        let before = r.sim.units[3].soldier.pos;
-        for _ in 0..30 {
-            r.step_tick(&[PadState::default()]);
-        }
-        assert!(
-            (r.sim.units[3].soldier.pos - before).length() > 1.5,
-            "pacer moved"
-        );
-        assert!(r.bolt_draws().is_empty());
-    }
-
-    /// A 40 m box with its top at y = 6 around (100, 100) and nothing at the
-    /// origin — a stand-in for a BF2 map with no heightfield, where the only
-    /// ground is model collision (`Scene::collision_world`).
-    use crate::layout::{SpawnNode, SpawnPath};
-
-    fn island_world() -> core::collision::CollisionWorld {
-        use core::collision::{Body, CollisionWorld, Shape};
-        CollisionWorld::new(
-            vec![Body::new(
-                Mat4::from_translation(Vec3::new(100.0, 5.0, 100.0)),
-                Shape::Box {
-                    half: Vec3::new(20.0, 1.0, 20.0),
-                },
-            )],
-            Vec::new(),
-        )
-    }
-
-    fn post(name: &str, team: u8, pos: Vec3, spawn_path: Option<&str>) -> CommandPostDef {
-        CommandPostDef {
-            name: name.to_string(),
-            label: String::new(),
-            class: "com_bldg_controlzone".to_string(),
-            team,
-            pos,
-            capture: None,
-            control: None,
-            spawn_path: spawn_path.map(str::to_owned),
-            value_bleed: crate::layout::VALUE_DEFAULT,
-            ai_spawn_weight: core::cp::AI_SPAWN_WEIGHT_DEFAULT,
-            value_atk: [crate::layout::VALUE_DEFAULT; 5],
-            value_def: [crate::layout::VALUE_DEFAULT; 5],
-            major: false,
-            vo: Default::default(),
-        }
-    }
-
-    /// The layout the rescue is judged on: an ENEMY post over the island
-    /// (wrong team), a FRIENDLY post over the void (right team, no ground)
-    /// and a friendly post over the island with a real spawn path — in that
-    /// order, so passing means the rescue skipped the first two for the
-    /// stated reasons and not by luck of ordering.
-    fn rescue_layout() -> MapLayout {
-        MapLayout {
-            cps: vec![
-                post("cp_enemy", 2, Vec3::new(100.0, 6.0, 100.0), None),
-                post("cp_void", 1, Vec3::new(500.0, 0.0, 500.0), None),
-                post(
-                    "cp_home",
-                    1,
-                    Vec3::new(90.0, 6.0, 90.0),
-                    Some("cp_home_spawn"),
-                ),
-            ],
-            paths: vec![SpawnPath {
-                name: "cp_home_spawn".to_string(),
-                nodes: vec![SpawnNode {
-                    pos: Vec3::new(110.0, 6.0, 110.0),
-                    yaw: 1.25,
-                }],
-            }],
-            regions: Vec::new(),
-            // Any map but TAT1: the rule under test applies everywhere else.
-            map: "kamino1".to_string(),
-        }
-    }
-
-    /// Card ERAM: a player seated on team 1 (its army's own team in the
-    /// mission picked) is a team-1 unit and starts at team 1's post, where
-    /// the team-0 player of the same battle starts at team 0's.
-    #[test]
-    fn a_player_seated_on_team_1_starts_at_its_own_post() {
-        let start = |seat: u8| {
-            let t = TeamTemplate::default_trooper();
-            let mut w = WalkSim::with_teams_seat(
-                Sim::empty(1),
-                None,
-                Vec3::ZERO,
-                [t.clone(), t],
-                None,
-                seat,
-            );
-            w.sim.collision = island_world();
-            w.setup_conquest(&rescue_layout(), [0, 0], true);
-            let u = &w.sim.units[w.player.index as usize];
-            (u.team, u.soldier.pos)
-        };
-        // `cp_enemy` (team 2) has no spawn path: its one node is beside it.
-        let own = Vec3::new(103.0, 6.0, 103.0);
-        assert_eq!(start(1), (1, own));
-        let (team, pos) = start(0);
-        assert_eq!(team, 0);
-        assert_ne!(pos, own);
-    }
-
-    /// `game --map` with no mission, no `--ai` and no `--spawn`: the player
-    /// starts on nothing, and the rescue moves them to the lowest-index
-    /// FRIENDLY post whose own spawn node has ground — node position, node
-    /// yaw, probed y.
-    #[test]
-    fn rescue_spawn_moves_a_groundless_player_to_the_first_friendly_post() {
-        let mut w = WalkSim::new(1, Vec3::ZERO, None);
-        w.sim.collision = island_world();
-        assert_eq!(
-            w.sim.ground_under(w.soldier().pos, false),
-            core::collision::NO_GROUND,
-            "the authored spawn has nothing under it"
-        );
-
-        let moved = w.rescue_spawn(&rescue_layout());
-
-        assert_eq!(moved, Some(("cp_home".to_string(), 6.0)));
-        assert_eq!(w.soldier().pos, Vec3::new(110.0, 6.0, 110.0));
-        assert_eq!(w.soldier().yaw, 1.25);
-    }
-
-    /// A player standing on the island: `game --map` gave them ground, and
-    /// they STILL start at the post — the half queue item WS widened (24 maps
-    /// had ground under the default point and started at an arbitrary spot in
-    /// the terrain anyway). The move is silent — it returns `None`, because
-    /// the caller's line is the no-ground rescue's — and the two posts before
-    /// `cp_home` are skipped for their own reasons, not by ordering luck.
-    #[test]
-    fn a_grounded_player_starts_at_the_first_friendly_post_too() {
-        let mut w = WalkSim::new(1, Vec3::new(100.0, 0.0, 100.0), None);
-        w.sim.collision = island_world();
-        // Standing on the island's top face (`Sim::spawn` ran before the
-        // collision world was there, so put them where it would have).
-        w.sim.units[w.player.index as usize].soldier.pos = Vec3::new(100.0, 6.0, 100.0);
-        assert!(
-            w.sim.ground_under(w.soldier().pos, false) > core::collision::NO_GROUND,
-            "the authored spawn has ground under it"
-        );
-
-        assert_eq!(w.rescue_spawn(&rescue_layout()), None, "moved silently");
-
-        assert_eq!(w.soldier().pos, Vec3::new(110.0, 6.0, 110.0));
-        assert_eq!(w.soldier().yaw, 1.25);
-    }
-
-    /// TAT1 follows the same friendly-post rule as every other map.
-    #[test]
-    fn rescue_spawn_moves_a_grounded_tat1_player_to_the_post() {
-        let mut w = WalkSim::new(1, Vec3::new(100.0, 0.0, 100.0), None);
-        w.sim.collision = island_world();
-        w.sim.units[w.player.index as usize].soldier.pos = Vec3::new(100.0, 6.0, 100.0);
-        let mut tat1 = rescue_layout();
-        tat1.map = "tat1".to_string();
-        assert_eq!(w.rescue_spawn(&tat1), None, "moved silently");
-        assert_eq!(w.soldier().pos, Vec3::new(110.0, 6.0, 110.0));
-        assert_eq!(w.soldier().yaw, 1.25);
-    }
-
-    /// A map whose friendly posts are all over the void cannot rescue a player.
-    #[test]
-    fn rescue_spawn_leaves_a_hopeless_map_alone() {
-        let mut v = WalkSim::new(1, Vec3::ZERO, None);
-        v.sim.collision = island_world();
-        let mut layout = rescue_layout();
-        layout.cps.retain(|c| c.name != "cp_home");
-        // `Sim::spawn` already dropped it to the sentinel, and with no
-        // rescuable post it stays there — a broken map stays broken rather
-        // than being teleported somewhere unauthored.
-        let stranded = v.soldier().pos;
-        assert_eq!(stranded, Vec3::new(0.0, core::collision::NO_GROUND, 0.0));
-        assert_eq!(v.rescue_spawn(&layout), None, "no friendly post has ground");
-        assert_eq!(v.soldier().pos, stranded, "left where it was");
-    }
-
-    /// The player's handle follows his slot through a respawn (its
-    /// generation goes up): before cleanse 16 it kept the first life's, so
-    /// every `sim.unit(walk.player)` read None from the first death on.
-    #[test]
-    fn the_player_handle_follows_a_respawn() {
-        use core::cp::CpDef;
-        use core::region::Region;
-        let mut walk = WalkSim::new(42, Vec3::ZERO, None);
-        let (capture_time, neutralize_time) = CpDef::class_times(false);
-        walk.sim.add_cp(
-            CpDef {
-                name: "cp".into(),
-                pos: Vec3::ZERO,
-                capture: Region::sphere(Vec3::ZERO, 8.0),
-                control: None,
-                value_bleed: 0,
-                value_atk: [0, 0],
-                value_def: [0, 0],
-                spawn_nodes: vec![(Vec3::new(0.0, 0.0, 3.0), 0.0)],
-                capture_time,
-                neutralize_time,
-            },
-            Some(0),
-        );
-        let first = walk.player;
-        assert!(walk.player_on_foot());
-        walk.sim
-            .kill_environment(first, core::sim::DeathCause::Fall);
-        let mut ticks = 0;
-        while !walk.sim.units[first.index as usize].alive {
-            walk.step_tick(&[PadState::default()]);
-            ticks += 1;
-            assert!(ticks < 3000, "the player never respawned");
-        }
-        assert_eq!(walk.player.index, first.index);
-        assert_eq!(walk.player.gen, first.gen + 1);
-        assert_eq!(Some(walk.player), walk.sim.players[0]);
-        assert!(walk.player_on_foot(), "the new life is found");
-        assert_eq!(walk.player_team(), 0);
-    }
-
-    /// Card SSELB: behind the level start's spawn screens the view is the
-    /// mission's camera shot; a screen change cuts to another shot, a move on
-    /// the same screen does not; the first spawn ends the backdrop for good.
-    #[test]
-    fn the_level_start_view_is_the_camera_shot_until_the_spawn() {
-        use crate::spawn_backdrop::{Backdrop, CameraShot};
-        let mut w = WalkSim::new(1, Vec3::ZERO, Some(flat_ground()));
-        let chase = w.camera();
-        assert!(w.sim.open_spawn_screens(0, true));
-        let shots: Vec<CameraShot> = (0..4)
-            .map(|i| CameraShot::from_call([1.0, 0.0, 0.0, 0.0, 10.0 * i as f32, 50.0, 0.0]))
-            .collect();
-        w.backdrop = Backdrop::new(shots, 3);
-        w.follow_backdrop();
-        assert_eq!(w.camera().position, Vec3::new(0.0, 50.0, 0.0), "shot 0");
-        let pad = |b: u32| PadState {
-            buttons: b,
-            ..PadState::default()
-        };
-        // Down moves the highlight: the same screen, the same shot.
-        w.step_tick(&[pad(buttons::SPAWN_POST_DOWN)]);
-        w.step_tick(&[pad(0)]);
-        assert_eq!(w.sim.side_choice[0], core::sim::SideChoice::Team2);
-        assert_eq!(w.camera().position.x, 0.0);
-        // X takes the side: the map screen, another shot.
-        w.step_tick(&[pad(buttons::SPAWN_ACCEPT)]);
-        w.step_tick(&[pad(0)]);
-        assert_eq!(w.sim.spawn_stage[0], core::sim::SpawnStage::Map);
-        assert_ne!(w.camera().position.x, 0.0);
-        assert_eq!(w.camera().position.y, 50.0);
-        // On the field: the backdrop is gone and the chase camera is back.
-        let i = w.player.index as usize;
-        w.sim.units[i].alive = true;
-        w.follow_backdrop();
-        assert!(w.backdrop.is_none());
-        assert_eq!(w.camera().position, chase.position);
-    }
-}
+mod tests;
