@@ -53,6 +53,7 @@ fn shot(sim: &Sim, owner: UnitHandle) -> Bolt {
             is_player: true,
         },
         None,
+        None,
         &sim.collision,
         HullFilter::All,
         std::iter::empty(),

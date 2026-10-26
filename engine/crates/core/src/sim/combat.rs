@@ -150,15 +150,15 @@ impl Sim {
                 self.damage_station(s, &desc, 1.0, Some(b.owner), Some(b.team));
                 self.bolt_explodes(b);
             }
-            Hit::Terrain | Hit::World => {
+            Hit::Terrain | Hit::World | Hit::Water => {
                 self.events.push(Event::BoltExpired {
                     pos: b.end,
                     struck: true,
                 });
-                let surface = if b.hit == Hit::Terrain {
-                    Surface::Terrain
-                } else {
-                    Surface::Building
+                let surface = match b.hit {
+                    Hit::Terrain => Surface::Terrain,
+                    Hit::Water => Surface::Water,
+                    _ => Surface::Building,
                 };
                 self.push_impact(b, surface, None);
                 self.bolt_explodes(b);
@@ -872,6 +872,76 @@ mod tests {
         }
         let _ = t;
         assert!(s.units.iter().all(|u| u.health.cur == 300.0));
+    }
+
+    #[test]
+    fn water_stops_bolts_and_names_the_surface() {
+        let mut s = Sim::empty(5);
+        s.water_level = Some(-2.0);
+        let owner = s
+            .spawn(&UnitSpec::trooper(0, Vec3::new(0.0, 0.0, 30.0)))
+            .unwrap();
+        let shooter = crate::projectile::Shooter {
+            owner,
+            team: 0,
+            weapon_class: 0,
+            is_player: false,
+        };
+        let down = Vec3::new(0.0, -1.0, -1.0);
+        let spawn = |s: &Sim, dir: Vec3| {
+            Bolt::spawn(
+                Vec3::new(0.0, 2.0, 0.0),
+                dir,
+                80.0,
+                2.0,
+                shooter,
+                s.heightfield.as_ref(),
+                s.water_plane(),
+                &s.collision,
+                crate::collision::HullFilter::All,
+                std::iter::empty(),
+            )
+        };
+        let b = spawn(&s, down);
+        assert_eq!(b.hit, Hit::Water);
+        assert!(
+            (b.end - Vec3::new(0.0, -2.0, -4.0)).length() < 1e-4,
+            "{b:?}"
+        );
+        assert_eq!(spawn(&s, Vec3::new(0.0, 0.2, -1.0)).hit, Hit::None);
+        let mut nibbles = vec![0u8; 4];
+        nibbles[0] = 1;
+        s.water_mask = crate::water::WetMask::new(2, 10.0, [10.0, 10.0], &nibbles);
+        assert_eq!(
+            spawn(&s, down).hit,
+            Hit::None,
+            "the crossing at z -4 is a dry cell"
+        );
+        assert_eq!(spawn(&s, Vec3::new(-1.0, -1.0, -1.0)).hit, Hit::Water);
+        assert_eq!(s.water_under(Vec3::new(5.0, -3.0, -5.0)), None);
+        assert_eq!(s.water_under(Vec3::new(-5.0, -3.0, -5.0)), Some(-2.0));
+        s.water_mask = None;
+        s.heightfield = Some(flat_ground());
+        assert_eq!(spawn(&s, down).hit, Hit::Terrain);
+        s.heightfield = None;
+        s.water_level = None;
+        assert_eq!(spawn(&s, down).hit, Hit::None);
+        s.bolts.push(b);
+        for _ in 0..10 {
+            s.step(&[PadState::default()]);
+            if !s.events.is_empty() {
+                break;
+            }
+        }
+        assert!(s.bolts.is_empty());
+        assert!(s.events.iter().any(|e| matches!(
+            e,
+            Event::Impact {
+                surface: Surface::Water,
+                pos,
+                ..
+            } if (*pos - Vec3::new(0.0, -2.0, -4.0)).length() < 1e-4
+        )));
     }
 
     /// A WORLD model in the way: the bolt stops on the slab's near face and

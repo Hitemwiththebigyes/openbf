@@ -41,6 +41,7 @@ mod vehicle_pads;
 mod vehicle_rider;
 mod water_anim;
 mod water_floor;
+mod water_fx;
 mod water_look;
 mod weapon_classdb;
 mod weather_ps2;

@@ -549,6 +549,7 @@ pub(crate) fn release_blasts_own_side(sim: &Sim, i: usize) -> bool {
         wc.ordnance.life_span,
         who,
         sim.heightfield.as_ref(),
+        sim.water_plane(),
         &sim.collision,
         crate::collision::HullFilter::All,
         sim.alive_units()

@@ -79,6 +79,7 @@ fn both_games_use_the_disc_health_wrecks_and_explosions_and_accept_real_collisio
                             is_player: true,
                         },
                         sim.heightfield.as_ref(),
+                        sim.water_plane(),
                         &sim.collision,
                         HullFilter::All,
                         std::iter::empty(),

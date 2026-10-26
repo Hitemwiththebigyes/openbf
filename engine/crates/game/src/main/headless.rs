@@ -484,8 +484,9 @@ pub(super) fn run_headless(v: &ViewerArgs) -> Result<()> {
         let quad = game::viewer::upload_billboard_quad(&mut r)?;
         let sprite = game::viewer::upload_fx_sprite(&mut r).ok();
         let icons = squad_icons(&mut r, &assets_dir);
-        let fx =
+        let mut fx =
             game::fx::Fx::for_walk(&assets_dir, &scene.dir, &scene.manifest.source_game, &walk);
+        fx.set_water(&scene.manifest);
         let bolts = game::bolt_vis::BoltVis::new(&assets_dir, &scene.manifest.source_game);
         // The map's precipitation (card WTHR), on the sim's tick here.
         let weather = game::weather::Weather::load(

@@ -1244,6 +1244,7 @@ fn rkmar_blast_clearance(rules: crate::soldier::GroundRules) {
                         is_player: false,
                     },
                     None,
+                    None,
                     &s.collision,
                     crate::collision::HullFilter::All,
                     s.alive_units()

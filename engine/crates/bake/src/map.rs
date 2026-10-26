@@ -1676,6 +1676,12 @@ fn bake_content(
                 patches: w.patches.len(),
                 triangles: crate::water_glb::triangle_count(&w),
                 config: cfg.map(|c| crate::water_glb::manifest_config(c, &w)),
+                wet: Some(manifest::ManifestWetMask::from_nibbles(
+                    w.info.grid,
+                    w.info.cell_size,
+                    w.info.half_extent,
+                    &w.cells,
+                )),
             })
         }
         _ => None,

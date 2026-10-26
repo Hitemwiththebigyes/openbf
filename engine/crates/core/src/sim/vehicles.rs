@@ -1714,6 +1714,7 @@ mod tests {
             2.0,
             shooter,
             s.heightfield.as_ref(),
+            s.water_plane(),
             &s.collision,
             crate::collision::HullFilter::All,
             std::iter::empty(),

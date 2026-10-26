@@ -546,6 +546,10 @@ ReloadTime 1.25, MaxItems 4, ammo 4. Time bomb: ShotDelay 0.5, ReloadTime 3.0, M
 - Cards: GREN (build: slots + channels + the human's throw + the sticky ordnance + the HUD count), GRAI (the AI's
   weapon choice with the grenade test and the ballistic aim), MINE (dispenser, mine, time bomb, detpack). The recon
   droid (`remote` + `destruct`), the auto turret and the powerup dispenser are not covered here (PWUP has the item).
+- (2026-10-26) A thrown grenade's glow in flight is its ordnance's `TrailEffect` (BF1 thermal: `com_sfx_weap_grenade_red`),
+  bound to the round at launch; a blast at or below the water + 0.3 m spawns the explosion's `WaterEffect` and no
+  `Effect`. BF1 stores `LightColor` / `LightRadius` but never reads them. Measured live and ported render-side:
+  re-fx.md §14.
 
 ## 11. Checks run (output in `lead_tmp/gren/check_*.txt`)
 

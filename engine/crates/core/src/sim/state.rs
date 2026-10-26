@@ -634,6 +634,7 @@ pub struct Sim {
     /// NOT hashed. Card HOLD reads it: a bot takes no hold position on a
     /// floor under water.
     pub water_level: Option<f32>,
+    pub water_mask: Option<crate::water::WetMask>,
     /// Card HOLD: the grenades lying on the ground ([`Hazard`]). SIM STATE —
     /// hashed, when there are any, so a round with none hashes as before.
     pub hazards: Vec<Hazard>,
@@ -941,6 +942,7 @@ impl Sim {
             ai_alive_cap: 16,
             death_regions: Vec::new(),
             water_level: None,
+            water_mask: None,
             hazards: Vec::new(),
             last_warning_id: 0,
             kill_floor: None,
@@ -1065,6 +1067,17 @@ impl Sim {
     ) -> f32 {
         let probe = feet.y + if rising { 0.0 } else { STEP_HEIGHT };
         self.floor_under(feet, probe, hulls, true).0
+    }
+
+    pub fn water_plane(&self) -> Option<crate::water::Plane<'_>> {
+        self.water_level.map(|level| crate::water::Plane {
+            level,
+            mask: self.water_mask.as_ref(),
+        })
+    }
+
+    pub fn water_under(&self, p: Vec3) -> Option<f32> {
+        self.water_plane().and_then(|w| w.under(p))
     }
 
     /// [`Sim::ground_under`] as ONE ray, with no foot ring: what is under

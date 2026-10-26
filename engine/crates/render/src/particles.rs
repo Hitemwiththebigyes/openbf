@@ -69,6 +69,9 @@ pub enum ParticleShape {
     Mesh {
         tris: Vec<(Vec3, [f32; 2])>,
     },
+    Shaded {
+        tris: Vec<(Vec3, [f32; 2], [u8; 4])>,
+    },
     /// One weather cell's rain streaks (card WTHR, `analysis/re-weather.md`
     /// §3.1, §3.4): the PS2 draws each as ONE untextured GS line, a pixel of
     /// its 512-wide frame, Gouraud from the head's alpha to 0 at the tail.
@@ -180,6 +183,9 @@ pub fn particle_vertices(d: &ParticleDraw, camera: &Camera) -> Vec<GrassVertex> 
         }
         ParticleShape::Mesh { tris } => {
             out.extend(tris.iter().map(|(p, uv)| vtx(*p, *uv, color)));
+        }
+        ParticleShape::Shaded { tris } => {
+            out.extend(tris.iter().map(|(p, uv, c)| vtx(*p, *uv, c.map(gs_unit))));
         }
         ParticleShape::Streaks { lines, rgb, width } => {
             let (eye, fwd) = (camera.position, camera.forward());
@@ -428,6 +434,23 @@ mod tests {
             assert_eq!((Vec3::from(a.position), a.uv), (*p, *uv));
             assert_eq!(a.color, [40.0 / 128.0, 40.0 / 128.0, 1.0, 1.0]);
         }
+    }
+
+    #[test]
+    fn shaded_triangles_carry_their_own_vertex_bytes() {
+        let tris = vec![
+            (Vec3::new(1.0, 2.0, 3.0), [0.0, 0.0], [255, 0, 128, 0]),
+            (Vec3::new(1.0, 3.0, 3.0), [0.5, 0.33], [64, 64, 64, 127]),
+            (Vec3::new(2.0, 2.0, 3.0), [1.0, 1.0], [0, 255, 0, 255]),
+        ];
+        let d = draw(ParticleShape::Shaded { tris: tris.clone() }, Vec3::ZERO);
+        let v = particle_vertices(&d, &Camera::default());
+        assert_eq!(v.len(), 3);
+        for (a, (p, uv, c)) in v.iter().zip(&tris) {
+            assert_eq!((Vec3::from(a.position), a.uv), (*p, *uv));
+            assert_eq!(a.color, c.map(gs_unit));
+        }
+        assert_eq!(v[1].color, [0.25, 0.25, 0.25, 0.5]);
     }
 
     /// Far first; equal keys keep their order; a run of one sheet and blend

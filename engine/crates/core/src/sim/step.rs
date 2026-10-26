@@ -836,6 +836,7 @@ impl Sim {
                     life,
                     who,
                     self.heightfield.as_ref(),
+                    self.water_plane(),
                     &self.collision,
                     crate::collision::HullFilter::All,
                     targets.iter().copied(),

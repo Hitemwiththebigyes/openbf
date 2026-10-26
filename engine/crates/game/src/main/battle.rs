@@ -209,6 +209,12 @@ pub(super) fn make_walk(scene: &game::assets::Scene, b: &BattleSetup) -> WalkSim
     // BF1 has no 10 m omni in the view cone (RE §9.1); BF2 does.
     sim.omni_radius = core::sim::omni_radius_for(&scene.manifest.source_game);
     sim.water_level = scene.manifest.water.as_ref().map(|w| w.height);
+    sim.water_mask = scene
+        .manifest
+        .water
+        .as_ref()
+        .and_then(|w| w.wet.as_ref())
+        .and_then(|m| core::water::WetMask::new(m.grid, m.cell_size, m.half_extent, &m.cells()));
     sim.ground_rules = core::soldier::GroundRules::for_game(&scene.manifest.source_game);
     sim.item_pool = game::roster::item_pool(&scene.manifest.source_game, &scene.manifest.map);
     sim.cheats = b.cheats;

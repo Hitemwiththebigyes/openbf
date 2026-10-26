@@ -26,6 +26,7 @@ pub enum Hit {
     /// Like [`Hit::Terrain`] it carries no payload: the impact point is
     /// [`Bolt::end`], and nothing consumes the surface normal yet.
     World,
+    Water,
     /// Something that takes damage — see [`Target`].
     Target(Target),
 }
@@ -114,6 +115,7 @@ impl Bolt {
                 eat(&[5]);
                 eat(&s.to_le_bytes());
             }
+            Hit::Water => eat(&[6]),
         }
     }
 
@@ -121,10 +123,10 @@ impl Bolt {
     /// unit capsules (owner excluded by the caller). `speed` = ordnance
     /// Velocity, `life_span` = ordnance LifeSpan.
     ///
-    /// Three candidates, nearest wins: the terrain CROSSING, the `world`
-    /// models — the map's and the vehicles' hulls that `hulls` admits (a
-    /// rider's bolt skips its own vehicle); a hull hit is
-    /// [`Target::Vehicle`] — and the unit capsules.
+    /// Four candidates, nearest wins: the terrain CROSSING, the `water`
+    /// plane crossed downward over a wet cell, the `world` models — the map's and the
+    /// vehicles' hulls that `hulls` admits (a rider's bolt skips its own
+    /// vehicle); a hull hit is [`Target::Vehicle`] — and the unit capsules.
     ///
     /// `world` carries both the map's bodies and its terrain cutters. The
     /// terrain ray is a crossing test that ignores a crossing inside a cutter
@@ -139,6 +141,7 @@ impl Bolt {
         life_span: f32,
         shooter: Shooter,
         hf: Option<&Heightfield>,
+        water: Option<crate::water::Plane<'_>>,
         world: &CollisionWorld,
         hulls: HullFilter,
         targets: impl Iterator<Item = (UnitHandle, Capsule)>,
@@ -155,6 +158,12 @@ impl Bolt {
                     best_t = t;
                     hit = Hit::Terrain;
                 }
+            }
+        }
+        if let Some(t) = water.and_then(|w| w.crossing(origin, dir)) {
+            if t < best_t {
+                best_t = t;
+                hit = Hit::Water;
             }
         }
         // The PS2's bolt ray passes the trailing flag, so it tests only the

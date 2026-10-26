@@ -320,6 +320,12 @@ fn full_manifest() -> Manifest {
             patches: 16,
             triangles: 512,
             config: Some(full_water_config()),
+            wet: Some(ManifestWetMask::from_nibbles(
+                2,
+                16.0,
+                [16.0, 16.0],
+                &[1, 0, 9, 15],
+            )),
         }),
         collision: vec![full_collision()],
         terrain_cutters: vec![ManifestCutter {

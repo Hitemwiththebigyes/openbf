@@ -24,6 +24,10 @@ pub const HASH_TRAIL_EFFECT: u32 = 0x7e71_e2c6;
 /// The explosion class's keys.
 pub const HASH_EFFECT: u32 = 0x6e6e_8d54;
 pub const HASH_WATER_EFFECT: u32 = 0x8773_3801;
+pub const HASH_DAMAGE_RADIUS: u32 = 0xb687_98a6;
+pub const HASH_DAMAGE_RADIUS_OUTER: u32 = 0xa23b_939d;
+pub const WATER_BLAST_DEPTH: f32 = 0.3;
+pub const SPLASH_LIFT: f32 = 0.02;
 /// `SoundProperty` on an explosion class (re-weapon-sounds.md §4.1).
 pub const HASH_SOUND_PROPERTY: u32 = 0xf350_b4e5;
 
@@ -45,8 +49,7 @@ pub enum Surface {
     Building,
     /// The terrain → `ImpactEffectTerrain`.
     Terrain,
-    /// Water → `ImpactEffectWater` (the port's bolts do not stop at water
-    /// yet: nothing emits it).
+    /// Water → `ImpactEffectWater`.
     Water,
     /// A shield → BF1 `ImpactEffectShield`, BF2 the small shield impact (no
     /// shields in the port yet: nothing emits it).
@@ -132,6 +135,7 @@ pub struct ExplosionLook {
     /// `SoundProperty`: played once per explosion, at the blast, whatever
     /// else it does (B1 `FUN_002701a0` 193760, B2 `FUN_0030c8f8` 300192).
     pub sound: Option<String>,
+    pub radius_outer: f32,
 }
 
 impl ExplosionLook {
@@ -154,6 +158,11 @@ impl ExplosionLook {
                 }
                 HASH_EFFECT => l.effects = vec![v.to_owned()],
                 HASH_WATER_EFFECT => l.water_effect = Some(v.to_owned()),
+                HASH_DAMAGE_RADIUS | HASH_DAMAGE_RADIUS_OUTER => {
+                    if let Ok(r) = v.parse() {
+                        l.radius_outer = r;
+                    }
+                }
                 // `"<name> defer"`: the second token only says when the PS2
                 // resolves the name (re-weapon-sounds.md §3.1).
                 HASH_SOUND_PROPERTY => l.sound = v.split_whitespace().next().map(str::to_owned),

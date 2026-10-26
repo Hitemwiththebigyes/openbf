@@ -20,9 +20,11 @@
 //! effect table does not hold spawns nothing (§7: BF2's inherited BF1
 //! names). The PS2 draws an explosion's effect only within 60 m of the
 //! camera (B1 FUN_002701a0) — a PS2 budget the port drops (FEEL_NOTES).
-//! Still to come: water (`ImpactEffectWater`, `WaterEffect` — the port's
-//! bolts do not stop at water), `TrailEffect`, and the vehicles' own
-//! Damage / Chunk / Thrust / Wake / Stomp effects.
+//! A bolt that strikes water spawns `ImpactEffectWater` on the surface; a
+//! blast at or below the water + 0.3 m spawns `WaterEffect` instead of
+//! `Effect`; a round in flight carries its `TrailEffect` (`trail.rs`).
+//! Still to come: the vehicles' own Damage / Chunk / Thrust / Wake / Stomp
+//! effects.
 //!
 //! The muzzle flash is not a particle effect (§7): it is a model the held
 //! weapon draws (card FXMF, `crate::soldier_vis`), handed to
@@ -37,9 +39,11 @@
 mod children;
 pub mod draw;
 pub mod emitter;
+pub mod ripple;
+mod trail;
 
 use crate::walk::WalkSim;
-use core::impact::{ExplosionLook, Surface};
+use core::impact::{ExplosionLook, Surface, SPLASH_LIFT, WATER_BLAST_DEPTH};
 use core::sim::Sim;
 use core::unit::UnitHandle;
 use core::vehicle::VehicleHandle;
@@ -297,6 +301,8 @@ pub struct LiveEffect {
     /// B1:198040–). PROVISIONAL: only the origin follows (world axes kept).
     ride: Option<(VehicleHandle, Vec3)>,
     unit: Option<(UnitHandle, Gain)>,
+    round: Option<trail::Round>,
+    float: Option<f32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -321,6 +327,8 @@ impl LiveEffect {
             stopped: false,
             ride: None,
             unit: None,
+            round: None,
+            float: None,
         };
         fx.advance(0.0);
         fx
@@ -341,6 +349,14 @@ impl LiveEffect {
 
     pub fn is_dead(&self) -> bool {
         self.instances.iter().all(Instance::is_dead)
+    }
+
+    pub fn is_stopped(&self) -> bool {
+        self.stopped
+    }
+
+    pub fn name(&self) -> Option<&str> {
+        self.def.name.as_deref()
     }
 
     /// Particles emitted so far, per emitter.
@@ -423,6 +439,10 @@ fn sheet(
     t
 }
 
+fn splash_at(pos: Vec3, level: f32) -> Vec3 {
+    Vec3::new(pos.x, level + SPLASH_LIFT, pos.z)
+}
+
 /// The game's effects: the particle effects running and the placeholder
 /// puffs. `ingest` once per sim tick, `update` once per rendered frame.
 #[derive(Default)]
@@ -435,6 +455,8 @@ pub struct Fx {
     /// The `SoundName` of each effect an explosion spawned since the last
     /// [`Fx::take_sounds`], and where (card WSND).
     sounds: Vec<(String, Vec3)>,
+    rounds: trail::Rounds,
+    water: ripple::Water,
 }
 
 impl std::fmt::Debug for Fx {
@@ -502,6 +524,16 @@ impl Fx {
         true
     }
 
+    fn spawn_floating(&mut self, name: &str, pos: Vec3, level: f32) -> bool {
+        if !self.spawn(name, Frame::at(splash_at(pos, level))) {
+            return false;
+        }
+        if let Some(e) = self.live.last_mut() {
+            e.float = Some(level);
+        }
+        true
+    }
+
     fn gain(&mut self, unit: UnitHandle, kind: Gain, names: [&str; 2], sim: &Sim) {
         if self
             .live
@@ -528,19 +560,34 @@ impl Fx {
 
     /// Detonate an explosion class's look at `pos` (B1 FUN_002701a0
     /// B1:193756–193807): its `Effect` — BF2 one of its rows at random (B2
-    /// FUN_0030c8f8). Water (`WaterEffect`) waits for the port's water line.
-    /// False when nothing spawned.
-    pub fn explode(&mut self, look: &ExplosionLook, pos: Vec3) -> bool {
-        let pick = match look.effects.len() {
-            0 => return false,
-            1 => 0,
-            n => {
-                let rng = self.rng.get_or_insert(Lcg(0x0bf2_5eed));
-                ((rng.float() * n as f32) as usize).min(n - 1)
+    /// FUN_0030c8f8), or at or below `water` + 0.3 m its `WaterEffect` on the
+    /// surface, and only with a damage radius. False when nothing spawned.
+    pub fn explode(&mut self, look: &ExplosionLook, pos: Vec3, water: Option<f32>) -> bool {
+        let (spawned, pos) = match water.filter(|w| pos.y <= w + WATER_BLAST_DEPTH) {
+            Some(w) => {
+                if look.radius_outer <= 0.0 {
+                    return false;
+                }
+                let s = (look.radius_outer * 0.5).min(0.4);
+                self.water.spawn((3.0 + s, s), Vec3::new(pos.x, w, pos.z));
+                let Some(name) = &look.water_effect else {
+                    return false;
+                };
+                (self.spawn_floating(name, pos, w), splash_at(pos, w))
+            }
+            None => {
+                let pick = match look.effects.len() {
+                    0 => return false,
+                    1 => 0,
+                    n => {
+                        let rng = self.rng.get_or_insert(Lcg(0x0bf2_5eed));
+                        ((rng.float() * n as f32) as usize).min(n - 1)
+                    }
+                };
+                (self.spawn(&look.effects[pick], Frame::at(pos)), pos)
             }
         };
-        let name = &look.effects[pick];
-        if !self.spawn(name, Frame::at(pos)) {
+        if !spawned {
             return false;
         }
         // The effect's own sound (`"<name> defer"`, re-weapon-sounds.md §3.1,
@@ -603,6 +650,9 @@ impl Fx {
                 next.extend(em.geometry.child.as_deref());
             }
         }
+        if self.water.active() {
+            names.push(ripple::TEXTURE.to_owned());
+        }
         names.sort();
         for n in &names {
             sheet(r, &lib.texture_dirs, &mut self.textures, n);
@@ -628,6 +678,7 @@ impl Fx {
     /// muzzle flashes (`SoldierVisuals::flash_draws`).
     pub fn submit_with(&mut self, r: &mut Renderer, camera: &Camera, extra: Vec<ParticleDraw>) {
         let mut out = extra;
+        let lift = self.ride_the_water(crate::water_anim::clock(r.water_time) as f32);
         if let Some(lib) = &self.library {
             let cache = &mut self.textures;
             let dirs = &lib.texture_dirs;
@@ -641,6 +692,8 @@ impl Fx {
                     &mut out,
                 );
             }
+            let sheet = texture(ripple::TEXTURE);
+            self.water.draws(camera.position, lift, sheet, &mut out);
         }
         r.set_particles(out);
     }
@@ -679,6 +732,7 @@ impl Fx {
                 }
             }
         }
+        self.follow_rounds(sim);
         let baked = self.has_effects();
         for e in &sim.events {
             match e {
@@ -699,10 +753,19 @@ impl Fx {
                         Some(l) => l.effect(*surface),
                         None => Some(self.impact_name()),
                     };
+                    let level =
+                        (*surface == Surface::Water).then(|| sim.water_level.unwrap_or(pos.y));
+                    if let Some(level) = level {
+                        self.water
+                            .spawn(ripple::BOLT, Vec3::new(pos.x, level, pos.z));
+                    }
                     if let Some(name) = name {
-                        match vehicle {
-                            Some(h) if *surface == Surface::Vehicle => {
+                        match (vehicle, level) {
+                            (Some(h), _) if *surface == Surface::Vehicle => {
                                 self.spawn_riding(name, *pos, *h, sim);
+                            }
+                            (_, Some(level)) => {
+                                self.spawn_floating(name, *pos, level);
                             }
                             _ => {
                                 self.spawn(name, Frame::at(*pos));
@@ -710,7 +773,8 @@ impl Fx {
                         }
                     }
                     if let Some(x) = look.and_then(|l| l.explosion.as_ref()) {
-                        self.explode(x, *pos - *dir * EXPLOSION_OFFSET);
+                        let at = *pos - *dir * EXPLOSION_OFFSET;
+                        self.explode(x, at, sim.water_under(at));
                     }
                 }
                 Event::BoltExpired { pos, struck } if !baked => {
@@ -747,7 +811,7 @@ impl Fx {
                         .map(|x| &x.look);
                     match look {
                         Some(look) if baked => {
-                            self.explode(look, *pos);
+                            self.explode(look, *pos, sim.water_under(*pos));
                         }
                         _ => self.puffs.push(Puff {
                             pos: *pos + Vec3::Y * 0.5,
@@ -797,7 +861,7 @@ impl Fx {
                         .get(usize::from(*class))
                         .and_then(|c| c.explosion.as_ref())
                     {
-                        self.explode(&x.look, *pos);
+                        self.explode(&x.look, *pos, sim.water_under(*pos));
                     }
                 }
                 Event::VehicleDestroyed { class, pos, .. } => {
@@ -808,7 +872,7 @@ impl Fx {
                     if baked {
                         // Where the sim detonates it (`Sim::destroy_vehicle`).
                         if let Some(x) = setup.and_then(|b| b.explosion.as_ref()) {
-                            self.explode(&x.look, *pos);
+                            self.explode(&x.look, *pos, sim.water_under(*pos));
                         }
                         continue;
                     }
@@ -834,6 +898,7 @@ impl Fx {
             e.advance(dt);
         }
         self.live.retain(|e| !e.is_dead());
+        self.water.update(dt);
     }
 
     /// Live placeholder puffs plus running particle effects.
@@ -849,6 +914,8 @@ impl Fx {
         self.puffs.clear();
         self.live.clear();
         self.sounds.clear();
+        self.rounds = trail::Rounds::default();
+        self.water.clear();
     }
 
     /// Camera-facing quads for the live effects. `quad` is the unit quad from
@@ -1013,8 +1080,7 @@ mod tests {
         l.building = Some("no_such_effect".into());
         l.explosion = Some(ExplosionLook {
             effects: vec!["small_explosion".into()],
-            water_effect: None,
-            sound: None,
+            ..ExplosionLook::default()
         });
         let wc = sim.add_weapon_class(w) as u32;
         let impact = |surface| Event::Impact {
@@ -1046,7 +1112,7 @@ mod tests {
             effects: vec!["Explosion".into()],
             ..ExplosionLook::default()
         };
-        assert!(fx.explode(&med, Vec3::X));
+        assert!(fx.explode(&med, Vec3::X, None));
         assert_eq!(
             fx.take_sounds(),
             [("com_weap_obj_med_exp".to_owned(), Vec3::X)]
@@ -1063,6 +1129,214 @@ mod tests {
         }];
         fx.ingest_sim(&sim);
         assert!(fx.is_empty());
+    }
+
+    #[test]
+    fn water_takes_the_impact_onto_its_surface_and_swaps_the_blast() {
+        use core::sim::Event;
+        use core::weapon::WeaponClass;
+        let Some(lib) = bf1_common() else { return };
+        let mut fx = Fx::with_library(lib);
+        let mut sim = Sim::empty(1);
+        sim.water_level = Some(-2.0);
+        let wc = sim.add_weapon_class(WeaponClass::bf1_rifle()) as u32;
+        sim.events = vec![Event::Impact {
+            pos: Vec3::new(1.0, -2.0, 3.0),
+            dir: Vec3::NEG_Z,
+            weapon_class: wc,
+            surface: Surface::Water,
+            vehicle: None,
+        }];
+        fx.ingest_sim(&sim);
+        assert_eq!(fx.live.len(), 1);
+        assert_eq!(fx.live[0].name(), Some("watersplash_ord"));
+        assert_eq!(
+            fx.live[0].frame.pos,
+            Vec3::new(1.0, -2.0 + SPLASH_LIFT, 3.0)
+        );
+        let look = ExplosionLook {
+            effects: vec!["small_explosion".into()],
+            water_effect: Some("watersplash_lg".into()),
+            radius_outer: 4.0,
+            ..ExplosionLook::default()
+        };
+        let w = Some(-2.0);
+        for (y, want) in [
+            (-1.69, "small_explosion"),
+            (-1.71, "watersplash_lg"),
+            (-5.0, "watersplash_lg"),
+        ] {
+            fx.clear();
+            assert!(fx.explode(&look, Vec3::new(1.0, y, 3.0), w));
+            assert_eq!(fx.live[0].name(), Some(want), "{y}");
+            if want == "watersplash_lg" {
+                assert_eq!(
+                    fx.live[0].frame.pos,
+                    Vec3::new(1.0, -2.0 + SPLASH_LIFT, 3.0)
+                );
+            }
+        }
+        fx.clear();
+        assert!(fx.explode(&look, Vec3::new(1.0, -5.0, 3.0), None));
+        assert_eq!(fx.live[0].name(), Some("small_explosion"));
+        fx.clear();
+        let still = ExplosionLook {
+            radius_outer: 0.0,
+            ..look.clone()
+        };
+        assert!(!fx.explode(&still, Vec3::new(1.0, -2.0, 3.0), w));
+        assert!(fx.live.is_empty(), "no damage radius: nothing in the water");
+    }
+
+    #[test]
+    fn water_hits_leave_ripples_and_their_splashes_ride_the_bob() {
+        use core::sim::Event;
+        use core::weapon::WeaponClass;
+        let Some(lib) = bf1_common() else { return };
+        let mut fx = Fx::with_library(lib);
+        fx.water = ripple::Water::new(true, Some(ripple::kas1()));
+        let mut sim = Sim::empty(1);
+        sim.water_level = Some(-2.0);
+        let wc = sim.add_weapon_class(WeaponClass::bf1_rifle()) as u32;
+        sim.events = vec![Event::Impact {
+            pos: Vec3::new(1.0, -2.0, 3.0),
+            dir: Vec3::NEG_Z,
+            weapon_class: wc,
+            surface: Surface::Water,
+            vehicle: None,
+        }];
+        fx.ingest_sim(&sim);
+        let r = fx.ripples()[0];
+        assert_eq!(
+            (r.life, r.size, r.at),
+            (1.5, 0.01, Vec3::new(1.0, -2.0, 3.0))
+        );
+        let t = std::f32::consts::FRAC_PI_2 / 1.884_955_8;
+        assert!((fx.ride_the_water(t) - 0.06).abs() < 1e-6);
+        assert!((fx.live[0].frame.pos.y - (-2.0 + 0.06 + SPLASH_LIFT)).abs() < 1e-6);
+        assert_eq!(fx.ride_the_water(0.0), 0.0);
+        assert_eq!(fx.live[0].frame.pos.y, -2.0 + SPLASH_LIFT);
+        let look = ExplosionLook {
+            effects: vec!["small_explosion".into()],
+            water_effect: Some("watersplash_lg".into()),
+            radius_outer: 6.0,
+            ..ExplosionLook::default()
+        };
+        for (radius, life, size) in [(6.0, 3.4, 0.4), (0.5, 3.25, 0.25)] {
+            fx.clear();
+            let look = ExplosionLook {
+                radius_outer: radius,
+                ..look.clone()
+            };
+            assert!(fx.explode(&look, Vec3::new(4.0, -2.5, 5.0), Some(-2.0)));
+            let r = fx.ripples()[0];
+            assert_eq!(
+                (r.life, r.size, r.at),
+                (life, size, Vec3::new(4.0, -2.0, 5.0))
+            );
+            assert_eq!(fx.live[0].float, Some(-2.0));
+        }
+        fx.clear();
+        assert!(fx.explode(&look, Vec3::new(4.0, 1.0, 5.0), Some(-2.0)));
+        assert!(
+            fx.ripples().is_empty() && fx.live[0].float.is_none(),
+            "a land blast"
+        );
+        fx.clear();
+        let quiet = ExplosionLook {
+            water_effect: None,
+            ..look.clone()
+        };
+        assert!(!fx.explode(&quiet, Vec3::new(4.0, -2.5, 5.0), Some(-2.0)));
+        assert_eq!(
+            fx.ripples().len(),
+            1,
+            "the ripple does not need a WaterEffect"
+        );
+    }
+
+    #[test]
+    fn a_round_carries_its_trail_until_it_is_gone() {
+        use core::projectile::{Bolt, Hit};
+        use core::weapon::WeaponClass;
+        let Some(lib) = bf1_common() else { return };
+        let mut fx = Fx::with_library(lib);
+        let mut sim = Sim::empty(1);
+        let mut w = WeaponClass::bf1_rifle();
+        w.ordnance.impact.as_mut().unwrap().trail = Some("com_sfx_weap_grenade_red".into());
+        let wc = sim.add_weapon_class(w);
+        let vel = Vec3::new(30.0, 0.0, -40.0);
+        let bolt = |weapon_class| Bolt {
+            pos: Vec3::new(0.0, 1.0, 0.0),
+            vel,
+            remaining: 1.0,
+            age: 0.0,
+            owner: UnitHandle { index: 0, gen: 0 },
+            team: 0,
+            weapon_class,
+            hit: Hit::None,
+            end: Vec3::new(30.0, 1.0, -40.0),
+            shooter_is_player: false,
+        };
+        sim.bolts.push(bolt(wc));
+        sim.tick = 1;
+        fx.ingest_sim(&sim);
+        assert_eq!(fx.live.len(), 1);
+        let e = &fx.live[0];
+        assert_eq!(e.name(), Some("com_sfx_weap_grenade_red"));
+        assert_eq!(e.frame.pos, Vec3::new(0.0, 1.0, 0.0));
+        assert!((e.frame.rot.z_axis - vel.normalize()).length() < 1e-6);
+        assert!(e.frame.rot.x_axis.y.abs() < 1e-6);
+        sim.bolts[0].pos = Vec3::new(1.5, 1.0, -2.0);
+        sim.tick = 2;
+        fx.ingest_sim(&sim);
+        assert_eq!(fx.live.len(), 1);
+        assert_eq!(fx.live[0].frame.pos, Vec3::new(1.5, 1.0, -2.0));
+        assert!(!fx.live[0].is_stopped());
+        sim.bolts.clear();
+        sim.tick = 3;
+        fx.ingest_sim(&sim);
+        assert!(fx.live[0].is_stopped());
+        let mut plain = WeaponClass::bf1_rifle();
+        plain.ordnance.impact.as_mut().unwrap().trail = None;
+        let bare = sim.add_weapon_class(plain);
+        fx.clear();
+        sim.bolts.push(bolt(bare));
+        sim.tick = 4;
+        fx.ingest_sim(&sim);
+        assert!(fx.live.is_empty(), "no TrailEffect, no trail");
+    }
+
+    #[test]
+    fn grenade_trails_keep_their_rounds_when_an_earlier_one_goes_off() {
+        use core::sticky::{Sticky, StickyClass};
+        use core::weapon::WeaponClass;
+        let Some(lib) = bf1_common() else { return };
+        let mut fx = Fx::with_library(lib);
+        let mut sim = Sim::empty(1);
+        let mut w = WeaponClass::bf1_rifle();
+        w.ordnance.impact.as_mut().unwrap().trail = Some("com_sfx_weap_grenade_red".into());
+        let wc = sim.add_weapon_class(w);
+        let class = StickyClass::new(false);
+        let owner = UnitHandle { index: 0, gen: 0 };
+        let mut first = Sticky::new(Vec3::ZERO, Vec3::NEG_Z, &class, 0.1, owner, 0, wc);
+        first.armed = true;
+        let second = Sticky::new(Vec3::X * 5.0, Vec3::X, &class, 0.1, owner, 0, wc);
+        sim.stickies = vec![first, second];
+        let mut spawned = 0;
+        for _ in 0..8 {
+            sim.step(&[]);
+            fx.ingest_sim(&sim);
+            spawned = spawned.max(fx.live.len());
+            let running: Vec<_> = fx.live.iter().filter(|e| !e.is_stopped()).collect();
+            assert_eq!(running.len(), sim.stickies.len());
+            for (e, g) in running.iter().zip(&sim.stickies) {
+                assert_eq!(e.frame.pos, g.pos);
+            }
+        }
+        assert_eq!(sim.stickies.len(), 1);
+        assert_eq!(spawned, 2, "no trail respawned on the survivor");
+        assert!(fx.live[0].is_stopped() && !fx.live[1].is_stopped());
     }
 
     /// A synthetic emitter: MaxParticles is a LIFETIME budget — bursts of

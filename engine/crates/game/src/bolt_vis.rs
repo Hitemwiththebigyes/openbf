@@ -70,9 +70,9 @@ pub const MUZZLE_FORWARD: f32 = 1.2;
 pub const MUZZLE_RIGHT: f32 = 0.3;
 
 /// A bolt is known across frames by what never changes in flight.
-type Key = (u32, u32, usize, [u32; 3], [u32; 3]);
+pub(crate) type Key = (u32, u32, usize, [u32; 3], [u32; 3]);
 
-fn key(b: &core::projectile::Bolt) -> Key {
+pub(crate) fn key(b: &core::projectile::Bolt) -> Key {
     let bits = |v: Vec3| v.to_array().map(f32::to_bits);
     (
         b.owner.index,

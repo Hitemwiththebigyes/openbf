@@ -294,7 +294,10 @@ impl Builder<'_> {
                 return None;
             }
         }
-        if sim.water_level.is_some_and(|w| f < w - 0.2) {
+        if sim
+            .water_under(Vec3::new(x, f, z))
+            .is_some_and(|w| f < w - 0.2)
+        {
             return None;
         }
         if matches!(sim.level_at(Vec3::new(x, f, z)), Level::Off(_)) {

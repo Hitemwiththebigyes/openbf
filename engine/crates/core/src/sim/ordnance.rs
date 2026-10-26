@@ -223,7 +223,7 @@ impl Sim {
             return true;
         }
         let prev = g.pos;
-        let level = self.water_level;
+        let level = self.water_under(prev);
         g.fly(dt, level.is_some_and(|l| prev.y < l));
         let step = g.pos - prev;
         let len = step.length();
@@ -340,12 +340,13 @@ impl Sim {
                 best = Some((t, n, s));
             }
         };
-        if let Some(level) = self.water_level {
-            if prev.y >= level && dir.y < 0.0 {
-                let t = (origin.y - level) / -dir.y;
-                if t <= max {
-                    nearer(t.max(0.0), Vec3::Y, Surface::Water);
-                }
+        if let Some(t) = self
+            .water_plane()
+            .filter(|w| prev.y >= w.level)
+            .and_then(|w| w.crossing(origin, dir))
+        {
+            if t <= max {
+                nearer(t, Vec3::Y, Surface::Water);
             }
         }
         // The bodies' ray starts AT the previous position and ends where the

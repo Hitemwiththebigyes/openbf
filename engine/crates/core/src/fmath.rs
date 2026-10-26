@@ -47,6 +47,11 @@ pub fn exp(x: f32) -> f32 {
     libm::expf(x)
 }
 
+#[inline]
+pub fn powf(x: f32, y: f32) -> f32 {
+    libm::powf(x, y)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
