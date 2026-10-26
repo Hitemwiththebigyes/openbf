@@ -275,10 +275,11 @@ impl CollisionWorld {
     pub fn enclosing(&self, p: Vec3) -> Option<usize> {
         let mut found: Option<*const Body> = None;
         self.visit_xz(p.x, p.x, p.z, p.z, HullFilter::Static, |body| {
+            let inside = body.aabb.min.cmple(p).all() && p.cmple(body.aabb.max).all();
             if found.is_some()
                 || !body.layers.contains(Layers::SOLDIER)
                 || !matches!(body.shape, super::shape::Shape::Mesh(_))
-                || !(body.aabb.min.cmple(p).all() && p.cmple(body.aabb.max).all())
+                || !inside
             {
                 return;
             }

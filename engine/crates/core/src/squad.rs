@@ -626,7 +626,7 @@ pub fn steer(
                 let cur = g.and_then(|g| crate::ai::start_hub(sim, g, me));
                 match (g, cur, dest) {
                     (Some(g), Some(cu), Some(de)) if g.reachable(cu, de, m.ty) => {
-                        if !st.route.is_some_and(|r| r.dest_hub == de) {
+                        if st.route.is_none_or(|r| r.dest_hub != de) {
                             st.route = crate::ai::plan_leg(sim, st, me, cu, de, None, nt);
                         }
                     }

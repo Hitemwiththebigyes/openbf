@@ -389,7 +389,7 @@ pub fn think(sim: &Sim, me: UnitHandle, st: &mut AiState) -> (PadState, NavTick)
     let ring = ring_walk(sim, st)
         .filter(|_| ret.is_none() && flee.is_none() && boarding.is_none() && st.cmd.is_none());
     let goal = match ring {
-        Some(p) if !st.route.is_some_and(|r| !r.is_last()) => Some(p),
+        Some(p) if st.route.is_none_or(|r| r.is_last()) => Some(p),
         _ => goal,
     };
     let at_ring = ring.filter(|p| goal == Some(*p));
@@ -399,7 +399,7 @@ pub fn think(sim: &Sim, me: UnitHandle, st: &mut AiState) -> (PadState, NavTick)
         ret.is_none() && flee.is_none() && boarding.is_none() && st.cmd.is_none() && ring.is_none()
     });
     let goal = match spot {
-        Some(p) if !st.route.is_some_and(|r| !r.is_last()) => Some(p),
+        Some(p) if st.route.is_none_or(|r| r.is_last()) => Some(p),
         _ => goal,
     };
     let at_spot = spot.filter(|p| goal == Some(*p));

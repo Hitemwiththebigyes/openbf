@@ -299,7 +299,7 @@ impl Sim {
     /// which seat (§5's cone, team and PilotType rules) is `super::seats`'
     /// (VSEAT); this only keeps the bookkeeping whole.
     pub fn seat_unit(&mut self, u: UnitHandle, vh: VehicleHandle, seat: u8) -> bool {
-        if !self.unit(u).is_some_and(|x| x.mount.is_none()) {
+        if self.unit(u).is_none_or(|x| x.mount.is_some()) {
             return false;
         }
         let team = self.units[u.index as usize].team;

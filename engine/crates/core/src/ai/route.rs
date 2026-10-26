@@ -1156,7 +1156,7 @@ pub(super) fn retarget_board(
         .map(|h| level_hub(sim, g, h, at));
     match (start_hub(sim, g, me), dest) {
         (Some(c), Some(d)) if g.reachable_by(c, d, m) => {
-            if !st.route.is_some_and(|r| r.dest_hub == d) {
+            if st.route.is_none_or(|r| r.dest_hub != d) {
                 st.route = plan_leg(sim, st, me, c, d, None, nt);
             }
         }
@@ -1203,7 +1203,7 @@ fn retarget_hunt(
     match (g, cur, dest) {
         (Some(g), Some(c), Some(d)) if g.reachable_by(c, d, mover(sim, u)) => {
             st.target_cp = None;
-            if !st.route.is_some_and(|r| r.dest_hub == d) {
+            if st.route.is_none_or(|r| r.dest_hub != d) {
                 st.route = plan_leg(sim, st, me, c, d, None, nt);
             }
             // (An armed walker stops at the end of its graph: card WAI2,

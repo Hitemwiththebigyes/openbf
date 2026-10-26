@@ -413,7 +413,7 @@ impl Scene {
         // bound — a crash on the first sim tick. `grid_unit` is read raw from
         // the disc with no finiteness check, and bake::terrain_glb already
         // uses `is_finite() && > 0.0` for the layer scale; match it.
-        if !(unit.is_finite() && unit > 0.0) || !p0.iter().all(|c| c.is_finite()) {
+        if !(unit.is_finite() && unit > 0.0 && p0.iter().all(|c| c.is_finite())) {
             return None;
         }
         Some(core::heightfield::Heightfield {

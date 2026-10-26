@@ -264,7 +264,7 @@ fn steer(k: &Class, m: &Body, o: &Order, goal: Option<Vec3>) -> [f32; 4] {
     // The tail: toward the aim point (type 2: along the travel outside R,
     // else ahead) when stopped, fading with a strafe speed, or standing.
     let (turn, pitch) = match goal {
-        Some(g) if !no_goal && !(slowing && has_strafe) && !o.stand => stick_to(k, m, g),
+        Some(g) if !(no_goal || o.stand || (slowing && has_strafe)) => stick_to(k, m, g),
         _ => {
             let d = goal.map_or(Vec3::ZERO, |g| g - m.pos);
             let p = if goal.is_some() && r * r < d.x * d.x + d.z * d.z {
