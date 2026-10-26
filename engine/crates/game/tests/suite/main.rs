@@ -20,6 +20,7 @@ mod load_scene;
 mod locate_ps2;
 mod music_ps2;
 mod nav_walls;
+mod resupply_feedback;
 mod roster;
 mod route_patch;
 mod shell_layout;

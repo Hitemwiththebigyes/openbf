@@ -34,12 +34,14 @@
 //!
 //! Visual only — driven by sim events, never feeding back into the sim.
 
+mod children;
 pub mod draw;
 pub mod emitter;
 
 use crate::walk::WalkSim;
 use core::impact::{ExplosionLook, Surface};
 use core::sim::Sim;
+use core::unit::UnitHandle;
 use core::vehicle::VehicleHandle;
 use emitter::{Era, Frame, Instance, Lcg, Variant};
 use glam::{Mat4, Vec3};
@@ -143,6 +145,7 @@ pub struct EffectDef {
     pub emitters: Vec<FxEmitter>,
     /// Empty for BF2 (every particle its own seed).
     caches: Vec<Vec<Variant>>,
+    children: Vec<Option<Arc<EffectDef>>>,
 }
 
 fn flatten(e: &FxEmitter, out: &mut Vec<FxEmitter>) {
@@ -151,6 +154,48 @@ fn flatten(e: &FxEmitter, out: &mut Vec<FxEmitter>) {
     out.push(own);
     if let Some(s) = sibling {
         flatten(&s, out);
+    }
+}
+
+impl EffectDef {
+    fn new(
+        hash: u32,
+        name: Option<String>,
+        emitters: Vec<FxEmitter>,
+        era: Era,
+        rng: &mut Lcg,
+    ) -> Self {
+        // S+0x128: a per-spawner random set at construction.
+        let caches = match era {
+            Era::Bf1 => emitters
+                .iter()
+                .map(|em| emitter::variant_cache(&em.spawner, rng.step()))
+                .collect(),
+            Era::Bf2 => Vec::new(),
+        };
+        let children = emitters
+            .iter()
+            .enumerate()
+            .map(|(i, em)| {
+                em.geometry.child.as_ref().map(|child| {
+                    let mut emitters = Vec::new();
+                    flatten(child, &mut emitters);
+                    let hash = hash.wrapping_add(i as u32 + 1);
+                    Arc::new(Self::new(hash, None, emitters, era, &mut Lcg(hash)))
+                })
+            })
+            .collect();
+        Self {
+            hash,
+            name,
+            emitters,
+            caches,
+            children,
+        }
+    }
+
+    fn cache(&self, i: usize) -> &[Variant] {
+        self.caches.get(i).map_or(&[][..], Vec::as_slice)
     }
 }
 
@@ -174,20 +219,7 @@ impl Library {
                     for em in &e.emitters {
                         flatten(em, &mut emitters);
                     }
-                    // S+0x128: a per-spawner random set at construction.
-                    let caches = match era {
-                        Era::Bf1 => emitters
-                            .iter()
-                            .map(|em| emitter::variant_cache(&em.spawner, rng.step()))
-                            .collect(),
-                        Era::Bf2 => Vec::new(),
-                    };
-                    Arc::new(EffectDef {
-                        hash: e.hash,
-                        name: e.name.clone(),
-                        emitters,
-                        caches,
-                    })
+                    Arc::new(EffectDef::new(e.hash, e.name.clone(), emitters, era, rng))
                 });
             }
         }
@@ -264,6 +296,14 @@ pub struct LiveEffect {
     /// spawns an impact in the struck object's frame (B1 FUN_00276810
     /// B1:198040–). PROVISIONAL: only the origin follows (world axes kept).
     ride: Option<(VehicleHandle, Vec3)>,
+    unit: Option<(UnitHandle, Gain)>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Gain {
+    Health,
+    Ammo,
+    Energy,
 }
 
 impl LiveEffect {
@@ -280,6 +320,7 @@ impl LiveEffect {
             instances,
             stopped: false,
             ride: None,
+            unit: None,
         };
         fx.advance(0.0);
         fx
@@ -314,8 +355,7 @@ impl LiveEffect {
             .enumerate()
             .map(|(i, inst)| {
                 let em = &self.def.emitters[i];
-                let cache = self.def.caches.get(i).map_or(&[][..], Vec::as_slice);
-                inst.particles(em, era, self.t, self.frame, cache, |_| true)
+                inst.particles(em, era, self.t, self.frame, self.def.cache(i), |_| true)
             })
             .collect()
     }
@@ -339,8 +379,13 @@ impl LiveEffect {
             if terms.fade <= 0.0 {
                 continue;
             }
-            let cache = self.def.caches.get(i).map_or(&[][..], Vec::as_slice);
-            let ps = inst.particles(em, era, self.t, self.frame, cache, |k| terms.keep(k));
+            if em.geometry.kind == manifest::FxType::Emitter {
+                children::draw(self, i, era, eye, forward, texture, out);
+                continue;
+            }
+            let ps = inst.particles(em, era, self.t, self.frame, self.def.cache(i), |k| {
+                terms.keep(k)
+            });
             if ps.is_empty() {
                 continue;
             }
@@ -455,6 +500,30 @@ impl Fx {
             }
         }
         true
+    }
+
+    fn gain(&mut self, unit: UnitHandle, kind: Gain, names: [&str; 2], sim: &Sim) {
+        if self
+            .live
+            .iter()
+            .any(|e| e.unit == Some((unit, kind)) && !e.is_dead())
+        {
+            return;
+        }
+        let Some(u) = sim.unit(unit) else { return };
+        let frame = Frame {
+            vel: u.soldier.vel,
+            ..Frame::at(u.soldier.pos)
+        };
+        let bf2 = self.library.as_ref().is_some_and(|l| l.era == Era::Bf2);
+        for index in [usize::from(bf2), usize::from(!bf2)] {
+            if !names[index].is_empty() && self.spawn(names[index], frame) {
+                if let Some(e) = self.live.last_mut() {
+                    e.unit = Some((unit, kind));
+                }
+                break;
+            }
+        }
     }
 
     /// Detonate an explosion class's look at `pos` (B1 FUN_002701a0
@@ -587,6 +656,19 @@ impl Fx {
         // Riding effects follow their hull; a hull gone leaves them where
         // they are.
         for e in &mut self.live {
+            if let Some((h, _)) = e.unit {
+                if let Some(u) = sim.unit(h) {
+                    let delta = u.soldier.pos - e.frame.pos;
+                    for instance in &mut e.instances {
+                        instance.translate(delta);
+                    }
+                    e.frame.pos = u.soldier.pos;
+                    e.frame.vel = u.soldier.vel;
+                } else {
+                    e.stop();
+                    e.unit = None;
+                }
+            }
             if let Some((h, local)) = e.ride {
                 match sim.vehicle(h) {
                     Some(v) => {
@@ -678,8 +760,7 @@ impl Fx {
                 // An item was taken (PWUP, re-powerups §5.6): the taker's
                 // `HealthGainEffect` / `AmmoGainEffect` / BF2's
                 // `EnergyGainEffect` — the class defaults, which no disc
-                // class overrides. At the taker (PROVISIONAL: the PS2's
-                // follows it, one at a time per unit).
+                // class overrides.
                 // A station's give runs the same effects (PWST,
                 // re-powerup-station §5.1); a vehicle served shows none.
                 Event::ItemTaken {
@@ -696,16 +777,17 @@ impl Fx {
                     energy,
                     ..
                 } => {
-                    if let Some(u) = sim.units.get(unit.index as usize) {
-                        let f = Frame::at(u.soldier.pos);
-                        for (gave, bf1, bf2) in [
-                            (*health, "Powerup_blue", "com_sfx_powerup_blue"),
-                            (*ammo, "Powerup_red", "com_sfx_powerup_red"),
-                            (*energy, "", "com_sfx_powerup_green"),
-                        ] {
-                            if gave && !self.spawn(bf2, f) {
-                                self.spawn(bf1, f);
-                            }
+                    for (gave, kind, names) in [
+                        (
+                            *health,
+                            Gain::Health,
+                            ["Powerup_blue", "com_sfx_powerup_blue"],
+                        ),
+                        (*ammo, Gain::Ammo, ["Powerup_red", "com_sfx_powerup_red"]),
+                        (*energy, Gain::Energy, ["", "com_sfx_powerup_green"]),
+                    ] {
+                        if gave {
+                            self.gain(*unit, kind, names, sim);
                         }
                     }
                 }
@@ -829,6 +911,8 @@ fn billboard(p: &Puff, camera: &Camera) -> (Mat4, [f32; 4]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    mod resupply;
 
     fn puff(kind: Kind) -> Puff {
         Puff {

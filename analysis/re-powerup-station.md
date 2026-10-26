@@ -378,3 +378,83 @@ RAM fields used: class at entity +0x2d8, current/max health at +0x8/+0xc, matrix
 Verification: `compare.py` checks the local RAM against the rebaked model spheres; `game/tests/suite/station_destruction.rs` checks the measured BF1 values, moving collision, frozen wreck transforms, both games' health and actual collision-hit destruction; the GPU check reads back intact and destroyed draws. Both affected common asset groups were rebaked. The previous bake-input stamp was first checked against unchanged inputs plus the HEAD versions of the three common-metadata edits, then advanced after both common bakes succeeded.
 
 Remaining limits: attempted mouse firing through emulator input automation did not produce a verified native damage sequence, so no native shots-to-destroy result is claimed. The port still steps animation at 30 Hz and animates off-screen stations, whereas the original has a visibility gate and updates per rendered frame. The existing predictive-projectile model and general explosion gather ordering remain port-wide approximations. Repair/rebuilding remains outside this destruction change.
+
+## 15. Resupply feedback follow-up, 2026-10-26 [O] UNAUDITED
+
+The maintainer reports an immediate-feeling ammo refill with missing red feedback/sound and offers the live BF1 emulator for comparison. Read the packaged black box first: `dist/openbf_data/playtest/last.json`, BF1 BES1, seed 66, human 0, tick 226 (7.5 s), build `e5ca9e35516a+dirty`, compiled 2026-10-26 12:09:35 UTC; checkout at battle start `a6076fbbf0ce`. The build base predates that checkout, but this is the dirty build produced before committing the ammo correction. The short snapshot does not contain a completed player resupply sequence and is not treated as proof of a missing delay. Digest: `engine/artifacts/lead_tmp/resupply-snapshot-digest.log`.
+
+### Live original measurement [M]
+
+PCSX2 2.8.2, BF1 USA SLUS-20898 (503BF9E1), the maintainer's open Bespin battle. Paused through the emulator UI, preserved the current battle in an unused temporary slot 8, and left existing slots 1 and 9 untouched. Read-only baseline RAM and station census use the earlier section 14 probe. Player entity `0x1cf18f0`, rifle `0x1c32670`; the ammo droid at entity `0x1c49e20` stands at (64.198, 98.639, 115.156), 1.382 m from the player. Its PowerupDelay is 2.0 s.
+
+Emptied only the rifle's spare-clip field (`weapon+0x90`) while keeping its loaded clip (`+0x98`) at 1.0. On resume, the first sampled station timer was 0.319994 s. Reserve clips rose 0 -> 1 -> 2 -> 3 -> 4 at elapsed wall times 1.687 / 3.687 / 5.703 / 7.687 s (about one NTSC frame of sampling jitter). Each clip is 55 rounds. The first wait agrees with the remaining time on the station's clock, not a fresh fixed delay on entering range. The effect handle/generation at player `+0xc60/+0xc64` changed at each delivery. The soldier class at `+0x958` has AmmoGainEffect hash `0x5c71476b`, the baked `Powerup_red`.
+
+Restored slot 8 and resumed the original battle; verified the rifle reserve/loaded values returned to 4.0/1.0 and normal rendering resumed. Archived the temporary save as `engine/artifacts/lead_tmp/resupply-original-battle.p2s`, then removed only the temporary slot-8 file. The emulator's existing muted audio setting was preserved, so no native listening test is claimed. Probe, paused RAM and results: `resupply-native.py`, `resupply-paused.ram`, `resupply-native-results.json`, `resupply-native-sample.log` under `engine/artifacts/lead_tmp/`; station census in `station-fidelity/resupply-baseline.*`.
+
+### Port finding and repair [V, D]
+
+The existing core timer already matches the original two-second station clock. The existing StationServed sound hook also resolves `com_item_gonkrecharge` to a playable take. A new end-to-end regression builds the Imperial rifle and ammo droid from BF1 classes, loads Bespin's mission audio configuration, and proves four one-clip deliveries, four station sound requests and the proper 275-round final total.
+
+The missing red effect is a renderer gap: the original `Powerup_red` uses Geometry Type EMITTER with nested ParticleEmitter templates. The bake retains these children, but the old draw path did nothing for EMITTER. The regression produced zero visible draws before the repair. Health's blue effect and BF2's corresponding gain effects use the same path.
+
+`game/src/fx/children.rs` now reconstructs the per-parent scratch effect along its sampled path in 0.3 s steps, keeps the authored child burst/lifetime/colour rules, and submits the children's textured particles through the existing draw path. Child templates and BF1 variant caches are prepared once with the effect definition. Drawing uses local deterministic visual seeds and does not consume the simulation RNG. Gain effects follow their recipient, including already-emitted bursts, and keep one live effect per recipient and gain kind, matching the retained original handles. The same effect repair applies to ammo/health pickups and medical droids.
+
+The native EMITTER branches are BF1 `FUN_002b34f8`, called by `FUN_002b2b10`, and BF2 `FUN_00375c98`, called by `FUN_00375210`. Both contain the 0.3 s replay step. BF1 disassembly at `0x2b3a98/0x2b3a9c` and `0x2b3b80/0x2b3b84` builds float `0x3e99999a` (0.3). BF1 `FUN_001ffcc0` keeps the ammo-gain handle and attaches it through `FUN_0036ced0`.
+
+Re-runnable checks:
+
+```text
+python scripts/re_check.py fn b1 242278 242551 242583 242627 111763
+python scripts/re_check.py callers b1 FUN_002b34f8
+python scripts/tools/eedis.py bf1 0x2b39e0 0x2b3c50
+python scripts/re_check.py fn b2 360025 360289
+python scripts/re_check.py callers b2 FUN_00375c98
+```
+
+Two new library regressions failed before the repair (child emitters drew nothing; duplicate overlapping gains spawned twice). The initial Bespin integration regression failed only its visible-red-feedback assertion after successfully checking timing, the sound take and four delivery cues. These now pass. A GPU regression renders BF1/BF2 red effects with their actual textures and checks coloured pixels; captures are `resupply-captures/bf1-ammo-gain.png` and `bf2-ammo-gain.png` under the same local artifact directory. The red/blue tests also check retirement and repeated-draw stability, and the recipient test checks that existing particles move with the unit.
+
+Limits: this repairs service feedback rather than changing infantry AI. Native BF1 timing was measured; BF2 gains are checked against disc data and rendered, without a new live BF2 measurement. The generic child path uses the existing port particle/path reconstruction and visual seeds; it is not a claim of pixel-identical arbitrary nested effects. Geometry-model particles, full owner rotation/scale attachment and the original path-node spacing remain outside this repair. No full round sweep or native sound capture is claimed.
+
+Completion (2026-10-26): full workspace format, Clippy with warnings denied, build, unit/integration/arena tests and doc tests pass. Core: 985 passed; game library: 400 passed plus two existing ignored; game suite: 216 passed plus one existing ignored. The new Bespin mission-routed sound/timing regression and the BF1/BF2 textured GPU regression both executed successfully. A final format/Clippy pass after the mission-audio test refinement also passes. Inspected the GPU captures. Logs: `resupply-ci.log`, `resupply-final-checks.log`, `resupply-gpu-tests.log`.
+
+Release repacked 23,884 entries and installed at `dist/openbf.exe` (2,732,309,050 bytes). Verified all index ranges/footer, the executable prefix against the release byte-for-byte, and the embedded BF1 class inputs/BES1 mission. Prefix SHA256: `6e1f3f2f4dbeefbae752171f682c0af4281fdb9e581f7d924968179bb9147510`. Installed executable smoke checks at 100/600 ticks retain `06da5e043dd4c755` / `989d7c74c627273a`, consistent with the repair being visual-only. `resupply-pack.log` and `resupply-pack-verification.log` record packaging. No temporary packed replacement remains. `git diff --check` and the added-Rust-comment check pass. Source changes remain local and uncommitted.
+
+## 16. Recorded-video spacing correction, 2026-10-26 [O] UNAUDITED
+
+The maintainer supplied `C:/Users/velox/Videos/bf1-ref.mp4` (382x502, 30 fps, 3.6333 s, SHA256 96892d20eef4cdfed7cc43ce62c8a14d81c0d7baad036e24baae36ddb6526602) and `openbf-ref.mp4` (408x536, 30 fps, 4.666633 s, SHA256 ed619279e33bc9e262c0fc727aff1e4ddc161808076085be981e31fffa0364f2). Original files were read without modification. Native-resolution extracted frames, timestamped contact sheets and close-ups are in `engine/artifacts/lead_tmp/resupply-video/`. The clips have different cameras and targets; the shooting sections are not treated as a controlled comparison of wall-impact effects. Their refill sequences are the relevant comparison, approximately 2.8-3.1 s. The clips do not carry a build commit. The older saved black box predates the gain-effect repair and is not attributed to either recording.
+
+The native refill has a layered moving glow; the first repaired port draw groups it into broad bands. Section 15's visibility and colour tests were insufficient to catch this spatial difference. A new regression against the actual BF1 `Powerup_red` reproduced child particles collapsing to only three Y coordinates at effect age 0.35 s: [0.650, 1.250, 1.850] m.
+
+Cause: child scratch effects were advanced at the native 0.3 s path sampling intervals, but every burst caught up in one advance stored the same current frame. The child's authored 0.03 s bursts therefore piled onto one sampled position. In the original, the parent path has position/velocity history and births are evaluated within their path segment (`FUN_002b2b10`, decomp around 241901: path position + local time * path velocity). The 0.3 s interval is path reconstruction spacing, not child-burst spacing.
+
+The correction retains those sampled parent-path segments and interpolates each scheduled child birth within its segment. `Instance::update_path` records the frame at each `next_burst`; ordinary emitter updates still supply their existing constant frame. Particle counts, textures, colour curves and authored burst delays are unchanged. The actual-effect regression now finds at least six distinct heights, and a separate scheduling regression proves a moving emitter's five caught-up bursts retain positions from their respective birth times. All 25 focused FX tests and the timed Bespin/audio plus real-texture GPU tests pass. The before/after GPU images use the same camera and effect age: `resupply-video/renderer-before.png` and `resupply-video/renderer-after/bf1-ammo-gain.png`.
+
+This addresses the visible bunching defect shown in the recordings. It is not a claim of pixel-identical PS2 output: camera, random seeds, original resolution/filtering and remaining general particle approximations still affect direct image comparisons. Full validation and executable repack are recorded on completion below.
+
+Completion of the video-spacing correction: workspace formatting, Clippy with warnings denied, build, unit/integration/arena tests and doc tests all pass (`resupply-video-ci.log`). Core: 985 passed; game library: 402 passed plus two existing ignored; game suite: 216 passed plus one existing ignored. Both resupply GPU/source-data tests and the new spacing/birth-frame regressions executed. Inspected the before/after GPU captures. Repacked 23,884 entries and installed `dist/openbf.exe` (2,732,312,634 bytes). Verified archive ranges/footer, the release prefix byte-for-byte and embedded BF1 classes/BES1 mission. Prefix SHA256: `a9c12879724cb0c5ce20f0e8ef6c60b4f23e44f1c88978b6a15db5ea9bb991a2`. Installed 100/600-tick smoke hashes remain `06da5e043dd4c755` / `989d7c74c627273a`. Packaging logs: `resupply-video-pack.log`, `resupply-video-pack-verification.log`. No temporary packed replacement remains. `git diff --check` and the added-Rust-comment check pass. Source remains local and uncommitted.
+
+## 17. Native child-replay audit and cost, 2026-10-26 [O] UNAUDITED
+
+The maintainer asked for the gain-effect repair to be checked against the original and for it to have no negative impact on the game. Bots and the player share the same service path. `station_pass` and `take_item` serve every living, unmounted unit, `Fx::gain` reads no controller, and the gain dedupe matches the original. BF1 `FUN_001ffcc0` spawns the AmmoGainEffect only when the handle at +0xc60/+0xc64 is dead, and the health twin `FUN_001ffda0` uses +0xc58/+0xc5c. The effect lives about 1.25 s, under the 2 s station clock, so only a pickup that lands during a running glow is suppressed.
+
+The full native read of the child replay is `re-fx.md` §13. It found four divergences in section 15/16's `children.rs`, all now corrected:
+1. **Tint.** The port multiplied the drawn bytes by the parent colour, on top of the child's own sampled emitter colour. The original replaces the child instance colour with the raw parent colour × parent instance colour.
+2. **Node rules.** The port interpolated between 0.3 s samples using the particles' own velocities. The original keeps zero velocity on the newest node, uses secant velocities on the others, and merges a last step of 0.1 s or less into the newest node.
+3. **Parents.** The port thinned parents with distance and took the first 31 live ones. The original does not thin them and draws spawn indices 0–30.
+4. **Child offsets.** The port's child offsets were random. The original uses parent offset + idx·10, and +5 for each sibling.
+
+A latent drop is also gone: the parent at age 0 is now evaluated per index instead of through `t − age`, where one ulp of rounding gave a negative age and skipped the whole parent.
+
+Checks: `fx::tests::resupply` adds the merged-last-step, secant/identity-frame and live-capture regressions. All 28 FX library tests and the resupply suite pass. Live PCSX2 captures of 19 native replays, taken while the maintainer threw a grenade and stood at the health and ammo droids, match the node rules in count, times, timers and velocities to float precision (`re-fx.md` §13).
+
+Cost, release build, eye at 2–15 m, the CPU side of `LiveEffect::draws` only (mean / worst µs per frame over the effects' lives). The "without children" rows skip the EMITTER branch, i.e. the state before section 15.
+
+| scene | with children | without | draws (max) |
+| --- | --- | --- | --- |
+| 64 BF1 gain effects at once | 17.5 / 63 | 3.6 / 15 | 88 / 0 |
+| 64 BF2 gain effects at once | 19.2 / 86 | 3.1 / 14 | 84 / 0 |
+| 50 BF1 explosions (Explosion, rad_exp_xl, small_explosion) | 259 / 710 | 18 / 107 | 1573 / 449 |
+| 50 BF1 heavy blasts (atat_final, seismic, timebomb, droid) | 727 / 2204 | 40 / 348 | 4767 / 1042 |
+| 50 BF2 explosions and splashes | 248 / 923 | 47 / 273 | 2399 / 1006 |
+
+The per-particle cost is about the same with and without children (roughly 0.3–0.5 µs). The added time is the 3–4× more particles that the original draws for these effects. That is the visible change outside resupply: explosions, grenades, timebombs and water splashes now show their authored child puffs. The second run was measured while a PINE poller loaded the machine, so treat its absolute values as approximate.

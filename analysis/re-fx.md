@@ -244,7 +244,7 @@ Offsets: T = template, S = Spawner (T+0x7c), I = emitter instance, N = emitter-p
   TotalFrames;` (strict `<`: a frame equal to TotalFrames stays) — f runs 0…N, frame 0 shown once (the original's
   off-by-one; the 4×4 atlas wraps f & 15).
 - [V] **5.10 EMITTER** (Type 2, `FUN_002b34f8`, 242098): each parent particle (up to 31) replays the child template
-  in a scratch effect along its path in 0.3 s steps, tinted by the parent's colour [D: outline only, AGENT_A 7].
+  in a scratch effect along its path in 0.3 s steps, tinted by the parent's colour. Full read in §13.
 
 ## 6. The draw (B1 read; the BF2 twin in §8)
 
@@ -422,3 +422,37 @@ per-particle draw `FUN_00377cc0`, cull/fade `FUN_0037a090`, state records `FUN_0
   no reader for any absence claim (C7, C21, C27, C40) at the instruction level.
 - **callers** — the parser `FUN_002ba2e8` is reached only from the chunk loader wrapper `FUN_002ba1d0` and itself (the
   Geometry EMITTER child); the spawn API `FUN_0036d478` has 19 callers.
+
+## 12. Gain-effect child rendering follow-up (2026-10-26) [O] UNAUDITED
+
+The BF1 BES1 resupply comparison exposed a runtime gap rather than a missing bake: `Powerup_red` and `Powerup_blue` contain EMITTER geometry children which the old particle draw path skipped. Their BF2 counterparts use the same hierarchy. `game/src/fx/children.rs` now replays child templates along their parent particles in the native 0.3 s steps and submits their particles with the existing draw implementation; definitions and variant caches are prepared once. Gain effects follow the receiving unit and deduplicate overlapping gains while a matching effect is alive. Full measurement, source checks, regression failures, GPU captures and limits are in `re-powerup-station.md` section 15. This does not implement GEOMETRY-model particles or claim generic nested effects are pixel-identical.
+
+The maintainer's recorded comparison prompted a further correction (section 16 of `re-powerup-station.md`): the first child draw path grouped several authored bursts onto each 0.3 s sample. Child births now interpolate along those path segments at their own burst times. Ordinary emitters retain their existing constant-frame update path. The spacing regression fails on the first implementation's three-height result, and passes after the correction; a scheduling regression separately holds birth times to their positions.
+
+## 13. EMITTER child replay, full read (2026-10-26) [V][O] UNAUDITED
+
+Re-read of the native child path, both games, against `game/src/fx/children.rs`. B1 line numbers; the BF2 twin `FUN_00375c98` (360021–360429) has the same structure: 31-index cap (360206), 0.3 s step (360290), child-mode flag `DAT_005fef3c` around the update (360346–360350), tint through `FUN_00376d70` → `FUN_00374d60`, which replaces the instance colour like B1's `FUN_002b2620`.
+
+- **Gate.** `FUN_002b2b10` takes the EMITTER branch only while `DAT_005183f8 != 0` (241876). ELF word 0x5183f8 = 1, and no text write exists (`re_check.py writers b1 DAT_005183f8` → 0), so the original draws children.
+- **Parents.** The burst walk is the ordinary one, but the loop stops at particle index > 30 (`0x1e < lVar20`, and `lVar20 < 0x1f` per particle). This is an absolute spawn index, not a count of live particles. There is no `FUN_002b8a30` density thinning and no FadeInTime multiply on parents.
+- **Scratch init** (`FUN_002b45f8` 243024): one static effect at 0x58d420. Per parent, its instance offset = parent offset + idx·10 (`param_2+0x14` + idx·10), and each chained sibling instance +5 (`FUN_002b5f78`). The child template's seed word +0x78 is set to a draw from the parent's per-burst LCG chain (`FUN_002b4258`). Time +0xfc, node timer +0xf8 and node list +0xf4 are reset.
+- **Replay.** Samples at parent ages 0, 0.3, 0.6, …, clamped to the parent's age a. At each sample the scratch matrix is identity rows (`DAT_0066ef20`) with the parent particle's position at that age (`FUN_0036d478`). The scratch is updated by dt = min(step, sample) (`FUN_002b4df0`), with the first dt = 0.
+- **Path nodes** (`FUN_002b4858`, child mode forced by `DAT_005183fc = 1`):
+  - The first update makes node 0 at time 0 with zero velocity (`DAT_0066eee0`, zeroed by `FUN_00445fa8`).
+  - On each later update the timer drops by dt. If there is no older node, or the timer is below 0, a new node is made at (now, position), the previous node's velocity becomes the secant (P_new − P_prev)/(now − T_prev), its span is set to that interval, and the timer resets to 0.1 s.
+  - Otherwise (a step of 0.1 s or less after a new node) the newest node is moved to (now, position), the older node's span grows by the step, and its velocity becomes (P − P_older)/(span + 0.0001). A last step of 0.1 s or less therefore drops the previous 0.3 s sample.
+  - The newest node keeps zero velocity.
+- **Births** use the ordinary stateless walk over these nodes: P_k + v_k·(b − T_k). Within a segment that is linear interpolation between the kept samples.
+- **Tint** (`FUN_002b4778` → `FUN_002b2620`, after the replay): every child instance's emitter-level RGBA is **replaced** by the parent particle's colour at age a × the parent instance's RGBA. The values are raw: an HSV parent passes H, S, V as multipliers. Then the scratch is drawn.
+- **Live check, PCSX2** [M] (BF1 BES1, read-only PINE reads of the scratch at 0x58d420 while the maintainer threw a grenade and stood at a health and an ammo droid): 19 native replays were captured, 15 with complete node lists, at parent ages 0.033–0.968 s. Archive: `engine/artifacts/lead_tmp/resupply-native-child-nodes.json`.
+  - Every node list and timer follows the rule above. At ages 0.0334–0.2669 there are two nodes. At 0.3003, 0.3337 and 0.3670 the 0.3 s sample is merged, with timers 0.0997, 0.0663 and 0.0330. At 0.4004 a step of 0.1004 s adds a third node. At exactly 0.3000 there are two nodes, and the timers at 0.634 and 0.968 imply merged steps of 0.034 and 0.068.
+  - Velocities: a node that gets a successor has velocity equal to the secant within 4e-7. A merged node's velocity equals secant/(span + 0.0001) within 3e-7. The newest node's velocity is zero.
+  - An earlier stale read held time 3.970612 s with timer 0.029388, which is also a merged step.
+  - `fx::tests::resupply::the_replay_nodes_match_live_bf1_captures` runs the port's `path` on three of these captures (two nodes, merged, three nodes) and checks their node times and velocities.
+
+Port (`children.rs`): `path` and `frame_at` implement the sampling, node and merge rules exactly, in f32 and in the native order. Parents are evaluated per index at an exact age (`Instance::particle_at`), so rounding in `t − age` cannot drop a parent. Parents are unthinned with index < 31. Child offsets follow the native rule. Child instance RGBA is replaced by the parent's raw RGBA. The node matrices are identity.
+
+Not matched:
+- **Seeds.** The child's burst seed comes from the native parent LCG chain, which the port's burst RNG does not reproduce, and that was already true for every effect. The child uses a deterministic visual seed instead.
+- **BF1 child variant caches** come from the effect hash, not the global construction order.
+- **The outer per-effect fade gate** in `LiveEffect::draws` uses the parent emitter's BoundingRadius at the effect origin, and the native caller's gate for EMITTER was not traced.

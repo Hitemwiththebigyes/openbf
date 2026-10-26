@@ -502,6 +502,20 @@ impl Instance {
         self.emitted
     }
 
+    pub(super) fn child_offset(&self, idx: u32) -> u32 {
+        self.offset.wrapping_add(idx.wrapping_mul(10))
+    }
+
+    pub(super) fn set_offset(&mut self, offset: u32) {
+        self.offset = offset;
+    }
+
+    pub(super) fn translate(&mut self, delta: Vec3) {
+        for burst in &mut self.bursts {
+            burst.frame.pos += delta;
+        }
+    }
+
     fn budget_left(&self) -> Option<u32> {
         (self.max >= 0).then(|| (self.max as u32).saturating_sub(self.emitted))
     }
@@ -509,6 +523,16 @@ impl Instance {
     /// Advance to effect time `t`: emit the bursts due (unless `stopped`),
     /// retire the spent ones, and die when nothing is left to draw.
     pub fn update(&mut self, em: &FxEmitter, t: f32, frame: Frame, stopped: bool) {
+        self.update_path(em, t, stopped, |_| frame);
+    }
+
+    pub(super) fn update_path(
+        &mut self,
+        em: &FxEmitter,
+        t: f32,
+        stopped: bool,
+        mut frame_at: impl FnMut(f32) -> Frame,
+    ) {
         if self.dead {
             return;
         }
@@ -530,7 +554,7 @@ impl Instance {
                     time: self.next_burst,
                     first: self.emitted,
                     count: n as u32,
-                    frame,
+                    frame: frame_at(self.next_burst),
                 });
             }
             self.emitted += n as u32;
@@ -567,71 +591,108 @@ impl Instance {
         cache: &[Variant],
         keep: impl Fn(u32) -> bool,
     ) -> Vec<Particle> {
-        let tr = &em.transformer;
-        let g = &em.geometry;
-        let streak = g.kind == FxType::Streak;
+        let streak = em.geometry.kind == FxType::Streak;
         let mut out = Vec::new();
         for b in &self.bursts {
             let age = t - b.time;
-            if age < 0.0 || age >= tr.lifetime {
+            if age < 0.0 || age >= em.transformer.lifetime {
                 continue;
             }
-            let frame = if em.no_register_step { now } else { b.frame };
-            let rot = if em.world_aligned {
-                Mat3::IDENTITY
-            } else {
-                frame.rot
-            };
             for idx in b.first..b.first + b.count {
                 if !streak && !keep(idx & 3) {
                     continue;
                 }
-                let v = match era {
-                    Era::Bf1 if !cache.is_empty() => {
-                        cache[((idx.wrapping_add(self.offset)) % VARIANTS) as usize]
-                    }
-                    _ => sample_variant(&em.spawner, &mut Lcg(bf2_seed(idx, self.offset)), false),
-                };
-                let pos = rot * v.pos + frame.pos;
-                let vel = rot * v.vel + frame.vel * v.ivf;
-                let mut rgba = v.rgba;
-                if em.spawner.fade_in_time > 0.0 && b.time < em.spawner.fade_in_time {
-                    rgba[3] *= b.time / em.spawner.fade_in_time;
-                }
-                let mut rot0 = v.rot;
-                if streak {
-                    rot0 *= t;
-                }
-                let s = self.size;
-                let (pos, vel) = position_chain(&tr.position, pos, vel, age, s);
-                let size = size_chain(&tr.size, v.size * s, age);
-                let rot = rotation_chain(&tr.rotation, rot0, v.rotvel, age);
-                let mut rgba = color_chain(&tr.color, rgba, age);
-                for (c, m) in rgba.iter_mut().zip(self.rgba) {
-                    *c *= m;
-                }
-                let frame = if g.kind == FxType::Animated {
-                    match animated_frame(era, age, g.time_per_frame, g.total_frames, g.looping) {
-                        Some(f) => Some(f),
-                        None => continue,
-                    }
-                } else {
-                    None
-                };
-                out.push(Particle {
-                    pos,
-                    vel,
-                    size,
-                    rot,
-                    rgba,
-                    hsv: em.spawner.hsv,
-                    age,
-                    idx,
-                    frame,
-                });
+                out.extend(self.particle(em, era, b, idx, age, t, now, cache));
             }
         }
         out
+    }
+
+    pub(super) fn particle_at(
+        &self,
+        em: &FxEmitter,
+        era: Era,
+        idx: u32,
+        age: f32,
+        now: Frame,
+        cache: &[Variant],
+    ) -> Option<Particle> {
+        if age < 0.0 || age >= em.transformer.lifetime {
+            return None;
+        }
+        let b = self
+            .bursts
+            .iter()
+            .find(|b| (b.first..b.first + b.count).contains(&idx))?;
+        self.particle(em, era, b, idx, age, b.time + age, now, cache)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn particle(
+        &self,
+        em: &FxEmitter,
+        era: Era,
+        b: &Burst,
+        idx: u32,
+        age: f32,
+        t: f32,
+        now: Frame,
+        cache: &[Variant],
+    ) -> Option<Particle> {
+        let tr = &em.transformer;
+        let g = &em.geometry;
+        let frame = if em.no_register_step { now } else { b.frame };
+        let rot = if em.world_aligned {
+            Mat3::IDENTITY
+        } else {
+            frame.rot
+        };
+        let v = match era {
+            Era::Bf1 if !cache.is_empty() => {
+                cache[((idx.wrapping_add(self.offset)) % VARIANTS) as usize]
+            }
+            _ => sample_variant(&em.spawner, &mut Lcg(bf2_seed(idx, self.offset)), false),
+        };
+        let pos = rot * v.pos + frame.pos;
+        let vel = rot * v.vel + frame.vel * v.ivf;
+        let mut rgba = v.rgba;
+        if em.spawner.fade_in_time > 0.0 && b.time < em.spawner.fade_in_time {
+            rgba[3] *= b.time / em.spawner.fade_in_time;
+        }
+        let mut rot0 = v.rot;
+        if g.kind == FxType::Streak {
+            rot0 *= t;
+        }
+        let s = self.size;
+        let (pos, vel) = position_chain(&tr.position, pos, vel, age, s);
+        let size = size_chain(&tr.size, v.size * s, age);
+        let rot = rotation_chain(&tr.rotation, rot0, v.rotvel, age);
+        let mut rgba = color_chain(&tr.color, rgba, age);
+        for (c, m) in rgba.iter_mut().zip(self.rgba) {
+            *c *= m;
+        }
+        let frame = if g.kind == FxType::Animated {
+            Some(animated_frame(
+                era,
+                age,
+                g.time_per_frame,
+                g.total_frames,
+                g.looping,
+            )?)
+        } else {
+            None
+        };
+        Some(Particle {
+            pos,
+            vel,
+            size,
+            rot,
+            rgba,
+            hsv: em.spawner.hsv,
+            age,
+            idx,
+            frame,
+        })
     }
 }
 
@@ -738,6 +799,21 @@ mod tests {
         instance.update(&em, 2.0, Frame::at(Vec3::ZERO), false);
         assert_eq!(instance.emitted(), 5);
         assert_eq!(instance.next_burst, 2.5);
+    }
+
+    #[test]
+    fn catch_up_bursts_take_the_frame_at_their_own_birth_time() {
+        let mut em = scheduling_emitter(0.5);
+        em.max_particles = FxRange(5.0, 0.0);
+        em.transformer.lifetime = 10.0;
+        let mut instance = Instance::new(&em, Era::Bf2, 1, 0);
+        instance.update_path(&em, 2.0, false, |time| Frame::at(Vec3::X * time));
+        let particles =
+            instance.particles(&em, Era::Bf2, 2.0, Frame::at(Vec3::X * 2.0), &[], |_| true);
+        assert_eq!(particles.len(), 5);
+        for (i, particle) in particles.iter().enumerate() {
+            assert!(particle.pos.abs_diff_eq(Vec3::X * (i as f32 * 0.5), 0.0001));
+        }
     }
 
     fn pnode(lifetime: f32, op: FxPositionOp, value: [f32; 3]) -> FxPositionNode {
