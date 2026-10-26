@@ -227,7 +227,7 @@ impl Census {
         self.gun_off_plain += off(&kept);
         if a.aim().weights().0 >= 1.0 {
             let gun = |pose: &Pose| aim::global(pose, skel, hp) * Vec3::Z;
-            let (yaw, pitch) = a.aim().eased();
+            let (yaw, pitch) = a.aim().turn(a.twist());
             let turn = Quat::from_rotation_y(yaw) * Quat::from_rotation_x(-pitch);
             self.full += 1;
             self.turn_off += f64::from(gun(&with).angle_between(turn * gun(&kept)));

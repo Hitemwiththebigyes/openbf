@@ -182,6 +182,8 @@ fn input(speed: f32) -> AnimInput {
         dead: false,
         set: 0,
         fired: false,
+        throw: None,
+        throw_windup: 0.0,
         reloading: false,
         reload_time: 0.0,
         alert: false,
@@ -1140,7 +1142,8 @@ fn standing_he_turns_on_the_spot() {
 }
 
 /// Strafing, the root turns toward the walk and the aim pose turns the
-/// torso back (`AimStep::aim` is the facing's yaw less the twist).
+/// torso back (`AimStep::aim` is the facing's yaw; the twist is taken off
+/// after the easing).
 #[test]
 fn a_strafe_twists_the_legs_and_the_aim_turns_back() {
     let mut r = Run::new(rig_bf1());
@@ -1154,12 +1157,29 @@ fn a_strafe_twists_the_legs_and_the_aim_turns_back() {
     assert_eq!(r.a.body(), Some(Body::Feet(0, Move::WalkForward)));
     assert!((r.a.twist().to_degrees() + 45.0).abs() < 0.01);
     assert!((root_yaw(&r) + 45.0).abs() < 0.01);
-    // The aim's yaw from the legs is +45, within the 36-degree limit.
-    assert!(
-        (r.a.aim().eased().0 - 0.6283).abs() < 1e-3,
-        "{:?}",
-        r.a.aim().eased()
-    );
+    assert!(r.a.aim().eased().0.abs() < 1e-6, "{:?}", r.a.aim().eased());
+    let turn = r.a.aim().turn(r.a.twist()).0;
+    assert!((turn.to_degrees() - 45.0).abs() < 0.01, "{turn}");
+}
+
+#[test]
+fn a_changing_twist_does_not_swing_the_aim() {
+    let mut r = Run::new(rig_bf1());
+    let mut i = AnimInput {
+        alert: true,
+        ..input(0.0)
+    };
+    for k in 0..240 {
+        let a = k as f32 * 0.05;
+        i.vel = glam::Vec2::new(3.0 * a.sin(), 3.0 * a.cos());
+        r.steps(&i, 1);
+        let (yaw, _) = r.a.aim().turn(r.a.twist());
+        assert!(
+            (yaw + r.a.twist()).abs() < 1e-5,
+            "update {k}: torso {yaw} against twist {}",
+            r.a.twist()
+        );
+    }
 }
 
 /// Card KNOCK (re-knockback §2): a thrown, tumbling or getting-up body -

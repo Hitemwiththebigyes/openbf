@@ -1415,3 +1415,34 @@ fn rkmar_bf1_due_salvo_holds_only_for_the_margin_friend() {
 fn rkmar_bf2_due_salvo_holds_only_for_the_margin_friend() {
     rkmar_due_salvo(GroundRules::Bf2);
 }
+
+#[test]
+fn a_jump_holds_the_trigger_off_until_it_lands() {
+    let mut s = Sim::empty(3);
+    s.heightfield = Some(flat_ground());
+    s.cheats.infinite_ammo = true;
+    let h = s.spawn(&UnitSpec::player(0, Vec3::ZERO)).unwrap();
+    for _ in 0..10 {
+        s.step(&[PadState::default()]);
+    }
+    s.step(&[PadState {
+        buttons: buttons::JUMP | buttons::FIRE,
+        ..PadState::default()
+    }]);
+    let shots = s.unit(h).unwrap().weapon.shots_fired;
+    let mut airborne = 0;
+    for _ in 0..120 {
+        s.step(&[fire()]);
+        let u = s.unit(h).unwrap();
+        if u.soldier.stance != Stance::Jump {
+            break;
+        }
+        airborne += 1;
+        assert_eq!(u.weapon.shots_fired, shots, "fired in the air");
+    }
+    assert!(airborne > 20, "{airborne} ticks in the air");
+    for _ in 0..60 {
+        s.step(&[fire()]);
+    }
+    assert!(s.unit(h).unwrap().weapon.shots_fired > shots);
+}

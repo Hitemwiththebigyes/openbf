@@ -38,6 +38,7 @@ pub struct OrdnanceClass {
     /// Sound property names (SOUND/<planet>.LVL snd_ scripts).
     pub ordnance_sound: Option<String>,
     pub collision_sound: Option<String>,
+    pub geometry: Option<String>,
     /// The laser keys of a `bolt` / `laser` class (its own draw, card FXB);
     /// `None` for any other ordnance (drawn as the old placeholder box).
     /// Render-only: the sim never reads it.
@@ -74,6 +75,7 @@ impl Default for OrdnanceClass {
             team_bonus_scale: 0.0,
             ordnance_sound: None,
             collision_sound: None,
+            geometry: None,
             laser: None,
             impact: None,
             sticky: None,
@@ -186,6 +188,9 @@ impl OrdnanceClass {
         }
         o.ordnance_sound = src.prop("OrdnanceSound").map(|s| s.trim().to_owned());
         o.collision_sound = src.prop("CollisionSound").map(|s| s.trim().to_owned());
+        o.geometry = src
+            .prop("GeometryName")
+            .map(|s| s.trim().to_ascii_lowercase());
         o
     }
 }
