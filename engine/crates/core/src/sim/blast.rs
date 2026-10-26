@@ -38,6 +38,13 @@ pub fn soldier_blast_sphere(stance: Stance) -> (f32, f32) {
 enum Victim {
     Unit(UnitHandle),
     Vehicle(VehicleHandle),
+    Station(u16),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum BlastSource {
+    Vehicle(VehicleHandle),
+    Station(u16),
 }
 
 impl Sim {
@@ -78,8 +85,16 @@ impl Sim {
         pos: Vec3,
         attacker: Option<UnitHandle>,
         team: Option<u8>,
-        source: Option<VehicleHandle>,
+        source: Option<BlastSource>,
     ) {
+        let source_vehicle = match source {
+            Some(BlastSource::Vehicle(h)) => Some(h),
+            _ => None,
+        };
+        let source_instance = match source {
+            Some(BlastSource::Station(i)) => self.stations[usize::from(i)].instance,
+            _ => None,
+        };
         let r = e.gather_radius();
         if r <= 0.0 {
             return;
@@ -92,7 +107,7 @@ impl Sim {
         for (i, u) in self.units.iter().enumerate() {
             // A corpse's body is in the world too (card KNOCK, §3).
             if !(u.alive || u.body)
-                || source.is_some_and(|v| u.mount.is_some_and(|m| m.vehicle == v))
+                || source_vehicle.is_some_and(|v| u.mount.is_some_and(|m| m.vehicle == v))
             {
                 continue;
             }
@@ -109,7 +124,7 @@ impl Sim {
             if gathered.len() == BLAST_GATHER_MAX {
                 break;
             }
-            if source == Some(h) {
+            if source_vehicle == Some(h) {
                 continue;
             }
             let (c, w) = match self.blast_setup.get(v.class as usize) {
@@ -120,12 +135,39 @@ impl Sim {
                 gathered.push((Victim::Vehicle(h), c, w));
             }
         }
+        for (i, s) in self.stations.iter().enumerate() {
+            if gathered.len() == BLAST_GATHER_MAX {
+                break;
+            }
+            if !s.destroyed && overlaps(s.sphere_centre, s.sphere_radius) {
+                gathered.push((Victim::Station(i as u16), s.sphere_centre, s.sphere_radius));
+            }
+        }
         let attacker_is_player = attacker
             .and_then(|a| self.units.get(a.index as usize).filter(|u| u.gen == a.gen))
             .is_some_and(|u| u.is_player);
         let desc = e.desc();
         for &(victim, c, w) in gathered.iter().rev() {
-            if !crate::perception::los_past(self, pos, c, crate::collision::HullFilter::Static) {
+            let clear = match victim {
+                Victim::Station(i) => {
+                    let instance = self.stations[usize::from(i)].instance;
+                    crate::perception::los_seat(
+                        self,
+                        pos,
+                        c,
+                        crate::collision::HullFilter::Static,
+                        [instance, source_instance],
+                    )
+                }
+                _ => crate::perception::los_seat(
+                    self,
+                    pos,
+                    c,
+                    crate::collision::HullFilter::Static,
+                    [source_instance, None],
+                ),
+            };
+            if !clear {
                 continue;
             }
             let f = if e.damage_outer > 0.0 {
@@ -146,6 +188,10 @@ impl Sim {
                     self.damage_vehicle_by(h, &desc, f, attacker, team, Some(dir));
                 }
                 Victim::Vehicle(_) => {}
+                Victim::Station(i) if f > 0.0 => {
+                    self.damage_station(i, &desc, f, attacker, team);
+                }
+                Victim::Station(_) => {}
             }
         }
     }

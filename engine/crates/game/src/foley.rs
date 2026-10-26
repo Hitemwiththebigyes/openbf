@@ -457,7 +457,7 @@ impl Foley {
                     ..Track::default()
                 };
             }
-            let under = group_under(&self.table, s.pos.y, sim.water_level, s.grounded);
+            let under = group_under(&self.table, s.pos.y, sim.water_under(s.pos), s.grounded);
             t.surface.touch(&self.table, class, under);
             let prev = t.stance.replace(s.stance).unwrap_or(s.stance);
             let Some(row) = self.table.row(t.surface) else {

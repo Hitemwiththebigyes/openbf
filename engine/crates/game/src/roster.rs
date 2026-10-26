@@ -58,7 +58,6 @@ pub struct ClassRoster {
     pub max_health: f32,
     pub health_type: HealthType,
     pub weapon: WeaponClass,
-    /// Primary weapon's spare clips (`WeaponAmmo`).
     pub spare_clips: u32,
     /// Every weapon slot of the class, in slot order
     /// ([`ClassDb::weapon_slots`]); `weapon` is the first channel-0 one.
@@ -572,6 +571,13 @@ pub fn weapon_from_db(db: &ClassDb, weapon: &str) -> Result<WeaponClass> {
     db.get(weapon)
         .with_context(|| format!("weapon class {weapon} not in class db"))?;
     let wsrc = ClassSrc { db, class: weapon };
+    if db.engine_base(weapon) == Some("repair") {
+        let mut w = WeaponClass::from_props(weapon, &wsrc, OrdnanceClass::default());
+        w.repair = Some(core::weapon::Repair::from_props(&wsrc));
+        w.rounds_per_clip = 0;
+        w.flash = None;
+        return Ok(w);
+    }
     let ord_name =
         WeaponClass::ordnance_name(&wsrc).with_context(|| format!("{weapon}: no OrdnanceName"))?;
     db.get(&ord_name)
@@ -647,13 +653,6 @@ pub fn thrown_weapon_from_db(db: &ClassDb, weapon: &str) -> Result<Option<Weapon
     Ok(Some(w))
 }
 
-/// The slots of `soldier` past `primary` that the sim can run today, built
-/// (card GREN): a channel-0 slot as [`weapon_from_db`] builds a primary; a
-/// channel-1 slot only when it is a thrown weapon
-/// ([`thrown_weapon_from_db`]) — dispensers, mines, the recon droid and the
-/// tools wait for their cards (MINE, UORD), and a channel-0 grenade launcher
-/// stays a bolt weapon until UORD. A BF2 award slot (`MedalsTypeToUnlock`
-/// other than −1, re-grenades §2.4) is left out: nothing sets a medal bit.
 pub fn held_slots(db: &ClassDb, soldier: &str, primary: u8) -> Vec<HeldSlot> {
     db.weapon_slots(soldier)
         .into_iter()
@@ -666,7 +665,7 @@ pub fn held_slots(db: &ClassDb, soldier: &str, primary: u8) -> Vec<HeldSlot> {
             {
                 return None;
             }
-            let weapon = if s.channel == 1 {
+            let weapon = if s.channel == 1 && db.engine_base(&name) != Some("repair") {
                 thrown_weapon_from_db(db, &name).ok()??
             } else {
                 weapon_from_db(db, &name).ok()?
@@ -934,6 +933,20 @@ pub fn station_class_from_db(db: &ClassDb, class: &str) -> Option<StationClass> 
         powerup_sound: sound("PowerupSound"),
         ambient_sound: sound("AmbientSound"),
         anim: station_anim(db, name),
+        sphere: None,
+        wreck_sphere: None,
+        max_health: f("MaxHealth").unwrap_or(0.0),
+        health_type: db
+            .prop(name, "HealthType")
+            .and_then(HealthType::parse)
+            .unwrap_or(HealthType::Building),
+        destroyed_geometry: db
+            .prop(name, "DestroyedGeometryName")
+            .map(|s| s.trim().to_ascii_lowercase())
+            .filter(|s| !s.is_empty()),
+        explosion: db
+            .prop(name, "ExplosionName")
+            .and_then(|s| explosion_class(db, s)),
     })
 }
 
@@ -975,7 +988,7 @@ pub fn add_stations(
 ) -> usize {
     let radius_key = crate::classdb::fnv1a_lowercase("Radius");
     let mut n = 0;
-    for inst in instances {
+    for (instance, inst) in instances.iter().enumerate() {
         let Some(name) = db.resolve(&inst.class).map(str::to_owned) else {
             continue;
         };
@@ -996,11 +1009,23 @@ pub fn add_stations(
             continue;
         }
         let c = sim.add_station_class(class);
-        sim.stations.push(core::sim::Station::new(
-            c,
-            glam::Vec3::from(inst.translation),
-            radius,
-        ));
+        let class = &sim.station_classes[usize::from(c)];
+        let mut s = core::sim::Station::new(c, glam::Vec3::from(inst.translation), radius);
+        s.health = core::weapon::Health::new(class.max_health, class.health_type);
+        s.instance = Some(instance as u32);
+        s.transform = crate::viewer::instance_matrix(inst.rotation, inst.translation);
+        s.team = inst
+            .props
+            .iter()
+            .rev()
+            .find(|(k, _)| *k == crate::classdb::fnv1a_lowercase("Team"))
+            .and_then(|(_, v)| v.trim().parse::<u8>().ok())
+            .filter(|t| (1..=2).contains(t))
+            .map(|t| t - 1);
+        s.motion = core::sim::StationMotion::new(instance as u32 + 1);
+        sim.collision
+            .bind_station(instance as u32, sim.stations.len() as u16);
+        sim.stations.push(s);
         n += 1;
     }
     n

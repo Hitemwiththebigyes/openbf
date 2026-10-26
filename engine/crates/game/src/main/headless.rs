@@ -180,7 +180,19 @@ fn append_events(csv: &mut String, tick: usize, events: &[core::sim::Event]) {
     use core::sim::Event;
     for e in events {
         let line = match e {
-            // `b` is the weapon class that fired (a rider's: the seat gun).
+            Event::Repair {
+                unit,
+                amount,
+                target,
+                ..
+            } => {
+                let target = match target {
+                    core::projectile::Target::Unit(h) => format!("u{}g{}", h.index, h.gen),
+                    core::projectile::Target::Vehicle(h) => format!("v{}g{}", h.index, h.gen),
+                    core::projectile::Target::Station(i) => format!("s{i}"),
+                };
+                format!("{tick},repair,{},{target},{amount}\n", unit.index)
+            }
             Event::Shot {
                 unit, weapon_class, ..
             } => format!("{tick},shot,{},{weapon_class},\n", unit.index),
@@ -250,6 +262,9 @@ fn append_events(csv: &mut String, tick: usize, events: &[core::sim::Event]) {
                 shooter.map_or(String::new(), |s| s.index.to_string()),
                 vehicle.index
             ),
+            Event::StationDestroyed { station, class, .. } => {
+                format!("{tick},station_destroyed,{station},{class},\n")
+            }
             Event::VehicleDestroyed {
                 vehicle, killer, ..
             } => format!(
@@ -481,8 +496,9 @@ pub(super) fn run_headless(v: &ViewerArgs) -> Result<()> {
         let quad = game::viewer::upload_billboard_quad(&mut r)?;
         let sprite = game::viewer::upload_fx_sprite(&mut r).ok();
         let icons = squad_icons(&mut r, &assets_dir);
-        let fx =
+        let mut fx =
             game::fx::Fx::for_walk(&assets_dir, &scene.dir, &scene.manifest.source_game, &walk);
+        fx.set_water(&scene.manifest);
         let bolts = game::bolt_vis::BoltVis::new(&assets_dir, &scene.manifest.source_game);
         // The map's precipitation (card WTHR), on the sim's tick here.
         let weather = game::weather::Weather::load(

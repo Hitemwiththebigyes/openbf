@@ -47,12 +47,15 @@ fn every_bolt_field_and_hit_payload_changes_sim_hash() {
     for hit in [
         Hit::Terrain,
         Hit::World,
+        Hit::Water,
         Hit::Target(Target::Unit(UnitHandle { index: 7, gen: 8 })),
         Hit::Target(Target::Unit(UnitHandle { index: 17, gen: 8 })),
         Hit::Target(Target::Unit(UnitHandle { index: 7, gen: 18 })),
         Hit::Target(Target::Vehicle(VehicleHandle { index: 7, gen: 8 })),
         Hit::Target(Target::Vehicle(VehicleHandle { index: 17, gen: 8 })),
         Hit::Target(Target::Vehicle(VehicleHandle { index: 7, gen: 18 })),
+        Hit::Target(Target::Station(7)),
+        Hit::Target(Target::Station(17)),
     ] {
         s.bolts[0] = original.clone();
         s.bolts[0].hit = hit;

@@ -725,6 +725,9 @@ impl Sim {
                     self.nav_stats.blast_holds += 1;
                 }
             }
+            if self.tick_repair_weapon(i, None, fire_held, blocked, dt) {
+                continue;
+            }
             let input = FireInput {
                 held: fire_held,
                 blocked,
@@ -836,6 +839,7 @@ impl Sim {
                     life,
                     who,
                     self.heightfield.as_ref(),
+                    self.water_plane(),
                     &self.collision,
                     crate::collision::HullFilter::All,
                     targets.iter().copied(),

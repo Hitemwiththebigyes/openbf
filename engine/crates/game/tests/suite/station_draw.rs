@@ -3,6 +3,17 @@
 
 use glam::{Mat4, Vec3};
 
+fn tick_motion(sim: &mut core::sim::Sim) {
+    sim.tick += 1;
+    for s in &mut sim.stations {
+        s.motion.step(
+            &sim.station_classes[usize::from(s.class)].anim,
+            s.serving,
+            core::TICK_DT,
+        );
+    }
+}
+
 /// Data-gated (the bake with the droid rigs, card PWST, and a GPU): on BF1
 /// Naboo every placed droid is drawn with its sim station's animation.
 /// Idle for 6 s, each droid has turned about its +Y (the FX-7 and the
@@ -102,7 +113,7 @@ fn the_droids_turn_idle_and_move_their_nodes_while_serving() {
     };
     // 6 s idle.
     for _ in 0..180 {
-        sim.tick += 1;
+        tick_motion(&mut sim);
         gpu.pose_stations(&sim);
     }
     for d in &gpu.stations {
@@ -129,10 +140,10 @@ fn the_droids_turn_idle_and_move_their_nodes_while_serving() {
     let (fx7_yaw, gonk_yaw) = (gpu.stations[fx7].anim.yaw, gpu.stations[gonk].anim.yaw);
     let (mut spun, mut bobbed) = (0.0f32, 0.0f32);
     for _ in 0..38 {
-        sim.tick += 1;
         for s in sim.stations.iter_mut() {
             s.serving = s.pos == fx7_pos || s.pos == gonk_pos;
         }
+        tick_motion(&mut sim);
         gpu.pose_stations(&sim);
         let sock = "Equipment_Operator_Arm_Socket";
         spun = spun.max(off(node_of(&gpu, fx7, sock), bind(&gpu, fx7, sock)));
@@ -171,10 +182,10 @@ fn the_droids_turn_idle_and_move_their_nodes_while_serving() {
     );
     // The pass that serves nobody: the FX-7 turns again.
     for _ in 0..3 {
-        sim.tick += 1;
         for s in sim.stations.iter_mut() {
             s.serving = false;
         }
+        tick_motion(&mut sim);
         gpu.pose_stations(&sim);
     }
     assert_ne!(gpu.stations[fx7].anim.yaw, fx7_yaw);

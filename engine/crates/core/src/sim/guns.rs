@@ -460,6 +460,7 @@ impl Sim {
                     life,
                     who,
                     self.heightfield.as_ref(),
+                    self.water_plane(),
                     &self.collision,
                     HullFilter::except(Some(m.vehicle)),
                     targets.iter().copied(),

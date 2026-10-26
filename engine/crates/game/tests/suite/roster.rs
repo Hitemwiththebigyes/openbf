@@ -1609,7 +1609,7 @@ fn fielded_classes_hold_their_sidearm_and_grenades() {
                 for h in &c.held {
                     assert_ne!(h.slot, c.weapon_slot);
                     assert_eq!(
-                        h.channel == 1,
+                        h.channel == 1 && h.weapon.repair.is_none(),
                         h.weapon.ordnance.sticky.is_some(),
                         "{}",
                         c.class
@@ -1621,7 +1621,11 @@ fn fielded_classes_hold_their_sidearm_and_grenades() {
                         h.weapon.name
                     );
                 }
-                thrown += c.held.iter().filter(|h| h.channel == 1).count();
+                thrown += c
+                    .held
+                    .iter()
+                    .filter(|h| h.weapon.ordnance.sticky.is_some())
+                    .count();
             }
             // The plain trooper throws a thermal detonator on every side but
             // BF1's CIS (the super battle droid: a wrist rocket) and REP

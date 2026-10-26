@@ -228,6 +228,7 @@ impl CollisionWorld {
             t,
             normal: body.to_world.transform_vector3(n).normalize_or_zero(),
             owner: body.owner,
+            instance: body.instance,
         })
     }
 }
@@ -323,6 +324,7 @@ pub struct RayHit {
     pub t: f32,
     pub normal: Vec3,
     pub owner: Option<VehicleHandle>,
+    pub instance: Option<u32>,
 }
 
 /// March a ray against the heightfield and return the distance to the first

@@ -89,6 +89,14 @@ pub fn each(walk: &WalkSim, ears: Vec3, mut play: impl FnMut(&str, Vec3)) {
                 let x = setup.and_then(|b| b.as_ref()?.explosion.as_ref());
                 boom(x.map(|x| &x.look), *pos, &mut play);
             }
+            Event::StationDestroyed { class, pos, .. } => {
+                let x = walk
+                    .sim
+                    .station_classes
+                    .get(usize::from(*class))
+                    .and_then(|c| c.explosion.as_ref());
+                boom(x.map(|x| &x.look), *pos, &mut play);
+            }
             Event::WeaponSelect { unit, weapon_class } => {
                 let pos = walk.sim.units[unit.index as usize].soldier.pos;
                 equip(*weapon_class as usize, pos, &mut play);
@@ -133,6 +141,11 @@ pub fn each(walk: &WalkSim, ears: Vec3, mut play: impl FnMut(&str, Vec3)) {
             Event::Throw {
                 weapon_class,
                 origin,
+                ..
+            }
+            | Event::Repair {
+                weapon_class,
+                pos: origin,
                 ..
             } => {
                 if let Some(n) = &walk.sim.weapon_classes[*weapon_class as usize].fire_sound {
@@ -290,17 +303,15 @@ pub fn cries<'a>(walk: &'a WalkSim, mut cry: impl FnMut(Cry<'a>)) {
     }
 }
 
-/// Each station's `AmbientSound` ask this tick (card PWST,
-/// re-ambience-music §5.2: the FX-7's `droid_fx7_idle_chatter`), as
-/// `(station, property hash, the station's place)` for
-/// `SoundLib::station_ambient`. The PS2 asks every update while the building
-/// is intact; the port has no broken station yet (card PWSTD), so every one.
 pub fn station_asks(walk: &WalkSim) -> Vec<(u16, u32, Vec3)> {
     let sim = &walk.sim;
     sim.stations
         .iter()
         .enumerate()
         .filter_map(|(i, s)| {
+            if s.destroyed {
+                return None;
+            }
             let c = sim.station_classes.get(usize::from(s.class))?;
             let name = c.ambient_sound.as_deref()?;
             let i = u16::try_from(i).ok()?;

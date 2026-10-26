@@ -291,6 +291,7 @@ pub struct AiState {
     pub last_switch: u64,
     // ── Behaviour: the order it is under and what it is doing about it (`behave`).
     pub next_think: u64,
+    pub items: super::items::ItemSeek,
     pub target_cp: Option<u32>,
     /// The squad this unit is in (Phase B): the key of the objective it shares
     /// with at least one other unit of its team within
@@ -842,6 +843,7 @@ pub enum Behaviour {
     Overwatch,
     /// Card TURR: in a building turret's seat (`man::seated`).
     Man,
+    Pickup,
 }
 
 impl Behaviour {
@@ -857,6 +859,7 @@ impl Behaviour {
             Behaviour::Board => "board",
             Behaviour::Ride => "ride",
             Behaviour::Man => "man",
+            Behaviour::Pickup => "pickup",
             Behaviour::Follow => "follow",
             Behaviour::Recover => "recover",
             Behaviour::Overwatch => "overwatch",
@@ -1062,6 +1065,7 @@ impl WalkAsk {
     pub const BOARD: u8 = 4;
     /// The route's walk point or corner, an order's point, the post.
     pub const LEG: u8 = 5;
+    pub const PICKUP: u8 = 6;
 }
 
 /// Card FGHT: what a fighting bot's position ([`HoldState`]) is —
@@ -1446,6 +1450,7 @@ impl Default for AiState {
             contacts: [None; crate::perception::CONTACTS],
             last_switch: 0,
             next_think: 0,
+            items: super::items::ItemSeek::default(),
             target_cp: None,
             squad: None,
             cmd: None,
@@ -1490,6 +1495,7 @@ impl Default for AiState {
 
 impl AiState {
     pub fn hash_into(&self, eat: &mut impl FnMut(&[u8])) {
+        self.items.hash_into(eat);
         eat(&self.target_cp.unwrap_or(u32::MAX).to_le_bytes());
         match self.target {
             Some(e) => {

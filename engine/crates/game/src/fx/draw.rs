@@ -29,7 +29,7 @@
 //!   nothing), half-width size′, U = the particle's rotation; no thinning,
 //!   no distance alpha. Its colour is the newest point's — PROVISIONAL (the
 //!   PS2 colours each vertex).
-//! - **GEOMETRY / EMITTER** — not drawn yet (card FXP2's resume).
+//! - **GEOMETRY** — not drawn yet (card FXP2's resume).
 //!
 //! Colour (§6.8): HSV → RGB, then bytes `(int)(c·255)` — clamped here where
 //! the PS2 byte wraps past 1.0. The per-view fades are taken against one

@@ -53,6 +53,7 @@ pub struct TurretRigs {
     /// Lower-cased names of every model a turret class draws (its geometry's
     /// own name and LOD models).
     models: HashSet<String>,
+    station_models: HashSet<String>,
 }
 
 impl TurretRigs {
@@ -82,6 +83,7 @@ impl TurretRigs {
         };
         let mut classes = Vec::new();
         let mut models = HashSet::new();
+        let mut station_models = HashSet::new();
         for e in &entcs {
             let links = chain(e);
             let root = &entcs[*links.last().expect("itself")].base;
@@ -94,6 +96,26 @@ impl TurretRigs {
             });
             let geom = links.iter().find_map(|&i| entcs[i].geometry_name());
             let station = STATION_BASE.eq_ignore_ascii_case(root);
+            if station {
+                for key in [
+                    mungefs::entity::PROP_GEOMETRYNAME,
+                    mungefs::fnv1a_lowercase("DestroyedGeometryName"),
+                ] {
+                    if let Some(geometry) = links.iter().find_map(|&i| {
+                        entcs[i]
+                            .props
+                            .iter()
+                            .find(|p| p.key_hash == key)
+                            .map(|p| p.value.trim())
+                    }) {
+                        station_models.insert(geometry.to_ascii_lowercase());
+                        if let Some(g) = skels.geometry(geometry) {
+                            station_models
+                                .extend(g.lods.iter().map(|l| l.model.to_ascii_lowercase()));
+                        }
+                    }
+                }
+            }
             let (true, Some(geom)) = ((armed && node) || station, geom) else {
                 continue;
             };
@@ -108,7 +130,12 @@ impl TurretRigs {
             skels,
             classes,
             models,
+            station_models,
         }
+    }
+
+    pub fn station_model(&self, name: &str) -> bool {
+        self.station_models.contains(&name.to_ascii_lowercase())
     }
 
     /// A turret class's model with every soft segment cut into one segment
@@ -315,6 +342,7 @@ mod tests {
             segments: vec![seg],
         };
         let rigs = TurretRigs {
+            station_models: HashSet::new(),
             skels: crate::hardpoints::Skeletons::from_skeleton(Skeleton {
                 name: m.name.clone(),
                 bones: Vec::new(),

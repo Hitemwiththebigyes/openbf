@@ -354,6 +354,7 @@ pub fn think(sim: &Sim, me: UnitHandle, st: &mut AiState) -> (PadState, NavTick)
     // (`route::retarget_board`), straight at it on the last leg or with no
     // route.
     let boarding = super::ride::board_goal(sim, me, u, st, &mut nt);
+    let item = crate::ai::items::goal(sim, u, st).filter(|_| flee.is_none());
     let goal = match boarding {
         Some(_) if st.route.is_some_and(|r| !r.is_last()) => goal,
         _ => boarding.or(goal),
@@ -402,8 +403,9 @@ pub fn think(sim: &Sim, me: UnitHandle, st: &mut AiState) -> (PadState, NavTick)
     }
     // Card FGHT: the ring point a circling bot walks to — over the graph,
     // and straight at it on the last leg and with no route.
-    let ring = ring_walk(sim, st)
-        .filter(|_| ret.is_none() && flee.is_none() && boarding.is_none() && st.cmd.is_none());
+    let ring = ring_walk(sim, st).filter(|_| {
+        ret.is_none() && flee.is_none() && boarding.is_none() && item.is_none() && st.cmd.is_none()
+    });
     let goal = match ring {
         Some(p) if st.route.is_none_or(|r| r.is_last()) => Some(p),
         _ => goal,
@@ -412,7 +414,12 @@ pub fn think(sim: &Sim, me: UnitHandle, st: &mut AiState) -> (PadState, NavTick)
     // Card SNPR: the sniper's spot - over the graph, and straight at it on
     // the last leg and with no route.
     let spot = super::snipe::walk(st).filter(|_| {
-        ret.is_none() && flee.is_none() && boarding.is_none() && st.cmd.is_none() && ring.is_none()
+        ret.is_none()
+            && flee.is_none()
+            && boarding.is_none()
+            && item.is_none()
+            && st.cmd.is_none()
+            && ring.is_none()
     });
     let goal = match spot {
         Some(p) if st.route.is_none_or(|r| r.is_last()) => Some(p),
@@ -425,12 +432,14 @@ pub fn think(sim: &Sim, me: UnitHandle, st: &mut AiState) -> (PadState, NavTick)
             && ret.is_none()
             && flee.is_none()
             && boarding.is_none()
+            && item.is_none()
             && ring.is_none()
     });
     // Diagnostic (card BLKF): which link of the chain below walks the bot.
     let walk_kind = match () {
         _ if ret.is_some() => WalkAsk::RETURN,
         _ if flee.is_some() => WalkAsk::FLEE,
+        _ if item.is_some() => WalkAsk::PICKUP,
         _ if holding.is_some() => WalkAsk::HOLD,
         _ if boarding.is_some() && goal == boarding => WalkAsk::BOARD,
         _ => WalkAsk::LEG,
@@ -443,6 +452,7 @@ pub fn think(sim: &Sim, me: UnitHandle, st: &mut AiState) -> (PadState, NavTick)
     // remembered enemy walked straight at. A commanded bot's stand is its
     // order's (`squad::STAND_ARRIVE`, above).
     let arrive = match walk_kind {
+        WalkAsk::PICKUP => item.map(|p| (p, 0.2)),
         WalkAsk::HOLD => holding.map(|h| (h.goal, HOLD_ARRIVE)),
         // (Card TPOS: a position is walked onto, as a held one is.)
         WalkAsk::LEG if ring.is_some() && st.fight.mode == FightState::TAKE => {
@@ -457,7 +467,7 @@ pub fn think(sim: &Sim, me: UnitHandle, st: &mut AiState) -> (PadState, NavTick)
         },
         _ => None,
     };
-    let goal = ret.or(flee).or(holding.map(|h| h.goal)).or(goal);
+    let goal = ret.or(flee).or(item).or(holding.map(|h| h.goal)).or(goal);
 
     // Where to look: the engaged enemy's lead point, else where we are
     // walking, else the target post (the last leg, and the no-graph
@@ -478,6 +488,9 @@ pub fn think(sim: &Sim, me: UnitHandle, st: &mut AiState) -> (PadState, NavTick)
             }) =>
         {
             AimRequest::Travel(holding.map_or(pos, |h| h.look))
+        }
+        (None, None, _, _) if item.is_some() => {
+            AimRequest::Travel(goal.unwrap_or(pos) + Vec3::Y * 1.4)
         }
         (None, None, Some(_), _) => AimRequest::Travel(goal.unwrap_or(pos)),
         // Running from a grenade, or walking back to the level: where it goes.
@@ -554,7 +567,8 @@ pub fn think(sim: &Sim, me: UnitHandle, st: &mut AiState) -> (PadState, NavTick)
     // position of its style (`fight_position`), which lasts [`HOLD_CLOSE`]
     // past the last tick the target was in reach — the 2 s a fight lasts at
     // least, and the 2 s after which it is given up.
-    let free = ret.is_none() && flee.is_none() && boarding.is_none() && st.cmd.is_none();
+    let free =
+        ret.is_none() && flee.is_none() && boarding.is_none() && item.is_none() && st.cmd.is_none();
     // Card TPOS: hidden at its position a bot does not see its target - the
     // hide phase's point - and it keeps the position while it remembers it
     // (without this the fight lapsed 2 s into the hide and the bot walked
@@ -619,7 +633,7 @@ pub fn think(sim: &Sim, me: UnitHandle, st: &mut AiState) -> (PadState, NavTick)
         goal,
         arrive,
         // A walk to a ring point ends there, not in the post's region.
-        post: post.filter(|_| ring.is_none()),
+        post: post.filter(|_| ring.is_none() && item.is_none()),
         defending,
         // The stand of a boarder or a commanded bot with an enemy inside
         // 25 m — and of a free bot on the tick it takes its fight position
@@ -627,7 +641,7 @@ pub fn think(sim: &Sim, me: UnitHandle, st: &mut AiState) -> (PadState, NavTick)
         // TURR: not of a bot walking to a turret, whose gun is the fight (it
         // stood 0.4 m out of reach shooting the enemy it was sent to man
         // the turret against).
-        in_range: (hold && !free && !manning)
+        in_range: (hold && !free && !manning && item.is_none())
             || (fight.is_some() && free && ring_walk(sim, st).is_none()),
         ret,
         hold: holding,
@@ -640,7 +654,8 @@ pub fn think(sim: &Sim, me: UnitHandle, st: &mut AiState) -> (PadState, NavTick)
         // for a tank and no 3 s window ends that choice, so a bot under a
         // turret its arc does not reach stood until it was shot (BF1 Rhen
         // Var, seed 3: 40 s). It walks on, and throws where it can.
-        throwing: enemy.is_some_and(|e| e.mount.is_none() || !gun.no_throw)
+        throwing: item.is_none()
+            && enemy.is_some_and(|e| e.mount.is_none() || !gun.no_throw)
             && matches!(
                 super::arsenal::armed(sim, u, st),
                 super::arsenal::Armed::Thrown(..)
@@ -695,6 +710,7 @@ pub fn think(sim: &Sim, me: UnitHandle, st: &mut AiState) -> (PadState, NavTick)
             super::snipe::walk_failed(sim, st);
             recover(sim, st, &mut nt);
         }
+        Walk::Failed if item.is_some() => st.items.detour = None,
         Walk::Failed => recover(sim, st, &mut nt),
         _ => {}
     }
@@ -706,6 +722,7 @@ pub fn think(sim: &Sim, me: UnitHandle, st: &mut AiState) -> (PadState, NavTick)
     st.behaviour = match moved.walk {
         _ if ret.is_some() => Behaviour::Recover,
         _ if flee.is_some() => Behaviour::Evade,
+        _ if item.is_some() => Behaviour::Pickup,
         _ if super::snipe::holds(st, holding) => Behaviour::Overwatch,
         // Card TEAM: on its guard position (the Cover role).
         _ if holding.is_some_and(|h| guard_post(sim, st) == Some(h.spot)) => Behaviour::Guard,

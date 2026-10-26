@@ -249,3 +249,39 @@ The times are the mission clock of a battle already running (the kept side-selec
 - `tools/an_pads.py`, `an_fire.py`, `an_units.py`, `an_bf1.py` - steps, gaps, builds, the firing builder, serve
   spells; `tools/pads2.py <states>` - buildings and nearby soldiers of a stored BF2 state.
 - `ps2/tat2_a_*`, `yav1_a_*`, `nab1_a_*` (CSVs, end states), `ps2/yav1_holo_*` (states + frames).
+
+## 10. Service-droid cutter support in the port (2026-10-26, DROIDR)
+
+The runtime loads `repair` weapon classes without requiring ordnance. Their eight health amounts come from the
+class chain, including `BuildingHealth`, `BuildingRebuild` and `BuildingBuild`. BF1's channel-1 pilot cutter
+and BF2's channel-0 engineer cutter use the existing weapon selection inputs. The side-asset bake includes the
+four factions' cutter hand models and textures from each disc. Both channels use one fixed-step cutter path in
+`sim/repair.rs`: it acts immediately and then at the authored `ShotDelay`, with no bolt, grenade or simulation
+RNG draw. Repair pulses consume `HeatPerShot` of the soldier's energy bar. Acquisition shares the existing
+cone scoring and checks relation masks, range and terrain/world occlusion, skipping the target's own body.
+
+An intact damaged service droid receives its health-type repair amount; a destroyed Building station receives
+`BuildingRebuild`. The station owns this repair-type selection. Partial progress retains the wreck and does
+not serve anyone. At MaxHealth the station becomes intact, restores its live collision and aim sphere, rebinds
+projectile hits, and resumes its existing clock and animation. The viewer and ambient paths follow its
+restored state. Initial loading and destruction share collision caching in `sim/stations.rs`. Collision
+replacement reuses body slots across repeated rebuilding. Repair events carry the amount and target, feed the
+existing FireSound key and appear in headless event CSVs. Combat weapon selection excludes repair tools.
+
+This covers service-droid repair/rebuilding and basic friendly/neutral vehicle healing through the same
+cutter. Autonomous builder orders, turret pads, initial unbuilt-station placement, holograms, enemy vehicle
+slicing and mine removal remain separate work described above. BuildingBuild is retained as class data;
+service-droid wrecks use BuildingRebuild. No new PS2 observations or pixel/audio parity claims are made.
+
+Regressions cover both games' cutter channels/rates, range/cone/team/occlusion/energy gates, partial progress,
+restored collision and sphere, repeated rebuilding, service resumption and deterministic hashes. Data-backed
+cases load original cutter tables and medical/ammo droids on BF1 Bespin Platforms and BF2 Hoth. The channel
+tests use the spawn-selected weapons directly, without overriding their state.
+
+Validation: workspace formatting, Clippy with warnings denied, build and all unit/integration/arena/doc test
+targets passed for the implementation. The stale manifest field-order fixture was updated to include the
+already-serialized water `wet` field. Cleanup was checked with all 999 core tests, 413 game library tests (two
+existing ignored), and the station integration tests; the preceding full game suite passed 220 tests with one
+existing ignored. Logs live under `engine/artifacts/lead_tmp/pickups-rebuild-*.log`. The local package
+includes eight cutter models and passed archive/prefix and 100/600-tick smoke checks. No interactive playtest
+or full-round sweep is claimed.

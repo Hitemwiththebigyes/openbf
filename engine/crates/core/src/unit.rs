@@ -768,7 +768,6 @@ pub struct UnitSpec {
     pub max_health: f32,
     pub health_type: HealthType,
     pub weapon_class: usize,
-    /// Spare clips (soldier `WeaponAmmo`).
     pub spare_clips: u32,
     /// The primary's class slot (0 on every built-in spec).
     pub weapon_slot: u8,
@@ -870,7 +869,7 @@ impl UnitSpec {
             soldier,
             consts: self.consts,
             health: Health::new(self.max_health, self.health_type),
-            weapon: WeaponState::new(class, self.is_player(), self.spare_clips),
+            weapon: WeaponState::with_clips(class, self.is_player(), self.spare_clips),
             weapon_class: self.weapon_class,
             weapon_slot: self.weapon_slot,
             held,

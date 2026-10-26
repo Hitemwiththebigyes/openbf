@@ -1074,6 +1074,37 @@ pub struct ManifestWater {
     /// mean a water map with no `Effect("Water")`, which neither disc ships.
     #[serde(default)]
     pub config: Option<ManifestWaterConfig>,
+    #[serde(default)]
+    pub wet: Option<ManifestWetMask>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ManifestWetMask {
+    pub grid: u32,
+    pub cell_size: f32,
+    pub half_extent: [f32; 2],
+    pub nibbles: String,
+}
+
+impl ManifestWetMask {
+    pub fn from_nibbles(grid: u32, cell_size: f32, half_extent: [f32; 2], cells: &[u8]) -> Self {
+        Self {
+            grid,
+            cell_size,
+            half_extent,
+            nibbles: cells
+                .iter()
+                .map(|c| char::from_digit(u32::from(c & 0xf), 16).unwrap())
+                .collect(),
+        }
+    }
+
+    pub fn cells(&self) -> Vec<u8> {
+        self.nibbles
+            .chars()
+            .map(|c| c.to_digit(16).map_or(0, |d| d as u8))
+            .collect()
+    }
 }
 
 /// The serde default of a water flag the PS2 resets to 1 (`specular_enable`,
