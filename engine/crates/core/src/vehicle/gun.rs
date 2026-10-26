@@ -262,7 +262,7 @@ pub struct GunWeapon {
     /// `WeaponAmmo` < 1: never runs dry.
     pub infinite: bool,
     /// Otherwise the spare clips (`WeaponState::new`'s).
-    pub spare_clips: u32,
+    pub reserve_clips: u32,
 }
 
 /// A seat's guns — SETUP data per class, like `SeatSetup`, NOT hashed.

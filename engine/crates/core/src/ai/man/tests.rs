@@ -25,7 +25,7 @@ fn gun_setup(weapon: usize, yaw: Option<[f32; 2]>) -> GunSetup {
         weapons: vec![GunWeapon {
             class: weapon,
             infinite: true,
-            spare_clips: 0,
+            reserve_clips: 0,
         }],
         fire_point: Vec3::new(0.0, 3.0, 2.0),
         pivot: Vec3::new(0.0, 3.0, 0.0),
@@ -428,7 +428,7 @@ fn exit_2_forty_five_seconds_with_no_shot_in_twenty() {
     for leaves in [true, false] {
         let mut gun = gun_setup(2, None);
         gun.weapons[0].infinite = !leaves;
-        gun.weapons[0].spare_clips = 0;
+        gun.weapons[0].reserve_clips = 0;
         let mut sc = scene_classes(
             Vec3::new(3.0, 0.0, 10.0),
             Vec3::new(4.0, 0.0, 30.0),
@@ -951,7 +951,7 @@ fn a_turret_on_another_floor_is_given_up_not_boarded_from_below() {
 fn seat_gun_scene(wc: WeaponClass, infinite: bool, rules: crate::soldier::GroundRules) -> Scene {
     let mut g = gun_setup(2, None);
     g.weapons[0].infinite = infinite;
-    g.weapons[0].spare_clips = if infinite { 0 } else { 5 };
+    g.weapons[0].reserve_clips = if infinite { 0 } else { 5 };
     let mut sc = scene_classes(
         Vec3::new(3.0, 0.0, -3.0),
         Vec3::new(2.0, 0.0, 35.0),

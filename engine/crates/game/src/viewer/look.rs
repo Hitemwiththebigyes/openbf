@@ -1020,6 +1020,7 @@ mod tests {
                 oscillation_enable: true,
                 ..manifest::ManifestWaterConfig::default()
             }),
+            wet: None,
         }
     }
 

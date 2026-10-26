@@ -289,13 +289,20 @@ const ORDER_LABELS: [(&str, &str); 4] = [
     ("game.squadcommand.field.left", "AT EASE"),
 ];
 
+const DRIVER_LABELS: [(&str, &str); 4] = [
+    ("game.squadcommand.driver.up", ""),
+    ("game.squadcommand.driver.down", ""),
+    ("game.squadcommand.driver.right", "PILE IN"),
+    ("game.squadcommand.driver.left", "EVERYONE OUT"),
+];
+
 /// The cross's arm for `Event::Command`'s `kind` byte (0 follow, 1 hold,
-/// 2 at ease, 3 move out).
+/// 2 at ease, 3 move out, 4 pile in, 5 everyone out).
 pub fn order_arm(kind: u8) -> u8 {
     match kind {
-        0 => hud_squad::RIGHT,
+        0 | 4 => hud_squad::RIGHT,
         1 => hud_squad::DOWN,
-        2 => hud_squad::LEFT,
+        2 | 5 => hud_squad::LEFT,
         _ => hud_squad::UP,
     }
 }
@@ -342,6 +349,7 @@ pub struct EventFeed {
     captures: i32,
     /// The four order names, up / down / right / left.
     order_labels: [String; 4],
+    driver_labels: [String; 4],
     order: Option<Press>,
 }
 
@@ -365,6 +373,7 @@ impl EventFeed {
             classes: [Vec::new(), Vec::new()],
             vehicles: Vec::new(),
             order_labels: ORDER_LABELS.map(|l| texts.order_label(l)),
+            driver_labels: DRIVER_LABELS.map(|l| texts.order_label(l)),
             texts,
             out: Vec::new(),
             ambush: Vec::new(),
@@ -482,7 +491,13 @@ impl EventFeed {
         let o = self.order?;
         let seconds = tick.saturating_sub(o.tick) as f32 / core::TICK_HZ as f32;
         Some(SquadCross {
-            labels: self.order_labels.clone(),
+            labels: if o.kind == core::squad::Order::PileIn as u8
+                || o.kind == core::squad::Order::GetOut as u8
+            {
+                self.driver_labels.clone()
+            } else {
+                self.order_labels.clone()
+            },
             arm: order_arm(o.kind),
             count: (o.took > 0).then_some(o.took),
             timer: SquadCross::timer_at(seconds)?,

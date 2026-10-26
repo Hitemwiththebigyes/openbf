@@ -109,3 +109,57 @@ fn bf1_weapon_classes_load_flat() {
     assert_eq!(w, c);
     assert_eq!(fnv1a_lowercase("WeaponName1"), 0x2CE1_A1D1);
 }
+
+#[test]
+fn bf1_stormtrooper_uses_disc_ammo_and_exhausts_it_by_firing() {
+    use core::lcg::GameLcg;
+    use core::sim::Sim;
+    use core::unit::Controller;
+    use core::weapon::{FireInput, SPARE_INFINITE};
+    use game::roster::ClassRoster;
+    use glam::Vec3;
+
+    let Some(db) = db(
+        &[
+            "bf1/lvl/DATA/_LVL_PS2/SIDE/IMP.LVL",
+            "bf1/lvl/DATA/_LVL_PS2/COMMON/ENG/COMMON.LVL",
+        ],
+        "bf1-ammo",
+    ) else {
+        return;
+    };
+    let roster = ClassRoster::build(&db, "imp_inf_storm_trooper", 1, None).unwrap();
+    assert_eq!(roster.weapon.name, "imp_weap_inf_rifle");
+    assert_eq!(roster.weapon.rounds_per_clip, 55);
+    assert_eq!(roster.total_clips, 5);
+    let mut sim = Sim::empty(1);
+    let class = roster.register(&mut sim, &mut Vec::new());
+    let spec = class.spec(0, Vec3::ZERO, 0.0, Controller::Player { slot: 0 }, 0, 0);
+    let mut u = spec.build(0, &sim.weapon_classes);
+    let wc = &sim.weapon_classes[u.weapon_class];
+    assert_eq!((u.weapon.clip, u.weapon.spare), (55, 220));
+    assert_eq!(u.weapon.rounds(wc), Some(275));
+    let mut lcg = GameLcg::new(1);
+    let mut shots = Vec::new();
+    for _ in 0..30 * 100 {
+        u.weapon.update(
+            core::TICK_DT,
+            wc,
+            FireInput {
+                held: true,
+                ..FireInput::default()
+            },
+            &mut lcg,
+            &mut shots,
+        );
+    }
+    assert_eq!(shots.len(), 275);
+    assert_eq!(u.weapon.rounds(wc), Some(0));
+    let pistol = u
+        .held
+        .iter()
+        .find(|w| sim.weapon_classes[w.class].name == "imp_weap_inf_pistol")
+        .unwrap();
+    assert_eq!(pistol.state.spare, SPARE_INFINITE);
+    assert_eq!(pistol.state.rounds(&sim.weapon_classes[pistol.class]), None);
+}

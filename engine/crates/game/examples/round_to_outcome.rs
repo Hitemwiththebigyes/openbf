@@ -1642,7 +1642,7 @@ struct Past {
 
 /// Slots of the per-behaviour counters: one per `core::ai::Behaviour`
 /// (its last variant + 1).
-const N_BEHAVIOURS: usize = core::ai::Behaviour::Man as usize + 1;
+const N_BEHAVIOURS: usize = core::ai::Behaviour::Pickup as usize + 1;
 
 /// The shares line (module header, card RCYC): walking in place, the locus
 /// (of the units on foot, card FOFG) and the steering, from one sample per
@@ -1964,6 +1964,7 @@ impl Shares {
             B::Board,
             B::Follow,
             B::Recover,
+            B::Pickup,
         ]
         .iter()
         .filter(|b| self.stand_by[**b as usize] > 0)
@@ -1979,6 +1980,7 @@ impl Shares {
             B::Board,
             B::Follow,
             B::Recover,
+            B::Pickup,
             B::None,
             B::Overwatch,
         ]
@@ -3543,7 +3545,7 @@ fn run_map(
     sim.difficulty = sweep_difficulty();
     // BF1 maps have no 10 m omni in the AI's view cone (RE §9.1).
     sim.omni_radius = core::sim::omni_radius_for(&scene.manifest.source_game);
-    sim.water_level = scene.manifest.water.as_ref().map(|w| w.height);
+    scene.install_water(&mut sim);
     sim.ground_rules = core::soldier::GroundRules::for_game(&scene.manifest.source_game);
     sim.item_pool = game::roster::item_pool(&scene.manifest.source_game, &scene.manifest.map);
     if let Some(m) = &mission {

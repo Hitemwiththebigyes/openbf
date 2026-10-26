@@ -586,7 +586,8 @@ pub struct UnitClass {
     pub health_type: HealthType,
     /// Index into `Sim::weapon_classes` (the class's PRIMARY weapon).
     pub weapon_class: usize,
-    pub spare_clips: u32,
+    /// Authored WeaponAmmo: total clips including a loaded clip; zero is unlimited.
+    pub total_clips: u32,
     /// The primary's class slot and the class's other slots (GREN).
     pub weapon_slot: u8,
     pub slots: std::sync::Arc<[SlotSpec]>,
@@ -637,7 +638,7 @@ impl UnitClass {
             max_health: self.max_health,
             health_type: self.health_type,
             weapon_class: self.weapon_class,
-            spare_clips: self.spare_clips,
+            total_clips: self.total_clips,
             weapon_slot: self.weapon_slot,
             slots: self.slots.clone(),
             capture_posts: self.capture_posts,
@@ -768,8 +769,8 @@ pub struct UnitSpec {
     pub max_health: f32,
     pub health_type: HealthType,
     pub weapon_class: usize,
-    /// Spare clips (soldier `WeaponAmmo`).
-    pub spare_clips: u32,
+    /// Authored WeaponAmmo: total clips including a loaded clip; zero is unlimited.
+    pub total_clips: u32,
     /// The primary's class slot (0 on every built-in spec).
     pub weapon_slot: u8,
     /// The class's other weapon slots (empty on every built-in spec).
@@ -812,7 +813,7 @@ impl UnitSpec {
             max_health: 300.0,
             health_type: HealthType::Person,
             weapon_class: 0,
-            spare_clips: 6,
+            total_clips: 6,
             weapon_slot: 0,
             slots: std::sync::Arc::new([]),
             jet: false,
@@ -870,7 +871,7 @@ impl UnitSpec {
             soldier,
             consts: self.consts,
             health: Health::new(self.max_health, self.health_type),
-            weapon: WeaponState::new(class, self.is_player(), self.spare_clips),
+            weapon: WeaponState::with_clips(class, self.is_player(), self.total_clips),
             weapon_class: self.weapon_class,
             weapon_slot: self.weapon_slot,
             held,

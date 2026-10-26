@@ -19,7 +19,7 @@ fn gun(fire: [f32; 3], pivot: [f32; 3], yaw: [f32; 2], pilot: bool) -> GunSetup 
         weapons: vec![GunWeapon {
             class: 0,
             infinite: true,
-            spare_clips: 0,
+            reserve_clips: 0,
         }],
         fire_point: Vec3::from(fire),
         pivot: Vec3::from(pivot),

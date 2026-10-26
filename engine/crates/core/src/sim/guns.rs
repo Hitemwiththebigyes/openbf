@@ -233,7 +233,7 @@ impl Sim {
                         .weapons
                         .iter()
                         .map(|w| {
-                            WeaponState::new(&self.weapon_classes[w.class], true, w.spare_clips)
+                            WeaponState::new(&self.weapon_classes[w.class], true, w.reserve_clips)
                         })
                         .collect(),
                     zoom: None,
@@ -460,6 +460,7 @@ impl Sim {
                     life,
                     who,
                     self.heightfield.as_ref(),
+                    self.water_plane(),
                     &self.collision,
                     HullFilter::except(Some(m.vehicle)),
                     targets.iter().copied(),

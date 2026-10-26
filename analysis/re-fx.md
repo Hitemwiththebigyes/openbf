@@ -244,7 +244,7 @@ Offsets: T = template, S = Spawner (T+0x7c), I = emitter instance, N = emitter-p
   TotalFrames;` (strict `<`: a frame equal to TotalFrames stays) — f runs 0…N, frame 0 shown once (the original's
   off-by-one; the 4×4 atlas wraps f & 15).
 - [V] **5.10 EMITTER** (Type 2, `FUN_002b34f8`, 242098): each parent particle (up to 31) replays the child template
-  in a scratch effect along its path in 0.3 s steps, tinted by the parent's colour [D: outline only, AGENT_A 7].
+  in a scratch effect along its path in 0.3 s steps, tinted by the parent's colour. Full read in §13.
 
 ## 6. The draw (B1 read; the BF2 twin in §8)
 
@@ -422,3 +422,152 @@ per-particle draw `FUN_00377cc0`, cull/fade `FUN_0037a090`, state records `FUN_0
   no reader for any absence claim (C7, C21, C27, C40) at the instruction level.
 - **callers** — the parser `FUN_002ba2e8` is reached only from the chunk loader wrapper `FUN_002ba1d0` and itself (the
   Geometry EMITTER child); the spawn API `FUN_0036d478` has 19 callers.
+
+## 12. Gain-effect child rendering follow-up (2026-10-26) [O] UNAUDITED
+
+The BF1 BES1 resupply comparison exposed a runtime gap rather than a missing bake: `Powerup_red` and `Powerup_blue` contain EMITTER geometry children which the old particle draw path skipped. Their BF2 counterparts use the same hierarchy. `game/src/fx/children.rs` now replays child templates along their parent particles in the native 0.3 s steps and submits their particles with the existing draw implementation; definitions and variant caches are prepared once. Gain effects follow the receiving unit and deduplicate overlapping gains while a matching effect is alive. Full measurement, source checks, regression failures, GPU captures and limits are in `re-powerup-station.md` section 15. This does not implement GEOMETRY-model particles or claim generic nested effects are pixel-identical.
+
+The maintainer's recorded comparison prompted a further correction (section 16 of `re-powerup-station.md`): the first child draw path grouped several authored bursts onto each 0.3 s sample. Child births now interpolate along those path segments at their own burst times. Ordinary emitters retain their existing constant-frame update path. The spacing regression fails on the first implementation's three-height result, and passes after the correction; a scheduling regression separately holds birth times to their positions.
+
+## 13. EMITTER child replay, full read (2026-10-26) [V][O] UNAUDITED
+
+Re-read of the native child path, both games, against `game/src/fx/children.rs`. B1 line numbers; the BF2 twin `FUN_00375c98` (360021–360429) has the same structure: 31-index cap (360206), 0.3 s step (360290), child-mode flag `DAT_005fef3c` around the update (360346–360350), tint through `FUN_00376d70` → `FUN_00374d60`, which replaces the instance colour like B1's `FUN_002b2620`.
+
+- **Gate.** `FUN_002b2b10` takes the EMITTER branch only while `DAT_005183f8 != 0` (241876). ELF word 0x5183f8 = 1, and no text write exists (`re_check.py writers b1 DAT_005183f8` → 0), so the original draws children.
+- **Parents.** The burst walk is the ordinary one, but the loop stops at particle index > 30 (*(decompiler detail omitted)*, and *(decompiler detail omitted)* per particle). This is an absolute spawn index, not a count of live particles. There is no `FUN_002b8a30` density thinning and no FadeInTime multiply on parents.
+- **Scratch init** (`FUN_002b45f8` 243024): one static effect at 0x58d420. Per parent, its instance offset = parent offset + idx·10 (*(decompiler detail omitted)* + idx·10), and each chained sibling instance +5 (`FUN_002b5f78`). The child template's seed word +0x78 is set to a draw from the parent's per-burst LCG chain (`FUN_002b4258`). Time +0xfc, node timer +0xf8 and node list +0xf4 are reset.
+- **Replay.** Samples at parent ages 0, 0.3, 0.6, …, clamped to the parent's age a. At each sample the scratch matrix is identity rows (`DAT_0066ef20`) with the parent particle's position at that age (`FUN_0036d478`). The scratch is updated by dt = min(step, sample) (`FUN_002b4df0`), with the first dt = 0.
+- **Path nodes** (`FUN_002b4858`, child mode forced by `DAT_005183fc = 1`):
+  - The first update makes node 0 at time 0 with zero velocity (`DAT_0066eee0`, zeroed by `FUN_00445fa8`).
+  - On each later update the timer drops by dt. If there is no older node, or the timer is below 0, a new node is made at (now, position), the previous node's velocity becomes the secant (P_new − P_prev)/(now − T_prev), its span is set to that interval, and the timer resets to 0.1 s.
+  - Otherwise (a step of 0.1 s or less after a new node) the newest node is moved to (now, position), the older node's span grows by the step, and its velocity becomes (P − P_older)/(span + 0.0001). A last step of 0.1 s or less therefore drops the previous 0.3 s sample.
+  - The newest node keeps zero velocity.
+- **Births** use the ordinary stateless walk over these nodes: P_k + v_k·(b − T_k). Within a segment that is linear interpolation between the kept samples.
+- **Tint** (`FUN_002b4778` → `FUN_002b2620`, after the replay): every child instance's emitter-level RGBA is **replaced** by the parent particle's colour at age a × the parent instance's RGBA. The values are raw: an HSV parent passes H, S, V as multipliers. Then the scratch is drawn.
+- **Live check, PCSX2** [M] (BF1 BES1, read-only PINE reads of the scratch at 0x58d420 while the maintainer threw a grenade and stood at a health and an ammo droid): 19 native replays were captured, 15 with complete node lists, at parent ages 0.033–0.968 s. Archive: `engine/artifacts/lead_tmp/resupply-native-child-nodes.json`.
+  - Every node list and timer follows the rule above. At ages 0.0334–0.2669 there are two nodes. At 0.3003, 0.3337 and 0.3670 the 0.3 s sample is merged, with timers 0.0997, 0.0663 and 0.0330. At 0.4004 a step of 0.1004 s adds a third node. At exactly 0.3000 there are two nodes, and the timers at 0.634 and 0.968 imply merged steps of 0.034 and 0.068.
+  - Velocities: a node that gets a successor has velocity equal to the secant within 4e-7. A merged node's velocity equals secant/(span + 0.0001) within 3e-7. The newest node's velocity is zero.
+  - An earlier stale read held time 3.970612 s with timer 0.029388, which is also a merged step.
+  - `fx::tests::resupply::the_replay_nodes_match_live_bf1_captures` runs the port's `path` on three of these captures (two nodes, merged, three nodes) and checks their node times and velocities.
+
+Port (`children.rs`): `path` and `frame_at` implement the sampling, node and merge rules exactly, in f32 and in the native order. Parents are evaluated per index at an exact age (`Instance::particle_at`), so rounding in `t − age` cannot drop a parent. Parents are unthinned with index < 31. Child offsets follow the native rule. Child instance RGBA is replaced by the parent's raw RGBA. The node matrices are identity.
+
+Not matched:
+- **Seeds.** The child's burst seed comes from the native parent LCG chain, which the port's burst RNG does not reproduce, and that was already true for every effect. The child uses a deterministic visual seed instead.
+- **BF1 child variant caches** come from the effect hash, not the global construction order.
+- **The outer per-effect fade gate** in `LiveEffect::draws` uses the parent emitter's BoundingRadius at the effect origin, and the native caller's gate for EMITTER was not traced.
+
+## 14. Water impacts, water blasts and ordnance trails (2026-10-26) [V][O][M] UNAUDITED
+
+BF1 KAS1 (`bf1_kas1`) showed three effects missing from the port: no splash where a shot hit the water, the land fireball for a blast in the water, and no red glow on a thrown thermal detonator. B1 line numbers below; check each one with `python scripts/re_check.py fn b1 <line>`.
+
+**Live state, PCSX2** [M]. SLUS-20898, paused, read-only PINE reads (port 28012), no writes and no state load. Scripts: `engine/artifacts/lead_tmp/water-native*.py`. Output: `water-native-pool.json`, `water-native-live.json`, `water-native-trail.json`.
+- Water: level `DAT_00564908` = −45.0, bob `DAT_005229cc` = 0.02685, a 64 × 64 wet grid of 32 m cells (`DAT_005648dc` nibble map, offset 1024). The water is flat (`DAT_005647b8` = 0).
+- The splash pool `DAT_00519508` (0x112a9a0) held 5 records. Every record's y = −44.95315, which is the surface with bob + 0.02, and every one sat in a wet cell.
+  - Four were `watersplash_ord` (bolt hits), at ages 0.10–0.67 s.
+  - One was `watersplash_lg` at (210.79, −38.07): a thermal detonator's `WaterEffect`. No land explosion effect was live near it.
+- A thrown thermal detonator (sticky, vtable 0x53aa18, at 0xd34250) carried `com_sfx_weap_grenade_red` (instance 0x1cf8a10).
+  - The effect's position equalled the round's +0x40 exactly.
+  - Its rotation rows were x = normalize(up × dir), y = dir × x, z = dir, along the launch direction.
+  - Class +0x70 held the trail definition. Class +0xd4 = 0xff272794 (`LightColor` premultiplied) and +0xd8 = 4.0 (`LightRadius`).
+- Quirk: two `com_sfx_weap_grenade_blue` instances were bound to freed memory that now held laser bolts (vtable 0x53a568). A stopped trail keeps its stale position pointer. The port does not copy this.
+
+**Water as a collision layer** [V]. `FUN_00220cb8` creates the water object with layer 0x80 and registers it through `FUN_00161b80` (`callers b1 FUN_00161b80` → B1:135021). Its vtable is 0x533e30 (`word b1 0x533e30 12 --u32`), and +0x20 = `FUN_00220ef8` → `FUN_00476c10`.
+- `FUN_00476c10` (538878) computes h = level + bob − origin.y and t = h / dir.y. It hits only when h ≤ 0, t ≥ 0, and the cell is wet (`FUN_00477458`). The normal is (0, 1, 0).
+- The bolt's per-frame sweep `FUN_00273128` uses mask 0x9de, or 0x996 after the predictive ray. Both masks include 0x80, so a round stops at the water.
+
+**Bolt impact on water** [V]. `FUN_00276810`, class 0x80 (B1:197741):
+1. `FUN_00478478(1.5, 0.01, pos)` makes a ripple.
+2. `FUN_0037c920(class+0xc0 = ImpactEffectWater, pos)` spawns the splash.
+3. The generic effect is skipped.
+4. The base `FUN_00272d70` then plays the CollisionSound and the impact explosion.
+
+`FUN_0037c920` → `FUN_0037cdc0` (369209) spawns into a 200-record pool with world axes at pos.y + 0.02. `FUN_0037cc98` (369147) re-snaps each record's y to the surface (with bob) + 0.02 every frame.
+
+**Explosion in water** [V]. `FUN_002701a0` (193432):
+- `FUN_00354fe0(+0x9c)` always plays the `SoundProperty` first.
+- The wet test `FUN_004768f0` then sets in-water = pos.y ≤ h + 0.3 (193540).
+- Within 60 m and in water, with `DamageRadius` / `DamageRadiusOuter` (+0x58, one field) > 0, it runs:
+  - a ripple `FUN_00478478`;
+  - `FUN_0037c920(+0x98 WaterEffect)` (193566);
+  - `FUN_001a8740` (the spray pool, gated by `DAT_00517464`, which is 0 live).
+- In that branch there is no land `Effect` and no decal, light or effect sound (+0x90's sound plays only beyond 60 m, 193554).
+- With +0x58 ≤ 0 in water, nothing visual is spawned.
+- `writers b1 DAT_00517464`: set only by `FUN_001a8338` / `FUN_001a83c8`.
+
+**Trail** [V]. The ordnance ctor `FUN_002728a8` instantiates class+0x70 (`TrailEffect`, setter `FUN_002738a8`, `hash TrailEffect` → B1:195637).
+- It binds the effect to the round's +0x40 with `FUN_0036d478(e, obj+0x40, 1)` (194956) and orients it with `FUN_0036d590(e, launch vel)` (194966).
+- `FUN_00272c28` (195004) stops it with the round.
+- `LightColor` / `LightRadius` (`hash LightColor` → the bullet setter `FUN_002774b0` 198178) are stored, but BF1 never reads +0xd0..+0xdb (re-bolt §5.1). BF1's grenade glow is therefore the trail effect: `com_sfx_weap_grenade_red` is one additive red `lightflare` emitter with `NoRegisterStep`, so it rides the round.
+
+**Port.**
+- `core::projectile::Bolt::spawn` takes the water plane as a fourth candidate: crossed downward, nearest wins, `Hit::Water`, hash tag 6. `Sim::resolve_bolt` sends `Surface::Water`.
+- `game/src/fx.rs`:
+  - spawns `ImpactEffectWater` at (x, water + 0.02, z);
+  - `Fx::explode` applies the native rule, using `ExplosionLook::radius_outer` from `DamageRadius` / `DamageRadiusOuter`;
+  - the impact explosion of a water hit runs through the same rule.
+- `game/src/fx/trail.rs` starts every ordnance's `TrailEffect`, bolts and thrown grenades alike, at the round with the measured axes, carries it each tick, and stops it when the round is gone. It is render-side only, so the sim is unchanged apart from `Hit::Water`.
+- Regressions:
+  - `core sim::combat::tests::water_stops_bolts_and_names_the_surface`;
+  - `hash_bolts` (Water is not an alias);
+  - `fx::tests::water_takes_the_impact_onto_its_surface_and_swaps_the_blast`, `a_round_carries_its_trail_until_it_is_gone`, `grenade_trails_keep_their_rounds_when_an_earlier_one_goes_off`;
+  - the asset check `game/tests/suite/water_fx.rs`: the real BF1 class db and effects, the red glow on the GPU, and `watersplash_lg` with no land effect when the fuse runs out in the water. `OPENBF_WATER_CAPTURE=<dir>` writes the frame.
+
+Not matched (the wet mask, the ripples and the splash re-snap were added later, §15):
+- The `FUN_001a8740` spray. It is gated off in the measured session.
+- The 200-splash cap and the 60 m effect gate (dropped as before).
+- BF2's own water rule and BF2's sticky light: not read.
+- The stale-trail quirk.
+
+## 15. Ripples, the splash bob and the WMAP wet mask (2026-10-26) [V][M] UNAUDITED
+
+B1 line numbers; check each with `python scripts/re_check.py fn b1 <line>`.
+
+**Live state, PCSX2** [M]. The same paused SLUS-20898 session, read-only PINE (no unpause, no state load, no RAM write). Script `engine/artifacts/lead_tmp/water-ripples.py`, output `water-ripples.json`.
+- Ripple count `DAT_005229c8` = 5, clock 30.246 s.
+- Four bolt ripples: life 1.5, size 0.01, y = −45.0 (the level, no bob), kind 0, seen 1.
+- One explosion ripple at (210.79, −45, −38.07): life 3.4, size 0.4, beside the `watersplash_lg` of §14.
+- Slope factor `DAT_00522a84` = 2.0 (`word b1 0x522a84 1 --f32`).
+- Water colour `DAT_0069c348` = (128, 130, 128, 80), the KAS1 manifest's `max_diffuse`. Ambient `DAT_0069c570` = (90, 90, 100), sun `DAT_0069c588` = (120, 120, 130), light direction `DAT_0069c590` = (8.7e-8, −1, 0). These are the manifest's `ambient_sky` and `sun_color` back in sRGB bytes, and its `sun_dir`.
+
+**Creator `FUN_00478478(life, size, pos)`** [V] (539767).
+- Only on flat water (`DAT_005647b8` == 0), only while the count is below 100, and only over a wet cell. Otherwise nothing.
+- Record (0x30 bytes at `DAT_00676230`): pos (x, level, z), velocity, end = now + life, start = now, size, kind byte (0 static), seen byte = 1.
+- `callers b1 FUN_00478478`:
+  - 197740 `FUN_00276810`, bolt impact on water: (1.5, 0.01);
+  - 193560 `FUN_002701a0`, explosion in water: asm 0x2702ec–0x270314 gives s = min(0.4, R / 2) with R = +0x58, and life = 3.0 + s in the delay slot;
+  - 201010 `FUN_0027b068`, the grenade base on water contact: (1.5, 0.01);
+  - 127995 `FUN_00216b30`: (3.0, 0.5).
+
+**Update `FUN_004774f0`** [V] (539136), from the water tick `FUN_0048b1e0`. A record whose seen byte is 0, or whose end has passed, is replaced by the last one (the count drops and the same slot is tested again). Otherwise seen is cleared.
+
+**Draw `FUN_0048d2b8`** [V] (551751).
+- Seen is set when the camera is within 120 m (distance² < 14400), before the frustum test.
+- Radius r = size + 1.5 · age. Centre y = level `DAT_00564908` + bob `DAT_005229cc`.
+- Texture `DAT_0069c36c` = `FXrippl1` (`word b1 0x558e48 8 --str`). Blend NORMAL (ALPHA 0x44), depth test on, no depth write, no alpha test.
+
+**Ring `FUN_0048d990`** [V] (551951).
+- a = age / life; q = a · 6.6666665 below 0.15, else (1 − a) · 1.1764705; nothing below 0.
+- p = min(1, q · (1/3) · life); tilt A = p (2 − p) · 0.3.
+- 21 columns at j · 0.31415927 rad; radii r − 0.375, r − 0.1275, r + 0.1275, r + 0.375, at y + 0.01.
+- Normal n = normalize(2A cos, 0.5025, 2A sin). Inner shade d = max(0, n.x L.x + n.z L.z − n.y L.y); outer d = max(0, −n · L).
+- Colour = W (Amb + S d) + S d⁴ per channel, bytes (int)(c · 255), alpha (int)(p · 255). The two edge rows are round(W · 128) on the GS scale with alpha 0.
+- U = j · 0.5; V = 0, 675/2048, 1372/2048, 1.
+
+**Bob** [V]. `FUN_00475658` (538091) sets `DAT_005229cc` = 0.06 sin(1.8849558 t) on flat water. `FUN_0037cc98` re-snaps each splash to level + bob + 0.02 every frame (§14).
+
+**Wet mask** [V]. `FUN_00477458` (539120): a nibble per cell, row-major [z][x], high nibble for even x, non-zero is wet. The cell is clamp(int((v + half) / cell), 0, grid − 1), with NaN or negative giving 0. `FUN_00476c10` tests the crossing point's cell; `FUN_004768f0` (538777) is the point query. KAS1: 64 × 64 cells of 32 m, 4014 wet.
+
+**BF2** [V, not measured]. Creator `FUN_00562f18` with the same callers and arguments; the ring constants are the same.
+
+**Port.**
+- `core/src/water.rs` `WetMask` and `Plane`. `Sim::water_mask` (a load-time input, not hashed) comes from the manifest's new `water.wet` (bake: `mungefs` WMAP). Bolts, grenade sweeps, the AI's water checks and foley all use it.
+- `game/src/fx/ripple.rs`: the pool, update and ring as above, spawned by bolt water hits and water blasts on non-ocean water. The ring is a `ParticleShape::Shaded` draw.
+- Water splashes (`ImpactEffectWater`, `WaterEffect`) are re-snapped each frame to level + `flat_lift` + 0.02.
+- Regressions: `core water::tests`, `sim::combat::tests::water_stops_bolts_and_names_the_surface` (dry cell), `game fx::ripple::tests`, `fx::tests::water_hits_leave_ripples_and_their_splashes_ride_the_bob`, `render particles::tests::shaded_triangles_carry_their_own_vertex_bytes`, and `game/tests/suite/water_fx.rs` `kas1_carries_its_wmap_mask_and_a_ripple_reaches_the_frame` (4014 wet cells, a ripple on the GPU).
+
+Not matched:
+- The sim's water plane stays at the level. The PS2's collision plane bobs by ±6 cm.
+- Wader ripples (kind 1, `FUN_00478778`), `FUN_00216b30` and the grenade-base ripple (the port has no grenade base).
+- The frustum test (the port draws every ripple in the pool) and fog on the ring.
+- BF2 was not measured.

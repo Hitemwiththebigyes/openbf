@@ -107,7 +107,7 @@ fn gcl16_duplicate_weapon_keeps_selected_primary_slot() {
         game::roster::primary_weapon(&db, "trooper"),
         Some(("grenade_weapon".into(), 7))
     );
-    assert_eq!((roster.weapon_slot, roster.spare_clips), (1, 7));
+    assert_eq!((roster.weapon_slot, roster.total_clips), (1, 7));
     assert_eq!(roster.weapon.name, "grenade_weapon");
     assert_eq!(roster.slots, db.weapon_slots("trooper"));
     let held: Vec<_> = roster
@@ -140,7 +140,7 @@ fn gcl16_primary_slot_controls() {
         ]);
         let roster = ClassRoster::build(&db, "trooper", 1, None).unwrap();
         let name = if selected == 0 { "first" } else { "second" };
-        assert_eq!((roster.weapon_slot, roster.spare_clips), (selected, clips));
+        assert_eq!((roster.weapon_slot, roster.total_clips), (selected, clips));
         assert_eq!(roster.weapon.name, name);
         assert_eq!(
             game::roster::primary_weapon(&db, "trooper"),
@@ -320,7 +320,7 @@ fn fill_classes_keep_the_v0_fixtures() {
     assert_eq!(a.consts.max_strafe_speed, 4.5);
     assert_eq!(a.consts.max_turn_speed, 4.0);
     assert_eq!(a.consts.acceleration, 70.0);
-    assert_eq!(a.spare_clips, 6);
+    assert_eq!(a.total_clips, 6);
     assert_eq!(
         a.weapon,
         WeaponClass::bf1_rifle(),
@@ -329,7 +329,7 @@ fn fill_classes_keep_the_v0_fixtures() {
     let i = imp.fill_class();
     assert_eq!(i.weapon.name, "imp_weap_inf_rifle");
     assert_eq!(i.weapon.ordnance.max_damage, 60.0);
-    assert_eq!(i.spare_clips, 5);
+    assert_eq!(i.total_clips, 5);
 
     // BF2 default matchup: constants through the four-level chain.
     let ([rep, cis], _) =
@@ -351,7 +351,7 @@ fn fill_classes_keep_the_v0_fixtures() {
         r.weapon, want,
         "rep rifle == §8.2 fixture via the ordc reskin chain"
     );
-    assert_eq!(r.spare_clips, 4);
+    assert_eq!(r.total_clips, 4);
     let c = cis.fill_class();
     assert_eq!(c.health_type, HealthType::Droid);
     assert_eq!(c.weapon.name, "cis_weap_inf_wrist_blaster");
@@ -692,7 +692,7 @@ fn every_mission_mix_resolves_against_its_maps_own_disc() {
                     "ROSTER {stem} {faction} {} primary={} ammo={} held={:?}",
                     c.class,
                     c.weapon_slot,
-                    c.spare_clips,
+                    c.total_clips,
                     c.held.iter().map(|h| h.slot).collect::<Vec<_>>()
                 );
                 for slot in &c.slots {
@@ -1609,7 +1609,7 @@ fn fielded_classes_hold_their_sidearm_and_grenades() {
                 for h in &c.held {
                     assert_ne!(h.slot, c.weapon_slot);
                     assert_eq!(
-                        h.channel == 1,
+                        h.channel == 1 && h.weapon.repair.is_none(),
                         h.weapon.ordnance.sticky.is_some(),
                         "{}",
                         c.class
@@ -1621,7 +1621,11 @@ fn fielded_classes_hold_their_sidearm_and_grenades() {
                         h.weapon.name
                     );
                 }
-                thrown += c.held.iter().filter(|h| h.channel == 1).count();
+                thrown += c
+                    .held
+                    .iter()
+                    .filter(|h| h.weapon.ordnance.sticky.is_some())
+                    .count();
             }
             // The plain trooper throws a thermal detonator on every side but
             // BF1's CIS (the super battle droid: a wrist rocket) and REP

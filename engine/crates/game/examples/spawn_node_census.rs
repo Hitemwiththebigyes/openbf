@@ -97,7 +97,7 @@ fn build_sim(path: &Path) -> Result<game::walk::WalkSim, String> {
         m.apply_barriers(nav.as_mut());
     }
     let mut sim = Sim::empty(1);
-    sim.water_level = scene.manifest.water.as_ref().map(|w| w.height);
+    scene.install_water(&mut sim);
     sim.ground_rules = core::soldier::GroundRules::for_game(&scene.manifest.source_game);
     let mut w = game::walk::WalkSim::with_teams(sim, scene.heightfield(), Vec3::ZERO, teams, nav);
     scene.install_collision(&mut w.sim);

@@ -1,3 +1,4 @@
+//! WGNXT witnesses reached-post stops and subsequent accepted post departures.
 //! WGOUT marks the first accepted route goal after pickup as departure.
 //! CWAIT pickup holds run in `ride` before route progress.
 //! A bot at a walker's pilot seat (card WAI): the sticks the PS2's walker AI
@@ -267,9 +268,10 @@ pub(super) fn drive(
     };
     // (From the hop to the post's hub on: that hub is often at the post.)
     let final_hop = st.route.is_none_or(|r| r.next_hub == r.dest_hub);
-    let at_post = post.is_some_and(|cp| {
+    let reached_post = post.is_some_and(|cp| {
         final_hop && (cp.def.capture.contains(pos) || nav::xz_dist(pos, cp.def.pos) <= reach)
-    }) || dropped;
+    });
+    let at_post = reached_post || dropped;
     let stuck = st.route.is_some_and(|r| r.stuck_run >= DRIVE_STUCK_BAIL)
         || (sim.nav.is_some() && st.route.is_none());
     let seen = st
@@ -302,6 +304,31 @@ pub(super) fn drive(
         <= COMMAND_ENDGAME;
     let command = super::ride::command(sim, m.vehicle) && (post.is_some() || !endgame);
     let stays = command || (seen.is_some() && sim.seat_look(me).is_some());
+    // re-driver-wait §§4/7: a later seated post set-out is a new source.
+    // Only a witnessed physical post stop arms it; an early retarget, stuck
+    // route, drop hub, ownership change or turning in place cannot do so.
+    if sim.ground_rules == crate::soldier::GroundRules::Bf1 {
+        if let Some(w) = st.ride.as_mut().and_then(|r| r.pickup.as_mut()) {
+            if w.vehicle == m.vehicle && w.complete && w.departed {
+                if command && reached_post && !stuck {
+                    w.post_stop = st.target_cp;
+                } else {
+                    let stopped = w.post_stop.take();
+                    if command
+                        && !at_post
+                        && !stuck
+                        && goal.is_some()
+                        && st.target_cp.is_some()
+                        && stopped.is_some_and(|old| Some(old) != st.target_cp)
+                    {
+                        // Consume even a failed roll. Never reopen pickup or
+                        // erase first-departure history to manufacture an edge.
+                        w.post_departure = Some(sim.tick);
+                    }
+                }
+            }
+        }
+    }
     // (A command walker's pilot does not bail out stuck either: it stands
     // where it got to — BF2 Geonosis's AT-TE stops 8.3 m from its last hub.)
     if (at_post && !stuck && stays) || (command && (at_post || stuck)) {

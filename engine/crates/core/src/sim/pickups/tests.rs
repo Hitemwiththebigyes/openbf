@@ -230,7 +230,7 @@ fn ammo_adds_a_clip_up_to_the_cap() {
     let t = s.spawn(&UnitSpec::trooper(0, Vec3::ZERO)).unwrap();
     let rpc = s.weapon_classes[0].rounds_per_clip;
     let full = s.units[t.index as usize].weapon.spare;
-    assert_eq!(full, 6 * rpc);
+    assert_eq!(full, 5 * rpc);
     // Full reserve: an ammo item is left.
     lay(&mut s, AMMO, Vec3::ZERO);
     step(&mut s, 1);
@@ -245,6 +245,85 @@ fn ammo_adds_a_clip_up_to_the_cap() {
     step(&mut s, 1);
     assert!(s.pickups.is_empty());
     assert_eq!(s.units[t.index as usize].weapon.spare, full);
+}
+
+#[test]
+fn a_partly_loaded_magazine_uses_the_same_reserve_allowance_as_a_full_one() {
+    use crate::unit::SlotSpec;
+    let c = WeaponClass {
+        rounds_per_clip: 55,
+        ..WeaponClass::bf1_rifle()
+    };
+    let spec = UnitSpec {
+        total_clips: 5,
+        slots: vec![SlotSpec {
+            slot: 1,
+            channel: 0,
+            weapon_class: 0,
+            clips: 5,
+        }]
+        .into(),
+        ..UnitSpec::player(0, Vec3::ZERO)
+    };
+    // Five 55-round magazines: an empty weapon may refill 275 reserve rounds;
+    // any nonempty magazine occupies one allowance, including after one shot.
+    for (loaded, expected_reserve) in [(0, 275), (1, 220), (54, 220), (55, 220)] {
+        let mut u = spec.build(0, std::slice::from_ref(&c));
+        u.weapon.clip = loaded;
+        u.weapon.spare = 0;
+        u.held[0].state.clip = loaded;
+        u.held[0].state.spare = 0;
+        assert!(give_ammo(std::slice::from_ref(&c), &mut u, 99));
+        assert_eq!(u.weapon.spare, expected_reserve, "primary loaded={loaded}");
+        assert_eq!(
+            u.held[0].state.spare, expected_reserve,
+            "held loaded={loaded}"
+        );
+        assert!(!give_ammo(std::slice::from_ref(&c), &mut u, 1));
+    }
+}
+
+#[test]
+fn empty_primary_and_held_weapons_can_refill_their_entire_issue() {
+    use crate::unit::SlotSpec;
+    for clips in [1, 5, 6] {
+        let c = WeaponClass {
+            rounds_per_clip: 55,
+            ..WeaponClass::bf1_rifle()
+        };
+        let spec = UnitSpec {
+            total_clips: clips,
+            slots: vec![SlotSpec {
+                slot: 1,
+                channel: 0,
+                weapon_class: 0,
+                clips,
+            }]
+            .into(),
+            ..UnitSpec::player(0, Vec3::ZERO)
+        };
+        let mut u = spec.build(0, std::slice::from_ref(&c));
+        u.weapon.clip = 0;
+        u.weapon.spare = 0;
+        u.held[0].state.clip = 0;
+        u.held[0].state.spare = 0;
+        assert!(give_ammo(std::slice::from_ref(&c), &mut u, 99));
+        assert_eq!(u.weapon.rounds(&c), Some(55 * clips));
+        assert_eq!(u.held[0].state.rounds(&c), Some(55 * clips));
+        assert!(!give_ammo(std::slice::from_ref(&c), &mut u, 1));
+        assert!(u.weapon.start_reload(&c));
+        for _ in 0..47 {
+            u.weapon.update(
+                DT,
+                &c,
+                crate::weapon::FireInput::default(),
+                &mut GameLcg::new(1),
+                &mut Vec::new(),
+            );
+        }
+        assert_eq!((u.weapon.clip, u.weapon.spare), (55, 55 * (clips - 1)));
+        assert!(!give_ammo(std::slice::from_ref(&c), &mut u, 1));
+    }
 }
 
 #[test]

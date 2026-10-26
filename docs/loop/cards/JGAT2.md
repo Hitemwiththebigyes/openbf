@@ -78,3 +78,4 @@ sprint), the leak census per class, one FEEL_NOTES line. Declares sim; sweep; ar
   JETP; weapons through slot +0x4c) is in `verify/VERDICTS.md`.
 - BF1BK shares `soldier.rs`: one after the other.
 - 2026-10-06 planner: `alpha: yes` - JGATE was an alpha card (the maintainer's dropped jumps) and these are the numbers of the same rules; it now goes before the untagged fours. The one a player can feel is item 2 (a sprint jump on a short bar: the PS2 leaves you unable to sprint for 2.8 s, the port for 0.7 s). Undo: `loopctl.py set JGAT2 alpha=`.
+

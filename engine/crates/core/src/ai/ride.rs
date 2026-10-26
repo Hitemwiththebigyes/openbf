@@ -8,10 +8,13 @@
 //! counting fresh same-team claims in since/index order after think write-backs.
 //! WGPAS admits unarmed secondary seats only for those explicit BF1 recipients;
 //! claim upkeep, maintained pickup and physical entry share that provenance.
+//! PILEIN shares that machinery for human ground-pilot orders in both rulesets,
+//! with separate issuer provenance and no autonomous route or AI-call chance gate.
 //! WGCAL publishes the initial BF1 ground call at PickupWait.started, once,
 //! after all think write-backs; wait clocks and driver precedence stay here.
 //! WGOUT consumes one first routed departure attempt per pickup tenure,
 //! independently of wait-start success, after all AI write-backs.
+//! WGNXT independently consumes subsequent witnessed command-walker post departures.
 //! STCHG preserves a seat gun's charge deadline through this dispatch.
 //!
 //! The PS2's side, as far as it is read (`analysis/re-vehicles.md` §5, RE_LOG
@@ -90,7 +93,14 @@ use glam::Vec3;
 /// the team — a gunner seat with a gun (card VTAI). Card TURR: a building
 /// turret (no pilot seat) when CanEnter gives a seat with a gun.
 pub(crate) fn claim_seat(sim: &Sim, me: UnitHandle, vh: VehicleHandle) -> Option<u8> {
-    claim_seat_policy(sim, me, vh, false)
+    claim_seat_policy(sim, me, vh, SeatAdmission::Autonomous)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SeatAdmission {
+    Autonomous,
+    AiCall,
+    PlayerOrder,
 }
 
 /// Admission for an existing claim; autonomous search always uses `claim_seat`.
@@ -100,15 +110,22 @@ pub(crate) fn claimed_seat(
     vh: VehicleHandle,
     r: RideState,
 ) -> Option<u8> {
-    claim_seat_policy(
-        sim,
-        me,
-        vh,
-        r.board == Some(vh) && r.called_board == Some(me),
-    )
+    let source = if r.board != Some(vh) || r.called_board != Some(me) {
+        SeatAdmission::Autonomous
+    } else if r.player_board.is_some() {
+        SeatAdmission::PlayerOrder
+    } else {
+        SeatAdmission::AiCall
+    };
+    claim_seat_policy(sim, me, vh, source)
 }
 
-fn claim_seat_policy(sim: &Sim, me: UnitHandle, vh: VehicleHandle, called: bool) -> Option<u8> {
+fn claim_seat_policy(
+    sim: &Sim,
+    me: UnitHandle,
+    vh: VehicleHandle,
+    source: SeatAdmission,
+) -> Option<u8> {
     let v = sim.vehicle(vh)?;
     let class = v.class as usize;
     let armed = |k: u8| {
@@ -130,8 +147,8 @@ fn claim_seat_policy(sim: &Sim, me: UnitHandle, vh: VehicleHandle, called: bool)
         return None;
     }
     let k = sim.enter_seat(me, vh)?;
-    let explicit = called
-        && sim.ground_rules == GroundRules::Bf1
+    let explicit = (source == SeatAdmission::PlayerOrder
+        || (source == SeatAdmission::AiCall && sim.ground_rules == GroundRules::Bf1))
         && matches!(v.kind, VehicleKind::Hover | VehicleKind::Walker)
         && sim
             .unit(me)
@@ -191,7 +208,11 @@ fn reach_test(sim: &Sim, u: &Unit, vh: VehicleHandle) -> Option<(f32, f32)> {
 /// has claimed that vehicle.
 pub(super) fn claim(sim: &Sim, me: UnitHandle, u: &Unit, st: &mut AiState) {
     let r = st.ride.unwrap_or_default();
-    if r.board.is_some() || sim.tick < r.block_until || sim.vehicles.is_empty() {
+    if r.board.is_some()
+        || sim.tick < r.block_until
+        || sim.tick < r.own_search_until
+        || sim.vehicles.is_empty()
+    {
         return;
     }
     let Some(cp) = st.target_cp.and_then(|i| sim.cps.get(i as usize)) else {
@@ -229,6 +250,7 @@ pub(super) fn claim(sim: &Sim, me: UnitHandle, u: &Unit, st: &mut AiState) {
         st.ride = Some(RideState {
             board: Some(vh),
             called_board: None,
+            player_board: None,
             ordered_call: false,
             since: sim.tick,
             maintenance: None,
@@ -263,7 +285,7 @@ pub(super) fn deliver_call(sim: &Sim, me: UnitHandle, u: &Unit, st: &mut AiState
     if !matches!(v.kind, VehicleKind::Hover | VehicleKind::Walker)
         || v.stuck_at
             .is_some_and(|p| nav::xz_dist(p, v.pos) < STUCK_MOVED)
-        || claim_seat_policy(sim, me, vh, true).is_none()
+        || claim_seat_policy(sim, me, vh, SeatAdmission::AiCall).is_none()
         || (!ordered
             && !st
                 .target_cp
@@ -331,22 +353,25 @@ fn routes_to(sim: &Sim, vh: VehicleHandle, cp: &crate::cp::CommandPost) -> bool 
     }
 }
 
-/// BF1 explicit ground goals share the source claim budget, independent of
+/// Explicit ground goals share the source claim budget, independent of
 /// empty physical seats (re-driver-wait §§3/4/7). Ordinary goals retain their
 /// one-winner policy. Existing since/index priority also resolves simultaneous
 /// scratch thinks; the post-write-back pass below sees all of them.
 fn claim_preempted(sim: &Sim, me: UnitHandle, u: &Unit, r: RideState, vh: VehicleHandle) -> bool {
-    let explicit = sim.ground_rules == GroundRules::Bf1
+    let explicit = (r.player_board.is_some() || sim.ground_rules == GroundRules::Bf1)
         && r.called_board == Some(me)
         && sim
             .vehicle(vh)
             .is_some_and(|v| matches!(v.kind, VehicleKind::Hover | VehicleKind::Walker));
     if !explicit {
+        // A human's PILE IN outranks an ordinary claim on the same vehicle.
         return sim.units.iter().enumerate().any(|(i, o)| {
             o.alive
                 && o.mount.is_none()
+                && i != me.index as usize
                 && o.ai.ride.is_some_and(|x| {
-                    x.board == Some(vh) && (x.since, i) < (r.since, me.index as usize)
+                    x.board == Some(vh)
+                        && (x.player_board.is_some() || (x.since, i) < (r.since, me.index as usize))
                 })
         });
     }
@@ -371,8 +396,15 @@ fn claim_preempted(sim: &Sim, me: UnitHandle, u: &Unit, r: RideState, vh: Vehicl
                 && o.controller == crate::unit::Controller::Ai
                 && o.mount.is_none()
                 && o.ai.ride.is_some_and(|x| {
+                    // A human's PILE IN is preceded only by older PILE IN claims;
+                    // it precedes every other explicit claim.
+                    let older = (x.since, h.index) < (r.since, me.index);
                     x.board == Some(vh)
-                        && (x.since, h.index) < (r.since, me.index)
+                        && if r.player_board.is_some() {
+                            x.player_board.is_some() && older
+                        } else {
+                            x.player_board.is_some() || older
+                        }
                         && x.called_board.is_none_or(|owner| owner == *h)
                         && sim.tick < x.since + BOARD_GIVEUP
                         && x.maintenance.map_or(sim.tick < x.since + BOARD_FRESH, |c| {
@@ -388,13 +420,13 @@ fn claim_preempted(sim: &Sim, me: UnitHandle, u: &Unit, r: RideState, vh: Vehicl
 /// before any physical entry, including same-tick contenders in either order.
 /// No clocks are refreshed here; ordinary claims are never changed by this pass.
 pub(crate) fn called_claim_pass(sim: &mut Sim) {
-    if sim.ground_rules != GroundRules::Bf1 {
-        return;
-    }
     for i in 0..sim.units.len() {
         let me = sim.handle(i);
         let u = &sim.units[i];
-        let Some(r) = u.ai.ride.filter(|r| r.called_board == Some(me)) else {
+        let Some(r) = u.ai.ride.filter(|r| {
+            r.called_board == Some(me)
+                && (r.player_board.is_some() || sim.ground_rules == GroundRules::Bf1)
+        }) else {
             continue;
         };
         let Some(vh) = r.board else { continue };
@@ -411,6 +443,7 @@ pub(crate) fn called_claim_pass(sim: &mut Sim) {
         let r = sim.units[i].ai.ride.as_mut().unwrap();
         r.board = None;
         r.called_board = None;
+        r.player_board = None;
         r.ordered_call = false;
         r.maintenance = None;
         r.use_req = false;
@@ -449,7 +482,10 @@ pub(super) fn board_goal(
             .vehicle(vh)
             .and_then(|v| v.seats.first())
             .is_some_and(|s| s.occupant.is_some());
-    let routes = if r.ordered_call {
+    let routes = if let Some(issuer) = r.player_board {
+        sim.players.get(usize::from(issuer.slot)).copied().flatten() == Some(issuer.leader)
+            && sim.unit(issuer.leader).is_some_and(|l| l.team == u.team)
+    } else if r.ordered_call {
         u.command.is_some_and(|c| !c.in_pool())
     } else if turret {
         !super::man::endgame(sim, u.team)
@@ -474,6 +510,7 @@ pub(super) fn board_goal(
         };
         r.call_blocked |= r.called_board.is_some() && !older;
         r.called_board = None;
+        r.player_board = None;
         r.board = None;
         r.ordered_call = false;
         r.maintenance = None;
@@ -503,6 +540,7 @@ pub(super) fn give_up(sim: &Sim, st: &mut AiState, nt: &mut NavTick) {
         let vh = r.board.take();
         r.call_blocked |= r.called_board.is_some();
         r.called_board = None;
+        r.player_board = None;
         r.ordered_call = false;
         r.maintenance = None;
         r.use_req = false;
@@ -536,6 +574,7 @@ pub(super) fn settle(sim: &Sim, st: &mut AiState) {
             && r.pickup.is_none()
             && r.bail_draw.is_none()
             && sim.tick >= r.block_until
+            && sim.tick >= r.own_search_until
             && sim.tick >= r.closed_until
             && r.man.is_none()
     }) {
@@ -549,6 +588,7 @@ pub(super) fn request_exit(st: &mut AiState) {
         use_req: true,
         board: None,
         called_board: None,
+        player_board: None,
         ordered_call: false,
         maintenance: None,
         ..r
@@ -1221,7 +1261,7 @@ mod tests {
                 weapons: vec![crate::vehicle::gun::GunWeapon {
                     class: 0,
                     infinite: true,
-                    spare_clips: 0,
+                    reserve_clips: 0,
                 }],
                 fire_point: Vec3::new(0.0, 0.9, 4.2),
                 pivot: Vec3::new(0.0, 0.8, 3.3),
@@ -1682,6 +1722,8 @@ mod tests {
         assert!(s.unit(b).unwrap().ai.ride.is_none());
         assert_eq!(rng, s.rng.state(), "turret has no wait or boarding draw");
     }
+    #[path = "post_setout_tests.rs"]
+    mod post_setout_tests;
     #[path = "seat_call_tests.rs"]
     mod seat_call_tests;
     #[path = "setout_call_tests.rs"]
@@ -1693,8 +1735,11 @@ mod tests {
     mod call_board_tests;
     #[path = "claim_wait_tests.rs"]
     mod claim_wait_tests;
+    mod get_out_tests;
     #[path = "human_wait_tests.rs"]
     mod human_wait_tests;
     #[path = "order_wait_tests.rs"]
     mod order_wait_tests;
+    #[path = "pile_in_tests.rs"]
+    mod pile_in_tests;
 }

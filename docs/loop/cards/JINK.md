@@ -11,7 +11,7 @@ declares: sweep; arena; sim
 needs:
 effort:
 branch:
-resume: Cloud preflight 20261024_0807: blocked before build; restore audit-clse2 capture/mutations/observer, clse Kamino scene, baked maps/classes/common/vehicles and missions plus PS2 references; see engine/artifacts/loop/reports/20261024_0807_card_JINK.md. Then reproduce current-main baseline and all JINK acceptance before implementation/landing.
+resume: Retake current-main JINK baseline after PR2 Jump fire blocking and JUNI when implemented. Restore original audit/scene/data inputs; full original error-budget and rate Acceptance remains. Planner report reports/20261026_0616_planner.md.
 created: 2026-10-12
 alpha: yes
 domain: ai

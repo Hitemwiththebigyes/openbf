@@ -9,8 +9,9 @@ deps:
 files: engine/crates/game/src/walk.rs
 declares:
 needs: Restore class camera data, map/mission and PS2 state/rows; retain landed per-game camera behavior and implement only remaining class/zoom/blend/collision scope after retake.
+effort:
 branch:
-resume: 2026-10-24 11:57 UTC: planner prerequisite hold; 7/7 exact named paths absent. Restore class camera data, map/mission and PS2 state/rows; retain landed per-game camera behavior and implement only remaining class/zoom/blend/collision scope after retake. All original acceptance retained. reports/20261024_1151_planner.md; inventory/continuation lead_tmp/planner_20261024_1151/.
+resume: PR2 c2453a6 adds stance-place easing; per-game table already implemented. Restore class/zoom/split/collision/PS2 inputs and measure remaining every-frame smoothing; full original acceptance pending. Planner report reports/20261026_0616_planner.md.
 created: 2026-09-29
 alpha: yes
 ---

@@ -8,10 +8,10 @@ status: todo
 deps:
 files: engine/crates/game/src/soldier_vis.rs, engine/crates/game/src/soldier_vis/runtime.rs, engine/crates/game/src/soldier_vis/tests.rs, engine/crates/core/src/ai/state.rs, engine/crates/game/src/walk.rs, engine/crates/bake/src/soldier.rs, engine/crates/core/src/sim/bounds.rs
 declares:
-needs: the four remaining splits (ai/state.rs, walk.rs, bake/soldier.rs; sim/bounds.rs now at 1,500), then every gate PASS as written
+needs: ai/state.rs remaining split, then every original gate PASS; SPLSIDE output extraction implemented with full validation pending
 effort:
 branch:
-resume: (private workflow note omitted)
+resume: soldier_vis split validated; walk.rs now 1222 and bounds.rs 1500. Independent bake/soldier.rs output extraction implemented as SPLSIDE, full content/GPU gates pending. ai/state.rs 1995 remains behind parked GBOARD/WG* ownership. Original complete gates remain; reports/20261026_0803_planner.md.
 created: 2026-10-20
 tries: 1
 ---

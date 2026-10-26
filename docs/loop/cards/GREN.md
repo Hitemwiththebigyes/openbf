@@ -131,3 +131,4 @@ Left out, each PROVISIONAL in the code:
   hash, and the held weapons are hashed. With the hash column stripped, all 32 sweep rows and the 4 arena_tat2 rows
   are byte-identical to the baseline (`lead_tmp/loop_baselines/20261002_1520_CONT`): no outcome, tick, ticket or
   stuck number moved. arena_flat (built-in troopers, no class slots) and `--sim-hash` did not move at all.
+

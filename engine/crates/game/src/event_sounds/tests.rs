@@ -215,7 +215,7 @@ fn seat_gun_contact_uses_seat_weapon() {
             weapons: vec![GunWeapon {
                 class: gun_class,
                 infinite: true,
-                spare_clips: 0,
+                reserve_clips: 0,
             }],
             fire_point: Vec3::new(0.0, 1.0, 2.0),
             pivot: Vec3::Y,
@@ -600,4 +600,30 @@ fn sticky_water_stays_silent_and_every_other_contact_sounds() {
         })
         .collect();
     assert_eq!(sounds(&w), [("bounce".into(), at), ("bounce".into(), at)]);
+}
+
+#[test]
+fn destroyed_stations_stop_chatter_and_play_their_death_explosion_sound_once() {
+    let (mut w, _, _) = scene();
+    let mut class = core::sim::StationClass::soldier("medical", 1.0, 15.0, 0);
+    class.ambient_sound = Some("station_idle".into());
+    let mut explosion = ExplosionClass::default();
+    explosion.look.sound = Some("station_boom".into());
+    class.explosion = Some(explosion);
+    let c = w.sim.add_station_class(class);
+    w.sim
+        .stations
+        .push(core::sim::Station::new(c, Vec3::ZERO, 5.0));
+    assert_eq!(station_asks(&w).len(), 1);
+    let damage = core::weapon::OrdnanceClass {
+        max_damage: 1000.0,
+        ..Default::default()
+    }
+    .damage_desc(0.0, false);
+    w.sim
+        .damage_station(0, &damage, 1.0, Some(w.player), Some(0));
+    w.sim
+        .damage_station(0, &damage, 1.0, Some(w.player), Some(0));
+    assert!(station_asks(&w).is_empty());
+    assert_eq!(sounds(&w), [("station_boom".into(), Vec3::ZERO)]);
 }

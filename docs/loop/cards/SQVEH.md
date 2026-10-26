@@ -8,10 +8,10 @@ status: blocked
 deps: SQACK
 files: engine/crates/core/src/squad.rs, engine/crates/core/src/ai/ride.rs, engine/crates/core/src/sim/seats.rs, engine/crates/core/src/sim/seats/tests.rs
 declares: sim
-needs: build of the remaining seated orders (PILE IN / EVERYONE OUT / gunner orders, 20 s own-search timer, voice + HUD); follower slice validated locally 2026-10-24
+needs: remaining gunner/type coverage and original content/full gates; PILEIN and GETOUT source implemented
 effort:
 branch:
-resume: (private workflow note omitted)
+resume: PILEIN e47db38 and GETOUT eb7a51e implement ground-pilot Right/Left. Restore OP5/L15 and all prior SQVEH scenes, verify own-search20s and explicit+15s reentry; gunner/type scope and full acceptance remain. reports/20261026_1058_card_GETOUT.md.
 created: 2026-09-30
 tries: 1
 ---

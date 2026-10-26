@@ -26,10 +26,12 @@ pub mod sim;
 pub mod skill;
 pub mod soldier;
 pub mod squad;
+pub mod station_motion;
 pub mod sticky;
 pub mod unit;
 pub mod vehicle;
 pub mod vehicle_pad;
+pub mod water;
 pub mod weapon;
 
 /// Sim tick rate, from audit A5 (analysis/a5-tickrate.md): the PS2 games run

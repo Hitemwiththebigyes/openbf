@@ -332,9 +332,19 @@ fn the_side_tier2_files_are_textures_the_soldier_path_asks_for() {
         .iter()
         .filter(|s| skins.contains(s) && !own.contains(*s))
         .count();
+    // PR #3 adds REP/CIS fusion cutters with their two PC first-person sheets.
+    for cutter in [
+        "rep_1st_weap_inf_fusioncutter",
+        "cis_1st_weap_inf_fusioncutter",
+    ] {
+        assert!(
+            stems.iter().any(|stem| stem == cutter),
+            "missing cutter sheet {cutter}"
+        );
+    }
     assert_eq!(
         stems.len() - skin_stems,
-        23,
+        25,
         "side_bf2 tier-2 stems: {stems:?}"
     );
     if !skins.is_empty() {

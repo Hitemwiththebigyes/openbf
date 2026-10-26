@@ -4,14 +4,14 @@ title: BF1 command-walker pilots call for riders again when setting out after a 
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: parked
 deps: UTALK,WAIT4,CWAIT
-files: engine/crates/core/src/ai/ride.rs, engine/crates/core/src/ai/state.rs, engine/crates/core/src/ai/walker_drive.rs, engine/crates/core/src/ai/ride/tests/setout_call_tests.rs, engine/crates/core/src/ai/ride/tests/wait_call_tests.rs, engine/crates/core/src/sim/step.rs, engine/crates/core/src/sim/seats.rs, engine/crates/core/src/ai.rs, engine/CRATES.md
+files: engine/crates/core/src/ai/command.rs, engine/crates/core/src/ai/ride/tests/post_setout_tests.rs, engine/crates/core/src/ai/ride.rs, engine/crates/core/src/ai/state.rs, engine/crates/core/src/ai/walker_drive.rs, engine/crates/core/src/ai/ride/tests/setout_call_tests.rs, engine/crates/core/src/ai/ride/tests/wait_call_tests.rs, engine/crates/core/src/sim/step.rs, engine/crates/core/src/sim/seats.rs, engine/crates/core/src/ai.rs, engine/CRATES.md
 declares: sim; sweep
-needs:
+needs: (private workflow note omitted)
 effort:
-branch:
-resume: On fea568b reproduce6later post-set-out missing-call faults/42controls, diagnostic48/48; implement safe post-stop transition and permanent delivery/lifecycle/hash/mutation referees. engine/artifacts/loop/reports/20261026_0512_planner.md
+branch: main
+resume: Source4adacdc on main;48/48 natural scenes,7new groups,112ride/979core/398game+2ignored/fmt/all-target Clippy;12compiled mutants caught. Protect PASS; map8inherited missing paths/0unmapped/0stale. Full Acceptance1-5 and parent holds pending. reports/20261026_0520_card_WGNXT.md
 created: 2026-10-26
 alpha: yes
 ---

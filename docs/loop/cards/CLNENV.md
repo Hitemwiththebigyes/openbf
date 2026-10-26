@@ -1,0 +1,40 @@
+---
+id: CLNENV
+title: Isolate cleanse deletion self-test from inherited repository selection
+milestone: M0
+value: 2
+phase: cleanup
+status: done
+deps:
+files: scripts/cleanse_delete.sh
+declares:
+needs:
+branch:
+resume:
+created: 2026-10-26
+---
+
+## Why / evidence
+On bb974e5, `OPENBF_REPO="$PWD" bash scripts/cleanse_delete.sh --self-test`
+exits 1: `livebr_target` appears in got but not want. The fixture creates the
+livebr branch in its temporary repository, but the child loopctl target sweep
+inherits OPENBF_REPO and reads another repository's branches. The same fixture
+without that override is the control. No actual repository data was deleted.
+
+## Scope
+Clear inherited repository selection in both fixture subprocesses so loopctl
+defaults to the fixture checkout. Preserve real dry-run and deletion behavior,
+the complete expected candidate list, live-process/recency/branch protections,
+test assertions, approval controls and ordinary gates.
+
+## Acceptance
+1. Exact parent fails with OPENBF_REPO selecting the real repository; control
+   with it unset passes. Candidate self-test exits 0 with it unset, selecting
+   the real repository, or selecting a nonexistent path. Every fixture
+   assertion still executes, including deletion in the temporary repository.
+2. Dropping the dry-run isolation reproduces the livebr_target failure;
+   dropping deletion isolation fails the final assertions. Restore and rerun.
+3. Shell syntax and existing source-tool/workflow/gate-boundary tests pass.
+   Full project CI and applicable unchanged gates remain required; do not
+   claim missing content/GPU validation from this fixture.
+

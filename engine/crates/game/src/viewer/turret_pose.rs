@@ -523,15 +523,7 @@ impl super::SceneGpu {
     /// The scene's draws as `viewer` sees them: [`SceneGpu::draws`] less
     /// [`SceneGpu::hidden_for`].
     pub fn view_draws(&self, sim: &core::sim::Sim, viewer: core::unit::UnitHandle) -> Vec<DrawCmd> {
-        match self.hidden_for(sim, viewer) {
-            None => self.draws.clone(),
-            Some(r) => {
-                let mut d = Vec::with_capacity(self.draws.len() - r.len());
-                d.extend_from_slice(&self.draws[..r.start]);
-                d.extend_from_slice(&self.draws[r.end..]);
-                d
-            }
-        }
+        self.station_view_draws(sim, self.hidden_for(sim, viewer))
     }
 
     /// Pose drawn armed buildings at one `look` and `aim` (the port's yaw,

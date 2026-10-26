@@ -850,6 +850,15 @@ fn a_bot_just_past_the_rail_is_lost_and_walks_back() {
 /// and never backs off for a run-up.
 #[test]
 fn a_lost_bot_jumps_a_low_wall_from_where_it_stands() {
+    for rules in [
+        crate::soldier::GroundRules::Bf1,
+        crate::soldier::GroundRules::Bf2,
+    ] {
+        check_lost_bot_jump(rules);
+    }
+}
+
+fn check_lost_bot_jump(rules: crate::soldier::GroundRules) {
     use crate::ai::tests::rim_sim_with;
     use crate::collision::{Body, Shape};
     use crate::sim::{Level, PadState};
@@ -860,6 +869,7 @@ fn a_lost_bot_jumps_a_low_wall_from_where_it_stands() {
         },
     );
     let (mut sim, h) = rim_sim_with(true, vec![rail]);
+    sim.ground_rules = rules;
     // At rest against the rail's outer face (x -12.5, his radius 0.5).
     let y = sim.ground_under(Vec3::new(-13.05, 9.5, 0.0), false);
     assert!(y < 9.0 && y > 8.0, "on the hull: {y}");

@@ -266,6 +266,7 @@ impl Sim {
                     r.use_req = true;
                     r.board = None;
                     r.called_board = None;
+                    r.player_board = None;
                     r.maintenance = None;
                     self.nav_stats.ai_bail_occupants += 1;
                 }
@@ -282,8 +283,11 @@ impl Sim {
             // CanEnter in unit order so two followers never take one seat.
             // PROVISIONAL: served every tick on reaching the port's boarding
             // radius, rather than the PS2 board agent's queued think.
-            let follow_target = crate::squad::follow_vehicle(self, u)
-                .filter(|_| !u.ai.ride.is_some_and(|r| r.ordered_call));
+            let follow_target = crate::squad::follow_vehicle(self, u).filter(|_| {
+                !u.ai
+                    .ride
+                    .is_some_and(|r| r.ordered_call || r.player_board.is_some())
+            });
             let following = follow_target.filter(|&vh| crate::ai::in_reach(self, u, vh));
             if follow_target.is_some() && following.is_none() {
                 continue;
@@ -318,6 +322,7 @@ impl Sim {
                 r.pickup = None;
                 r.board = None;
                 r.called_board = None;
+                r.player_board = None;
                 r.maintenance = None;
                 r.bail_draw = None;
                 r.bail_seen = false;
@@ -343,6 +348,7 @@ impl Sim {
                 }
                 .filter(|_| near);
                 let called = r.called_board.take().is_some();
+                r.player_board = None;
                 let entered = seat.is_some_and(|k| self.enter_vehicle(h, vh, k));
                 if entered {
                     // Preserve seat_unit's clock, zero driver output and draw

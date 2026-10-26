@@ -266,7 +266,7 @@ struct PlacedModel<'a> {
     )>,
     /// Card PWST: a droid's manifest index, translation and (its main
     /// model's) node rig.
-    station: Option<(usize, Vec3, Option<&'a manifest::ManifestTurretRig>)>,
+    station: Option<(usize, Vec3, Option<&'a manifest::ManifestTurretRig>, bool)>,
     color: Option<[f32; 4]>,
     fade: Option<render::Fade>,
     /// Metres nearer than which the draw is discarded — the far scene's
@@ -798,6 +798,7 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
     let mut doors: Vec<DoorDraw> = Vec::new();
     let mut turrets: Vec<super::turret_pose::TurretDraw> = Vec::new();
     let mut stations: Vec<super::stations::StationDraw> = Vec::new();
+    let wreck_models = crate::stations::wreck_models(scene)?;
     let path_props = scene
         .manifest
         .foliage
@@ -837,7 +838,14 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
         let class = world.then(|| scene.resolve_class(&inst.class)).flatten();
         let station = class
             .filter(|c| c.base.eq_ignore_ascii_case(super::stations::STATION_BASE))
-            .map(|c| (ii, Vec3::from(inst.translation), c.turret_rig.as_ref()));
+            .map(|c| {
+                (
+                    ii,
+                    Vec3::from(inst.translation),
+                    c.turret_rig.as_ref(),
+                    false,
+                )
+            });
         placed.push(PlacedModel {
             model,
             matrix: instance_matrix(inst.rotation, inst.translation),
@@ -861,13 +869,26 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
             near: None,
             lod: lowd.map(|(_, b)| b.sides().0),
         });
+        if let Some(model) = wreck_models.get(&ii).filter(|_| station.is_some()) {
+            placed.push(PlacedModel {
+                model,
+                matrix: instance_matrix(inst.rotation, inst.translation),
+                door: None,
+                turret: None,
+                station: Some((ii, Vec3::from(inst.translation), None, true)),
+                color: None,
+                fade: None,
+                near: None,
+                lod: None,
+            });
+        }
         if let Some((lowd, b)) = lowd {
             placed.push(PlacedModel {
                 model: lowd,
                 matrix: instance_matrix(inst.rotation, inst.translation),
                 door: None,
                 turret: None,
-                station: station.map(|(i, at, _)| (i, at, None)),
+                station: station.map(|(i, at, _, dead)| (i, at, None, dead)),
                 color: None,
                 fade: None,
                 near: None,
@@ -889,7 +910,7 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
                 matrix: instance_matrix(inst.rotation, inst.translation),
                 door: None,
                 turret: None,
-                station: station.map(|(i, at, _)| (i, at, None)),
+                station: station.map(|(i, at, _, dead)| (i, at, None, dead)),
                 color: None,
                 fade: None,
                 near: Some(near),
@@ -1009,7 +1030,7 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
             {
                 turning.push((first..draws.len(), k));
             }
-            if let Some((ii, at, rig)) = p.station {
+            if let Some((ii, at, rig, false)) = p.station {
                 let at_k = match stations.iter().position(|s| s.instance == ii) {
                     Some(j) => j,
                     None => {
@@ -1020,6 +1041,11 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
                 stations[at_k]
                     .parts
                     .push((first..draws.len(), rig.map(|_| k)));
+            }
+        }
+        if let Some((ii, _, _, true)) = p.station {
+            if let Some(s) = stations.iter_mut().find(|s| s.instance == ii) {
+                s.wreck.extend(draws.drain(whole_start..));
             }
         }
         if let (false, Some((ii, inst, rig))) = (turning.is_empty(), p.turret) {

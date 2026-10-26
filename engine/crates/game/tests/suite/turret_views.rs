@@ -662,7 +662,7 @@ fn fixture_walk(first: Option<f32>) -> game::walk::WalkSim {
         weapons: vec![GunWeapon {
             class: weapon_class,
             infinite: true,
-            spare_clips: 0,
+            reserve_clips: 0,
         }],
         fire_point: Vec3::Z,
         pivot: Vec3::ZERO,

@@ -317,7 +317,7 @@ pub struct TeamTemplate {
     pub health_type: core::weapon::HealthType,
     /// Index into `Sim::weapon_classes`.
     pub weapon_class: usize,
-    pub spare_clips: u32,
+    pub total_clips: u32,
     /// The fill class's primary slot and its other weapon slots (card GREN),
     /// as its `Sim::classes` entry holds them: the template spawns the
     /// player's first unit.
@@ -355,7 +355,7 @@ impl TeamTemplate {
             weapon_slot: registered_fill.weapon_slot,
             slots: registered_fill.slots.clone(),
             drops: registered_fill.drops,
-            spare_clips: c.spare_clips,
+            total_clips: c.total_clips,
             geometry: c.geometry.clone(),
             weapon_geometry: c.weapon_geometry.clone(),
             classes,
@@ -371,7 +371,7 @@ impl TeamTemplate {
             max_health: 300.0,
             health_type: core::weapon::HealthType::Person,
             weapon_class: 0,
-            spare_clips: 6,
+            total_clips: 6,
             weapon_slot: 0,
             slots: std::sync::Arc::new([]),
             drops: core::sim::DropTable::NONE,
@@ -420,7 +420,7 @@ impl TeamTemplate {
             max_health: self.max_health,
             health_type: self.health_type,
             weapon_class: self.weapon_class,
-            spare_clips: self.spare_clips,
+            total_clips: self.total_clips,
             weapon_slot: self.weapon_slot,
             slots: self.slots.clone(),
             capture_posts: true,

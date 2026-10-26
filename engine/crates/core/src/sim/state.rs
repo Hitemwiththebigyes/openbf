@@ -87,6 +87,13 @@ impl Cheats {
 /// audio, traces and Tier-4 artifacts).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Event {
+    Repair {
+        unit: UnitHandle,
+        weapon_class: u32,
+        target: crate::projectile::Target,
+        pos: Vec3,
+        amount: f32,
+    },
     Shot {
         unit: UnitHandle,
         /// The weapon class that fired: the unit's own on foot, the seat
@@ -182,7 +189,7 @@ pub enum Event {
     },
     /// A player slot gave a squad order (card SQACK). `kind` is
     /// [`crate::squad::Order`]'s byte (0 follow, 1 hold, 2 at ease, 3 move
-    /// out); `units` is how many bots are in its reach — pushed even when
+    /// out, 4 pile in, 5 everyone out); `units` is how many bots are in its reach — pushed even when
     /// that is 0: the player's line plays whether or not anyone hears it.
     Command {
         slot: u8,
@@ -253,6 +260,12 @@ pub enum Event {
         class: u32,
         pos: Vec3,
         vel: Vec3,
+        killer: Option<UnitHandle>,
+    },
+    StationDestroyed {
+        station: u16,
+        class: u8,
+        pos: Vec3,
         killer: Option<UnitHandle>,
     },
     /// A dead soldier dropped an item (card PWUP); `item` indexes
@@ -566,6 +579,11 @@ pub struct Sim {
     /// The placed health / ammo / vehicle droids, in manifest order. HASHED
     /// when there is one.
     pub stations: Vec<super::stations::Station>,
+    /// Body indices and body-local transforms, indexed by placed station.
+    pub station_bodies: Vec<Vec<(usize, glam::Mat4)>>,
+    /// Authored wreck hull parts, indexed by station class.
+    pub station_wreck_collision: Vec<Vec<crate::collision::HullPart>>,
+    pub station_live_collision: Vec<Vec<crate::collision::HullPart>>,
     pub battle: Battle,
     pub cheats: Cheats,
     /// BF1 DAT_00517508 / BF2 DAT_005fcbe0: the profile's friendly-fire
@@ -626,6 +644,7 @@ pub struct Sim {
     /// NOT hashed. Card HOLD reads it: a bot takes no hold position on a
     /// floor under water.
     pub water_level: Option<f32>,
+    pub water_mask: Option<crate::water::WetMask>,
     /// Card HOLD: the grenades lying on the ground ([`Hazard`]). SIM STATE —
     /// hashed, when there are any, so a round with none hashes as before.
     pub hazards: Vec<Hazard>,
@@ -912,6 +931,9 @@ impl Sim {
             pickups: Vec::new(),
             station_classes: Vec::new(),
             stations: Vec::new(),
+            station_bodies: Vec::new(),
+            station_wreck_collision: Vec::new(),
+            station_live_collision: Vec::new(),
             battle: Battle::new([250, 250]),
             cheats: Cheats::default(),
             friendly_fire_scale: 1.0,
@@ -931,6 +953,7 @@ impl Sim {
             ai_alive_cap: 16,
             death_regions: Vec::new(),
             water_level: None,
+            water_mask: None,
             hazards: Vec::new(),
             last_warning_id: 0,
             kill_floor: None,
@@ -1055,6 +1078,17 @@ impl Sim {
     ) -> f32 {
         let probe = feet.y + if rising { 0.0 } else { STEP_HEIGHT };
         self.floor_under(feet, probe, hulls, true).0
+    }
+
+    pub fn water_plane(&self) -> Option<crate::water::Plane<'_>> {
+        self.water_level.map(|level| crate::water::Plane {
+            level,
+            mask: self.water_mask.as_ref(),
+        })
+    }
+
+    pub fn water_under(&self, p: Vec3) -> Option<f32> {
+        self.water_plane().and_then(|w| w.under(p))
     }
 
     /// [`Sim::ground_under`] as ONE ray, with no foot ring: what is under

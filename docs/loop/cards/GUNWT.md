@@ -11,7 +11,7 @@ declares: sim; sweep
 needs: environment restoration — baked game data/missions plus UTALK census kit and GUNWT raw reference evidence
 effort:
 branch:
-resume: WGMULc6a8878 implemented/full acceptance pending. WGNXT isolates later BF1 command-walker post departures:6actual-step missing calls/42controls, diagnostic48/48. Combat/other reissues, velocity and original restoration/Acceptance remain. engine/artifacts/loop/reports/20261026_0512_planner.md
+resume: WGMULc6a8878 and WGNXT4adacdc implemented/full acceptance pending. WGNXT48/48 later-post scenes,12mutants,979core/398game+2ignored/fmt/Clippy; real fielded/gates remain owed. Combat/other reissues, velocity and original restoration/Acceptance remain. engine/artifacts/loop/reports/20261026_0520_card_WGNXT.md
 created: 2026-10-16
 alpha: yes
 ---

@@ -40,6 +40,7 @@ pub mod spawn_backdrop;
 pub mod spawn_page;
 pub mod spawn_preview;
 pub mod squad_vis;
+pub mod stations;
 pub mod unit_probe;
 pub mod vehicle_class;
 pub mod vehicle_pads;

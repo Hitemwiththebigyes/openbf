@@ -23,15 +23,18 @@
 //!   ground mover runs first and the jump is applied to the velocity it left
 //!   (BF2 FUN_00246ed0: vy += the jump velocity, a forward component x
 //!   JumpForwardSpeedFactor; BF1 FUN_00208b78: vy = it, + a quarter of it x the
-//!   forward stick), and the next update has no gravity ([`Soldier::take_off`]);
+//!   forward stick). JUNI selects BF2 on every map (FEEL_NOTES),
+//!   and the next update has no gravity ([`Soldier::take_off`]);
 //! - the jump's gates (card JGATE, re-stance-roll.md §4.3c): a press is taken
 //!   for 0.3 s after the floor is lost, a crouch stands up instead, BF1's
-//!   stand waits 0.5 s, the energy bar is overdrawn ([`Soldier::jump_open`],
+//!   stand originally waits 0.5 s; JUNI selects BF2 eligibility on all maps.
+//!   The energy bar is overdrawn ([`Soldier::jump_open`],
 //!   [`Soldier::pay_jump`]);
 //! - the stick in the air (card AIRC, re-stance-roll.md §4.3a): BF2 adds it as
 //!   an acceleration under a drag (FUN_00248560), BF1 runs a one-sided approach
 //!   to a fifth of the walk speeds with no brake (FUN_002098b8) — both
-//!   measured on open floor ([`Soldier::air_steer`]);
+//!   measured on open floor ([`Soldier::air_steer`]). JUNI selects BF2 for
+//!   Jump/Fall everywhere; Thrown retains the original per-game rules;
 //! - energy costs/restores: BF2 class defaults (ctor + INGAME.LVL
 //!   com_inf_default, RE_LOG §BF2 soldier defaults);
 //! - prone pitch clamp +-0.4 rad: BF1 FUN_00205cc8.
@@ -233,8 +236,8 @@ pub struct Soldier {
     pub stance: Stance,
     pub time_in_stance: f32,
     /// Seconds upright (stand or sprint, which is ours and one stance to
-    /// BF1): BF1's stand timer (s+0xbec), which gates its jump
-    /// ([`BF1_JUMP_WAIT`]) and its fall, and is put at 5 s by a floor contact
+    /// BF1): BF1's stand timer (s+0xbec), which gates its fall and is
+    /// put at 5 s by a floor contact
     /// that ends an airborne spell (FUN_00205cc8 B1:117388-117414).
     pub stand_age: f32,
     /// Blocks stance/jump/roll commands while > 0. When `lock_hard` is also
@@ -398,7 +401,8 @@ pub const BF1_AIR_SPEED: f32 = 0.2;
 /// update, 0.5606 m/s on every later one, at Acceleraton 70).
 pub const BF1_ACCEL: f32 = 1.2;
 pub const BF1_AIR_ACCEL: f32 = 0.2;
-/// BF1's jump adds this share of the jump velocity, times the forward stick,
+/// Historical BF1 jump (unused by JUNI): this share of the jump velocity,
+/// times the forward stick,
 /// along the facing (FUN_00208b78: 8.0 x stick x 0.25 = +-2.0 m/s; PCSX2:
 /// 6.500 -> 8.500, -6.500 -> -8.503, nothing with the stick released).
 pub const BF1_JUMP_PUSH: f32 = 0.25;
@@ -409,7 +413,8 @@ pub const BF1_JUMP_PUSH: f32 = 0.25;
 /// §4.3c). The PS2's timer is 0 on the first update off the floor, so 9
 /// updates take the press and the 10th does not.
 pub const JUMP_OFF_FLOOR: f32 = 0.3;
-/// BF1's stand takes a jump only this long into the stance (B1:117439), and a
+/// Historical BF1 stand jump delay (unused by JUNI): this long into the
+/// stance (B1:117439), and a
 /// crouch stands up on the jump button this long into it (both games; BF2
 /// B2:160394-160397).
 pub const BF1_JUMP_WAIT: f32 = 0.5;
@@ -531,19 +536,10 @@ impl Soldier {
         self.time_in_stance = 0.0;
     }
 
-    /// Is the stand / sprint stance reading the jump button (card JGATE,
-    /// re-stance-roll.md §4.3c)? On the floor, and for [`JUMP_OFF_FLOOR`]
-    /// after losing it — in BF1 only when the stance was 5 s old (or had
-    /// touched down from an earlier hop) — and in BF1 not before
-    /// [`BF1_JUMP_WAIT`] in the stance.
-    pub fn jump_open(&self, dt: f32, rules: GroundRules) -> bool {
-        let bf1 = rules == GroundRules::Bf1;
-        if bf1 && self.stand_age <= BF1_JUMP_WAIT {
-            return false;
-        }
-        self.grounded
-            || (self.air_time < JUMP_OFF_FLOOR + 0.5 * dt
-                && !(bf1 && self.stand_age - self.air_time < 5.0))
+    /// Merged jump eligibility (JUNI): BF2's floor-loss window on every map.
+    /// Crouch rise, input edges, locks and energy are checked by the caller.
+    pub fn jump_open(&self, dt: f32, _rules: GroundRules) -> bool {
+        self.grounded || self.air_time < JUMP_OFF_FLOOR + 0.5 * dt
     }
 
     /// The jump's energy (BF2 FUN_00247528 -> FUN_001e2010, after the
@@ -879,7 +875,17 @@ impl Soldier {
             return;
         }
         if matches!(self.stance, Stance::Jump | Stance::Fall) {
-            self.air_steer(dt, fwd_in, strafe_in, (t1, t2), c, rules, first_air);
+            // JUNI: Jump/Fall use BF2 on every map; Thrown above keeps
+            // its original per-game integrator and gravity.
+            self.air_steer(
+                dt,
+                fwd_in,
+                strafe_in,
+                (t1, t2),
+                c,
+                GroundRules::Bf2,
+                first_air,
+            );
             if !first_air {
                 self.vel.y -= GRAVITY * dt;
             }
@@ -931,7 +937,7 @@ impl Soldier {
         }
         self.pos += self.vel * dt;
         if jump && self.pay_jump(c, fwd_axis) {
-            self.take_off(fwd_in, c, rules);
+            self.take_off(c);
         }
 
         self.prev_buttons = pad.buttons;
@@ -1070,55 +1076,33 @@ impl Soldier {
             || (self.fire_lock && self.lock_timer > 0.0)
     }
 
-    /// The jump, applied to the velocity the update's ground mover left (card
-    /// JARC; re-stance-roll.md §4.3b, code + PCSX2). The feet have already
-    /// made this update's ground move, so a stick that arrives WITH the jump
-    /// press gets one update of the ground's acceleration (from a stand: BF2
-    /// 70/30 x 1.3 = 3.04 m/s and 3.75 m, BF1 84/30 + 2.0 = 4.81 m/s and
-    /// 4.59 m). The next update is the first to move him up, and it still has
-    /// the PS2's floor bit: no gravity (`first_air` in [`Soldier::step`];
-    /// apex 1.861 m in BF2, 1.912 m in BF1, 28 moving updates).
-    ///
-    /// - **BF2** (FUN_00246ed0): vy += the jump velocity; the facing's
-    ///   component x JumpForwardSpeedFactor when it is forward, else x
-    ///   JumpStrafeSpeedFactor like the side component (a backward jump is not
-    ///   boosted). Its controller branch (the AI mover's jump direction) is
-    ///   not ported: the port's bots press JUMP like a human.
-    /// - **BF1** (FUN_00208b78): vy = the jump velocity; + the facing x the
-    ///   jump velocity x the forward stick x [`BF1_JUMP_PUSH`].
-    ///   DEVIATION (the maintainer, 2026-10-25; FEEL_NOTES): the port ADDS the jump
-    ///   velocity on BF1 maps too, as BF2 does, so a running jump up a ramp
-    ///   clears it on every map (one jump rule for the merged game). The
-    ///   planar push stays BF1's for now (card JUNI).
-    fn take_off(&mut self, fwd_in: f32, c: &SoldierConstants, rules: GroundRules) {
+    /// Merged take-off (JUNI, re-stance-roll.md §4.3b): BF2
+    /// FUN_00246ed0 adds vertical speed, scales the positive forward
+    /// component by JumpForwardSpeedFactor and the backward/side components
+    /// by JumpStrafeSpeedFactor. BF1 FUN_00208b78 originally stored vertical
+    /// speed and added facing * jump velocity * stick * 0.25. FEEL_NOTES
+    /// records the deliberate BF1 deviations. The ground mover runs first;
+    /// the first air update skips gravity. Class constants remain unchanged.
+    fn take_off(&mut self, c: &SoldierConstants) {
         let (sy, cy) = fmath::sin_cos(self.yaw);
-        let fwd_axis = Vec2::new(-sy, -cy); // -Z at yaw 0
-        match rules {
-            GroundRules::Bf2 => {
-                self.vel.y += c.jump_vy;
-                let planar = Vec2::new(self.vel.x, self.vel.z);
-                let f = planar.dot(fwd_axis);
-                let s = planar.dot(Vec2::new(cy, -sy));
-                let k = if f > 0.0 {
-                    c.jump_forward_factor
-                } else {
-                    c.jump_strafe_factor
-                };
-                let (f2, s2) = (f * k, s * c.jump_strafe_factor);
-                self.vel.x = fwd_axis.x * f2 + cy * s2;
-                self.vel.z = fwd_axis.y * f2 - sy * s2;
-            }
-            GroundRules::Bf1 => {
-                self.vel.y += c.jump_vy;
-                let push = c.jump_vy * fwd_in * BF1_JUMP_PUSH;
-                self.vel.x += fwd_axis.x * push;
-                self.vel.z += fwd_axis.y * push;
-            }
-        }
+        let fwd_axis = Vec2::new(-sy, -cy);
+        self.vel.y += c.jump_vy;
+        let planar = Vec2::new(self.vel.x, self.vel.z);
+        let f = planar.dot(fwd_axis);
+        let s = planar.dot(Vec2::new(cy, -sy));
+        let k = if f > 0.0 {
+            c.jump_forward_factor
+        } else {
+            c.jump_strafe_factor
+        };
+        let (f2, s2) = (f * k, s * c.jump_strafe_factor);
+        self.vel.x = fwd_axis.x * f2 + cy * s2;
+        self.vel.z = fwd_axis.y * f2 - sy * s2;
         self.set_stance(Stance::Jump);
     }
 
-    /// The stick in the jump and fall states (card AIRC; re-stance-roll.md
+    /// Air steering: Jump/Fall select BF2 everywhere (JUNI); Thrown selects
+    /// its original game. Original rules (card AIRC; re-stance-roll.md
     /// §4.3a, both games measured on open floor with PCSX2). `axes` are the
     /// level forward and right axes; `took_off` = the first update after the
     /// take-off (the PS2's floor bit is still set).
@@ -1180,8 +1164,8 @@ impl Soldier {
     }
 
     /// A floor contact. BF1's stand timer restarts at 5 s when it ends an
-    /// airborne spell (B1:117407-117409): the next hop has its jump window
-    /// and the long fall time.
+    /// airborne spell (B1:117407-117409), retaining the long fall time.
+    /// JUNI jump eligibility no longer depends on this timer.
     fn touch_down(&mut self, rules: GroundRules) {
         if rules == GroundRules::Bf1 && self.air_time > 0.0 {
             self.stand_age = self.stand_age.max(5.0);

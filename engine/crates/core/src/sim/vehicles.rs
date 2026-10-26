@@ -320,6 +320,7 @@ impl Sim {
         if let Some(r) = self.units[u.index as usize].ai.ride.as_mut() {
             r.board = None;
             r.called_board = None;
+            r.player_board = None;
             r.ordered_call = false;
             r.maintenance = None;
         }
@@ -364,16 +365,21 @@ impl Sim {
                 if r.ordered_call || r.called_board.is_some() {
                     r.board = None;
                     r.called_board = None;
+                    r.player_board = None;
                     r.ordered_call = false;
                     r.use_req = false;
                 }
                 r.maintenance = None;
             }
         }
+        let human = matches!(unit.controller, Controller::Player { .. });
         let Some(m) = unit.mount.take() else {
             return;
         };
-        if unit.order.is_some_and(|p| p.pickup.is_some()) {
+        if unit
+            .order
+            .is_some_and(|p| p.pickup.is_some() || p.order == crate::squad::Order::GetOut)
+        {
             unit.order = None;
         }
         unit.ai.charge_until = 0;
@@ -381,10 +387,23 @@ impl Sim {
             r.pickup = None;
             r.board = None;
             r.called_board = None;
+            r.player_board = None;
             r.ordered_call = false;
             r.maintenance = None;
             r.bail_draw = None;
             r.bail_seen = false;
+        }
+        // An EVERYONE OUT press belongs to the issuer's current pilot tenure.
+        // End it even if that same human reenters before the next think.
+        if human {
+            for receiver in &mut self.units {
+                if receiver
+                    .order
+                    .is_some_and(|p| p.order == crate::squad::Order::GetOut && p.leader == u)
+                {
+                    receiver.order = None;
+                }
+            }
         }
         let Some(v) = self
             .vehicles
@@ -545,7 +564,13 @@ impl Sim {
             .and_then(|b| b.as_ref())
             .and_then(|b| b.explosion.clone());
         if let Some(e) = exp {
-            self.explode_from(&e, pos, pilot, team, Some(h));
+            self.explode_from(
+                &e,
+                pos,
+                pilot,
+                team,
+                Some(super::blast::BlastSource::Vehicle(h)),
+            );
         }
         for u in riders {
             match killer {
@@ -578,7 +603,12 @@ impl Sim {
                 u.ai.pending_board = None;
             }
             if let Some(r) = u.ai.ride.as_mut().filter(|r| r.board == Some(h)) {
+                if r.player_board.is_some() {
+                    r.board = None;
+                    r.use_req = false;
+                }
                 r.called_board = None;
+                r.player_board = None;
                 r.maintenance = None;
             }
         }
@@ -1708,6 +1738,7 @@ mod tests {
             2.0,
             shooter,
             s.heightfield.as_ref(),
+            s.water_plane(),
             &s.collision,
             crate::collision::HullFilter::All,
             std::iter::empty(),

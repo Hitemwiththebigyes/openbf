@@ -5,13 +5,13 @@ milestone: M0
 value: 2
 phase: cleanup
 status: todo
-deps:
+deps: SPLCMD,SPLMAP
 files: engine/crates/core/src/weapon.rs, engine/crates/core/src/weapon/ordnance.rs, engine/crates/bake/src/map.rs, engine/crates/core/src/commander.rs
 declares:
 needs:
 effort:
 branch:
-resume: (private workflow note omitted)
+resume: Commander remains blocked on SPLCMD literal/fmt conflict; SPLMAP independently owns map orchestration extraction. Keep full SPL7 acceptance and scratch bake DIFF=0.
 created: 2026-09-25 (from QUEUE.md)
 tries: 1
 ---
@@ -28,3 +28,12 @@ SPL7. [TODO — **NOTE 2026-09-24 (SPL6's landing): SPL1–SPL6 have all LANDED,
 ## Note (cleanse CLNF, 2026-10-06)
 `core/src/commander.rs` is 2,004 lines now (MOVR): `scripts/size_report.sh --strict` exits 1 on it (the one unwaived file over 2,000). No gate runs `--strict` (gates.py's `map` step is `--check-map`), so nothing is blocked; this card's split of it is what clears it. `core/src/weapon.rs` is back over the cap at 1,518 (SPRD).
 
+## Commander extraction (2026-10-26)
+SPLCMD owns only the trailing commander regression module extraction. The
+projected 1,081/1,419-line files meet the size bar without runtime edits.
+This dependency serializes shared ownership; it does not complete SPL7 or
+waive its remaining map split, scratch bake or unchanged behavior gates.
+
+## Independent remaining split (2026-10-26)
+SPLMAP owns the remaining source extraction as a separate card. This preserves
+all original acceptance, scratch-bake equality and prior validation debt.

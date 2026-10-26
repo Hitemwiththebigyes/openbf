@@ -90,7 +90,7 @@ fn class_w(min: u32, max: Option<u32>, weapon_class: usize) -> crate::unit::Unit
         max_health: 300.0,
         health_type: crate::weapon::HealthType::Person,
         weapon_class,
-        spare_clips: 6,
+        total_clips: 6,
         weapon_slot: 0,
         slots: std::sync::Arc::new([]),
         jet: false,

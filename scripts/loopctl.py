@@ -87,6 +87,7 @@ STATUSES = ["todo", "in-progress", "parked", "blocked", "done"]
 EFFORT = {"re": "xhigh", "capture": "xhigh", "audit": "xhigh", "planner": "high"}
 PLANNER_EVERY_LANDINGS, PLANNER_EVERY_SESSIONS = 8, 12
 CLEANSE_EVERY_LANDINGS, AUDIT_EVERY_SESSIONS = 15, 10
+CLEANSE_EVERY_SESSIONS = 10  # runs with a candidate_filter; the default cadence stays landing-based.
 LANE_PREF = {1: ["build", "cleanup", "measure", "re", "capture"], 2: ["re", "capture", "measure", "build", "cleanup"],
              3: ["re", "audit", "capture", "measure"]}
 # Lane 3 (card LANE3) is the research lane: it takes the best eligible card of ITS kinds (at any value; any card only when
@@ -213,6 +214,10 @@ def block_stuck(c):
 
 def finish_attempt(job, since):
     """Count clean and dead unfinished sessions once, including wrap-up before postmortem."""
+    if job.get("job") == "batch":
+        for member in job.get("jobs", []):
+            finish_attempt(member, since)
+        return
     cid = job.get("card")
     c = cards().get(cid)
     if not c or c.get("status") == "done" or job.get("job") == "land" or job.get("phase") == "land":
@@ -479,7 +484,7 @@ def lane_alive(lane):
         return False
 
 
-def pick(lane, lanes, pid, candidate_filter=None):
+def pick(lane, lanes, pid, candidate_filter=None, cards_only=False):
     """Returns the job dict and claims it. Order: stop/pause, resume, land, periodic, best card, planner."""
     note_lane(lane, pid)
     for f in ("STOP", "PAUSE"):
@@ -488,7 +493,7 @@ def pick(lane, lanes, pid, candidate_filter=None):
     if os.path.exists(DRAINED):
         return {"job": "stop", "reason": "DRAINED: " + open(DRAINED).read().strip()[:400]}
     cs = cards()
-    ready = candidate_filter or (lambda c: True)
+    accepted = candidate_filter or (lambda c: True)
     live = live_locks()
     st = state()
     audit_wait = ""
@@ -503,6 +508,32 @@ def pick(lane, lanes, pid, candidate_filter=None):
                 or (c.get("status") == "parked" and not (c.get("needs") or "").strip()
                     and not parked_unbuilt(c)) or c["id"] in live):
             busy |= set(file_paths(c.get("files")))
+
+    def declared_scope(c):
+        scope = file_paths(c.get("files"))
+        if not scope or any(os.path.isabs(p) or ".." in p.split("/")
+                            or ("/" not in p and not os.path.isfile(os.path.join(ROOT, p))) for p in scope):
+            return None
+        return scope
+
+    def ready(c):
+        if not accepted(c):
+            return False
+        if not cards_only:
+            return True
+        scope = declared_scope(c)
+        if not scope:
+            return False
+        # Resume skips the ordinary busy-file check; prove independence here too.
+        for other in cs.values():
+            if other["id"] == c["id"] or not (other["id"] in live or other.get("status") == "in-progress"):
+                continue
+            theirs = declared_scope(other)
+            if not theirs or any(a.rstrip("/") == b.rstrip("/")
+                                 or a.startswith(b.rstrip("/") + "/")
+                                 or b.startswith(a.rstrip("/") + "/") for a in scope for b in theirs):
+                return False
+        return True
 
     def take(job, cid=None, phase=None, reason=""):
         name = cid or job.upper()
@@ -529,10 +560,12 @@ def pick(lane, lanes, pid, candidate_filter=None):
         st["last_job"] = job
         st["sessions_since_planner"] = st.get("sessions_since_planner", 0) + 1
         st["sessions_since_audit"] = st.get("sessions_since_audit", 0) + 1
+        st["sessions_since_cleanse"] = st.get("sessions_since_cleanse", 0) + 1
         if job == "planner":
             st["landings_since_planner"] = 0; st["sessions_since_planner"] = 0
         if job == "cleanse":
             st["landings_since_cleanse"] = 0
+            st["sessions_since_cleanse"] = 0
         if job == "audit":
             st["sessions_since_audit"] = 0
         save_state(st)
@@ -551,7 +584,7 @@ def pick(lane, lanes, pid, candidate_filter=None):
     # 2. land a parked card that has a branch (needs MAIN free too; land.py takes MAIN itself). A parked card with no
     #    branch is an ordinary card of step 4, once its deps are done. Not one waiting on the maintainer: SKIPC's land was re-picked
     #    two minutes after its `needs:` was set (LOOPT)
-    if "MAIN" not in live:
+    if not cards_only and "MAIN" not in live:
         for c in ranked(cs):
             if (c.get("status") == "parked" and c["id"] not in live and has_branch(c) and not landing_live(c)
                     and not (c.get("needs") or "").strip() and ready(dict(c, phase="land"))):
@@ -565,18 +598,25 @@ def pick(lane, lanes, pid, candidate_filter=None):
     # four planners in twelve hours, 2026-10-12)
     fid_blocked = any(c.get("status") == "blocked" and not (c.get("needs") or "").strip()
                       and any(w in (c.get("resume") or "").lower() for w in ("fidelity", "exposed-claim")) for c in cs.values())
-    if st.get("last_job") not in ("planner", "planner-refill") and (
+    if not cards_only and candidate_filter is not None and (
+            st.get("landings_since_cleanse", 0) >= CLEANSE_EVERY_LANDINGS
+            or st.get("sessions_since_cleanse", 0) >= CLEANSE_EVERY_SESSIONS):
+        j = take("cleanse", None, None,
+                 f"{st.get('sessions_since_cleanse', 0)} sessions / {st.get('landings_since_cleanse', 0)} landings since the last cleanse")
+        if j:
+            return j
+    if not cards_only and st.get("last_job") not in ("planner", "planner-refill") and (
             st.get("landings_since_planner", 0) >= PLANNER_EVERY_LANDINGS or st.get("sessions_since_planner", 0) >= PLANNER_EVERY_SESSIONS
             or (fid_blocked and st.get("sessions_since_planner", 0) >= 3)
             or n_open < 5 or not os.path.exists(STATUS)):
         j = take("planner", None, None, "planner due")
         if j:
             return j
-    if st.get("landings_since_cleanse", 0) >= CLEANSE_EVERY_LANDINGS:
+    if not cards_only and candidate_filter is None and st.get("landings_since_cleanse", 0) >= CLEANSE_EVERY_LANDINGS:
         j = take("cleanse", None, None, f"{st['landings_since_cleanse']} landings since the last cleanse")
         if j:
             return j
-    if st.get("sessions_since_audit", 0) >= AUDIT_EVERY_SESSIONS and (lane == RESEARCH_LANE or not lane_alive(RESEARCH_LANE)):
+    if not cards_only and st.get("sessions_since_audit", 0) >= AUDIT_EVERY_SESSIONS and (lane == RESEARCH_LANE or not lane_alive(RESEARCH_LANE)):
         audit_wait = audit_blocked_reason(cs)
         if not audit_wait:
             j = take("audit", None, None, f"{st['sessions_since_audit']} sessions since the last audit")
@@ -602,6 +642,8 @@ def pick(lane, lanes, pid, candidate_filter=None):
         j = take("card", c["id"], c.get("phase"), f"top eligible card (value {c.get('value')})")
         if j:
             return j
+    if cards_only:
+        return {"job": "none", "reason": "no independent eligible card with a declared file scope"}
     if audit_wait and candidate_filter is None:
         return {"job": "none", "reason": audit_wait}
     # nothing eligible: one refill planner; if the last job was already an empty-handed refill, the loop is drained
@@ -932,6 +974,8 @@ REPORTS = os.path.join(LOOP, "reports")
 def postmortem(job, since, lane_pid, lane):
     """After a session (autoloop.sh): if it left its claim or its card in-progress and wrote no report naming its claim
     or card since `since`, append a DIED line to the journal and free the claim. Returns the line ('' = it wrapped up)."""
+    if job.get("job") == "batch":
+        return "".join(postmortem(member, since, lane_pid, lane) for member in job.get("jobs", []))
     name, cid = job.get("claim"), job.get("card")
     if not name:
         return ""

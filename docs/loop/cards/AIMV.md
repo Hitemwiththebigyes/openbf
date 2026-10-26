@@ -11,7 +11,7 @@ declares:
 needs: cloud prerequisites: baked soldiers/weapons/maps, missions, PS2 pose references and reproduction snapshot absent
 effort:
 branch:
-resume: New the maintainer bug filed; restore assets/references, read snapshot BUILD then reproduce current main; census actual drawn barrel vs shot by stance/class/game/controller and every firing spin before choosing fix. See Acceptance and reports/20261024_0713_planner.md.
+resume: PR2 c2453a6 implements a moving-aim candidate; restore snapshot BUILD and pose inputs, remeasure original barrel/shot and firing-spin census before choosing further fixes. Full Acceptance pending; planner report reports/20261026_0616_planner.md.
 created: 2026-10-24
 first: 5
 alpha: yes
@@ -57,3 +57,4 @@ Read a supplied snapshot first; identify BUILD commit and schema before judging 
 Phase measure until the symptom/census and measured allowance exist. Re-phase build
 with exact files/declares once ownership is proven. This is one root-cause task, not
 authorization to change goldens or tolerances. Current cloud prerequisites block it.
+

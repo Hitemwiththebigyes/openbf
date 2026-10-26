@@ -4,14 +4,14 @@ title: One jump for the merged game - BF1 maps jump with BF2's take-off and air 
 milestone: M3
 value: 4
 phase: build
-status: todo
+status: parked
 deps:
-files: engine/crates/core/src/soldier.rs,engine/crates/core/src/soldier/tests.rs,engine/crates/core/src/sim/step/tests/ramps.rs,engine/artifacts/loop/FEEL_NOTES.md
-declares: sim; sweep; arena; fidelity
-needs:
+files: engine/crates/core/src/soldier.rs,engine/crates/core/src/soldier/tests.rs,engine/crates/core/src/soldier/tests/juni.rs,engine/crates/core/src/sim/step/tests/ramps.rs,engine/crates/core/src/ai/behave/position/tests.rs,engine/artifacts/loop/FEEL_NOTES.md
+declares: sim; sweep; arena; leak
+needs: paired content/gate and BF1-map feel acceptance
 effort:
-branch:
-resume:
+branch: main
+resume: Source622bc81 on main; BF2 jump laws unified, original Thrown/ground/classes preserved. 152/152 probes,8compiled mutants caught;986core/398game+2ignored/2arena-fixtures/fmt/Clippy/build pass. Protect PASS; map8inherited missing paths. Full Acceptance4 pending; reports/20261026_0619_card_JUNI.md.
 created: 2026-10-25
 alpha: yes
 domain: physics
@@ -27,7 +27,7 @@ Landed already (public pull request #2, integrated 2026-10-25): the vertical tak
 to the vertical velocity, as BF2's PS2 does (B2 FUN_00246ed0, add.s at 0x247034); BF1's PS2 stores it
 (FUN_00208b78, swc1 at 0x208bb4). FEEL_NOTES 2026-10-25 JUNI.
 
-Still per game in `core::soldier` (re-stance-roll.md §4.3a/§4.3b, cards JARC and AIRC):
+Before this build, still per game in `core::soldier` (re-stance-roll.md §4.3a/§4.3b, cards JARC and AIRC):
 - the planar take-off: BF2 reshapes the planar velocity with JumpForwardFactor / JumpStrafeFactor; BF1 adds the facing
   x 0.25 x jump velocity x the forward stick (`BF1_JUMP_PUSH`);
 - the air steering: BF2 drags (exp(-AIR_DRAG |v| dt)) and adds stick x ControlSpeed[jump] x Acceleration; BF1 raises
@@ -44,3 +44,58 @@ Still per game in `core::soldier` (re-stance-roll.md §4.3a/§4.3b, cards JARC a
    a mutation that brings back the old per-game rule and fails; the PS2 numbers stay in the notes.
 4. Paired 32 maps x 8 seeds sweep and fidelity, arena and sim gates; the moves declared; bots still finish every
    round. A by-hand feel check on a BF1 map (the maintainer).
+
+## Build choices and boundaries (planner, 2026-10-26)
+The maintainer's existing one-jump request selects BF2's remaining rules on every map:
+
+| Item | Chosen rule | Existing PS2 evidence |
+|---|---|---|
+| Planar take-off | Facing-forward component times the class's JumpForwardSpeedFactor when positive; backward and side components times JumpStrafeSpeedFactor | re-stance-roll.md 4.3b; JARC / JGATE |
+| Jump / Fall air steering | Existing BF2 exponential drag on all velocity components, then the existing air ControlSpeed times class Acceleration; retain first-air gravity order | re-stance-roll.md 4.3a; AIRC |
+| Upright jump eligibility | Existing BF2 0.3 s floor-loss window regardless of stand age, without BF1's extra 0.5 s stand delay | re-stance-roll.md 4.3c; JGATE |
+
+The eligibility choice includes a new press after rising from a crouch and a
+post-landing press after the existing shared soft lock. Keep the crouch's own
+0.5 s rise gate, rising instead of jumping on that press, prone/roll/knock/dead
+exclusions, held-button edges, energy refusal/overdraw and shared lock behavior.
+Write these as named BF1 deviations in FEEL_NOTES when implemented; the PS2
+research stays intact. This is the approved merged-game behavior, not a new
+claim that the two original games match.
+
+The airborne helper is also used by Thrown. Retain original BF1/BF2 thrown
+steering, gravity, landing/tumble and fire locks; a global GroundRules override
+is outside scope. Preserve ordinary ground/slope/contact/stand-fall rules and
+their timers. Class constants keep each class's own values. Equal jump laws
+under matched constants and input states do not imply identical travel from
+different class speeds or different slope run-ups. Preserve the already merged
+vertical addition and first-air/gravity order. No schema, RNG, bot decision,
+weapon-fire policy, camera or baseline-pin edits are authorized by this slice.
+
+### Source referee required before implementation checkpoint
+- Reproduce the planner's temporary matched-class take-off/air/late-press/
+  crouch-rise and actual Sim::step probes on the exact parent. Keep numeric
+  BF2 controls; no skipped-data success. Replace them with permanent tests.
+- Test both rules, forward/back/side/diagonal/zero input, released and opposing
+  air stick, varying yaw, inherited vertical speed and at least two different
+  class parameter sets including nondefault forward/strafe factors. Check each
+  first-air update and a complete flight with independent expected rows.
+- Exercise the real Sim::step caller and a bot's existing jump caller; preserve
+  the ramp phase suite, low-wall jump and over-height ledge refusal. Cover
+  young/old Stand/Sprint, floor-loss offsets 0..12, actual crouch-rise/repress,
+  post-landing lock boundaries, held presses and depleted/short energy.
+- Re-scope old BF1 arc/air/JGATE expectations to the documented merged law;
+  retain the PS2 numbers in research. Keep BF2 numeric witnesses and explicit
+  original-rule controls for Thrown, ordinary ground/slope/contact and locks.
+- Independently compiled old-planar, old-air, young-stance late-window,
+  BF1-stand-delay, global-rules/Thrown contamination and vertical-set/first-air
+  regressions each fail a named assertion; rebuild the restored control.
+- Focused soldier, sim::step, bot-jump and knock tests; full core/game libs,
+  fmt, workspace all-target Clippy, map/protect, and all applicable gates.
+  Update module headers/CRATES rows and respect file-size limits.
+
+Acceptance4 remains mandatory: separate exact parent/candidate binaries,
+paired32maps x8seeds with finish/boarding/stuck/behavior rows, arena/sim/leak/
+GPU/golden/parity/full CI, unchanged refusal classification and approved
+baseline process, plus the maintainer's BF1-map feel check. A declared sim/sweep/arena/
+leak move never approves a behavior threshold or permits a pin/golden edit.
+

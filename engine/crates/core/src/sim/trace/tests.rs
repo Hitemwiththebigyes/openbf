@@ -166,9 +166,9 @@ fn original_hash_pins_without_tracing() {
     for _ in 0..100 {
         sim.step(&[PadState::default()]);
     }
-    assert_eq!(sim.hash(), 0xf9f37400e0f3171e);
+    assert_eq!(sim.hash(), 0x06da5e043dd4c755);
     for _ in 100..600 {
         sim.step(&[PadState::default()]);
     }
-    assert_eq!(sim.hash(), 0xc0c59f36f6b32c09);
+    assert_eq!(sim.hash(), 0x989d7c74c627273a);
 }

@@ -242,8 +242,8 @@ impl Sim {
         let mut recycled: Vec<(usize, DeathCause)> = Vec::new();
         // Card TPOS: positions taken this tick, granted in unit-index order.
         let mut granted: Vec<glam::Vec3> = Vec::new();
-        // WGCAL/WGOUT: wait-start and first routed departure are independent.
-        // Both publish in unit order, then source order, after every write-back.
+        // WGCAL/WGOUT/WGNXT: wait-start, first and later post departures.
+        // Sources publish in unit order after every write-back.
         // Publish only after every scratch AiState has been written back, so
         // neither index ordering can erase a receiver's pending target.
         let mut wait_calls = Vec::new();
@@ -256,6 +256,15 @@ impl Sim {
                             old.vehicle == w.vehicle
                                 && old.seated == w.seated
                                 && old.started.is_none()
+                        })
+                    {
+                        wait_calls.push((self.handle(i), w.vehicle, w.seated));
+                    }
+                    if w.post_departure == Some(self.tick)
+                        && previous.is_some_and(|old| {
+                            old.vehicle == w.vehicle
+                                && old.seated == w.seated
+                                && old.post_departure != w.post_departure
                         })
                     {
                         wait_calls.push((self.handle(i), w.vehicle, w.seated));
@@ -725,6 +734,9 @@ impl Sim {
                     self.nav_stats.blast_holds += 1;
                 }
             }
+            if self.tick_repair_weapon(i, None, fire_held, blocked, dt) {
+                continue;
+            }
             let input = FireInput {
                 held: fire_held,
                 blocked,
@@ -836,6 +848,7 @@ impl Sim {
                     life,
                     who,
                     self.heightfield.as_ref(),
+                    self.water_plane(),
                     &self.collision,
                     crate::collision::HullFilter::All,
                     targets.iter().copied(),

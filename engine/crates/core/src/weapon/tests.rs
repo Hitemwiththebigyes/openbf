@@ -3,6 +3,8 @@
 use super::*;
 use std::collections::HashMap;
 
+mod ammo;
+
 const DT30: f32 = 1.0 / 30.0;
 
 fn fi(held: bool, infinite_ammo: bool) -> FireInput {
@@ -305,13 +307,11 @@ fn clip_reload_and_infinite_ammo_cheat() {
     let c = WeaponClass::bf1_rifle();
     let mut w = WeaponState::new(&c, true, 6);
     assert_eq!((w.clip, w.spare), (50, 300));
-    let times = run(&mut w, &c, DT30, 30 * 13, true); // 13 s held
-                                                      // 50 shots take 9.8 s (0..9.8), then 1.5 s reload (+0.2 refire idle
-                                                      // already elapsed) → firing resumes ≈ 11.3 s.
+    let times = run(&mut w, &c, DT30, 30 * 13, true);
     assert!(times.len() >= 50 + 8, "{} shots", times.len());
     assert!((times[49] - 9.8).abs() < 0.05);
     assert!(
-        times[50] > 11.2 && times[50] < 11.5,
+        times[50] >= 11.5 && times[50] < 11.6,
         "resume at {}",
         times[50]
     );

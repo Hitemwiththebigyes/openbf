@@ -445,6 +445,7 @@ pub fn install(
     // The health / ammo / vehicle droids (card PWST): the same db, the same
     // mode-merged instances.
     crate::roster::add_stations(sim, &m.instances, &db, game == "bf2");
+    crate::stations::install_collision(sim, m, map_dir, &db)?;
     for t in &b.turrets {
         let h = sim.spawn_vehicle(&t.spec);
         let sphere = building_sphere(&sim.collision, t.instance, t.spec.pos, t.rot);
@@ -831,7 +832,7 @@ pub fn seat_gun(
             Some(GunWeapon {
                 class,
                 infinite: w.ammo < 1,
-                spare_clips: w.ammo.max(0) as u32,
+                reserve_clips: w.ammo.max(0) as u32,
             })
         })
         .collect();

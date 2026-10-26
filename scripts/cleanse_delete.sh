@@ -61,10 +61,12 @@ case "${1:-}" in
     ln -s "$T/engine/assets_baked/common_bf1" "$D/land/bake_x/common_bf2"   # an overlay's link: --yes drops the LINK only
     find "$T" -exec touch -h -d '-1 day' {} +                      # the fixture is old, but for one fresh dir:
     mk "$L/fresh/smoke/x.log"                                      # not: a running session's scratch (a literal name, no card)
-    got="$(env -u OPENBF_LOOP_DIR -u OPENBF_LEAD_TMP bash "$T/scripts/cleanse_delete.sh" --dry-run | awk -F'\t' 'NF == 2 { sub(".*/lead_tmp/", "", $2); print $2 }' | sort)"
+    # loopctl's target sweep must inspect this fixture's branches, even when
+    # the caller selects another repository through its environment.
+    got="$(env -u OPENBF_REPO -u OPENBF_LOOP_DIR -u OPENBF_LEAD_TMP bash "$T/scripts/cleanse_delete.sh" --dry-run | awk -F'\t' 'NF == 2 { sub(".*/lead_tmp/", "", $2); print $2 }' | sort)"
     want="$(printf '%s\n' deadbr/bake-z deadbr/bake_whatever deadbr/bake_y deadbr/land/bake_x deadbr_target donec/bake donec/pics/side_bf1 | sort)"
     if [ "$got" = "$want" ]; then
-      env -u OPENBF_LOOP_DIR -u OPENBF_LEAD_TMP bash "$T/scripts/cleanse_delete.sh" --yes >/dev/null
+      env -u OPENBF_REPO -u OPENBF_LOOP_DIR -u OPENBF_LEAD_TMP bash "$T/scripts/cleanse_delete.sh" --yes >/dev/null
       if [ -f "$T/engine/assets_baked/common_bf1/common.ron" ] && [ ! -e "$D/land/bake_x" ] && [ -f "$D/sheets/a.png" ] \
          && [ -f "$L/livebr/bake_x/common_bf1/common.ron" ] && [ ! -e "$L/deadbr_target" ] && [ -d "$L/livebr_target" ] \
          && [ -f "$D/bake_inuse/common_bf1/common.ron" ] && [ -d "$L/inuse_target/release" ] \

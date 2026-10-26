@@ -208,7 +208,7 @@ pub(super) fn make_walk(scene: &game::assets::Scene, b: &BattleSetup) -> WalkSim
     sim.difficulty = b.difficulty;
     // BF1 has no 10 m omni in the view cone (RE §9.1); BF2 does.
     sim.omni_radius = core::sim::omni_radius_for(&scene.manifest.source_game);
-    sim.water_level = scene.manifest.water.as_ref().map(|w| w.height);
+    scene.install_water(&mut sim);
     sim.ground_rules = core::soldier::GroundRules::for_game(&scene.manifest.source_game);
     sim.item_pool = game::roster::item_pool(&scene.manifest.source_game, &scene.manifest.map);
     sim.cheats = b.cheats;
@@ -402,7 +402,7 @@ pub(super) fn hud_model(
             icon: hud.icon.clone(),
             // The localised weapon name waits for the Locl tables.
             name: String::new(),
-            total: (rounds > 0).then_some(me.weapon.clip + me.weapon.spare),
+            total: class.and_then(|c| me.weapon.rounds(c)),
             clip_fraction: if rounds > 0 {
                 me.weapon.clip as f32 / rounds as f32
             } else {

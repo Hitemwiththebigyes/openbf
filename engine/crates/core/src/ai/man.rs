@@ -336,7 +336,9 @@ fn free_bot(sim: &Sim, i: usize, team: u8, vh: VehicleHandle) -> bool {
         && o.command.is_none_or(|c| c.in_pool())
         && o.ai.lost.is_none()
         && o.ai.ride.is_none_or(|r| {
-            r.board.is_none() && !(r.closed == Some(vh) && sim.tick < r.closed_until)
+            r.board.is_none()
+                && sim.tick >= r.own_search_until
+                && !(r.closed == Some(vh) && sim.tick < r.closed_until)
         })
 }
 

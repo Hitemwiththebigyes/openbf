@@ -11,7 +11,7 @@ declares:
 needs: environment restoration: restore audit-gthrw 22-throw raw/replay inputs, gthrw strips, real class/animation bakes and missions
 effort:
 branch:
-resume: 2026-10-24 09:20 UTC: planner prerequisite census; no implementation. Restore this card's inputs in lead_tmp/planner_20261024_0913/queue_preflight.json, recheck original acceptance/current-main baseline, then loopctl start for isolated build. Full CI and required gates remain; reports/20261024_0913_planner.md.
+resume: PR2 c2453a6 implements throw action/variant/offhand-set/wind-up wiring; restore original inputs and finish legs-rule mutations, release census and viewed strips. Full acceptance pending; planner report reports/20261026_0616_planner.md.
 created: 2026-10-21
 alpha: yes
 ---

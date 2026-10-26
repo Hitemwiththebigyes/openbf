@@ -68,7 +68,7 @@ fn run(
     let applied = layout.apply_mission(&mission);
     let mut sim = core::sim::Sim::empty(seed);
     sim.omni_radius = core::sim::omni_radius_for(&scene.manifest.source_game);
-    sim.water_level = scene.manifest.water.as_ref().map(|w| w.height);
+    scene.install_water(&mut sim);
     sim.ground_rules = core::soldier::GroundRules::for_game(&scene.manifest.source_game);
     sim.battle = core::battle::Battle::new(mission.tickets());
     mission.apply_death_drains(&mut sim.battle);

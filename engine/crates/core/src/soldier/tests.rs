@@ -1,6 +1,8 @@
 //! Reference vectors from re-stance-roll.md §5 (BF2-model subset).
 use super::*;
 
+mod juni;
+
 const DT: f32 = 1.0 / 30.0;
 
 fn full_fwd() -> PadState {
@@ -404,7 +406,7 @@ fn air_trial(
     air: (i16, i16),
 ) -> Trial {
     let mut s = Soldier::new(Vec3::ZERO);
-    s.stand_age = 1.0; // the PS2's soldier had stood a while (BF1_JUMP_WAIT)
+    s.stand_age = 1.0; // match the historical numeric trial setup
     let go = |s: &mut Soldier, pad: &PadState| {
         s.step(DT, pad, c, rules);
         s.resolve_ground(DT, 0.0, Vec3::Y, 0.0, rules);
@@ -470,17 +472,15 @@ fn trial_class(rules: GroundRules) -> SoldierConstants {
 const BOTH: [GroundRules; 2] = [GroundRules::Bf2, GroundRules::Bf1];
 const FWD: i16 = 32767;
 
-/// Card JARC 1, the PS2 with no stick (`lead_tmp/audit-airc`): 28 moving
-/// updates, apex 1.861 m (BF2) / 1.912 m (BF1); vy 8.0050, 7.9794, 7.3540
-/// (BF2: the drag alone on the first) and 8.0, 8.0, 7.3995 (BF1; the PS2
-/// integrates its 33.37 ms frame, -0.6006 a tick, the port 1/30).
+/// JARC / JUNI: BF2 numeric apex and first-air witnesses with matched BF2
+/// class constants under both map rules. Original BF1 rows: re-stance-roll.md §4.3b.
 #[test]
 fn a_jump_rises_as_high_and_as_long_as_the_ps2s() {
     for (rules, apex, vy) in [
         (GroundRules::Bf2, 1.861, [8.0050, 7.9794, 7.3540]),
-        (GroundRules::Bf1, 1.912, [8.0, 8.0, 7.4]),
+        (GroundRules::Bf1, 1.861, [8.0050, 7.9794, 7.3540]),
     ] {
-        let t = air_trial(rules, &trial_class(rules), (0, 0), (0, 0));
+        let t = air_trial(rules, &trial_class(GroundRules::Bf2), (0, 0), (0, 0));
         assert_eq!(t.vels.len(), 28, "{rules:?}: moving updates");
         assert!((t.apex - apex).abs() < 0.02, "{rules:?}: apex {}", t.apex);
         let got = [t.take_off.z, t.vels[0].z, t.vels[1].z];
@@ -491,10 +491,8 @@ fn a_jump_rises_as_high_and_as_long_as_the_ps2s() {
     }
 }
 
-/// Card AIRC / JARC 2, the stick pressed one update AFTER the jump
-/// (`lead_tmp/airc/ps2/out`): BF2 gains 0.07 m/s a tick all the way down
-/// (1.386 m/s at update 20, 0.935 m); BF1 is at 0.2 x the walk speed from
-/// the first update (1.3003 m/s, 1.213 m).
+/// AIRC / JUNI: BF2 numeric standing-air witnesses under both map rules,
+/// matched BF2 class. Original per-game rows: re-stance-roll.md §4.3a.
 #[test]
 fn a_standing_jump_steers_by_the_stick_as_the_ps2_does() {
     // (rules, update -> PS2 forward speed, PS2 travel, PS2 strafe speed at update 20, strafe travel)
@@ -508,14 +506,14 @@ fn a_standing_jump_steers_by_the_stick_as_the_ps2_does() {
         ),
         (
             GroundRules::Bf1,
-            [(1, 1.3003), (5, 1.3003), (14, 1.3003), (20, 1.3003)],
-            1.213,
-            0.9002,
-            0.840,
+            [(1, 0.0700), (5, 0.3481), (14, 0.9719), (20, 1.3863)],
+            0.935,
+            1.3864,
+            0.935,
         ),
     ];
     for (rules, speeds, travel, strafe_v, strafe_travel) in cases {
-        let c = trial_class(rules);
+        let c = trial_class(GroundRules::Bf2);
         let t = air_trial(rules, &c, (0, 0), (FWD, 0));
         for (k, want) in speeds {
             let got = t.vels[k - 1].x;
@@ -527,10 +525,10 @@ fn a_standing_jump_steers_by_the_stick_as_the_ps2_does() {
         let (d, v) = (t.travel, &t.vels);
         assert!((d.x - travel).abs() < 0.03, "{rules:?}: {} m", d.x);
         assert!(d.y.abs() < 1e-4);
-        // Back is forward mirrored, in both games (BF1: MaxSpeed, not the strafe speed).
+        // Back is forward mirrored under the merged air law.
         let b = air_trial(rules, &c, (0, 0), (-FWD, 0));
         assert!((b.vels[19].x + v[19].x).abs() < 1e-4 && (b.travel.x + d.x).abs() < 1e-4);
-        // The strafe: the same law on the side axis (BF1: MaxStrafeSpeed).
+        // The same air law acts on the side axis.
         let s = air_trial(rules, &c, (0, 0), (0, -FWD));
         assert!(
             (s.vels[19].y + strafe_v).abs() < 0.004,
@@ -546,25 +544,15 @@ fn a_standing_jump_steers_by_the_stick_as_the_ps2_does() {
     }
 }
 
-/// Card JARC 3 (the maintainer: "stand still, jump and press forwards"): the stick
-/// and the jump on the SAME update, from rest. The ground mover has the
-/// stick for that update and the jump boosts what it left: the PS2 takes
-/// off at 3.045 m/s and lands 3.75 m ahead (BF2), 4.810 m/s and 4.59 m
-/// (BF1) — `lead_tmp/audit-airc/ps2/out/*_stand_fwd.csv`. BF1's own first
-/// ground update is Acceleraton x 1.2 / 30 = 2.80 m/s where the port's
-/// ground mover gives 2.33 ([`GroundRules`], PROVISIONAL; card BF1BK), so
-/// the port's BF1 leap is 2.33 + 2.0 = 4.33 m/s and 4.12 m.
+/// JARC / JUNI: BF2 numeric same-update stick and jump witness on both
+/// map rules with matched BF2 constants; ground movement precedes take-off.
 #[test]
 fn stick_and_jump_together_from_a_stand_is_a_forward_leap() {
     for (rules, v0, travel) in [
         (GroundRules::Bf2, 3.045, 3.75),
-        (
-            GroundRules::Bf1,
-            4.810 - (2.8031 - 70.0 / 30.0),
-            4.59 - 0.47,
-        ),
+        (GroundRules::Bf1, 3.045, 3.75),
     ] {
-        let t = air_trial(rules, &trial_class(rules), (0, FWD), (FWD, 0));
+        let t = air_trial(rules, &trial_class(GroundRules::Bf2), (0, FWD), (FWD, 0));
         let got = t.take_off.x;
         assert!((got - v0).abs() < 0.02, "{rules:?}: take-off {got} m/s");
         let d = t.travel.x;
@@ -572,28 +560,16 @@ fn stick_and_jump_together_from_a_stand_is_a_forward_leap() {
     }
 }
 
-/// Card JARC 4, a running jump's take-off (PS2 live): forward BF2 x 1.3
-/// (7.000 -> 9.101), BF1 + 2.0 (6.500 -> 8.500); backward BF2 is NOT
-/// boosted (-5.250 -> -5.250), BF1 gets its 2.0 backward (-6.500 ->
-/// -8.503 on the PS2, whose BF1 backpedal is MaxSpeed: card BF1BK; the
-/// port's is MaxStrafeSpeed, so -4.5 -> -6.5 here).
+/// JARC / JUNI: matched BF2 class running take-off on both map rules.
+/// Original BF1 additive planar boost remains documented in re-stance-roll.md §4.3b.
 #[test]
-fn a_running_jump_takes_off_by_each_games_rule() {
-    let v = |rules, stick| air_trial(rules, &trial_class(rules), (21, stick), (0, 0)).take_off;
-    assert!((v(GroundRules::Bf2, FWD).x - 9.10).abs() < 0.01);
-    assert!((v(GroundRules::Bf2, -FWD).x + 5.25).abs() < 0.01);
-    assert!((v(GroundRules::Bf1, FWD).x - 8.50).abs() < 0.01);
-    assert!((v(GroundRules::Bf1, -FWD).x + 4.5 + 2.0).abs() < 0.01);
-    // BF1's push is the stick's, not the speed's: at 6.5 m/s backward
-    // (the PS2's backpedal) it is -8.5, and nothing with the stick released.
-    let c = trial_class(GroundRules::Bf1);
-    let mut s = Soldier::new(Vec3::ZERO);
-    s.vel = Vec3::new(0.0, 0.0, 6.5);
-    s.take_off(-1.0, &c, GroundRules::Bf1);
-    assert!((s.vel.z - 8.5).abs() < 1e-5 && s.vel.y == 8.0);
-    s.vel = Vec3::new(0.0, 0.0, -6.5);
-    s.take_off(0.0, &c, GroundRules::Bf1);
-    assert!((s.vel.z + 6.5).abs() < 1e-5);
+fn a_running_jump_takes_off_by_the_merged_rule() {
+    for rules in BOTH {
+        let c = trial_class(GroundRules::Bf2);
+        let v = |stick| air_trial(rules, &c, (21, stick), (0, 0)).take_off;
+        assert!((v(FWD).x - 9.10).abs() < 0.01);
+        assert!((v(-FWD).x + 5.25).abs() < 0.01);
+    }
 }
 
 /// Card JARC 5: BF2 ADDS the jump velocity (PS2: a jump on the update the
@@ -607,10 +583,10 @@ fn the_jump_adds_to_the_vertical_speed_in_both_games() {
     let c = trial_class(GroundRules::Bf2);
     let mut s = Soldier::new(Vec3::ZERO);
     s.vel = Vec3::new(0.0, -1.0695, 0.0);
-    s.take_off(0.0, &c, GroundRules::Bf2);
+    s.take_off(&c);
     assert!((s.vel.y - 6.9355).abs() < 1e-4);
     for rules in BOTH {
-        let c = trial_class(rules);
+        let c = trial_class(GroundRules::Bf2);
         let (n, floor) = slope(34.3);
         let mut s = Soldier::new(Vec3::ZERO);
         s.ground_n = n;
@@ -629,11 +605,8 @@ fn the_jump_adds_to_the_vertical_speed_in_both_games() {
     }
 }
 
-/// ...and from a run (the PS2's forward speed at update 20, and its travel
-/// from the take-off point to the landing): the stick released keeps
-/// the jump's speed (BF2 loses 0.9 m/s to its drag), held forward BF2
-/// gains on it and BF1 does not, held back BF2 loses 2.6 m/s and BF1
-/// stops and backs up at 1.3 m/s; a strafe leaves the forward speed alone.
+/// AIRC / JUNI: retain BF2 numeric running-air witnesses on both map rules
+/// with matched BF2 constants; independent multi-class rows live in juni.rs.
 #[test]
 fn a_running_jump_keeps_its_speed_and_the_stick_bends_it() {
     // (rules, the air stick (fwd, side), PS2 speed at update 20, PS2 travel)
@@ -642,13 +615,13 @@ fn a_running_jump_keeps_its_speed_and_the_stick_bends_it() {
         (GroundRules::Bf2, (FWD, 0), 9.7259, 8.571),
         (GroundRules::Bf2, (-FWD, 0), 7.1000, 6.906),
         (GroundRules::Bf2, (0, -FWD), 8.4149, 7.544),
-        (GroundRules::Bf1, (0, 0), 8.4986, 7.937),
-        (GroundRules::Bf1, (FWD, 0), 8.4992, 7.938),
-        (GroundRules::Bf1, (-FWD, 0), -1.2999, 0.361),
-        (GroundRules::Bf1, (0, -FWD), 8.4985, 7.937),
+        (GroundRules::Bf1, (0, 0), 8.4160, 7.740),
+        (GroundRules::Bf1, (FWD, 0), 9.7259, 8.571),
+        (GroundRules::Bf1, (-FWD, 0), 7.1000, 6.906),
+        (GroundRules::Bf1, (0, -FWD), 8.4149, 7.544),
     ];
     for (rules, air, speed, travel) in cases {
-        let c = trial_class(rules);
+        let c = trial_class(GroundRules::Bf2);
         let t = air_trial(rules, &c, (21, FWD), air);
         assert!(
             (t.vels[19].x - speed).abs() < 0.02,
@@ -661,18 +634,6 @@ fn a_running_jump_keeps_its_speed_and_the_stick_bends_it() {
         assert!(
             (d - travel).abs() < 0.03 * travel + 0.05,
             "{rules:?} {air:?}: {d} m vs {travel}"
-        );
-    }
-    // BF1's back stick, update by update: 2.8031 on the first update
-    // (the grounded bit still set), then 0.5606 until -1.2999.
-    let c = trial_class(GroundRules::Bf1);
-    let t = air_trial(GroundRules::Bf1, &c, (21, FWD), (-FWD, 0));
-    for (k, want) in [(1, 5.6963), (2, 5.1358), (5, 3.4538), (14, -1.2999)] {
-        // (the PS2's update is 33.37 ms, the port's 33.33)
-        assert!(
-            (t.vels[k - 1].x - want).abs() < 0.01,
-            "update {k}: {}",
-            t.vels[k - 1].x
         );
     }
 }
@@ -732,12 +693,8 @@ fn press_off_the_floor(rules: GroundRules, sprint: bool, age: usize, off: usize)
     (s, vy)
 }
 
-/// Card JGATE 1 (re-stance-roll.md §4.3c): the stand and the sprint
-/// stance read the jump button for 0.3 s after the floor is lost - the
-/// PS2's timer is 0 on the first update off it, so the 1st to the 9th
-/// take the press and the 10th does not. BF2 adds the jump to the vy the
-/// mover left (gravity included), BF1 sets it; BF1 only for a stance 5 s
-/// old, or one that has touched down from an earlier hop.
+/// JGATE / JUNI: both maps use the BF2 0.3 s late-press window and
+/// vertical addition. BF1 original age restrictions remain in re-stance-roll.md §4.3c.
 #[test]
 fn a_press_within_three_tenths_of_losing_the_floor_still_jumps() {
     for sprint in [false, true] {
@@ -762,7 +719,7 @@ fn a_press_within_three_tenths_of_losing_the_floor_still_jumps() {
     go(&mut s, &PadState::default(), &c, GroundRules::Bf2, false);
     assert!(s.vel.y < vy - 0.5);
 
-    // BF1: 5 s in the stance (150 ticks, with margin), else nothing.
+    // BF1 now uses the same window for young and old stances.
     for off in 0..=12 {
         let (old, vy) = press_off_the_floor(GroundRules::Bf1, false, 160, off);
         assert_eq!(old.stance == Stance::Jump, off <= 9, "BF1 old: off {off}");
@@ -779,7 +736,7 @@ fn a_press_within_three_tenths_of_losing_the_floor_still_jumps() {
             );
         }
         let (young, _) = press_off_the_floor(GroundRules::Bf1, false, 40, off);
-        assert_eq!(young.stance == Stance::Jump, off == 0, "BF1 young: {off}");
+        assert_eq!(young.stance == Stance::Jump, off <= 9, "BF1 young: {off}");
     }
     // A young stance that left the floor and touched down is at 5 s.
     let c = trial_class(GroundRules::Bf1);
@@ -792,14 +749,11 @@ fn a_press_within_three_tenths_of_losing_the_floor_still_jumps() {
     assert_eq!(s.stance, Stance::Jump);
 }
 
-/// Card JGATE 2: the jump button in a crouch stands the soldier up, 0.5 s
-/// into the crouch and not before, with no leap (BF2 FUN_00240bf8
-/// B2:160394-160397, FUN_00246ed0 B2:162075-162077; BF1 3.2; PS2
-/// `bf2_crouch_jump.csv`: stance 1 -> 0, vy 0, the next press jumps).
-/// Card JGATE 3: BF1's stand takes the next press only 0.5 s into the
-/// stance (B1:117439; `bf1_crouch_jump.csv`).
+/// JGATE / JUNI: crouch still rises after its 0.5 s gate, then a fresh
+/// press jumps on every map. The shared landing lock remains; the former
+/// BF1 additional stand delay is documented in re-stance-roll.md §4.3c.
 #[test]
-fn the_jump_button_in_a_crouch_stands_up_and_bf1s_stand_waits_half_a_second() {
+fn crouch_jump_rises_then_the_next_press_jumps_on_every_map() {
     let idle = PadState::default();
     for rules in BOTH {
         let c = trial_class(rules);
@@ -819,19 +773,14 @@ fn the_jump_button_in_a_crouch_stands_up_and_bf1s_stand_waits_half_a_second() {
         assert_eq!(s.stance, Stance::Stand, "{rules:?}");
         assert!(s.vel.y == 0.0 && s.grounded && s.lock_timer == 0.0);
         assert_eq!(s.energy, c.energy_bar, "standing up costs nothing");
-        // The next press, 0.1 s on: BF2 jumps, BF1 waits out its 0.5 s.
+        // JUNI: the next press, 0.1 s on, jumps on both maps.
         for _ in 0..2 {
             go(&mut s, &idle, &c, rules, true);
         }
         go(&mut s, &JUMP, &c, rules, true);
-        assert_eq!(
-            s.stance == Stance::Jump,
-            rules == GroundRules::Bf2,
-            "{rules:?}"
-        );
+        assert_eq!(s.stance, Stance::Jump, "{rules:?}");
     }
-    // BF1 after a landing: a press 0.4 s on (past the port's 0.3 s lock)
-    // does nothing, one 0.53 s on jumps; BF2 takes the first.
+    // Both maps accept a new press after the shared landing lock.
     for rules in BOTH {
         let c = trial_class(rules);
         let mut s = Soldier::new(Vec3::ZERO);
@@ -844,15 +793,7 @@ fn the_jump_button_in_a_crouch_stands_up_and_bf1s_stand_waits_half_a_second() {
             go(&mut s, &idle, &c, rules, true);
         }
         go(&mut s, &JUMP, &c, rules, true);
-        let bf2 = rules == GroundRules::Bf2;
-        assert_eq!(s.stance == Stance::Jump, bf2, "{rules:?} at 0.4 s");
-        if !bf2 {
-            for _ in 0..3 {
-                go(&mut s, &idle, &c, rules, true);
-            }
-            go(&mut s, &JUMP, &c, rules, true);
-            assert_eq!(s.stance, Stance::Jump, "BF1 at 0.53 s");
-        }
+        assert_eq!(s.stance, Stance::Jump, "{rules:?} at 0.4 s");
     }
 }
 

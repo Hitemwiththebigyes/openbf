@@ -32,8 +32,8 @@
 //! PROVISIONAL (ours): the PS2 animates only a station a viewport sees
 //! within 60 m (§6 [H]); the port animates every one. The animation steps
 //! on the sim's ticks (1/30 s), the PS2 per frame (1/60 s). The PS2's
-//! idle-turn writes the station's own matrix; the port turns only the draw
-//! (the sim's sphere is fixed at load, §3).
+//! idle turn writes the station matrix; the port shares the sim-owned yaw
+//! with collision and blast spheres (§14).
 
 use super::turret_pose::bind_of;
 use glam::{Mat4, Quat, Vec3};
@@ -47,90 +47,7 @@ pub const STATION_BASE: &str = "powerupstation";
 /// (B1 235944: `fVar24 * 0.15`, §6).
 pub const ARM_SWING: f32 = 0.15;
 
-/// The PS2's generator step (B1 235742-235763: `x * 0x19660d + 0x3c6ef35f`).
-fn lcg(x: u32) -> u32 {
-    x.wrapping_mul(0x19660d).wrapping_add(0x3c6ef35f)
-}
-
-/// A station's animation state (§6: B1 +0x2e4 state, +0x6f4 timer, +0x6f8
-/// spin sign, +0x6fc wobble frequency) plus the port's accumulated idle
-/// yaw and its own generator.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct StationAnimState {
-    pub state: u8,
-    pub timer: f32,
-    pub sign: f32,
-    pub wobble_freq: f32,
-    /// The idle turns so far (rad about +Y).
-    pub yaw: f32,
-    rng: u32,
-}
-
-impl StationAnimState {
-    /// As the constructor leaves it: state 0, timer 0, sign +1; `seed`
-    /// starts the station's generator.
-    pub fn new(seed: u32) -> Self {
-        StationAnimState {
-            state: 0,
-            timer: 0.0,
-            sign: 1.0,
-            wobble_freq: 0.0,
-            yaw: 0.0,
-            rng: seed,
-        }
-    }
-
-    /// u in [0, 1) as the PS2 makes it: two steps, the high halves joined,
-    /// as a float's mantissa.
-    fn uniform(&mut self) -> f32 {
-        let a = lcg(self.rng);
-        self.rng = lcg(a);
-        let bits = ((a >> 16) | (self.rng & 0xffff_0000)) >> 9 | 0x3f80_0000;
-        f32::from_bits(bits) - 1.0
-    }
-
-    /// The give pass's write (§4: served anyone -> 3 unless 2 or 3; nobody
-    /// -> 1 from 2 or 3), then one animation update of `dt` seconds.
-    pub fn step(&mut self, anim: &core::sim::StationAnim, serving: bool, dt: f32) {
-        let busy = matches!(self.state, 2 | 3);
-        if serving && !busy {
-            self.state = 3;
-        } else if !serving && busy {
-            self.state = 1;
-        }
-        match self.state {
-            1 => {
-                self.timer -= dt;
-                if self.timer >= 0.0 {
-                    return;
-                }
-                self.state = 0;
-                self.sign = -self.sign;
-                if anim.rotate_speed <= 0.0001 {
-                    self.timer = 0.0;
-                    return;
-                }
-                let t = ((self.uniform() * 0.5 + 0.75) * std::f32::consts::PI) / anim.rotate_speed;
-                self.timer = t;
-                if anim.wobble_node.is_some() {
-                    self.wobble_freq = 37.699112 / t;
-                }
-            }
-            3 => self.timer -= dt,
-            _ => {
-                self.timer -= dt;
-                if self.timer < 0.0 {
-                    self.state = if self.state == 0 { 1 } else { 3 };
-                    self.timer = 0.0;
-                }
-                self.yaw += self.sign * anim.rotate_speed * dt;
-                if self.state == 1 {
-                    self.timer = anim.wait_time;
-                }
-            }
-        }
-    }
-}
+pub use core::sim::StationMotion as StationAnimState;
 
 /// The animated nodes of one station class in its rig.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -226,6 +143,7 @@ pub struct StationDraw {
     rig: Option<ManifestTurretRig>,
     /// (the draws in `SceneGpu::draws`, the rig part they ride).
     pub(super) parts: Vec<(std::ops::Range<usize>, Option<usize>)>,
+    pub(super) wreck: Vec<DrawCmd>,
     pub anim: StationAnimState,
     now: Vec<Mat4>,
     last_tick: Option<u64>,
@@ -244,30 +162,29 @@ impl StationDraw {
             model,
             rig: rig.cloned(),
             parts: Vec::new(),
+            wreck: Vec::new(),
             anim: StationAnimState::new(instance as u32 + 1),
             now: Vec::new(),
             last_tick: None,
         }
     }
 
-    fn step_to(&mut self, tick: u64, anim: &core::sim::StationAnim, serving: bool) {
-        let ticks = self.last_tick.map_or(1, |t| tick.saturating_sub(t));
+    fn sync(&mut self, tick: u64, anim: &core::sim::StationAnim, motion: StationAnimState) {
+        if self.last_tick == Some(tick) && self.anim == motion {
+            return;
+        }
         self.last_tick = Some(tick);
-        // Catch up with fixed steps for callers that only have the final state.
-        // Only a per-tick callback can supply intermediate serving changes.
-        for _ in 0..ticks {
-            self.anim.step(anim, serving, core::TICK_DT);
-            if let Some(rig) = &self.rig {
-                let nodes = StationNodes::of(rig, anim);
-                pose(rig, &nodes, anim, &self.anim, &mut self.now);
-            }
+        self.anim = motion;
+        if let Some(rig) = &self.rig {
+            let nodes = StationNodes::of(rig, anim);
+            pose(rig, &nodes, anim, &self.anim, &mut self.now);
         }
     }
 
     /// Each part's model matrix now: the instance turned by the idle yaw,
     /// a node's part by `node(now) x bind^-1`.
     fn apply(&self, draws: &mut [DrawCmd]) {
-        let body = self.model * Mat4::from_rotation_y(self.anim.yaw);
+        let body = self.model * Mat4::from_quat(core::vehicle::hover::quat_y(self.anim.yaw));
         for (range, k) in &self.parts {
             let moved = match (&self.rig, k) {
                 (Some(rig), Some(k)) => rig.parts.get(*k).copied().flatten().and_then(|n| {
@@ -296,9 +213,6 @@ impl StationDraw {
 }
 
 impl super::SceneGpu {
-    /// Advance station animations at each sim tick, before rendering. Call from
-    /// the stepping callback so intermediate serving changes are observed.
-    /// The first call retains the original one-step initialization convention.
     pub fn step_stations(&mut self, sim: &core::sim::Sim) {
         for sd in &mut self.stations {
             let Some(st) = sim.stations.iter().find(|s| s.pos == sd.pos) else {
@@ -307,7 +221,12 @@ impl super::SceneGpu {
             let Some(class) = sim.station_classes.get(usize::from(st.class)) else {
                 continue;
             };
-            sd.step_to(sim.tick, &class.anim, st.serving);
+            if st.destroyed {
+                sd.anim = st.motion;
+                sd.last_tick = Some(sim.tick);
+                continue;
+            }
+            sd.sync(sim.tick, &class.anim, st.motion);
         }
     }
 
@@ -319,6 +238,55 @@ impl super::SceneGpu {
         for sd in &self.stations {
             sd.apply(&mut self.draws);
         }
+    }
+
+    pub(super) fn station_view_draws(
+        &self,
+        sim: &core::sim::Sim,
+        hidden: Option<std::ops::Range<usize>>,
+    ) -> Vec<DrawCmd> {
+        let broken: Vec<_> = self
+            .stations
+            .iter()
+            .filter(|d| {
+                sim.stations
+                    .iter()
+                    .any(|s| s.instance == Some(d.instance as u32) && s.destroyed)
+            })
+            .collect();
+        if broken.is_empty() && hidden.is_none() {
+            return self.draws.clone();
+        }
+        let mut ranges: Vec<_> = broken
+            .iter()
+            .flat_map(|d| d.parts.iter().map(|(r, _)| r.clone()))
+            .collect();
+        ranges.extend(hidden);
+        ranges.sort_by_key(|r| r.start);
+        let mut ranges = ranges.into_iter().peekable();
+        let mut out = Vec::with_capacity(self.draws.len());
+        for (i, d) in self.draws.iter().enumerate() {
+            while ranges.peek().is_some_and(|r| r.end <= i) {
+                ranges.next();
+            }
+            if ranges.peek().is_none_or(|r| !r.contains(&i)) {
+                out.push(*d);
+            }
+        }
+        for d in broken {
+            let pose = sim
+                .stations
+                .iter()
+                .find(|s| s.instance == Some(d.instance as u32))
+                .unwrap()
+                .pose();
+            for wreck in &d.wreck {
+                let mut draw = *wreck;
+                draw.model = pose;
+                out.push(draw);
+            }
+        }
+        out
     }
 }
 
@@ -348,55 +316,20 @@ mod tests {
     }
 
     #[test]
-    fn tick_grouping_preserves_wait_turn_boundaries_and_does_not_repeat_ticks() {
-        let a = fx7();
-        for state in [0, 1] {
-            for group in [1, 2, 3] {
-                let make = || {
-                    let mut d = StationDraw::new(0, Vec3::ZERO, Mat4::IDENTITY, None);
-                    d.last_tick = Some(0);
-                    d.anim.state = state;
-                    d.anim.timer = 0.01;
-                    d
-                };
-                let mut expected = make();
-                let mut grouped = make();
-                for tick in 1..=6 {
-                    expected.step_to(tick, &a, false);
-                }
-                for tick in (group..=6).step_by(group as usize) {
-                    grouped.step_to(tick, &a, false);
-                }
-                assert_eq!(grouped.anim, expected.anim);
-                let before = grouped.anim;
-                grouped.step_to(6, &a, false);
-                assert_eq!(grouped.anim, before);
-            }
-        }
-    }
-
-    #[test]
-    fn tick_callback_retains_serving_changes_inside_a_frame() {
+    fn draw_reads_simulation_motion_once_and_keeps_serving_nodes_after_idle() {
         let a = fx7();
         let rig = rig();
         let mut d = StationDraw::new(0, Vec3::ZERO, Mat4::IDENTITY, Some(&rig));
-        d.step_to(0, &a, false);
-        let mut expected = d.anim;
-        let mut expected_nodes = d.now.clone();
-        let nodes = StationNodes::of(&rig, &a);
-        let mut served_arm = None;
-        for (tick, serving) in [(1, true), (2, false), (3, false)] {
-            expected.step(&a, serving, core::TICK_DT);
-            pose(&rig, &nodes, &a, &expected, &mut expected_nodes);
-            d.step_to(tick, &a, serving);
-            if serving {
-                served_arm = Some(d.now[1]);
-            }
-        }
-        assert_eq!(d.anim, expected);
-        assert_eq!(d.now, expected_nodes);
-        assert_eq!(d.now[1], served_arm.unwrap());
-        assert!(!matches!(d.anim.state, 2 | 3));
+        let mut motion = StationAnimState::new(1);
+        motion.step(&a, true, core::TICK_DT);
+        d.sync(1, &a, motion);
+        let serving = d.now.clone();
+        d.sync(1, &a, motion);
+        assert_eq!(d.now, serving);
+        motion.step(&a, false, core::TICK_DT);
+        d.sync(2, &a, motion);
+        assert_eq!(d.anim, motion);
+        assert_eq!(d.now[1], serving[1]);
     }
 
     const DT: f32 = 1.0 / 30.0;

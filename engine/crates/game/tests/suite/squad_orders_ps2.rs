@@ -367,3 +367,209 @@ fn n0_nobody_in_reach_and_no_marker() {
     assert!(!game::squad_vis::markers_on(false, None), "no world marker");
     println!("N0  FOLLOW ME: 0 receivers, the line plays; MOVE OUT: 1 receiver at 35 m");
 }
+
+/// PILEIN: an actual pilot Right press reaches HUD and voice mapping even
+/// with no receivers or no seats; next-think answers use the existing queue.
+#[test]
+fn pile_in_driver_cross_line_and_delayed_answers() {
+    use core::vehicle::{SeatKind, SeatSetup, VehicleKind, VehicleSpec};
+    use game::event_feed::{EventFeed, Texts};
+    use ui::hud_squad;
+    for rules in [
+        core::soldier::GroundRules::Bf1,
+        core::soldier::GroundRules::Bf2,
+    ] {
+        for mates in [0, 1, 3] {
+            for full in [false, true] {
+                let mut s = scene(mates, 0);
+                s.walk.sim.ground_rules = rules;
+                s.walk.sim.hover_params =
+                    vec![Some(game::vehicle_class::HoverClass::default().params())];
+                s.walk.sim.seat_setup = vec![Some(SeatSetup {
+                    radius: 5.0,
+                    boardable: vec![true; 2],
+                    exit_drop: 10.0,
+                    ai_size: 8,
+                    guns: Vec::new(),
+                })];
+                let me = s.walk.player;
+                let v = s.walk.sim.spawn_vehicle(&VehicleSpec {
+                    kind: VehicleKind::Hover,
+                    class: 0,
+                    home_team: None,
+                    neutral_when_empty: true,
+                    spawn_pad: None,
+                    pos: Vec3::new(0.0, 2.0, 0.0),
+                    yaw: 0.0,
+                    max_health: 1000.0,
+                    health_type: core::weapon::HealthType::Vehicle,
+                    seats: vec![SeatKind::Pilot, SeatKind::Gunner(0)],
+                });
+                assert!(s.walk.sim.enter_vehicle(me, v, 0));
+                let bots: Vec<_> = s
+                    .walk
+                    .sim
+                    .alive_units()
+                    .filter(|(_, u)| u.controller == Controller::Ai)
+                    .map(|(h, _)| h)
+                    .collect();
+                for h in &bots {
+                    let u = s.walk.sim.unit_mut(*h).unwrap();
+                    u.ai.next_think = 9;
+                    u.command = Some(core::squad::Command {
+                        kind: CommandKind::Hold(u.soldier.pos),
+                        issuer: 0,
+                        issued_tick: 0,
+                    });
+                }
+                if full {
+                    let h = s
+                        .walk
+                        .sim
+                        .spawn(&UnitSpec::player_in_slot(1, 0, Vec3::ZERO))
+                        .unwrap();
+                    assert!(s.walk.sim.enter_vehicle(h, v, 1));
+                }
+                let mut feed = EventFeed::new(Texts::builtin(), ["cis", "rep"], &[]);
+                let at = s.press(buttons::SQUAD_FOLLOW);
+                for _ in 0..3 {
+                    feed.tick(&s.walk.sim, me);
+                }
+                assert_eq!(s.orders, [(at, 4, mates as u8)]);
+                assert_eq!(s.said, [(at, "cis_inf_com_chatter_tac_needgunner".into())]);
+                assert!(s.takes.is_empty() && s.heard.is_empty());
+                let cross = feed.squad(at).unwrap();
+                assert_eq!(cross.labels, ["", "", "PILE IN", "EVERYONE OUT"]);
+                assert_eq!(
+                    (cross.arm, cross.timer, cross.count),
+                    (hud_squad::RIGHT, 1.0, None)
+                );
+                for _ in 1..=9 {
+                    s.step(PadState::default());
+                    feed.tick(&s.walk.sim, me);
+                }
+                assert_eq!(s.takes.len(), mates);
+                assert!(s.takes.iter().all(|(t, _)| *t == at + 9));
+                let count = if mates == 0 || full {
+                    None
+                } else {
+                    Some(mates as u32)
+                };
+                assert_eq!(feed.squad(at + 9).unwrap().count, count);
+                if mates > 0 {
+                    assert_eq!(
+                        s.heard.first().map(|(t, n, _)| (*t, n.as_str())),
+                        Some((at + 9, "ai_cis_inf_com_chatter_tac_yes"))
+                    );
+                }
+                assert_eq!(feed.squad(at + HZ).unwrap().timer, 0.5);
+                assert_eq!(feed.squad(at + 2 * HZ).unwrap().timer, 0.0);
+                assert!(feed.squad(at + 2 * HZ + 1).is_none());
+                assert!(feed.take().is_empty());
+                // Existing on-foot identity/line/cross are unchanged after exit.
+                s.walk.sim.exit_vehicle(me);
+                s.step(PadState::default());
+                let at = s.press(buttons::SQUAD_HOLD);
+                feed.tick(&s.walk.sim, me);
+                assert_eq!(
+                    s.said.last(),
+                    Some(&(at, "cis_inf_com_chatter_tac_hold".into()))
+                );
+                assert_eq!(
+                    feed.squad(at).unwrap().labels,
+                    ["MOVE OUT", "HOLD POSITION", "FOLLOW ME", "AT EASE"]
+                );
+                assert_eq!(feed.squad(at).unwrap().arm, hud_squad::DOWN);
+            }
+        }
+    }
+}
+
+/// Source-only delivery-to-presentation test; actual banks/device captures stay pending.
+#[test]
+fn everyone_out_driver_left_feedback_and_scheduled_yes_including_empty_seats() {
+    use core::vehicle::{SeatKind, SeatSetup, VehicleKind, VehicleSpec};
+    use game::event_feed::{EventFeed, Texts};
+    use ui::hud_squad;
+    for rules in [
+        core::soldier::GroundRules::Bf1,
+        core::soldier::GroundRules::Bf2,
+    ] {
+        for mates in [0usize, 1, 3] {
+            let mut s = scene(mates, 0);
+            s.walk.sim.ground_rules = rules;
+            s.walk.sim.hover_params =
+                vec![Some(game::vehicle_class::HoverClass::default().params())];
+            s.walk.sim.seat_setup = vec![Some(SeatSetup {
+                radius: 5.0,
+                boardable: vec![true; mates + 1],
+                exit_drop: 10.0,
+                ai_size: 8,
+                guns: Vec::new(),
+            })];
+            let me = s.walk.player;
+            let v = s.walk.sim.spawn_vehicle(&VehicleSpec {
+                kind: VehicleKind::Hover,
+                class: 0,
+                home_team: None,
+                neutral_when_empty: true,
+                spawn_pad: None,
+                pos: Vec3::new(0.0, 2.0, 0.0),
+                yaw: 0.0,
+                max_health: 1000.0,
+                health_type: core::weapon::HealthType::Vehicle,
+                seats: std::iter::once(SeatKind::Pilot)
+                    .chain((0..mates).map(|j| SeatKind::Passenger(j as u8)))
+                    .collect(),
+            });
+            assert!(s.walk.sim.enter_vehicle(me, v, 0));
+            let bots: Vec<_> = s
+                .walk
+                .sim
+                .alive_units()
+                .filter(|(_, u)| u.controller == Controller::Ai)
+                .map(|(h, _)| h)
+                .collect();
+            for (j, h) in bots.iter().enumerate() {
+                assert!(s.walk.sim.enter_vehicle(*h, v, j as u8 + 1));
+                s.walk.sim.unit_mut(*h).unwrap().ai.next_think = 9;
+            }
+            let mut feed = EventFeed::new(Texts::builtin(), ["cis", "rep"], &[]);
+            let at = s.press(buttons::SQUAD_AT_EASE);
+            feed.tick(&s.walk.sim, me);
+            assert_eq!(s.orders, [(at, 5, mates as u8)]);
+            assert_eq!(s.said, [(at, "cis_inf_com_chatter_tac_moveout".into())]);
+            assert!(s.takes.is_empty() && s.heard.is_empty());
+            let cross = feed.squad(at).unwrap();
+            assert_eq!(cross.labels, ["", "", "PILE IN", "EVERYONE OUT"]);
+            assert_eq!(
+                (cross.arm, cross.timer, cross.count),
+                (hud_squad::LEFT, 1.0, None)
+            );
+            for _ in 1..=9 {
+                s.step(PadState::default());
+                feed.tick(&s.walk.sim, me);
+            }
+            assert_eq!(s.takes.len(), mates);
+            assert!(s.takes.iter().all(|(t, _)| *t == at + 9));
+            assert!(bots
+                .iter()
+                .all(|h| s.walk.sim.unit(*h).unwrap().mount.is_none()));
+            assert!(s.walk.sim.unit(me).unwrap().mount.is_some());
+            assert_eq!(
+                feed.squad(at + 9).unwrap().count,
+                (mates > 0).then_some(mates as u32)
+            );
+            if mates > 0 {
+                assert_eq!(
+                    s.heard.first().map(|(t, n, _)| (*t, n.as_str())),
+                    Some((at + 9, "ai_cis_inf_com_chatter_tac_yes"))
+                );
+            }
+            assert_eq!(feed.squad(at + HZ).unwrap().timer, 0.5);
+            assert_eq!(feed.squad(at + 2 * HZ).unwrap().timer, 0.0);
+            assert!(feed.squad(at + 2 * HZ + 1).is_none());
+            assert!(feed.take().is_empty());
+        }
+    }
+}

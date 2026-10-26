@@ -8,10 +8,10 @@ status: parked
 deps:
 files: engine/crates/game/src/assets.rs, engine/crates/game/src/main/windowed.rs, engine/crates/game/src/sounds.rs
 declares:
-needs: windowed.rs and sounds.rs slices (assets slice validated locally 2026-10-25)
+needs: windowed.rs remainder and sound content/device/full gates; assets validation retained
 effort:
 branch: spl8-assets-20261024
-resume: 2026-10-25: assets mesh slice e3c323fc validated (canonical PURE MOVE exit0, sweep/arena identical). Next: windowed.rs (1976) then sounds.rs (1864); scene already under cap.
+resume: Assets e3c323fc validation retained; SPLSND ad97323 implements sounds playback1328/549 with literal proof. Windowed stays with BUGX; all original gates and sound/content checks owed. reports/20261026_1058_card_SPLSND.md.
 created: 2026-09-29
 ---
 

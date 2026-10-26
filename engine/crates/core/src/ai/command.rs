@@ -25,13 +25,18 @@ impl AiState {
         if let Some(r) = self
             .ride
             .as_mut()
-            .filter(|r| r.ordered_call || r.called_board.is_some())
+            .filter(|r| r.ordered_call || r.called_board.is_some() || r.player_board.is_some())
         {
             r.board = None;
             r.called_board = None;
+            r.player_board = None;
             r.ordered_call = false;
             r.maintenance = None;
             r.use_req = false;
+        }
+        // An authoritative order change ends any witnessed post-stop source.
+        if let Some(w) = self.ride.as_mut().and_then(|r| r.pickup.as_mut()) {
+            w.post_stop = None;
         }
         self.route = None;
         self.target_cp = None;

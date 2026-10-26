@@ -14,6 +14,8 @@
 //! | MOVE OUT = AT EASE | [`RELEASE_REACH`] 45 m; active BF1 ground pilots 135 m | answers; a follower / holder ordered by this player is released |
 //! | HOLD POSITION | [`ORDER_REACH`] 30 m | answers; stands where it is and fights from there |
 //! | FOLLOW ME | [`ORDER_REACH`] 30 m | answers; the first [`FOLLOW_CAP`] to think follow the player |
+//! | EVERYONE OUT (ground pilot Left) | own vehicle's AI seats | leaves; suppresses own seat search for 20 s |
+//! | PILE IN (ground pilot Right) | [`ORDER_REACH`] 30 m | answers; tries to board the issued vehicle over its retained field order |
 //!
 //! A follower walks to where the leader stood, then follows him; nearer than
 //! [`FOLLOW_NEAR`] it takes a point within +-[`STAND_HALF`] of him in his
@@ -27,8 +29,8 @@
 //! think period is 10 ticks, not the PS2's 15; the release count is in ticks
 //! so it is 10 s either way; a holder does not look around; the approach also
 //! ends [`APPROACH_BODY`] from the leader himself; beyond [`ROUTE_DIST`] a
-//! follower routes over the hub graph. NOT built: the orders from a vehicle
-//! seat, other orders to bots in vehicles, the AI's own orders' effect - card UTALK
+//! follower routes over the hub graph. Other seated orders beyond a ground
+//! pilot's Left/Right remain unbuilt, as do the AI's own on-foot orders' effect - card UTALK
 //! speaks them (a
 //! trooper's "follow me" / "move out" order nobody on the PS2 either; a new
 //! pilot's need-gunner call, `Sim::need_gunner_call`, temporarily boards
@@ -74,7 +76,7 @@ pub const LEAVE_TICKS: u16 = 300;
 /// PROVISIONAL (lead).
 pub const DISPERSE_TICKS: u64 = 900;
 
-/// One of the four D-pad orders. The discriminant is `Event::Command`'s `kind`
+/// A field or driver D-pad order. The discriminant is `Event::Command`'s `kind`
 /// byte.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Order {
@@ -82,15 +84,34 @@ pub enum Order {
     Hold = 1,
     AtEase = 2,
     MoveOut = 3,
+    PileIn = 4,
+    GetOut = 5,
 }
 
 impl Order {
     /// How far from the issuer the order reaches, 3-D.
     pub fn reach(self) -> f32 {
         match self {
-            Order::Follow | Order::Hold => ORDER_REACH,
+            Order::Follow | Order::Hold | Order::PileIn | Order::GetOut => ORDER_REACH,
             Order::AtEase | Order::MoveOut => RELEASE_REACH,
         }
+    }
+}
+
+/// The human responsible for an active PILE IN goal. The exact soldier
+/// prevents the order surviving the issuing player's death or slot reuse.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BoardIssuer {
+    pub slot: u8,
+    pub leader: UnitHandle,
+}
+
+impl BoardIssuer {
+    pub(crate) fn hash_into(self, eat: &mut impl FnMut(&[u8])) {
+        eat(b"PILEIN");
+        eat(&[self.slot]);
+        eat(&self.leader.index.to_le_bytes());
+        eat(&self.leader.gen.to_le_bytes());
     }
 }
 
@@ -104,6 +125,8 @@ pub struct Pending {
     pub leader: UnitHandle,
     /// Mounted release delivery is bound to the vehicle generation and tenure.
     pub pickup: Option<(crate::vehicle::VehicleHandle, u64)>,
+    /// The driver order's vehicle at the press, including its generation.
+    pub vehicle: Option<crate::vehicle::VehicleHandle>,
 }
 
 impl Pending {
@@ -116,6 +139,11 @@ impl Pending {
             eat(&v.index.to_le_bytes());
             eat(&v.gen.to_le_bytes());
             eat(&seated.to_le_bytes());
+        }
+        if let Some(v) = self.vehicle {
+            eat(b"PILEIN");
+            eat(&v.index.to_le_bytes());
+            eat(&v.gen.to_le_bytes());
         }
     }
 }
@@ -217,6 +245,21 @@ const EDGE_ORDER: [(u32, Order); 4] = [
 ];
 
 impl crate::sim::Sim {
+    /// Human ground pilot only. Capacity affects entry, never the press feedback.
+    fn ground_pilot_vehicle(&self, slot: u8) -> Option<crate::vehicle::VehicleHandle> {
+        use crate::vehicle::{SeatKind, VehicleKind};
+        let h = self.players.get(usize::from(slot)).copied().flatten()?;
+        let u = self.unit(h)?;
+        let m = u.mount?;
+        let v = self.vehicle(m.vehicle)?;
+        (u.controller == (crate::unit::Controller::Player { slot })
+            && matches!(v.kind, VehicleKind::Hover | VehicleKind::Walker)
+            && v.seats
+                .get(usize::from(m.seat))
+                .is_some_and(|s| s.kind == SeatKind::Pilot && s.occupant == Some(h)))
+        .then_some(m.vehicle)
+    }
+
     /// `Sim::step` phase 0b: expire the Disperse biases, take at most one
     /// order EDGE per player slot, in slot order, then let every unit whose
     /// think is due this tick take the order it was given.
@@ -225,9 +268,8 @@ impl crate::sim::Sim {
     /// button), and a dead player issues nothing: its soldier does not step, so
     /// its `prev_buttons` is stale, and a bit held across a respawn issues once
     /// on the first tick after it (documented, not fixed — the respawned
-    /// soldier starts at `prev_buttons` 0). A player in a vehicle seat issues
-    /// nothing either: the PS2's seat orders are another set (RE §4.4), not
-    /// built.
+    /// soldier starts at `prev_buttons` 0). A ground pilot's Right issues
+    /// PILE IN and Left EVERYONE OUT (RE §4.4).
     pub(crate) fn squad_pass(&mut self, pads: &[crate::sim::PadState]) {
         // The expiry first, units in index order: a Disperse whose tick has
         // come is no order at all, and the commander (phase 1) must not see it.
@@ -250,12 +292,23 @@ impl crate::sim::Sim {
             let Some(u) = self.unit(h) else { continue };
             let Some(pad) = pads.get(slot) else { continue };
             let edge = pad.buttons & !u.soldier.prev_buttons();
-            let Some(&(_, order)) = EDGE_ORDER.iter().find(|(bit, _)| edge & bit != 0) else {
-                continue;
+            let order = if u.mount.is_some() {
+                if self.ground_pilot_vehicle(slot as u8).is_none() {
+                    continue;
+                }
+                if edge & crate::sim::buttons::SQUAD_AT_EASE != 0 {
+                    Order::GetOut
+                } else if edge & crate::sim::buttons::SQUAD_FOLLOW != 0 {
+                    Order::PileIn
+                } else {
+                    continue;
+                }
+            } else {
+                let Some(&(_, order)) = EDGE_ORDER.iter().find(|(bit, _)| edge & bit != 0) else {
+                    continue;
+                };
+                order
             };
-            if u.mount.is_some() {
-                continue;
-            }
             let slot = slot as u8;
             let units = self.give_order(slot, order);
             self.nav_stats.commands += 1;
@@ -335,7 +388,30 @@ impl crate::sim::Sim {
         let Some(leader) = self.players.get(usize::from(slot)).copied().flatten() else {
             return 0;
         };
-        let mut near = self.in_reach(slot, order.reach());
+        let vehicle = if matches!(order, Order::PileIn | Order::GetOut) {
+            let Some(v) = self.ground_pilot_vehicle(slot) else {
+                return 0;
+            };
+            Some(v)
+        } else {
+            None
+        };
+        let mut near = if order == Order::GetOut {
+            // Bind to these exact AI occupants; no distance or free-gun test.
+            self.vehicle(vehicle.unwrap())
+                .unwrap()
+                .seats
+                .iter()
+                .filter_map(|seat| seat.occupant)
+                .filter(|&h| {
+                    self.unit(h)
+                        .is_some_and(|u| u.controller == crate::unit::Controller::Ai)
+                })
+                .map(|h| h.index as usize)
+                .collect()
+        } else {
+            self.in_reach(slot, order.reach())
+        };
         if matches!(order, Order::MoveOut | Order::AtEase) {
             if let Some(issuer) = self.unit(leader).filter(|u| {
                 u.mount.is_none() && u.controller == (crate::unit::Controller::Player { slot })
@@ -356,6 +432,7 @@ impl crate::sim::Sim {
                 issuer: slot,
                 leader,
                 pickup: self.pickup_receiver(i),
+                vehicle,
             });
         }
         near.len().min(255) as u8
@@ -365,7 +442,40 @@ impl crate::sim::Sim {
     /// then the order's own rule. True when the unit now follows or holds by
     /// this order.
     pub(crate) fn take_order(&mut self, i: usize, p: Pending) -> bool {
-        if let Some(target) = p.pickup {
+        if p.order == Order::GetOut {
+            let u = &self.units[i];
+            // Unseating cancels pending delivery for both issuer and receiver,
+            // including exit/reentry on the same tick. Handles bind generations.
+            if u.controller != crate::unit::Controller::Ai
+                || self.players.get(usize::from(p.issuer)).copied().flatten() != Some(p.leader)
+                || self.ground_pilot_vehicle(p.issuer) != p.vehicle
+                || !u.mount.is_some_and(|m| {
+                    Some(m.vehicle) == p.vehicle
+                        && self.vehicle(m.vehicle).is_some_and(|v| {
+                            v.seats
+                                .get(usize::from(m.seat))
+                                .is_some_and(|s| s.occupant == Some(self.handle(i)))
+                        })
+                })
+            {
+                return false;
+            }
+        }
+        if p.order == Order::PileIn {
+            let u = &self.units[i];
+            if !u.alive
+                || u.controller != crate::unit::Controller::Ai
+                || u.mount.is_some()
+                || self.players.get(usize::from(p.issuer)).copied().flatten() != Some(p.leader)
+                || !self.unit(p.leader).is_some_and(|l| {
+                    l.team == u.team
+                        && l.controller == (crate::unit::Controller::Player { slot: p.issuer })
+                })
+            {
+                return false;
+            }
+        }
+        if let Some(target) = p.pickup.filter(|_| p.order != Order::GetOut) {
             let valid_issuer = self.players.get(usize::from(p.issuer)).copied().flatten()
                 == Some(p.leader)
                 && self.unit(p.leader).is_some_and(|u| {
@@ -378,6 +488,15 @@ impl crate::sim::Sim {
             }
         }
         let has = self.units[i].command;
+        // Even a redundant Follow supersedes a previous explicit board goal.
+        if p.order != Order::PileIn
+            && self.units[i]
+                .ai
+                .ride
+                .is_some_and(|r| r.player_board.is_some())
+        {
+            self.units[i].ai.cmd_clear();
+        }
         let follows = matches!(has.map(|c| c.kind), Some(CommandKind::Follow(_)));
         // The one veto: a follower refuses another FOLLOW ME, with no answer.
         if p.order == Order::Follow && follows {
@@ -397,6 +516,60 @@ impl crate::sim::Sim {
     /// what the unit does, the unit now follows or holds by it).
     fn obey(&mut self, i: usize, p: Pending, has: Option<Command>) -> (bool, bool) {
         match p.order {
+            Order::GetOut => {
+                // Replace this player's old field/boarding business before the
+                // same tick's follower shortcut and AI write-back can revive it.
+                if has.is_some_and(|c| c.issuer == p.issuer) {
+                    self.units[i].command = None;
+                }
+                let ai = &mut self.units[i].ai;
+                ai.pending_board = None;
+                if has.is_none_or(|c| c.issuer == p.issuer) {
+                    ai.cmd_clear();
+                } else {
+                    // Leaving ends the vehicle route, not another player's
+                    // retained field order or its accumulated release clock.
+                    ai.route = None;
+                }
+                let r = ai.ride.get_or_insert_default();
+                r.board = None;
+                r.use_req = false;
+                r.own_search_until = self.tick + 600;
+                let me = self.handle(i);
+                self.exit_vehicle(me);
+                self.nav_stats.ai_dismounts += 1;
+                (true, false)
+            }
+            Order::PileIn => {
+                let Some(vh) = p.vehicle else {
+                    return (false, false);
+                };
+                // Replace older boarding business, retaining the field order and
+                // its scratch behind this explicit goal. No post/AI-call gates.
+                self.units[i].ai.pending_board = None;
+                let me = self.handle(i);
+                let mut r = self.units[i].ai.ride.unwrap_or_default();
+                r.board = Some(vh);
+                r.called_board = Some(me);
+                r.player_board = Some(BoardIssuer {
+                    slot: p.issuer,
+                    leader: p.leader,
+                });
+                r.ordered_call = false;
+                r.since = self.tick;
+                r.maintenance = None;
+                r.use_req = false;
+                r.call_blocked = false;
+                let admitted = crate::ai::claimed_seat(self, me, vh, r).is_some();
+                if !admitted {
+                    r.board = None;
+                    r.called_board = None;
+                    r.player_board = None;
+                }
+                self.units[i].ai.ride = Some(r);
+                self.units[i].ai.route = None;
+                (admitted, false)
+            }
             Order::MoveOut | Order::AtEase => {
                 let released = has.is_some_and(|c| !c.in_pool() && c.issuer == p.issuer);
                 if released {
@@ -481,6 +654,7 @@ impl crate::sim::Sim {
                 issuer: slot,
                 leader,
                 pickup: None,
+                vehicle: None,
             };
             n += u8::from(self.take_order(i, p));
         }
@@ -497,6 +671,13 @@ impl crate::sim::Sim {
         for i in 0..self.units.len() {
             if self.units[i].order.is_some_and(|p| p.issuer == slot) {
                 self.units[i].order = None;
+            }
+            if self.units[i]
+                .ai
+                .ride
+                .is_some_and(|r| r.player_board.is_some_and(|issuer| issuer.slot == slot))
+            {
+                self.units[i].ai.cmd_clear();
             }
             if self.units[i].command.is_some_and(|c| c.issuer == slot) {
                 self.units[i].ai.pending_board = None;
@@ -516,7 +697,10 @@ pub(crate) fn follow_vehicle(
     sim: &crate::sim::Sim,
     u: &crate::unit::Unit,
 ) -> Option<crate::vehicle::VehicleHandle> {
-    if u.mount.is_some() {
+    if u.mount.is_some()
+        || u.order
+            .is_some_and(|p| matches!(p.order, Order::PileIn | Order::GetOut))
+    {
         return None;
     }
     let CommandKind::Follow(leader) = u.command?.kind else {
@@ -575,7 +759,11 @@ pub fn steer(
     let d = (pos - lp).length();
     // WGORD: retain the ordinary release clock while the explicit board goal
     // runs. Do not advance Follow's approach/stand scratch or its route.
-    if st.ride.is_some_and(|r| r.ordered_call) || st.pending_board.is_some() {
+    if st
+        .ride
+        .is_some_and(|r| r.ordered_call || r.player_board.is_some())
+        || st.pending_board.is_some()
+    {
         if d > LEAVE_DIST {
             c.far_ticks = c.far_ticks.saturating_add(crate::ai::THINK_PERIOD as u16);
         }
@@ -596,6 +784,7 @@ pub fn steer(
                 if let Some(r) = st.ride.as_mut() {
                     r.board = None;
                     r.called_board = None;
+                    r.player_board = None;
                     r.maintenance = None;
                     r.use_req = false;
                 }

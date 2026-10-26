@@ -506,6 +506,21 @@ impl Scene {
         sim.doors = doors;
     }
 
+    /// Install the water level and WMAP wet cells together for every sim loader.
+    /// Older manifests without a mask retain the whole-plane fallback. A scene
+    /// without water clears both inputs; render-only scenes need not call this.
+    pub fn install_water(&self, sim: &mut core::sim::Sim) {
+        sim.water_level = self.manifest.water.as_ref().map(|w| w.height);
+        sim.water_mask = self
+            .manifest
+            .water
+            .as_ref()
+            .and_then(|w| w.wet.as_ref())
+            .and_then(|m| {
+                core::water::WetMask::new(m.grid, m.cell_size, m.half_extent, &m.cells())
+            });
+    }
+
     /// [`Scene::collision_world`] and the door entities that move its bodies.
     /// `OPENBF_DOORS_SOLID=1` returns no door, so every door stays shut —
     /// the port before DR1, kept as the reversal.
@@ -705,6 +720,10 @@ impl Scene {
     pub fn resolve_model(&self, class: &str) -> Option<&str> {
         let cls = self.resolve_class(class)?;
         let geom = cls.geometry.as_deref()?;
+        self.model_for_geometry(geom)
+    }
+
+    pub fn model_for_geometry<'a>(&'a self, geom: &'a str) -> Option<&'a str> {
         let model = match self
             .manifest
             .geometries
@@ -1260,6 +1279,68 @@ mod tests {
             textures: HashMap::new(),
             collision: HashMap::new(),
             cutters: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn installed_water_keeps_dry_cells_and_clears_previous_scene_inputs() {
+        let mut scene = scene("None");
+        scene.manifest.water = Some(
+            ron::from_str(
+                r#"(glb: "water.glb", height: -2.0,
+                wet: Some((grid: 2, cell_size: 10.0, half_extent: (10.0, 10.0),
+                           nibbles: "1000")))"#,
+            )
+            .unwrap(),
+        );
+        let mut sim = core::sim::Sim::empty(1);
+        scene.install_water(&mut sim);
+        let wet = glam::Vec3::new(-5.0, 2.0, -5.0);
+        let dry = glam::Vec3::new(5.0, 2.0, -5.0);
+        let water = sim.water_plane().expect("installed water");
+        assert_eq!(water.crossing(wet, glam::Vec3::NEG_Y), Some(4.0));
+        assert_eq!(water.crossing(dry, glam::Vec3::NEG_Y), None);
+        assert_eq!(sim.water_under(dry), None);
+
+        // A legacy manifest must clear the preceding map's mask, not inherit it.
+        scene.manifest.water.as_mut().unwrap().wet = None;
+        scene.install_water(&mut sim);
+        assert!(sim.water_mask.is_none());
+        assert_eq!(sim.water_under(dry), Some(-2.0));
+        scene.manifest.water = None;
+        scene.install_water(&mut sim);
+        assert!(sim.water_level.is_none() && sim.water_mask.is_none());
+        assert!(sim.water_plane().is_none());
+    }
+
+    #[test]
+    fn installed_kashyyyk_water_preserves_baked_wet_and_dry_cells() {
+        let path = baked_root().join("bf1_kas1/manifest.ron");
+        if !path.exists() {
+            eprintln!("SKIP: {} is not baked", path.display());
+            return;
+        }
+        let mut scene = scene("None");
+        scene.manifest = ron::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let mut sim = core::sim::Sim::empty(1);
+        scene.install_water(&mut sim);
+        let authored = scene.manifest.water.as_ref().unwrap();
+        let mask = authored.wet.as_ref().expect("rebaked KAS1 WMAP");
+        let cells = mask.cells();
+        assert_eq!(sim.water_mask.as_ref().unwrap().wet_cells(), 4014);
+        let plane = sim.water_plane().unwrap();
+        for wet in [false, true] {
+            let i = cells.iter().position(|&c| (c != 0) == wet).unwrap();
+            let origin = glam::Vec3::new(
+                ((i % mask.grid as usize) as f32 + 0.5) * mask.cell_size - mask.half_extent[0],
+                authored.height + 2.0,
+                ((i / mask.grid as usize) as f32 + 0.5) * mask.cell_size - mask.half_extent[1],
+            );
+            assert_eq!(
+                plane.crossing(origin, glam::Vec3::NEG_Y),
+                wet.then_some(2.0)
+            );
+            assert_eq!(sim.water_under(origin), wet.then_some(authored.height));
         }
     }
 

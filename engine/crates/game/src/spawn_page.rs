@@ -254,7 +254,7 @@ mod tests {
             max_health: 300.0,
             health_type: core::weapon::HealthType::Person,
             weapon_class: 0,
-            spare_clips: 6,
+            total_clips: 6,
             weapon_slot: 0,
             slots: std::sync::Arc::new([]),
             jet: false,

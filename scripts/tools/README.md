@@ -1,7 +1,7 @@
 # scripts/tools
 
-Small standalone helpers that the analysis notes, cards and AGENTS.md cite. Each runs from any directory: paths
-resolve from the repository root. The reverse-engineering tools read the PS2 executables from your own disc extract
+Small standalone helpers that the analysis notes, cards and AGENTS.md cite. The commands below run from the
+repository root. The reverse-engineering tools locate the PS2 executables relative to the repository, from your own disc extract
 (`extracted/bf1/SWBFRONT.ELF`, `extracted/bf2/SWBFRNT2.ELF`); nothing here ships game data.
 
 | tool | what it does | usage |
@@ -12,8 +12,17 @@ resolve from the repository root. The reverse-engineering tools read the PS2 exe
 | `eedis.py` | small R5900 disassembler, VU0 macro ops with their field masks | `python3 scripts/tools/eedis.py bf1 22ad3c 22ad80` |
 | `eedis2.py` | `eedis.py` plus unaligned loads/stores, FPU/COP2 branches, likely-branches | `python3 scripts/tools/eedis2.py bf2 <lo> <hi>` |
 | `vu1dis.py` | VU1 microprogram disassembler (`tags`, `find <regex>`, or a range) | `python3 scripts/tools/vu1dis.py bf2` |
-| `pure_move_check.py` | proves a file split only moved lines (run it on every split) | `python3 scripts/tools/pure_move_check.py HEAD:<old.rs> <new files...>` |
+| `pure_move_check.py` | checks that every meaningful old line survives a split, reporting visibility changes and new-only lines | `python3 scripts/tools/pure_move_check.py <parent-sha>:<old.rs> <new files...>` |
 | `win_run.sh` / `xkey.py` | the windowed game on a private Xvfb display with a scratch profile and no sound device, driven by a key script | header of `win_run.sh` |
 
 `scripts/re_check.py` (`fn`, `callers`, `word`) and `scripts/re_calc.py` are the main RE checkers; see the
 "RE and absence claims" rules in the loop's RULES.md.
+
+For a split, run `pure_move_check.py` from the candidate checkout's root, naming the exact parent revision and
+every resulting file, including the facade. File arguments resolve from the current directory, and revision
+arguments use that directory's Git repository. Run it after formatting: whitespace is trimmed per line, but
+rewrapping a statement across lines changes the comparison.
+
+Exit 0 proves old-line containment under the helper's documented exclusions. Added executable lines can still
+produce exit 0: inspect every new-only line, visibility change and the complete diff, and run the unchanged
+behavior gates. Follow `engine/artifacts/briefs/SPLIT_RECIPE.md` for the full split proof and acceptance.

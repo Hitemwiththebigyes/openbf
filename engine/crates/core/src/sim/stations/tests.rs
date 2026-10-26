@@ -6,6 +6,8 @@ use crate::sim::PadState;
 use crate::unit::UnitSpec;
 use crate::TICK_HZ;
 
+mod destruction;
+
 /// The disc's health droids (§2.2): BF1 +15, BF2 +25 every 1.0 s; the ammo
 /// droid +1 clip every 2.0 s.
 fn health_droid(bf2: bool) -> StationClass {
