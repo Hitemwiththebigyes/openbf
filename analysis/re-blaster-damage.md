@@ -583,7 +583,7 @@ Class defaults (OrdnanceLaser ctor FUN_0027c9d0): LifeSpan 2.0, Velocity 150.0.
 |---|---|---|
 | ShotDelay | 0.2 | 5 shots/s, automatic (TriggerSingle 0) |
 | SalvoCount / ShotsPerSalvo / SalvoDelay | 1 / (1) / 0.0 | plain auto rifle |
-| RoundsPerClip / ReloadTime | 50 / 1.5 | 10 s sustained; AmmoPerShot default → 0.02 clip-fraction/shot; WeaponAmmo 6 (soldier prop) = spare clips |
+| RoundsPerClip / ReloadTime | 50 / 1.5 | 10 s sustained; AmmoPerShot default → 0.02 clip-fraction/shot; WeaponAmmo 6 (soldier prop) = total clips including the loaded one; see re-ammo-reload.md |
 | Yaw/PitchSpread | 0.25° | constant dispersion floor |
 | SpreadPerShot / RecoverRate / Threshold / Limit | 1.1° / 4.8°/s / 1.6° / 6.0° | net growth while firing = 1.1 − 4.8×0.2 = +0.14°/shot from −1.6° → bloom only begins ~shot 13, caps at 6° |
 | posture spreads | all 0.0 | NO movement/stance accuracy penalty on the rifle |

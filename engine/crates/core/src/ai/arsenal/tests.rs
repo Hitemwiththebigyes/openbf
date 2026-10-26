@@ -1373,7 +1373,7 @@ fn no_rocket_leaves_with_a_friend_walking_into_its_line() {
         }
     }
     assert_eq!(hits, 0, "rockets into the friend, of {shots}");
-    assert_eq!(shots, 7, "every round it has, between his passes");
+    assert_eq!(shots, 6, "every round it has, between his passes");
     // (Card TPOS: 131 ticks once the strafe on a burst went - the step out
     // of the line takes the bot out of it sooner.)
     assert!(sim.nav_stats.line_held > 100, "{}", sim.nav_stats.line_held);

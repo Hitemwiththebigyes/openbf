@@ -402,7 +402,7 @@ pub(super) fn hud_model(
             icon: hud.icon.clone(),
             // The localised weapon name waits for the Locl tables.
             name: String::new(),
-            total: (rounds > 0).then_some(me.weapon.clip + me.weapon.spare),
+            total: class.and_then(|c| me.weapon.rounds(c)),
             clip_fraction: if rounds > 0 {
                 me.weapon.clip as f32 / rounds as f32
             } else {

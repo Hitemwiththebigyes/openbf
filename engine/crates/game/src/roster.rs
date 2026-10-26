@@ -58,7 +58,6 @@ pub struct ClassRoster {
     pub max_health: f32,
     pub health_type: HealthType,
     pub weapon: WeaponClass,
-    /// Primary weapon's spare clips (`WeaponAmmo`).
     pub spare_clips: u32,
     /// Every weapon slot of the class, in slot order
     /// ([`ClassDb::weapon_slots`]); `weapon` is the first channel-0 one.

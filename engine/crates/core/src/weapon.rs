@@ -949,7 +949,6 @@ pub struct WeaponState {
 }
 
 impl WeaponState {
-    /// `spare_clips` = soldier `WeaponAmmo` (spare clips).
     pub fn new(class: &WeaponClass, human: bool, spare_clips: u32) -> Self {
         Self {
             state: FireState::Idle,
@@ -980,8 +979,6 @@ impl WeaponState {
     /// The PS2's ammo rule for a class slot (`re-grenades.md` §2.5, B1
     /// `FUN_002838d8`): `WeaponAmmo` clips = one loaded + (N − 1) in reserve;
     /// 0 (a written value < 1) = an endless reserve ([`SPARE_INFINITE`]).
-    /// PROVISIONAL split: [`WeaponState::new`] still gives the primary N
-    /// spare clips, as it always has.
     pub fn with_clips(class: &WeaponClass, human: bool, clips: u32) -> Self {
         let mut w = Self::new(class, human, clips.saturating_sub(1));
         if clips == 0 {
@@ -1064,7 +1061,6 @@ impl WeaponState {
     }
 
     /// Start a reload if one is possible (RELOAD button or empty clip).
-    /// Provisional: ReloadTime consumption + interrupt rules untraced.
     pub fn start_reload(&mut self, c: &WeaponClass) -> bool {
         if c.infinite_ammo()
             || self.reloading()
@@ -1072,6 +1068,10 @@ impl WeaponState {
             || self.spare == 0
         {
             return false;
+        }
+        if self.spare != SPARE_INFINITE {
+            self.spare = self.spare.saturating_add(self.clip);
+            self.clip = 0;
         }
         self.reload_timer = c.reload_time;
         true
@@ -1094,7 +1094,11 @@ impl WeaponState {
     fn cycle_finished(&self, c: &WeaponClass, blocked: bool) -> bool {
         self.salvo_counter < 1
             && self.refire_time <= self.refire_accum
-            && (c.trigger_single || !self.fire_predicate(c) || self.reloading() || blocked)
+            && (c.trigger_single
+                || !self.fire_predicate(c)
+                || self.reloading()
+                || (!c.infinite_ammo() && self.clip < c.ammo_per_shot)
+                || blocked)
     }
 
     /// One tick of the weapon (state machine + fire cycle + heat + reload +
@@ -1117,7 +1121,6 @@ impl WeaponState {
         // in the fire cycle can ask for a spread; ours arrives with the pad.
         self.ai_dispersion = ai_dispersion;
         self.set_fire_input(fire_held);
-        let fire_attempt = self.fire_cmd != 0;
 
         // Heat (BF1 weapon update): overheat at 1.0, recover, clear below threshold.
         if !self.overheated {
@@ -1140,10 +1143,10 @@ impl WeaponState {
                 }
             }
         }
-        // Empty clip + fire attempt → auto-reload (both games reload on empty).
         if !infinite_ammo
             && !c.infinite_ammo()
-            && fire_attempt
+            && self.active
+            && self.state == FireState::Idle
             && self.clip < c.ammo_per_shot
             && !self.reloading()
         {
@@ -1170,10 +1173,11 @@ impl WeaponState {
             self.fire_cycle(dt, c, blocked, infinite_ammo, lcg, shots);
             if self.cycle_finished(c, blocked) {
                 self.state = FireState::Idle;
-                // The grenade's fire state ends in the reload when the clip
-                // is empty (`re-grenades.md` §3.2; the cannon's own reload
-                // rules are untraced and stay as they were).
-                if c.thrown.is_some() && self.clip < c.ammo_per_shot {
+                if !infinite_ammo
+                    && !c.infinite_ammo()
+                    && self.active
+                    && self.clip < c.ammo_per_shot
+                {
                     self.start_reload(c);
                 }
             }
@@ -1224,6 +1228,7 @@ impl WeaponState {
                     || c.trigger_single
                     || !self.fire_predicate(c)
                     || self.reloading()
+                    || (!infinite_ammo && !c.infinite_ammo() && self.clip < c.ammo_per_shot)
                     || blocked
                 {
                     break;

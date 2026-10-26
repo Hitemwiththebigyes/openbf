@@ -169,18 +169,18 @@ impl Pickup {
     }
 }
 
-/// The reserve (rounds) the weapon in class slot `slot` spawned with: the
-/// cap an ammo item fills it to.
-fn reserve_cap(spec: &UnitSpec, slot: u8, class: &WeaponClass) -> u32 {
+fn reserve_cap(spec: &UnitSpec, slot: u8, class: &WeaponClass, state: &WeaponState) -> u32 {
     let clips = if slot == spec.weapon_slot {
         spec.spare_clips
     } else {
         spec.slots
             .iter()
             .find(|s| s.slot == slot)
-            .map_or(0, |s| s.clips.saturating_sub(1))
+            .map_or(0, |s| s.clips)
     };
-    clips.saturating_mul(class.rounds_per_clip)
+    clips
+        .saturating_sub(u32::from(state.clip > 0))
+        .saturating_mul(class.rounds_per_clip)
 }
 
 /// §5.4 for one weapon: `clips` more in reserve, up to `cap` rounds. A
@@ -205,11 +205,11 @@ pub(super) fn give_ammo(classes: &[WeaponClass], u: &mut Unit, clips: u32) -> bo
         return false;
     }
     let wc = &classes[u.weapon_class];
-    let cap = reserve_cap(&u.spec, u.weapon_slot, wc);
+    let cap = reserve_cap(&u.spec, u.weapon_slot, wc, &u.weapon);
     let mut ammo = give_clips(&mut u.weapon, wc, clips, cap);
     for w in &mut u.held {
         let wc = &classes[w.class];
-        let cap = reserve_cap(&u.spec, w.slot, wc);
+        let cap = reserve_cap(&u.spec, w.slot, wc, &w.state);
         ammo |= give_clips(&mut w.state, wc, clips, cap);
     }
     ammo

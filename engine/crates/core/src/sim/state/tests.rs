@@ -250,7 +250,7 @@ fn a_squad_command_is_part_of_the_hash_and_no_command_costs_nothing() {
     }
     assert_eq!(
         format!("{:016x}", sim.hash()),
-        "f9f37400e0f3171e",
+        "06da5e043dd4c755",
         "the command-free hash format moved"
     );
 
