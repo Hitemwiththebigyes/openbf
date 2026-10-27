@@ -3,6 +3,38 @@ use crate::walk::WalkSim;
 use core::sim::InputLog;
 use glam::Vec3;
 
+#[test]
+fn remapping_swaps_conflicts_and_releases_old_held_keys() {
+    let mut k = Kbm::default();
+    let mut settings = crate::profile::Settings::default();
+    k.press(Trigger::Key(KeyCode::KeyW), true);
+    assert!(k.pad(PadState::default()).ly > 0);
+    settings
+        .keyboard_bindings
+        .remap(0, Trigger::Key(KeyCode::KeyS));
+    k.follow(&settings);
+    assert_eq!(k.pad(PadState::default()).ly, 0);
+    k.press(Trigger::Key(KeyCode::KeyS), true);
+    assert!(k.pad(PadState::default()).ly > 0);
+    k.press(Trigger::Key(KeyCode::KeyS), false);
+    k.press(Trigger::Key(KeyCode::KeyW), true);
+    assert!(k.pad(PadState::default()).ly < 0);
+}
+
+#[test]
+fn wheel_cannot_be_assigned_to_held_movement_directly_or_by_swap() {
+    let mut bindings = Bindings::default();
+    let original = bindings.clone();
+    let wheel = bindings
+        .table
+        .iter()
+        .position(|(t, _)| *t == Trigger::WheelDown)
+        .unwrap();
+    assert!(!bindings.remap(0, Trigger::WheelDown));
+    assert!(!bindings.remap(wheel, Trigger::Key(KeyCode::KeyW)));
+    assert_eq!(bindings, original);
+}
+
 fn grabbed() -> Kbm {
     Kbm {
         grabbed: true,

@@ -14,10 +14,6 @@
 //! - **Singleplayer** (`ifs_sp`, left-justified, `shell_sub_left`): Rise of
 //!   the Empire and Galactic Conquest disabled (no port mode yet), Instant
 //!   Action live; Training and Space Overview hidden (§9.5).
-//! - **Options** (`ifs_opt_top`, left-justified, `shell_sub_left`): Game
-//!   Options and Audio Options open the port's settings page, Controls is
-//!   disabled until a remap page exists; Online Options, View Trailer,
-//!   Credits and Career Stats hidden (§9.7).
 //!
 //! The stack's geometry is the frames' [M] rule (§3.2), not the Lua's
 //! left-justify formula (which does not reproduce them, §3.2 [H]): labels
@@ -181,6 +177,7 @@ pub enum ShellCommand {
     InstantAction,
     /// Options → Game Options / Audio Options: the port's settings page.
     Settings,
+    Controls,
     /// Back on the title screen (`[ours]`: the PS2 has no way out).
     Quit,
 }
@@ -258,7 +255,7 @@ impl ShellMenus {
                 vec![
                     row(RowId::GameOptions, true),
                     row(RowId::AudioOptions, true),
-                    row(RowId::Controls, false),
+                    row(RowId::Controls, true),
                 ],
                 true,
                 0.0,
@@ -332,6 +329,7 @@ impl ShellMenus {
             RowId::Options => self.go(Page::Options),
             RowId::InstantAction => return Some(ShellCommand::InstantAction),
             RowId::GameOptions | RowId::AudioOptions => return Some(ShellCommand::Settings),
+            RowId::Controls => return Some(ShellCommand::Controls),
             _ => {}
         }
         None
@@ -604,6 +602,23 @@ mod tests {
         assert_eq!(
             m.step(press(|i| i.back = true), false, 0.1),
             Some(ShellCommand::Quit)
+        );
+    }
+
+    #[test]
+    fn controls_are_reachable_from_options() {
+        let mut m = menus();
+        m.page = Page::Options;
+        m.options.focus = m
+            .options
+            .rows
+            .iter()
+            .position(|row| row.id == RowId::Controls)
+            .unwrap();
+        assert!(m.options.rows[m.options.focus].enabled);
+        assert_eq!(
+            m.step(press(|i| i.confirm = true), false, 0.1),
+            Some(ShellCommand::Controls)
         );
     }
 

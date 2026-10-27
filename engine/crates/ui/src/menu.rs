@@ -53,6 +53,49 @@ pub enum MenuAction {
 
 pub const MOUSE_SENSITIVITY_RANGE: (f32, f32) = (0.1, 5.0);
 
+pub fn draw_controls(
+    ctx: &egui::Context,
+    labels: &[(String, String)],
+    cursor: usize,
+    capture: bool,
+) -> Option<usize> {
+    let mut selected = None;
+    let cursor_id = egui::Id::new("controls_last_cursor");
+    let changed = ctx.data_mut(|data| {
+        let changed = data.get_temp::<usize>(cursor_id) != Some(cursor);
+        data.insert_temp(cursor_id, cursor);
+        changed
+    });
+    egui::Area::new(egui::Id::new("controls_menu"))
+        .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
+        .show(ctx, |ui| {
+            egui::Frame::new()
+                .fill(Color32::from_black_alpha(220))
+                .inner_margin(egui::Margin::same(18))
+                .show(ui, |ui| {
+                    ui.heading("CONTROLS");
+                    ui.label(if capture {
+                        "Press a control · Esc / Start cancels"
+                    } else {
+                        "Select a row to change it · Back returns"
+                    });
+                    egui::ScrollArea::vertical()
+                        .max_height(500.0)
+                        .show(ui, |ui| {
+                            for (i, (name, value)) in labels.iter().enumerate() {
+                                if row_label(ui, i == cursor, name.clone(), Some(value.clone())) {
+                                    selected = Some(i);
+                                }
+                                if changed && i == cursor {
+                                    ui.scroll_to_cursor(Some(egui::Align::Center));
+                                }
+                            }
+                        });
+                });
+        });
+    selected
+}
+
 /// Controller edges for one frame.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MenuInput {
@@ -188,11 +231,14 @@ fn row_label(ui: &mut egui::Ui, selected: bool, text: String, value: Option<Stri
         .show(ui, |ui| {
             ui.set_min_width(360.0);
             ui.horizontal(|ui| {
-                let r = ui.label(RichText::new(text).size(18.0).color(if selected {
-                    Color32::WHITE
-                } else {
-                    Color32::LIGHT_GRAY
-                }));
+                let r = ui.add(
+                    egui::Label::new(RichText::new(text).size(18.0).color(if selected {
+                        Color32::WHITE
+                    } else {
+                        Color32::LIGHT_GRAY
+                    }))
+                    .sense(egui::Sense::click()),
+                );
                 clicked |= r.clicked();
                 if let Some(v) = value {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
