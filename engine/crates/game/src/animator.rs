@@ -79,6 +79,13 @@ pub const BF2_RUN_STAY: f32 = 0.71;
 /// Idle under this speed (m/s): BF1 on both axes, BF2 the whole (0.2 once
 /// moving; `FUN_0027ed18` B2:202186-202192).
 const IDLE: f32 = 0.3;
+/// The prone changes' clip names ([`Special::ProneDown`], [`Special::ProneUp`]).
+const PRONE_CHANGES: [&str; 4] = [
+    "stand_getdown_prone",
+    "crouch_getdown_prone",
+    "prone_getup_stand",
+    "prone_getup_crouch",
+];
 const BF2_IDLE_STAY: f32 = 0.2;
 
 /// The travel angles (rad, + = his left) that take the forward clip: inside
@@ -187,8 +194,10 @@ pub struct AnimInput {
     /// a 1.15 Wookiee walks at v / 1.15 on his longer legs.
     pub root_scale: f32,
     pub dead: bool,
-    /// Standing in the lock that follows a get-up ([`Special::StandUp`]).
-    pub getup_lock: bool,
+    /// In a hard lock (`Soldier::look_frozen`): after a get-up
+    /// ([`Special::StandUp`]) or across a prone change ([`Special::ProneDown`],
+    /// [`Special::ProneUp`]).
+    pub hard_lock: bool,
     /// The set of the weapon in hand ([`Rig::weapon_set`]).
     pub set: usize,
     /// A shot left the weapon this update.
@@ -477,6 +486,13 @@ pub enum Special {
     /// The lock after a get-up (`stand_getupfront / back`, ids 0x10 / 0x11):
     /// the side of the get-up clip before it (re-knockback §2).
     StandUp(bool),
+    /// The prone change's hard lock (`prone_down_lock` / `prone_up_lock`,
+    /// BF1's clip lengths): `stand_getdown_prone` / `crouch_getdown_prone`
+    /// (`true` = from a crouch, ids 0x16 / 0x18) and `prone_getup_stand` /
+    /// `prone_getup_crouch` (`true` = to a crouch, ids 0x17 / 0x19). BF2's
+    /// are borrowed from BF1 ([`Rig::prone`]).
+    ProneDown(bool),
+    ProneUp(bool),
 }
 
 impl Special {
@@ -498,6 +514,10 @@ impl Special {
             Special::Land(b) => ["thrown_landfrontsoft", "thrown_landbacksoft"][usize::from(b)],
             Special::Rest(b) => ["thrown_restfrontsoft", "thrown_restbacksoft"][usize::from(b)],
             Special::StandUp(b) => ["stand_getupfront", "stand_getupback"][usize::from(b)],
+            Special::ProneDown(c) => {
+                ["stand_getdown_prone", "crouch_getdown_prone"][usize::from(c)]
+            }
+            Special::ProneUp(c) => ["prone_getup_stand", "prone_getup_crouch"][usize::from(c)],
         }
     }
 
@@ -589,7 +609,8 @@ pub struct Rig {
     root: Vec<Option<[f32; 2]>>,
     /// BF2: the rifle's prone clips borrowed from BF1 (the bake's
     /// `BORROWED_PRONE`, issue #40; the PS2's BF2 has no prone): per
-    /// [`bf2::MOVES`], then the shot and the reload.
+    /// [`bf2::MOVES`], then the shot and the reload, then the four
+    /// [`PRONE_CHANGES`].
     prone: Vec<Option<usize>>,
 }
 
@@ -632,8 +653,10 @@ impl Rig {
             root,
             prone: bf2::MOVES
                 .iter()
-                .chain(&["shoot", "reload"])
-                .map(|m| find_clip(clips, &format!("human_rifle_prone_{m}")))
+                .map(|m| format!("human_rifle_prone_{m}"))
+                .chain(["shoot", "reload"].map(|a| format!("human_rifle_prone_{a}")))
+                .chain(PRONE_CHANGES.iter().map(|c| format!("human_rifle_{c}")))
+                .map(|n| find_clip(clips, &n))
                 .collect(),
         }
     }
@@ -810,6 +833,12 @@ impl Rig {
                     Body::Feet(2, m) => [m.ids().1, m.other_gait().ids().1, 0]
                         .into_iter()
                         .find_map(|k| self.prone_slot(k, true)),
+                    Body::Special(sp @ (Special::ProneDown(_) | Special::ProneUp(_))) => {
+                        PRONE_CHANGES
+                            .iter()
+                            .position(|n| *n == sp.name())
+                            .and_then(|k| self.prone_slot(bf2::MOVES.len() + 2 + k, false))
+                    }
                     _ => None,
                 };
                 let at = |layer| {
@@ -1148,10 +1177,22 @@ impl Animator {
             (Err(Special::Dead), Some(Body::Special(sp))) if sp.thrown().is_some() => {
                 Err(Special::Rest(sp.thrown().unwrap_or(false)))
             }
-            (Ok(0), Some(Body::Special(Special::Land(b) | Special::StandUp(b))))
-                if i.getup_lock =>
-            {
+            (Ok(0), Some(Body::Special(Special::Land(b) | Special::StandUp(b)))) if i.hard_lock => {
                 Err(Special::StandUp(b))
+            }
+            // The prone change plays its clip through the lock (issue: the
+            // soldier lay or stood frozen after a short blend).
+            (Ok(2), Some(Body::Feet(s @ (0 | 1), _))) if i.hard_lock => {
+                Err(Special::ProneDown(s == 1))
+            }
+            (Ok(2), Some(Body::Special(Special::ProneDown(c)))) if i.hard_lock => {
+                Err(Special::ProneDown(c))
+            }
+            (Ok(s @ (0 | 1)), Some(Body::Feet(2, _))) if i.hard_lock => {
+                Err(Special::ProneUp(s == 1))
+            }
+            (Ok(_), Some(Body::Special(Special::ProneUp(c)))) if i.hard_lock => {
+                Err(Special::ProneUp(c))
             }
             (s, _) => s,
         };
@@ -1315,11 +1356,20 @@ impl Animator {
                 a.rate
             }
         });
+        // A hard lock's clip (the stand-up, a prone change) plays at BF1's
+        // rate on both games: the lock is timed by BF1's clip lengths, so
+        // the animation ends as the soldier is free.
+        let clock = match body {
+            Body::Special(Special::StandUp(_) | Special::ProneDown(_) | Special::ProneUp(_)) => {
+                Game::Bf1
+            }
+            _ => rig.game,
+        };
         self.upper
-            .advance(clips, dt * if up_action { rate } else { walk }, rig.game);
+            .advance(clips, dt * if up_action { rate } else { walk }, clock);
         let legs = self.action.is_some_and(|a| a.legs);
         self.lower
-            .advance(clips, dt * if legs { rate } else { walk }, rig.game);
+            .advance(clips, dt * if legs { rate } else { walk }, clock);
 
         let jump_pose = matches!(
             body,

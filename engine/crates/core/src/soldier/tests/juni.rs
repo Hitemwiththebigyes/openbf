@@ -419,8 +419,12 @@ fn juni_thrown_grounded_first_update_and_landing_locks() {
                     }
                 }
                 assert_eq!(s.stance, Stance::Stand);
-                // KNOCK_RULES: BF1's lock (`stand_getupfront`, 58 frames) everywhere.
-                assert_eq!(s.lock_timer, 58.0 / 30.0, "get-up lock {rules:?}");
+                // KNOCK_RULES: one lock everywhere.
+                assert_eq!(
+                    s.lock_timer,
+                    crate::soldier::GETUP_LOCK,
+                    "get-up lock {rules:?}"
+                );
                 let at = s.pos;
                 go(&mut s, &PadState { ly: FWD, ..JUMP }, &c, rules, true);
                 assert!(s.no_fire());

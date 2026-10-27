@@ -610,7 +610,7 @@ fn the_feet_keep_to_the_ground() {
                     max_speed: 7.0,
                     root_scale: 1.0,
                     dead: false,
-                    getup_lock: false,
+                    hard_lock: false,
                     set: 0,
                     fired: false,
                     throw: None,
@@ -714,7 +714,7 @@ fn a_prone_soldier_lies_down_on_both_games() {
                     max_speed: 7.0,
                     root_scale: 1.0,
                     dead: false,
-                    getup_lock: false,
+                    hard_lock: false,
                     set,
                     fired: false,
                     throw: None,
@@ -744,5 +744,168 @@ fn a_prone_soldier_lies_down_on_both_games() {
             }
             set += 1;
         }
+    }
+}
+
+/// The maintainer 2026-10-27: after a stand-up from a blast and across a prone change
+/// the soldier stood or lay frozen (no move, no look) after the animation
+/// had ended. The real soldier is ticked through each lock and the real rig
+/// draws it on both games: the drawn pose keeps moving until the lock lets
+/// go, except the stand-up from the back, which settles 2 updates before the
+/// front one the lock is timed by.
+#[test]
+fn no_frozen_wait_after_a_lock_animation() {
+    use crate::animator::{body_vel, AnimInput, Animator};
+    use core::sim::{buttons, PadState};
+    use core::soldier::{GroundRules, Soldier, SoldierConstants, Stance};
+    let root = crate::assets::baked_root();
+    let dt = 1.0 / 30.0;
+    let c = SoldierConstants::default();
+    let mut cases = 0;
+    for (game, geometry) in [
+        ("bf1", "rep_inf_trooper"),
+        ("bf1", "all_inf_soldier"),
+        ("bf2", "rep_inf_trooper"),
+        ("bf2", "all_inf_wookie"),
+    ] {
+        if !root
+            .join(format!("side_{game}/soldiers/{geometry}.glb"))
+            .exists()
+        {
+            eprintln!("skip: no {game} {geometry} bake");
+            continue;
+        }
+        let t = team(&[("trooper", Some(geometry), None)]);
+        let vis = SoldierVisuals::load_cpu(&root, game, &[t.clone(), t]);
+        let sa = &vis.assets[0];
+        let (Some(rig), clips, skel) = (&sa.rig, &sa.asset.clips, &sa.asset.skeleton) else {
+            panic!("{game} {geometry}: no rig");
+        };
+        // One update of the soldier and its drawing; the pose's largest bone
+        // move since the last.
+        let tick =
+            |s: &mut Soldier, a: &mut Animator, pad: &PadState, last: &mut Option<Vec<_>>| {
+                s.step(dt, pad, &c, GroundRules::Bf1);
+                s.resolve_ground(dt, 0.0, glam::Vec3::Y, 0.0, GroundRules::Bf1);
+                let input = AnimInput {
+                    stance: s.stance,
+                    vel: body_vel(s.vel, s.yaw),
+                    yaw: s.yaw,
+                    max_speed: 7.0,
+                    root_scale: 1.0,
+                    dead: false,
+                    hard_lock: s.look_frozen(),
+                    set: 0,
+                    fired: false,
+                    throw: None,
+                    throw_windup: 0.0,
+                    reloading: false,
+                    reload_time: 0.0,
+                    alert: false,
+                    aim: (0.0, 0.0),
+                };
+                a.step(rig, clips, skel, &input, dt);
+                let pose: Vec<(glam::Quat, glam::Vec3)> = a
+                    .pose(skel)
+                    .0
+                    .iter()
+                    .map(|x| (x.rotation, x.translation))
+                    .collect();
+                let moved = last
+                    .as_ref()
+                    .map_or(f32::MAX, |p: &Vec<(glam::Quat, glam::Vec3)>| {
+                        p.iter()
+                            .zip(&pose)
+                            .map(|(a, b)| {
+                                (a.0.angle_between(b.0).to_degrees())
+                                    .max(100.0 * (a.1 - b.1).length())
+                            })
+                            .fold(0.0, f32::max)
+                    });
+                *last = Some(pose);
+                moved
+            };
+        // Updates the soldier is locked from `s` on, and how many locked ones
+        // at the end drew a still pose (under 0.1 degree and 1 mm a bone).
+        let wait = |s: &mut Soldier, a: &mut Animator, last: &mut Option<Vec<_>>| {
+            let (mut locked, mut still) = (0, 0);
+            while s.look_frozen() {
+                let moved = tick(s, a, &PadState::default(), last);
+                locked += 1;
+                // The update the lock lets go on is free, still or not.
+                if s.look_frozen() {
+                    still = if moved < 0.1 { still + 1 } else { 0 };
+                }
+                assert!(locked < 120, "{game}: a lock over 4 s");
+            }
+            (locked, still)
+        };
+        let press = PadState {
+            buttons: buttons::ROLL_STANCE,
+            ..Default::default()
+        };
+        // The stance cycle: stand -> crouch -> prone -> stand.
+        let mut s = Soldier::new(glam::Vec3::ZERO);
+        let mut a = Animator::new();
+        let mut last = None;
+        for (want, name) in [
+            (Stance::Crouch, None),
+            (Stance::Prone, Some("crouch_getdown_prone")),
+            (Stance::Stand, Some("prone_getup_stand")),
+        ] {
+            for _ in 0..20 {
+                tick(&mut s, &mut a, &PadState::default(), &mut last);
+            }
+            tick(&mut s, &mut a, &press, &mut last);
+            assert_eq!(s.stance, want, "{game}");
+            let Some(name) = name else { continue };
+            let up = a
+                .upper_clip()
+                .map(|k| clips[k].name.clone())
+                .unwrap_or_default();
+            assert!(up.ends_with(name), "{game} {geometry}: {up}, not {name}");
+            let (locked, still) = wait(&mut s, &mut a, &mut last);
+            println!("{game} {geometry} {name}: locked {locked} updates, still {still}");
+            assert_eq!(still, 0, "{game} {geometry} {name}: still updates");
+            cases += 1;
+        }
+        // A blast throws him forward and backward; he lands, gets up and
+        // stands in the lock.
+        for (dir, back) in [
+            (glam::Vec3::new(0.0, 0.3, -1.0), false),
+            (glam::Vec3::new(0.0, 0.3, 1.0), true),
+        ] {
+            let mut s = Soldier::new(glam::Vec3::ZERO);
+            let mut a = Animator::new();
+            let mut last = None;
+            for _ in 0..5 {
+                tick(&mut s, &mut a, &PadState::default(), &mut last);
+            }
+            s.knock(dir, 4.0, GroundRules::Bf1, 0.0);
+            let mut n = 0;
+            while s.stance != Stance::Stand {
+                tick(&mut s, &mut a, &PadState::default(), &mut last);
+                n += 1;
+                assert!(n < 300, "{game}: never stood up");
+            }
+            let up = a
+                .upper_clip()
+                .map(|k| clips[k].name.clone())
+                .unwrap_or_default();
+            assert!(up.contains("stand_getup"), "{game} {geometry}: {up}");
+            let (locked, still) = wait(&mut s, &mut a, &mut last);
+            println!(
+                "{game} {geometry} {up} (back {back}): locked {locked} updates, still {still}"
+            );
+            assert_eq!(
+                still,
+                if back { 2 } else { 0 },
+                "{game} {geometry} {up}: still updates"
+            );
+            cases += 1;
+        }
+    }
+    if cases > 0 {
+        assert_eq!(cases, 16);
     }
 }

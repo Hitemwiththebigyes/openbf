@@ -180,7 +180,7 @@ fn input(speed: f32) -> AnimInput {
         max_speed: 7.0,
         root_scale: 1.0,
         dead: false,
-        getup_lock: false,
+        hard_lock: false,
         set: 0,
         fired: false,
         throw: None,
@@ -1401,12 +1401,12 @@ fn a_tumble_rolls_along_its_travel() {
 }
 
 /// The lock after a get-up plays `stand_getupfront / back` (the get-up's
-/// side) instead of the standing idle; a lock with no get-up before it (the
-/// prone's) does not, and the clip ends with the lock.
+/// side) instead of the standing idle; a lock with no get-up or prone change
+/// before it does not, and the clip ends with the lock.
 #[test]
 fn the_getup_lock_plays_the_stand_up_clip() {
     let locked = AnimInput {
-        getup_lock: true,
+        hard_lock: true,
         ..input(0.0)
     };
     for rig in [rig_bf1(), rig_bf2()] {
@@ -1431,4 +1431,32 @@ fn the_getup_lock_plays_the_stand_up_clip() {
         r.steps(&locked, 3);
         assert!(matches!(r.a.body(), Some(Body::Feet(0, _))));
     }
+}
+
+/// A prone change's hard lock plays its transition (`stand_getdown_prone` /
+/// `crouch_getdown_prone`, `prone_getup_stand` / `prone_getup_crouch`), not
+/// the lying or standing idle, and the feet take over when the lock ends.
+#[test]
+fn a_prone_change_plays_its_transition_through_the_lock() {
+    let at = |stance, lock| AnimInput {
+        stance,
+        hard_lock: lock,
+        ..input(0.0)
+    };
+    for rig in [rig_bf1(), rig_bf2()] {
+        for (from, crouch) in [(Stance::Stand, false), (Stance::Crouch, true)] {
+            let mut r = Run::new(rig.clone());
+            r.steps(&at(from, false), 3);
+            r.steps(&at(Stance::Prone, true), 10);
+            assert_eq!(r.a.body(), Some(Body::Special(Special::ProneDown(crouch))));
+            r.steps(&at(Stance::Prone, false), 1);
+            assert!(matches!(r.a.body(), Some(Body::Feet(2, _))));
+            r.steps(&at(from, true), 10);
+            assert_eq!(r.a.body(), Some(Body::Special(Special::ProneUp(crouch))));
+            r.steps(&at(from, false), 1);
+            assert!(matches!(r.a.body(), Some(Body::Feet(s, _)) if s == usize::from(crouch)));
+        }
+    }
+    assert_eq!(Special::ProneDown(true).name(), "crouch_getdown_prone");
+    assert_eq!(Special::ProneUp(false).name(), "prone_getup_stand");
 }

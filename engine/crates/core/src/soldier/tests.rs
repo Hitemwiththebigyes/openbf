@@ -1119,7 +1119,7 @@ fn knock_bf1_the_ps2_players_impulse() {
 /// moves him with no gravity (the floor bit is still set); then g 13.5 with
 /// the horizontal 9.16 m/s unchanged; on the ground at update 46, tumbling
 /// at 47; the tumble at 8.4 m/s^2 to under 4 m/s, the get-up at 16.8 to
-/// rest, then the 1.9333 s lock with no move and no fire; at rest 18.7 m
+/// rest, then the lock (GETUP_LOCK) with no move and no fire; at rest 18.7 m
 /// from the start 2.4 s after the blast.
 #[test]
 fn knock_bf1_the_ps2_players_flight() {
@@ -1167,23 +1167,22 @@ fn knock_bf1_the_ps2_players_flight() {
         t += 1;
     }
     assert_eq!(s.stance, Stance::Stand);
-    assert!((s.lock_timer - 58.0 / 30.0).abs() < 1e-6);
+    assert!((s.lock_timer - GETUP_LOCK).abs() < 1e-6);
     let secs = t as f32 * DT;
     let dist = Vec2::new(s.pos.x, s.pos.z).length();
     assert!((secs - 2.4).abs() <= 0.1, "{secs} s");
     assert!((dist - 18.7).abs() <= 0.3, "{dist} m");
     // Locked: the stick moves nothing, the trigger is held off.
     let at = s.pos;
-    for _ in 0..55 {
+    for _ in 0..51 {
         tick1(&mut s, &full_fwd(), &c);
         assert!(s.no_fire());
     }
     assert!((s.pos - at).length() < 1e-4, "no move while locked");
-    // It runs out 58 or 59 updates on (1.935 s on the PS2).
-    for _ in 0..4 {
-        tick1(&mut s, &full_fwd(), &c);
-    }
-    assert!(!s.no_fire());
+    // It runs out on update 52, when the stand-up stops moving (ours; the
+    // PS2 holds 58, 1.935 s).
+    tick1(&mut s, &full_fwd(), &c);
+    assert!(!s.no_fire(), "free on update 52");
     assert!(s.vel.length() > 0.5, "free after the lock");
 }
 

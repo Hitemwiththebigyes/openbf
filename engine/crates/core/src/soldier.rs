@@ -93,7 +93,9 @@ pub struct SoldierConstants {
     /// Prone transition HARD locks (movement+turn zeroed) — BF1 clip
     /// durations, since BF2 cut the prone clips and openbf restores BF1
     /// prone: stand/crouch_getdown_prone = 40 frames = 1.3333 s,
-    /// prone_getup_stand = 45 frames = 1.5 s (re-anim-banks.md).
+    /// prone_getup_stand = 45 frames = 1.5 s (re-anim-banks.md). Each is
+    /// half an update under its frames, so the float countdown lets go on
+    /// update 40 / 45, as the clip ends (it went one late on 45).
     pub prone_down_lock: f32,
     pub prone_up_lock: f32,
     /// BF2's size term of the aim error at this soldier (card CLSE2,
@@ -130,8 +132,8 @@ impl Default for SoldierConstants {
             pitch_limits: (-0.8, 1.1),
             roll_duration: 0.75 * 34.0 / 30.0,
             soft_lock: 0.3,
-            prone_down_lock: 40.0 / 30.0,
-            prone_up_lock: 45.0 / 30.0,
+            prone_down_lock: 39.5 / 30.0,
+            prone_up_lock: 44.5 / 30.0,
             aim_size: 1.0,
             collision_scale: 1.0,
         }
@@ -489,11 +491,15 @@ pub const BF2_TUMBLE_MAX: f32 = 0.75;
 pub const GETUP_BRAKE: f32 = 0.4;
 pub const GETUP_END_SPEED: f32 = 0.6;
 pub const GETUP_MAX: f32 = 1.0;
-/// The lock after the get-up: BF1 the length of `stand_getupfront`, 58
-/// frames (B1:118536-118538; [M] 1.9333 s), no move, turn, fire or jump.
-/// BF2's is `re-anim-banks.md`'s stand-up lock, not re-read (PROVISIONAL).
-pub const BF1_GETUP_LOCK: f32 = 58.0 / 30.0;
-pub const BF2_GETUP_LOCK: f32 = 1.9;
+/// The lock after the get-up: no move, turn, fire or jump. The PS2 (BF1)
+/// locks the length of `stand_getupfront`, 58 frames (B1:118536-118538;
+/// [M] 1.9333 s). Ours (the maintainer 2026-10-27, FEEL_NOTES): the lock ends when the
+/// stand-up stops moving. Both games' clips hold still from frame 51 of 57
+/// (front) and 49 of 52 (back), so BF1's playback (`frames / 30` s) is done
+/// at update 52 and BF2's (`(frames - 1) / 30`) at 51; the back clip waits
+/// at most 2 updates more. Half an update under 52, so the float countdown
+/// lets go on update 52 and not 53.
+pub const GETUP_LOCK: f32 = 51.5 / 30.0;
 /// A death kicks the body this much along the hit (B1 FUN_00200f90,
 /// DAT_00517878; BF2 FUN_002395a8's literal; §3 [M] 5.0 +- 0.15 m/s).
 pub const DEATH_KICK: f32 = 5.0;
@@ -1017,7 +1023,7 @@ impl Soldier {
                 if self.grounded && (sp2 < GETUP_END_SPEED * GETUP_END_SPEED || t > GETUP_MAX) =>
             {
                 self.set_stance(Stance::Stand);
-                self.lock_timer = if bf1 { BF1_GETUP_LOCK } else { BF2_GETUP_LOCK };
+                self.lock_timer = GETUP_LOCK;
                 self.lock_hard = true;
                 self.fire_lock = true;
             }

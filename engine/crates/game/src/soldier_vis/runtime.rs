@@ -625,7 +625,7 @@ impl SoldierVisuals {
             max_speed: u.consts.max_speed,
             root_scale: anim.map_or(1.0, |a| a.root_scale),
             dead: !u.alive,
-            getup_lock: s.look_frozen(),
+            hard_lock: s.look_frozen(),
             set,
             fired: u.mount.is_none()
                 && v.throwing.is_none()
@@ -873,7 +873,7 @@ impl SoldierVisuals {
                 max_speed: 1.0,
                 root_scale: anim.map_or(1.0, |a| a.root_scale),
                 dead: false,
-                getup_lock: false,
+                hard_lock: false,
                 set: rig.weapon_set(anim.map_or("human", |a| &a.family), bank),
                 fired: false,
                 throw: None,
