@@ -4,16 +4,18 @@ title: Why `dea1_bldg_*_collision*` / `uta1_bldg_macy_collision*` are in the por
 milestone: M1
 value: 2
 phase: re
-status: todo
+status: blocked
 deps:
 files: analysis/re-collision-drawables.md (new)
 declares:
-needs:
+needs: repair four-byte-aligned LVL inspection; actual segment visibility and original PS2 rule evidence
+effort:
 branch:
-resume:
+resume: partial source/picture review retained; repair and independently control the failed LVL reader before resuming. Establish segment-specific visibility in both current render paths and the PS2 before a build proposal or invisible closure
 created: 2026-09-25
 defer: post-alpha
 public_issue: https://github.com/sprucey149/openbf/issues/10
+tries: 1
 ---
 
 ## Evidence

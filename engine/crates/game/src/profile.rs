@@ -20,6 +20,37 @@ fn one() -> f32 {
     1.0
 }
 
+// Keep a syntactically valid RON field intact until its typed parse completes:
+// one malformed custom layout must not discard the rest of the profile.
+fn bindings_or_default<'de, D, T>(deserializer: D, valid: fn(&T) -> bool) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::de::DeserializeOwned + Default,
+{
+    let raw = Box::<ron::value::RawValue>::deserialize(deserializer)?;
+    match ron::from_str::<T>(raw.get_ron()) {
+        Ok(bindings) if valid(&bindings) => Ok(bindings),
+        _ => {
+            eprintln!("profile: invalid control bindings; restoring their defaults");
+            Ok(T::default())
+        }
+    }
+}
+
+fn keyboard_bindings<'de, D>(deserializer: D) -> Result<crate::kbm::Bindings, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    bindings_or_default(deserializer, crate::kbm::Bindings::is_valid)
+}
+
+fn controller_bindings<'de, D>(deserializer: D) -> Result<input::Mapping, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    bindings_or_default(deserializer, input::Mapping::is_valid)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Settings {
     /// BF1 aim-assist intensity slider (1.0 = PS2-authentic).
@@ -53,9 +84,9 @@ pub struct Settings {
     pub mouse_sensitivity: f32,
     #[serde(default)]
     pub invert_y: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "keyboard_bindings")]
     pub keyboard_bindings: crate::kbm::Bindings,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "controller_bindings")]
     pub controller_bindings: input::Mapping,
     /// Alive-AI cap override (None = the mission's authentic cap).
     pub ai_alive_cap: Option<u32>,
@@ -206,6 +237,115 @@ mod tests {
         assert_eq!(decoded, settings);
         assert_ne!(decoded.keyboard_bindings, crate::kbm::Bindings::default());
         assert_ne!(decoded.controller_bindings, input::Mapping::default());
+    }
+
+    #[test]
+    fn malformed_binding_fields_preserve_progress_settings_and_the_other_device() {
+        let mut original = Profile {
+            name: "retained player".into(),
+            ..Default::default()
+        };
+        original.record_round(Some(true), 12, 3, 240, 90);
+        original.settings.mouse_sensitivity = 1.7;
+        original.settings.invert_y = true;
+        original.settings.last_map = Some("tat2".into());
+        original
+            .settings
+            .keyboard_bindings
+            .remap(0, crate::kbm::Trigger::Key(winit::keyboard::KeyCode::KeyP));
+        original
+            .settings
+            .controller_bindings
+            .remap(0, gilrs::Button::West);
+        let saved = ron::to_string(&original).unwrap();
+        for (field, value) in [
+            (
+                "keyboard_bindings",
+                ron::to_string(&original.settings.keyboard_bindings).unwrap(),
+            ),
+            (
+                "controller_bindings",
+                ron::to_string(&original.settings.controller_bindings).unwrap(),
+            ),
+        ] {
+            let mut expected = original.clone();
+            if field == "keyboard_bindings" {
+                expected.settings.keyboard_bindings = Default::default();
+            } else {
+                expected.settings.controller_bindings = Default::default();
+            }
+            for bad in [
+                "false",
+                "(table:false)",
+                "(table:[])",
+                "(table:[(NoSuchControl,0)])",
+            ] {
+                let damaged =
+                    saved.replacen(&format!("{field}:{value}"), &format!("{field}:{bad}"), 1);
+                assert_ne!(damaged, saved, "fixture did not replace {field}");
+                let repaired: Profile = ron::from_str(&damaged).unwrap();
+                assert_eq!(repaired, expected, "{field}: {bad}");
+            }
+        }
+    }
+
+    #[test]
+    fn invalid_saved_controller_actions_and_conflicts_restore_only_that_layout() {
+        let valid = input::Mapping::default();
+        let mut duplicate = valid.clone();
+        duplicate.table[1].0 = duplicate.table[0].0;
+        let mut unknown_action = valid.clone();
+        unknown_action.table[0].1 |= core::sim::buttons::RESPAWN;
+        let mut repeated_action = valid.clone();
+        repeated_action.table[1].1 = repeated_action.table[0].1;
+        let mut unknown_button = valid.clone();
+        unknown_button.table[0].0 = gilrs::Button::Unknown;
+        let mut reserved = valid.clone();
+        reserved.table[0].0 = gilrs::Button::Start;
+        for mapping in [
+            duplicate,
+            unknown_action,
+            repeated_action,
+            unknown_button,
+            reserved,
+        ] {
+            let mut settings = Settings::default();
+            settings
+                .keyboard_bindings
+                .remap(0, crate::kbm::Trigger::Key(winit::keyboard::KeyCode::KeyP));
+            settings.controller_bindings = mapping;
+            let loaded: Settings = ron::from_str(&ron::to_string(&settings).unwrap()).unwrap();
+            assert_eq!(loaded.controller_bindings, valid);
+            assert_eq!(loaded.keyboard_bindings, settings.keyboard_bindings);
+        }
+    }
+
+    #[test]
+    fn reserved_saved_controls_repair_only_their_layout_and_preserve_career() {
+        let mut profile = Profile::default();
+        profile.record_round(Some(true), 12, 3, 240, 90);
+        profile
+            .settings
+            .keyboard_bindings
+            .remap(0, crate::kbm::Trigger::Key(winit::keyboard::KeyCode::KeyP));
+        profile
+            .settings
+            .controller_bindings
+            .remap(0, gilrs::Button::West);
+        for keyboard in [false, true] {
+            let mut bad = profile.clone();
+            let mut expected = profile.clone();
+            if keyboard {
+                bad.settings.keyboard_bindings.table[0].0 =
+                    crate::kbm::Trigger::Key(winit::keyboard::KeyCode::Escape);
+                expected.settings.keyboard_bindings = Default::default();
+            } else {
+                bad.settings.controller_bindings.table[0].0 = gilrs::Button::Start;
+                expected.settings.controller_bindings = Default::default();
+            }
+            let repaired: Profile = ron::from_str(&ron::to_string(&bad).unwrap()).unwrap();
+            assert_eq!(repaired, expected);
+        }
     }
 
     #[test]

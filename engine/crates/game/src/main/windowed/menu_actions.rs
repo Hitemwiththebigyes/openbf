@@ -1,3 +1,5 @@
+//! Windowed launch settings and menu-setting persistence.
+
 use game::walk::WalkSim;
 
 /// Autosave the settings a menu action changed.
@@ -24,4 +26,14 @@ pub(super) fn persist_setting(
     if let Err(e) = profile.save() {
         eprintln!("profile autosave failed: {e:#}");
     }
+}
+
+/// Resolve only interactive direct-launch settings. Headless remains profile-free.
+pub(super) fn resolve_direct_settings(
+    setup: &mut super::BattleSetup,
+    cli_difficulty: Option<core::skill::Difficulty>,
+    settings: &game::profile::Settings,
+) {
+    setup.difficulty = cli_difficulty.unwrap_or(settings.difficulty);
+    setup.ai_cap = setup.ai_cap.or(settings.ai_alive_cap);
 }

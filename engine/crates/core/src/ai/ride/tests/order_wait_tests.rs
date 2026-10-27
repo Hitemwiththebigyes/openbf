@@ -630,3 +630,55 @@ fn wpoke_consumption_changes_only_release_state_and_one_answer() {
         assert_eq!(new.released, Some(s.tick));
     }
 }
+
+#[test]
+fn wpoke_queued_release_rechecks_receiver_and_issuer_at_think() {
+    for kind in [VehicleKind::Hover, VehicleKind::Walker] {
+        for bit in [buttons::SQUAD_MOVE_OUT, buttons::SQUAD_AT_EASE] {
+            for changed in ["rules", "controller", "kind", "team", "issuer-death"] {
+                let (mut s, pilot, vehicle, player) = ready(kind);
+                let scheduled = s.tick + 7;
+                s.unit_mut(pilot).unwrap().ai.next_think = scheduled;
+                s.step(&[press(bit)]);
+                assert!(s.unit(pilot).unwrap().order.is_some());
+                assert_eq!(wait(&s, pilot).released, None);
+                match changed {
+                    "rules" => s.ground_rules = GroundRules::Bf2,
+                    "controller" => {
+                        s.unit_mut(pilot).unwrap().controller = Controller::Player { slot: 1 };
+                    }
+                    "kind" => s.vehicle_mut(vehicle).unwrap().kind = VehicleKind::Turret,
+                    "team" => s.unit_mut(pilot).unwrap().team = 1,
+                    "issuer-death" => s.kill_environment(player, crate::sim::DeathCause::Fall),
+                    _ => unreachable!(),
+                }
+                let mut acknowledged = 0;
+                while s.tick <= scheduled + 1 {
+                    s.step(&[PadState::default()]);
+                    acknowledged += answers(&s, pilot);
+                    assert_eq!(
+                        s.unit(pilot)
+                            .unwrap()
+                            .ai
+                            .ride
+                            .and_then(|r| r.pickup)
+                            .and_then(|w| w.released),
+                        None,
+                        "{kind:?}/{bit}/{changed}: an obsolete queued receiver cannot release"
+                    );
+                }
+                assert_eq!(acknowledged, 0, "{kind:?}/{bit}/{changed}");
+                assert!(s.unit(pilot).unwrap().order.is_none());
+                // A controller/kind change can discard pickup state altogether.
+                // If retained, the queued order must not complete its window.
+                assert!(s
+                    .unit(pilot)
+                    .unwrap()
+                    .ai
+                    .ride
+                    .and_then(|r| r.pickup)
+                    .is_none_or(|w| !w.complete));
+            }
+        }
+    }
+}

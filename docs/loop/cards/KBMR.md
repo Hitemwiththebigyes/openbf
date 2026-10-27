@@ -4,14 +4,14 @@ title: Configurable keyboard and mouse action bindings
 milestone: M3
 value: 4
 phase: build
-status: blocked
+status: parked
 deps:
 files: engine/crates/game/src/kbm.rs,engine/crates/game/src/profile.rs,engine/crates/game/src/main/windowed.rs,engine/crates/ui/src/menu.rs,engine/crates/ui/src/menu
-declares:
-needs: contributor claim and agreed controls-menu scope in public issue 13 before implementation
+declares: ci=+20; goldens=shell_options.png
+needs: by-hand remapping playtest and remaining UI follow-up; implementation integrated
 effort:
 branch:
-resume: Proposal only; no implementation. Confirm the issue assignment and final source scope first.
+resume: Implementation in PR21 is integrated with maintainer fixes. Preserve remaining end-to-end device acceptance and deferred polished UI.
 created: 2026-10-26
 public_issue: https://github.com/sprucey149/openbf/issues/13
 ---

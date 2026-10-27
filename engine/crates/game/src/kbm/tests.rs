@@ -4,6 +4,89 @@ use core::sim::InputLog;
 use glam::Vec3;
 
 #[test]
+fn saved_wheel_movement_is_repaired_before_sampling() {
+    let mut settings = crate::profile::Settings::default();
+    let table = &mut settings.keyboard_bindings.table;
+    let wheel = table
+        .iter()
+        .position(|(t, _)| *t == Trigger::WheelDown)
+        .unwrap();
+    let old = table[0].0;
+    table[0].0 = Trigger::WheelDown;
+    table[wheel].0 = old;
+    let saved = ron::to_string(&settings).unwrap();
+    let loaded: crate::profile::Settings = ron::from_str(&saved).unwrap();
+    assert_eq!(loaded.keyboard_bindings, Bindings::default());
+    let mut k = Kbm::default();
+    k.follow(&loaded);
+    k.wheel(-1.0);
+    assert_eq!(k.pad(PadState::default()).ly, 0);
+    k.press(Trigger::Key(KeyCode::KeyW), true);
+    assert_eq!(k.pad(PadState::default()).ly, i16::MAX);
+}
+
+#[test]
+fn invalid_saved_keyboard_actions_and_conflicts_restore_defaults() {
+    let valid = Bindings::default();
+    let mut duplicate = valid.clone();
+    duplicate.table[1].0 = duplicate.table[0].0;
+    let mut unknown_action = valid.clone();
+    unknown_action.table[0].1.bits |= buttons::RESPAWN;
+    let mut missing = valid.clone();
+    missing.table.pop();
+    let mut repeated_action = valid.clone();
+    repeated_action.table[1].1 = repeated_action.table[0].1;
+    let mut invalid_walk = valid.clone();
+    invalid_walk.table[0].1.walk = (0, 127);
+    let mut reserved = valid.clone();
+    reserved.table[0].0 = Trigger::Key(KeyCode::Escape);
+    for bindings in [
+        duplicate,
+        unknown_action,
+        missing,
+        repeated_action,
+        invalid_walk,
+        reserved,
+    ] {
+        let settings = crate::profile::Settings {
+            keyboard_bindings: bindings,
+            ..Default::default()
+        };
+        let loaded: crate::profile::Settings =
+            ron::from_str(&ron::to_string(&settings).unwrap()).unwrap();
+        assert_eq!(loaded.keyboard_bindings, valid);
+    }
+}
+
+#[test]
+fn escape_stays_available_for_menu_recovery() {
+    let mut bindings = Bindings::default();
+    let before = bindings.clone();
+    assert!(!bindings.remap(0, Trigger::Key(KeyCode::Escape)));
+    assert_eq!(bindings, before);
+}
+
+#[test]
+fn a_valid_reordered_saved_keyboard_layout_drives_the_remapped_action() {
+    let mut settings = crate::profile::Settings::default();
+    assert!(settings
+        .keyboard_bindings
+        .remap(0, Trigger::Key(KeyCode::KeyP)));
+    settings.keyboard_bindings.table.reverse();
+    let loaded: crate::profile::Settings =
+        ron::from_str(&ron::to_string(&settings).unwrap()).unwrap();
+    assert_eq!(loaded, settings);
+    let mut k = Kbm::default();
+    k.follow(&loaded);
+    k.press(Trigger::Key(KeyCode::KeyW), true);
+    assert_eq!(k.pad(PadState::default()).ly, 0);
+    k.press(Trigger::Key(KeyCode::KeyP), true);
+    assert_eq!(k.pad(PadState::default()).ly, i16::MAX);
+    k.press(Trigger::Key(KeyCode::KeyP), false);
+    assert_eq!(k.pad(PadState::default()).ly, 0);
+}
+
+#[test]
 fn remapping_swaps_conflicts_and_releases_old_held_keys() {
     let mut k = Kbm::default();
     let mut settings = crate::profile::Settings::default();

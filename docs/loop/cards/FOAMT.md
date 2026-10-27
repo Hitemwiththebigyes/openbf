@@ -6,14 +6,16 @@ value: 2
 phase: re
 status: todo
 deps:
-files:
+files: analysis/re-foam-tiling.md (new)
 declares:
 needs:
+effort:
 branch:
-resume:
+resume: (private workflow note omitted)
 created: 2026-09-25
 defer: post-alpha
 public_issue: https://github.com/sprucey149/openbf/issues/18
+tries: 1
 ---
 
 ## Why

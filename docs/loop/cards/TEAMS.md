@@ -6,13 +6,16 @@ value: 2
 phase: re
 status: todo
 deps:
-files:
+files: analysis/survey-special-teams.md (new)
 declares:
 needs:
+effort:
 branch:
-resume:
+resume: (private workflow note omitted)
 created: 2026-09-28
 defer: post-alpha
+public_issue: https://github.com/sprucey149/openbf/issues/22
+tries: 1
 ---
 
 ## Why

@@ -1234,3 +1234,44 @@ fn wgord_explicit_target_precedes_retained_followers_mounted_leader() {
 
 #[path = "passenger_call_tests.rs"]
 mod passenger_call_tests;
+
+#[test]
+fn wgord_issuer_loss_clears_retained_order_before_slot_reuse() {
+    for follow in [false, true] {
+        for phase in [11, 20, 90] {
+            let (mut s, _, a, _, human) = ordered_scene(VehicleKind::Hover, follow);
+            while s.tick < phase {
+                s.step(&[]);
+            }
+            assert!(s.unit(a).unwrap().command.is_some());
+            s.kill_environment(human, crate::sim::DeathCause::VehicleDestroyed);
+            let u = s.unit(a).unwrap();
+            assert!(u.command.is_none(), "issuer death must actually release");
+            assert!(u.ai.cmd.is_none());
+            assert!(u.ai.pending_board.is_none());
+            assert!(u.ai.ride.is_none_or(|r| {
+                r.board.is_none() && !r.ordered_call && r.called_board.is_none()
+            }));
+            assert_eq!(s.players[0], Some(human), "death retains the player slot");
+            s.players[0] = None; // Explicitly release the dead issuer before normal slot reassignment.
+            let replacement = s
+                .spawn(&UnitSpec::player(0, Vec3::new(12., 0., -40.)))
+                .unwrap();
+            assert_eq!(replacement.index, human.index);
+            assert_ne!(replacement.gen, human.gen);
+            assert_eq!(s.players[0], Some(replacement));
+            for _ in 0..30 {
+                s.step(&[]);
+                assert_eq!(s.players[0], Some(replacement));
+                let u = s.unit(a).unwrap();
+                assert!(
+                    u.command.is_none(),
+                    "replacement issuer cannot revive order"
+                );
+                assert!(u.ai.cmd.is_none());
+                assert!(u.ai.pending_board.is_none());
+                assert!(u.ai.ride.is_none_or(|r| !r.ordered_call));
+            }
+        }
+    }
+}

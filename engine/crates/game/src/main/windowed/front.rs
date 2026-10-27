@@ -30,9 +30,32 @@ struct Controls {
     capture: Option<usize>,
     ready: bool,
     controller: Option<gilrs::GamepadId>,
+    message: Option<String>,
 }
 
 const CONTROL_COMMAND_ROWS: usize = 2;
+
+impl Controls {
+    /// Start always cancels, including keyboard rows and simultaneous button presses.
+    /// A held accept button must be released before it can become a new binding.
+    fn capture_button(
+        &mut self,
+        mut down: impl FnMut(gilrs::Button) -> bool,
+    ) -> Option<gilrs::Button> {
+        if down(gilrs::Button::Start) {
+            self.capture = None;
+            self.message = Some("Binding change cancelled".into());
+            return None;
+        }
+        let pressed = PAD_BUTTONS.iter().copied().find(|b| down(*b));
+        if !self.ready {
+            self.ready = pressed.is_none();
+            None
+        } else {
+            pressed
+        }
+    }
+}
 
 fn action_name(bits: u32, walk: (i8, i8)) -> String {
     use core::sim::buttons as b;
@@ -151,6 +174,9 @@ impl App {
     fn save_controls(&mut self) {
         self.kbm.follow(&self.profile.settings);
         self.kbm.release_keys();
+        if let Some(g) = self.gilrs.as_ref() {
+            self.pad_warning = input::log_pads_with(g, &self.profile.settings.controller_bindings);
+        }
         if let Err(e) = self.profile.save() {
             eprintln!("profile autosave failed: {e:#}");
         }
@@ -166,10 +192,14 @@ impl App {
                 self.profile.settings.keyboard_bindings = game::kbm::Bindings::default();
                 self.profile.settings.controller_bindings = input::Mapping::default();
                 self.sprint_latch = input::SprintLatch::default();
+                if let Some(controls) = front.controls.as_mut() {
+                    controls.message = Some("Default bindings restored".into());
+                }
                 self.save_controls();
             }
             _ => {
                 if let Some(controls) = front.controls.as_mut() {
+                    controls.message = None;
                     controls.capture = Some(row);
                     controls.ready = false;
                     controls.controller = None;
@@ -190,6 +220,7 @@ impl App {
         };
         if matches!(event, WindowEvent::Focused(false)) {
             controls.capture = None;
+            controls.message = Some("Binding change cancelled on focus loss".into());
             return false;
         }
         let count = self.profile.settings.keyboard_bindings.table.len();
@@ -197,6 +228,7 @@ impl App {
             if matches!(event, WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed && event.physical_key == PhysicalKey::Code(KeyCode::Escape))
             {
                 controls.capture = None;
+                controls.message = Some("Binding change cancelled".into());
                 return true;
             }
             return false;
@@ -208,6 +240,7 @@ impl App {
                 match event.physical_key {
                     PhysicalKey::Code(KeyCode::Escape) => {
                         controls.capture = None;
+                        controls.message = Some("Binding change cancelled".into());
                         return true;
                     }
                     PhysicalKey::Code(code) => Some(Trigger::Key(code)),
@@ -235,14 +268,23 @@ impl App {
             _ => None,
         };
         if let Some(trigger) = trigger {
-            if !self
-                .profile
-                .settings
-                .keyboard_bindings
-                .remap(row - CONTROL_COMMAND_ROWS, trigger)
-            {
+            let index = row - CONTROL_COMMAND_ROWS;
+            let bindings = &mut self.profile.settings.keyboard_bindings;
+            let swapped = bindings
+                .table
+                .iter()
+                .enumerate()
+                .find(|(i, (t, _))| *i != index && *t == trigger)
+                .map(|(_, (_, bind))| action_name(bind.bits, bind.walk));
+            if !bindings.remap(index, trigger) {
+                controls.message =
+                    Some("Mouse wheel cannot hold movement; choose a key or mouse button".into());
                 return true;
             }
+            controls.message = Some(swapped.map_or_else(
+                || "Binding saved".into(),
+                |name| format!("Binding saved; swapped with {name}"),
+            ));
             controls.capture = None;
             self.save_controls();
         }
@@ -305,34 +347,37 @@ impl App {
             let mut activate = None;
             if let Some(row) = controls.capture {
                 let keyboard_count = self.profile.settings.keyboard_bindings.table.len();
-                if row >= CONTROL_COMMAND_ROWS + keyboard_count {
-                    let pad = self.gilrs.as_ref().and_then(|g| g.gamepads().next());
-                    if let Some((id, pad)) = pad {
-                        if controls.controller != Some(id) {
-                            controls.controller = Some(id);
-                            controls.ready = false;
-                        }
-                        let pressed = PAD_BUTTONS
-                            .iter()
-                            .copied()
-                            .find(|b| input::is_down(&pad, *b));
-                        if !controls.ready {
-                            controls.ready = pressed.is_none();
-                        } else if let Some(button) = pressed {
-                            controls.capture = None;
-                            if button != gilrs::Button::Start {
-                                let index = row - CONTROL_COMMAND_ROWS - keyboard_count;
-                                self.profile
-                                    .settings
-                                    .controller_bindings
-                                    .remap(index, button);
-                                self.sprint_latch = input::SprintLatch::default();
-                                self.save_controls();
-                            }
-                        }
-                    } else {
-                        controls.capture = None;
+                let controller_row = row >= CONTROL_COMMAND_ROWS + keyboard_count;
+                let pad = self.gilrs.as_ref().and_then(|g| g.gamepads().next());
+                if let Some((id, pad)) = pad {
+                    if controls.controller != Some(id) {
+                        controls.controller = Some(id);
+                        controls.ready = false;
                     }
+                    let button = controls.capture_button(|b| input::is_down(&pad, b));
+                    if controller_row {
+                        if let Some(button) = button {
+                            let index = row - CONTROL_COMMAND_ROWS - keyboard_count;
+                            let bindings = &mut self.profile.settings.controller_bindings;
+                            let swapped = bindings
+                                .table
+                                .iter()
+                                .enumerate()
+                                .find(|(i, (b, _))| *i != index && *b == button)
+                                .map(|(_, (_, bits))| action_name(*bits, (0, 0)));
+                            bindings.remap(index, button);
+                            controls.capture = None;
+                            controls.message = Some(swapped.map_or_else(
+                                || "Binding saved".into(),
+                                |name| format!("Binding saved; swapped with {name}"),
+                            ));
+                            self.sprint_latch = input::SprintLatch::default();
+                            self.save_controls();
+                        }
+                    }
+                } else if controller_row {
+                    controls.capture = None;
+                    controls.message = Some("Controller disconnected; binding unchanged".into());
                 }
             } else {
                 if input.up {
@@ -351,10 +396,14 @@ impl App {
             if let Some(row) = activate {
                 self.activate_control_row(&mut front, row);
             }
-            controls_model = front
-                .controls
-                .as_ref()
-                .map(|c| (self.control_labels(), c.cursor, c.capture.is_some()));
+            controls_model = front.controls.as_ref().map(|c| {
+                (
+                    self.control_labels(),
+                    c.cursor,
+                    c.capture.is_some(),
+                    c.message.clone(),
+                )
+            });
         } else if let Some(cursor) = front.settings {
             let settings = &self.profile.settings;
             let k = settings.fov_scale;
@@ -392,6 +441,7 @@ impl App {
                         capture: None,
                         ready: false,
                         controller: None,
+                        message: None,
                     });
                 }
                 Some(ui::shell_ps2::ShellCommand::Quit) => quit = true,
@@ -429,6 +479,7 @@ impl App {
         let model = self.shell.clone();
         let mut clicked = Vec::new();
         let mut control_clicked = None;
+        let mut setting_clicked = Vec::new();
         if let (Some(r), Some(overlay), Some(window)) =
             (&mut self.renderer, &mut self.overlay, &self.window)
         {
@@ -443,10 +494,11 @@ impl App {
                     clicked = ui::shell::draw_shell(ctx, &model);
                 }
                 if let Some(m) = &settings_model {
-                    let _ = ui::menu::draw_menu(ctx, m);
+                    setting_clicked = ui::menu::draw_menu(ctx, m);
                 }
-                if let Some((labels, cursor, capture)) = &controls_model {
-                    control_clicked = ui::menu::draw_controls(ctx, labels, *cursor, *capture);
+                if let Some((labels, cursor, capture, message)) = &controls_model {
+                    control_clicked =
+                        ui::menu::draw_controls(ctx, labels, *cursor, *capture, message.as_deref());
                 }
                 if let Some(w) = warning {
                     ui::hud::draw_pad_warning(ctx, w);
@@ -472,6 +524,9 @@ impl App {
             if controls.capture.is_none() {
                 self.activate_control_row(&mut front, row);
             }
+        }
+        for action in setting_clicked {
+            self.apply_shell_setting(&mut front, action);
         }
         self.front = Some(front);
         actions.extend(clicked);
@@ -520,5 +575,114 @@ impl App {
         if let Err(e) = self.profile.save() {
             eprintln!("profile autosave failed: {e:#}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn controls(row: usize) -> Controls {
+        Controls {
+            cursor: row,
+            capture: Some(row),
+            ready: false,
+            controller: None,
+            message: None,
+        }
+    }
+
+    #[test]
+    fn start_cancels_either_device_before_accept_or_release_gate() {
+        for row in [
+            CONTROL_COMMAND_ROWS,
+            CONTROL_COMMAND_ROWS + game::kbm::Bindings::default().table.len(),
+        ] {
+            for ready in [false, true] {
+                let mut c = controls(row);
+                c.ready = ready;
+                assert_eq!(
+                    c.capture_button(|b| matches!(b, gilrs::Button::Start | gilrs::Button::South)),
+                    None
+                );
+                assert_eq!(c.capture, None);
+                assert_eq!(c.message.as_deref(), Some("Binding change cancelled"));
+            }
+        }
+    }
+
+    #[test]
+    fn held_accept_must_release_before_controller_binding() {
+        let mut c = controls(CONTROL_COMMAND_ROWS + game::kbm::Bindings::default().table.len());
+        assert_eq!(c.capture_button(|b| b == gilrs::Button::South), None);
+        assert!(!c.ready);
+        assert_eq!(c.capture_button(|_| false), None);
+        assert!(c.ready);
+        assert_eq!(
+            c.capture_button(|b| b == gilrs::Button::West),
+            Some(gilrs::Button::West)
+        );
+    }
+
+    #[test]
+    fn rejected_wheel_binding_explains_rejection_and_focus_loss_cancels() {
+        let setup = crate::BattleSetup {
+            seed: 42,
+            difficulty: Default::default(),
+            spawn: (0.0, 0.0),
+            spawn_set: false,
+            targets: false,
+            ai: None,
+            ai_cap: None,
+            tickets: 250,
+            tickets_set: false,
+            ticket_pct: 100,
+            time_limit: 0,
+            cheats: Default::default(),
+            teams: None,
+            classes_dir: Default::default(),
+            mission: None,
+            mission_file: None,
+            player_team: 0,
+        };
+        let mut app = App::new(
+            Default::default(),
+            Default::default(),
+            setup,
+            None,
+            None,
+            None,
+            Default::default(),
+        );
+        let mut front = FrontShell::new(std::path::Path::new("__no_assets_for_capture_test__"));
+        front.controls = Some(controls(CONTROL_COMMAND_ROWS));
+        app.front = Some(front);
+        let before = app.profile.clone();
+        assert!(
+            app.capture_keyboard(&winit::event::WindowEvent::MouseWheel {
+                device_id: winit::event::DeviceId::dummy(),
+                delta: winit::event::MouseScrollDelta::LineDelta(0.0, 1.0),
+                phase: winit::event::TouchPhase::Moved,
+            })
+        );
+        assert_eq!(app.profile, before);
+        let c = app.front.as_ref().unwrap().controls.as_ref().unwrap();
+        assert!(c.capture.is_some());
+        assert!(c
+            .message
+            .as_deref()
+            .unwrap()
+            .contains("wheel cannot hold movement"));
+        assert!(!app.capture_keyboard(&winit::event::WindowEvent::Focused(false)));
+        assert!(app
+            .front
+            .as_ref()
+            .unwrap()
+            .controls
+            .as_ref()
+            .unwrap()
+            .capture
+            .is_none());
+        assert_eq!(app.profile, before);
     }
 }

@@ -43,8 +43,28 @@ pub struct Mapping {
 }
 
 impl Mapping {
+    /// Saved layouts may change buttons/order, not the supported action set.
+    pub fn is_valid(&self) -> bool {
+        let mut remaining = Self::ps2_default().table;
+        if self.table.len() != remaining.len() {
+            return false;
+        }
+        for (i, (button, bits)) in self.table.iter().enumerate() {
+            if matches!(button, Button::Unknown | Button::Start)
+                || self.table[..i].iter().any(|(b, _)| b == button)
+            {
+                return false;
+            }
+            let Some(at) = remaining.iter().position(|(_, action)| action == bits) else {
+                return false;
+            };
+            remaining.swap_remove(at);
+        }
+        true
+    }
+
     pub fn remap(&mut self, index: usize, button: Button) {
-        if index >= self.table.len() {
+        if index >= self.table.len() || matches!(button, Button::Unknown | Button::Start) {
             return;
         }
         if let Some(other) = self.table.iter().position(|(b, _)| *b == button) {
@@ -235,10 +255,29 @@ pub fn unresolved(pad: &gilrs::Gamepad<'_>, map: &Mapping) -> Vec<String> {
 /// The warning for a pad whose camera stick or FIRE resolves to nothing
 /// (from [`unresolved`]'s list), or `None` when both work.
 pub fn pad_warning(name: &str, guid: &str, missing: &[String]) -> Option<String> {
+    pad_warning_with(name, guid, missing, &Mapping::ps2_default())
+}
+
+/// Like [`pad_warning`], but FIRE follows the active layout's physical button.
+pub fn pad_warning_with(
+    name: &str,
+    guid: &str,
+    missing: &[String],
+    map: &Mapping,
+) -> Option<String> {
+    let fire_buttons: Vec<String> = map
+        .table
+        .iter()
+        .filter(|(_, bits)| *bits & buttons::FIRE != 0)
+        .map(|(button, _)| format!("{button:?}"))
+        .collect();
     let dead: Vec<&str> = missing
         .iter()
         .map(String::as_str)
-        .filter(|m| matches!(*m, "RightStickX" | "RightStickY" | "RightTrigger2"))
+        .filter(|m| {
+            matches!(*m, "RightStickX" | "RightStickY")
+                || fire_buttons.iter().any(|button| button.as_str() == *m)
+        })
         .collect();
     (!dead.is_empty()).then(|| {
         format!(
@@ -253,13 +292,17 @@ pub fn pad_warning(name: &str, guid: &str, missing: &[String]) -> Option<String>
 /// not resolve) — "0 pads" when none — and return the first pad's warning
 /// ([`pad_warning`]), which the caller also shows on screen.
 pub fn log_pads(g: &gilrs::Gilrs) -> Option<String> {
-    let map = Mapping::ps2_default();
+    log_pads_with(g, &Mapping::ps2_default())
+}
+
+/// Like [`log_pads`], using the player's active layout for missing controls.
+pub fn log_pads_with(g: &gilrs::Gilrs, map: &Mapping) -> Option<String> {
     let mut n = 0;
     let mut warning = None;
     for (_, pad) in g.gamepads() {
         n += 1;
         let (name, id) = (pad.name(), guid(&pad));
-        let missing = unresolved(&pad, &map);
+        let missing = unresolved(&pad, map);
         println!(
             "pad {n}: '{name}' guid {id} mapping {:?} ({}); unresolved: {}",
             pad.mapping_source(),
@@ -270,7 +313,7 @@ pub fn log_pads(g: &gilrs::Gilrs) -> Option<String> {
                 missing.join(" ")
             }
         );
-        if let Some(w) = pad_warning(name, &id, &missing) {
+        if let Some(w) = pad_warning_with(name, &id, &missing, map) {
             eprintln!("WARNING: {w}");
             warning.get_or_insert(w);
         }
@@ -404,6 +447,60 @@ pub fn pad_from_gamepad_with_arms(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn start_and_unknown_cannot_replace_gameplay_controls() {
+        let mut mapping = Mapping::default();
+        let before = mapping.clone();
+        for button in [Button::Start, Button::Unknown] {
+            mapping.remap(0, button);
+            assert_eq!(mapping, before);
+        }
+    }
+
+    #[test]
+    fn saved_controller_layouts_keep_each_action_and_unique_known_buttons() {
+        let mut valid = Mapping::default();
+        valid.remap(0, Button::West);
+        valid.table.reverse();
+        assert!(valid.is_valid());
+
+        let mut duplicate = valid.clone();
+        duplicate.table[1].0 = duplicate.table[0].0;
+        let mut unknown_action = valid.clone();
+        unknown_action.table[0].1 |= buttons::RESPAWN;
+        let mut missing = valid.clone();
+        missing.table.pop();
+        let mut repeated_action = valid.clone();
+        repeated_action.table[1].1 = repeated_action.table[0].1;
+        let mut unknown_button = valid.clone();
+        unknown_button.table[0].0 = Button::Unknown;
+        for invalid in [
+            duplicate,
+            unknown_action,
+            missing,
+            repeated_action,
+            unknown_button,
+        ] {
+            assert!(!invalid.is_valid(), "{invalid:?}");
+        }
+    }
+
+    #[test]
+    fn fire_warnings_follow_the_remapped_button_and_keep_default_api_behavior() {
+        let mut mapping = Mapping::default();
+        mapping.remap(0, Button::West);
+        let west = vec!["West".to_string()];
+        let r2 = vec!["RightTrigger2".to_string()];
+        assert!(pad_warning("p", "g", &west).is_none());
+        assert!(pad_warning_with("p", "g", &west, &mapping)
+            .unwrap()
+            .contains("West"));
+        assert!(pad_warning("p", "g", &r2).is_some());
+        assert!(pad_warning_with("p", "g", &r2, &mapping).is_none());
+        assert!(pad_warning_with("p", "g", &["RightStickY".to_string()], &mapping).is_some());
+        assert!(pad_warning_with("p", "g", &[], &mapping).is_none());
+    }
 
     #[test]
     fn remapping_swaps_conflicting_buttons_without_duplicate_actions() {

@@ -62,8 +62,29 @@ pub struct Bindings {
 }
 
 impl Bindings {
+    /// Saved layouts may change triggers/order, not the supported action set.
+    pub fn is_valid(&self) -> bool {
+        let mut remaining = Self::pc_default().table;
+        if self.table.len() != remaining.len() {
+            return false;
+        }
+        for (i, (trigger, bind)) in self.table.iter().enumerate() {
+            if *trigger == Trigger::Key(KeyCode::Escape)
+                || self.table[..i].iter().any(|(t, _)| t == trigger)
+                || (matches!(trigger, Trigger::WheelUp | Trigger::WheelDown) && bind.walk != (0, 0))
+            {
+                return false;
+            }
+            let Some(at) = remaining.iter().position(|(_, action)| action == bind) else {
+                return false;
+            };
+            remaining.swap_remove(at);
+        }
+        true
+    }
+
     pub fn remap(&mut self, index: usize, trigger: Trigger) -> bool {
-        if index >= self.table.len() {
+        if index >= self.table.len() || trigger == Trigger::Key(KeyCode::Escape) {
             return false;
         }
         let (old, bind) = self.table[index];

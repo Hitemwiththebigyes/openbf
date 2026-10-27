@@ -4,18 +4,19 @@ title: Which class an AI spawn takes on the PS2: the assignment from the AddUnit
 milestone: M3
 value: 2
 phase: re
-status: todo
+status: blocked
 deps:
 files: analysis/re-ai-class-selection.md (new)
 declares:
-needs:
+needs: repair archived class-name identification; original two-game timed census and independent rule verification
 effort:
 branch:
-resume: the port rule changed (023e3fd, the maintainer 2026-10-01: weights by what is not yet alive; AI respawns re-roll). The maintainer then asked for main classes weighted higher than special ones, with a floor for all - a Fable session takes it (INBOX). The PS2 RE question stays open, value as before
+resume: partial RE retained; repair the failed class-name instrument before using archived per-class rows, then complete the original 0/2/5-minute live-AI census. Preserve the selected 4:2:1 floor/re-roll policy and original count-matching acceptance; resolve any conflict explicitly
 created: 2026-09-30
 defer: post-alpha
 value_pre_alpha: 3
 public_issue: https://github.com/sprucey149/openbf/issues/9
+tries: 1
 ---
 ## Why
 Cleanse CLNC (2026-09-30): two PROVISIONAL rules in `core/src/sim/spawn.rs` named an open RE question ('HOLD FOR FABLE') that no card or analysis section owned. The unit mix on the field is player-visible on every map (how many rocketeers, snipers, pilots a team fields, and whether the mix drifts over a battle).

@@ -315,7 +315,7 @@ mod front;
 use front::FrontShell;
 #[path = "windowed/menu_actions.rs"]
 mod menu_actions;
-use menu_actions::persist_setting;
+use menu_actions::{persist_setting, resolve_direct_settings};
 #[path = "windowed/mouse.rs"]
 mod mouse;
 
@@ -489,10 +489,10 @@ fn quit_at() -> Option<u64> {
 }
 
 /// Open gilrs through `input::open_gilrs` and log how each pad resolved.
-fn open_pads() -> (Option<gilrs::Gilrs>, Option<String>) {
+fn open_pads(mapping: &input::Mapping) -> (Option<gilrs::Gilrs>, Option<String>) {
     match input::open_gilrs() {
         Ok(g) => {
-            let w = input::log_pads(&g);
+            let w = input::log_pads_with(&g, mapping);
             (Some(g), w)
         }
         Err(e) => {
@@ -500,16 +500,6 @@ fn open_pads() -> (Option<gilrs::Gilrs>, Option<String>) {
             (None, None)
         }
     }
-}
-
-/// Resolve only interactive direct-launch settings. Headless remains profile-free.
-fn resolve_direct_settings(
-    setup: &mut BattleSetup,
-    cli_difficulty: Option<core::skill::Difficulty>,
-    settings: &game::profile::Settings,
-) {
-    setup.difficulty = cli_difficulty.unwrap_or(settings.difficulty);
-    setup.ai_cap = setup.ai_cap.or(settings.ai_alive_cap);
 }
 
 struct GameplayStick<Id> {
@@ -538,11 +528,11 @@ impl<Id: PartialEq> GameplayStick<Id> {
 pub(super) fn run_windowed(v: ViewerArgs) -> Result<()> {
     let event_loop = winit::event_loop::EventLoop::new()?;
     event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
-    let (gilrs, pad_warning) = open_pads();
+    let profile = game::profile::Profile::load_or_default();
+    let (gilrs, pad_warning) = open_pads(&profile.settings.controller_bindings);
     let setup = BattleSetup::from_args(&v, v.seed)?;
     let audio = audio::Audio::new();
     let frame_profile = game::frame_profile::FrameProfile::from_env();
-    let profile = game::profile::Profile::load_or_default();
     let autopilot = game::dev::on() && std::env::var("OPENBF_AUTOPILOT").is_ok_and(|v| v == "1");
     let quit_at = quit_at();
     let mut setup = setup;
@@ -652,7 +642,7 @@ impl App {
     fn drive_fly_camera(&mut self, dt: f32) {
         let Some(g) = &mut self.gilrs else { return };
         if input::pump(g) {
-            self.pad_warning = input::log_pads(g);
+            self.pad_warning = input::log_pads_with(g, &self.profile.settings.controller_bindings);
             self.gameplay_stick.select(None);
         }
         let Some((_, pad)) = g.gamepads().next() else {
@@ -1074,7 +1064,8 @@ impl App {
         let mut now = 0u32;
         if let Some(g) = &mut self.gilrs {
             if input::pump(g) {
-                self.pad_warning = input::log_pads(g);
+                self.pad_warning =
+                    input::log_pads_with(g, &self.profile.settings.controller_bindings);
                 self.gameplay_stick.select(None);
                 if let Some(front) = self.front.as_mut() {
                     front.reset_control_device();
@@ -1124,7 +1115,7 @@ impl App {
             return PadState::default();
         };
         if input::pump(g) {
-            self.pad_warning = input::log_pads(g);
+            self.pad_warning = input::log_pads_with(g, &self.profile.settings.controller_bindings);
             // A disconnect/reconnect can reuse the same gilrs ID between frames.
             self.gameplay_stick.select(None);
         }
@@ -1151,7 +1142,8 @@ impl App {
 pub(super) fn run_shell(assets_dir: PathBuf, missions_dir: PathBuf) -> Result<()> {
     let event_loop = winit::event_loop::EventLoop::new()?;
     event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
-    let (gilrs, pad_warning) = open_pads();
+    let profile = game::profile::Profile::load_or_default();
+    let (gilrs, pad_warning) = open_pads(&profile.settings.controller_bindings);
     let audio = audio::Audio::new();
     let setup = BattleSetup {
         seed: 42,
@@ -1175,7 +1167,6 @@ pub(super) fn run_shell(assets_dir: PathBuf, missions_dir: PathBuf) -> Result<()
     let autopilot = game::dev::on() && std::env::var("OPENBF_AUTOPILOT").is_ok_and(|v| v == "1");
     let quit_at = quit_at();
     let frame_profile = game::frame_profile::FrameProfile::from_env();
-    let profile = game::profile::Profile::load_or_default();
     let mut app = App::new(
         assets_dir,
         missions_dir,
@@ -1879,6 +1870,7 @@ impl winit::application::ApplicationHandler for App {
                                         &mut self.pause_menu,
                                     );
                                     persist_setting(&mut self.profile, a, walk);
+                                    self.kbm.follow(&self.profile.settings);
                                     if a == ui::menu::MenuAction::Quit {
                                         self.quit_clicked = true;
                                     }

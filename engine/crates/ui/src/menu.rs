@@ -53,11 +53,13 @@ pub enum MenuAction {
 
 pub const MOUSE_SENSITIVITY_RANGE: (f32, f32) = (0.1, 5.0);
 
+/// Draw editable bindings and capture/conflict feedback. Navigation is owned by the caller.
 pub fn draw_controls(
     ctx: &egui::Context,
     labels: &[(String, String)],
     cursor: usize,
     capture: bool,
+    message: Option<&str>,
 ) -> Option<usize> {
     let mut selected = None;
     let cursor_id = egui::Id::new("controls_last_cursor");
@@ -79,11 +81,16 @@ pub fn draw_controls(
                     } else {
                         "Select a row to change it · Back returns"
                     });
+                    if let Some(message) = message {
+                        ui.label(message);
+                    }
                     egui::ScrollArea::vertical()
                         .max_height(500.0)
                         .show(ui, |ui| {
                             for (i, (name, value)) in labels.iter().enumerate() {
-                                if row_label(ui, i == cursor, name.clone(), Some(value.clone())) {
+                                if row_label(ui, i == cursor, name.clone(), Some(value.clone()))
+                                    .clicked_by(egui::PointerButton::Primary)
+                                {
                                     selected = Some(i);
                                 }
                                 if changed && i == cursor {
@@ -217,29 +224,35 @@ pub fn navigate(m: &MenuModel, input: MenuInput) -> (usize, Vec<MenuAction>) {
     (cursor, actions)
 }
 
-fn row_label(ui: &mut egui::Ui, selected: bool, text: String, value: Option<String>) -> bool {
+fn row_label(
+    ui: &mut egui::Ui,
+    selected: bool,
+    text: String,
+    value: Option<String>,
+) -> egui::Response {
     let bg = if selected {
         Color32::from_rgba_premultiplied(60, 90, 140, 200)
     } else {
         Color32::TRANSPARENT
     };
-    let mut clicked = false;
-    egui::Frame::new()
+    let mut label = None;
+    let row = egui::Frame::new()
         .fill(bg)
         .inner_margin(egui::Margin::symmetric(10, 6))
         .corner_radius(3.0)
         .show(ui, |ui| {
             ui.set_min_width(360.0);
             ui.horizontal(|ui| {
-                let r = ui.add(
-                    egui::Label::new(RichText::new(text).size(18.0).color(if selected {
-                        Color32::WHITE
-                    } else {
-                        Color32::LIGHT_GRAY
-                    }))
-                    .sense(egui::Sense::click()),
+                label = Some(
+                    ui.add(
+                        egui::Label::new(RichText::new(text).size(18.0).color(if selected {
+                            Color32::WHITE
+                        } else {
+                            Color32::LIGHT_GRAY
+                        }))
+                        .sense(egui::Sense::click()),
+                    ),
                 );
-                clicked |= r.clicked();
                 if let Some(v) = value {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(RichText::new(v).size(18.0).color(Color32::WHITE).strong());
@@ -247,7 +260,9 @@ fn row_label(ui: &mut egui::Ui, selected: bool, text: String, value: Option<Stri
                 }
             });
         });
-    clicked
+    label
+        .unwrap()
+        .union(row.response.interact(egui::Sense::click()))
 }
 
 /// Draw the menu; pointer clicks produce actions too.
@@ -347,7 +362,8 @@ pub fn draw_menu(ctx: &egui::Context, m: &MenuModel) -> Vec<MenuAction> {
                             ),
                             Row::Quit => row_label(ui, sel, "Quit to desktop".into(), None),
                         };
-                        if clicked {
+                        // Native navigation owns Enter/Space; egui owns pointer clicks.
+                        if clicked.clicked_by(egui::PointerButton::Primary) {
                             match row {
                                 Row::Respawn => actions.push(MenuAction::RequestRespawn),
                                 Row::No => actions.push(MenuAction::CancelRespawn),
@@ -827,5 +843,119 @@ mod morse_tests {
         m.feed(edge(true, false, false, false));
         m.feed(edge(false, false, true, false));
         assert_eq!(m.pending(), (String::new(), "s".into()));
+    }
+}
+
+#[cfg(test)]
+mod pointer_navigation_tests {
+    use super::*;
+
+    #[test]
+    fn tab_focus_then_enter_does_not_dispatch_a_second_menu_action() {
+        let ctx = egui::Context::default();
+        let mut model = MenuModel::default();
+        model.cursor = rows(&model)
+            .iter()
+            .position(|r| *r == Row::InvertY)
+            .unwrap();
+        let frame = |events| {
+            let mut actions = Vec::new();
+            let _ = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 720.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| actions = draw_menu(ctx, &model),
+            );
+            actions
+        };
+        frame(vec![]);
+        frame(vec![]);
+        let mut focused = false;
+        for _ in 0..16 {
+            frame(vec![key(egui::Key::Tab, true)]);
+            frame(vec![key(egui::Key::Tab, false)]);
+            focused |= ctx.memory(|m| m.focused().is_some());
+            let overlay = frame(vec![key(egui::Key::Enter, true)]);
+            assert!(
+                overlay.is_empty(),
+                "egui must not duplicate native navigation: {overlay:?}"
+            );
+            frame(vec![key(egui::Key::Enter, false)]);
+            assert_eq!(
+                navigate(
+                    &model,
+                    MenuInput {
+                        confirm: true,
+                        ..Default::default()
+                    }
+                )
+                .1,
+                vec![MenuAction::ToggleInvertY]
+            );
+        }
+        assert!(focused, "exercise real egui Tab focus");
+    }
+
+    fn key(key: egui::Key, pressed: bool) -> egui::Event {
+        egui::Event::Key {
+            key,
+            physical_key: Some(key),
+            pressed,
+            repeat: false,
+            modifiers: Default::default(),
+        }
+    }
+
+    #[test]
+    fn entire_row_accepts_pointer_including_binding_value_and_padding() {
+        let ctx = egui::Context::default();
+        let mut response = None;
+        let mut frame = |events| {
+            let _ = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 720.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        response = Some(row_label(
+                            ui,
+                            true,
+                            "Invert mouse Y".into(),
+                            Some("OFF".into()),
+                        ));
+                    });
+                },
+            );
+            response.take().unwrap()
+        };
+        let first = frame(vec![]);
+        // Far-right row padding/value, not just the action's text, accepts clicks.
+        let pos = first.rect.right_center() - egui::vec2(4.0, 0.0);
+        frame(vec![
+            egui::Event::PointerMoved(pos),
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Default::default(),
+            },
+        ]);
+        let r = frame(vec![egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: Default::default(),
+        }]);
+        assert!(r.clicked_by(egui::PointerButton::Primary));
     }
 }
