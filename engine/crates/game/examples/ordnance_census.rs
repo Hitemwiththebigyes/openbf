@@ -27,18 +27,24 @@
 //! `Sim::stickies`, the thermal's constants) — a DROP from 1.5 m and three
 //! THROWS from 1.5 m at 6 m/s level, headings 0 / 120 / 240 deg. A run is
 //! THROUGH when between two ticks the grenade's path crossed an up-facing
-//! SOLDIER-layer face (`n.y > 0.7`, going down) and it ended the tick under
-//! it: it passed a floor a soldier stands on.
+//! SOLDIER-layer face (`n.y > 0.7`, going down) and it then went `GAP_TOL`
+//! under the crossing, or was still moving at the end: it passed a floor a
+//! soldier stands on. One that comes to rest within `GAP_TOL` under it is
+//! SUNK, not through: it lies on an ordnance face the map authors a little
+//! under the soldier floor (10 to 31 cm on kas1, dag1, fel1, tat2, uta1),
+//! the same tolerance the STATIC gap test gives.
 //!
 //! THE GATE (`scripts/gates.py`, with the `leak` group): a through run is
 //! keyed by the body it CROSSED — `S-` a soldier-only body (the disc gives it
-//! no ordnance layer: authored), `SO` one the grenade should have met (a
-//! sweep fault), `--` none found at the crossing — and is ACCEPTED when a
+//! no ordnance layer: authored), `SG` a body with both layers whose ordnance
+//! faces do not reach under that soldier face where the grenade went down (a
+//! GAP, as the STATIC test finds them: authored), `SO` one the grenade should
+//! have met (a sweep fault), `--` none found at the crossing — and is ACCEPTED when a
 //! line of `ordnance_census_accepted.txt` beside this file covers that key;
 //! every other is NEW. The footer
 //!
 //! ```text
-//! ordnance: maps M  floors F  gaps G  runs R  through T  accepted A  new N
+//! ordnance: maps M  floors F  gaps G  runs R  through T  sunk K  accepted A  new N
 //! ```
 //!
 //! must equal `[ordnance] footer` in `engine/artifacts/loop/gates.toml`, and
@@ -63,6 +69,9 @@ const HEADROOM: f32 = 1.8;
 const HUB_BAND: f32 = 6.0;
 const PROBE_UP: f32 = 1.0;
 const GAP_TOL: f32 = 0.4;
+/// How far over a crossing the `SG` test starts (a soldier face a little
+/// under an ordnance one).
+const GAP_UP: f32 = 0.05;
 const TICKS: u32 = 360;
 const THROW_UP: f32 = 1.5;
 const THROW_SPEED: f32 = 6.0;
@@ -146,8 +155,11 @@ fn nearest_hub_dy(sim: &Sim, p: Vec3) -> f32 {
 /// The ordnance surface a grenade over `f` (a floor point) meets going down:
 /// its height, and `t` for terrain / `m` for a model face.
 fn ordnance_floor(sim: &Sim, f: Vec3) -> Option<(f32, char)> {
-    let o = f + Vec3::Y * PROBE_UP;
-    let max = PROBE_UP + GAP_TOL;
+    ordnance_under(sim, f + Vec3::Y * PROBE_UP, PROBE_UP + GAP_TOL)
+}
+
+/// The highest ordnance surface within `max` under `o`.
+fn ordnance_under(sim: &Sim, o: Vec3, max: f32) -> Option<(f32, char)> {
     let mut best: Option<(f32, char)> = None;
     if let Some(hf) = sim.heightfield.as_ref() {
         if let Some(k) = ray_terrain_ps2(hf, &sim.collision.cutters, o, o - Vec3::Y * max) {
@@ -254,6 +266,11 @@ struct Run {
     floor: usize,
     kind: u8,
     through: Option<Vec3>,
+    /// The soldier face it crossed going down, not yet `GAP_TOL` under.
+    crossed: Option<Vec3>,
+    /// Where it went `GAP_TOL` under the crossing, no ordnance face lies
+    /// under the crossing's height (`SG`).
+    gap: bool,
     end: Vec3,
 }
 
@@ -291,6 +308,8 @@ fn fly(sim: &mut Sim, wc: usize, floors: &[Vec3], bf2: bool) -> Vec<Run> {
                 floor: fi,
                 kind,
                 through: None,
+                crossed: None,
+                gap: false,
                 end: Vec3::ZERO,
             });
         }
@@ -323,14 +342,19 @@ fn fly(sim: &mut Sim, wc: usize, floors: &[Vec3], bf2: bool) -> Vec<Run> {
             }
             let d = b - a;
             let len = d.length();
-            if len > 0.0 && d.y < 0.0 {
+            if len > 0.0 && d.y < 0.0 && r.crossed.is_none() {
                 if let Some((t, n)) = sim.collision.ray(a, d / len, len, Layers::SOLDIER) {
                     if n.y > 0.7 && t < len - 0.02 {
-                        r.through = Some(a + d / len * t);
-                        // Park it: it would fall for 9 s and leave the list.
-                        sim.stickies[i].moving = false;
+                        r.crossed = Some(a + d / len * t);
                     }
                 }
+            }
+            if let Some(c) = r.crossed.filter(|c| b.y < c.y - GAP_TOL) {
+                r.through = Some(c);
+                r.gap = ordnance_under(sim, Vec3::new(a.x, c.y + GAP_UP, a.z), GAP_UP + GAP_TOL)
+                    .is_none();
+                // Park it: it would fall for 9 s and leave the list.
+                sim.stickies[i].moving = false;
             }
         }
         if !live {
@@ -339,6 +363,9 @@ fn fly(sim: &mut Sim, wc: usize, floors: &[Vec3], bf2: bool) -> Vec<Run> {
     }
     for (i, r) in runs.iter_mut().enumerate() {
         r.end = sim.stickies[i].pos;
+        if r.through.is_none() && sim.stickies[i].moving {
+            r.through = r.crossed;
+        }
     }
     sim.stickies.clear();
     runs
@@ -351,11 +378,12 @@ struct Report {
     gaps: usize,
     runs: usize,
     through: usize,
+    sunk: usize,
     accepted: usize,
     new: usize,
 }
 
-/// One line of `ordnance_census_accepted.txt`: `<map|*> <S-|SO|--> <label>`,
+/// One line of `ordnance_census_accepted.txt`: `<map|*> <S-|SG|SO|--> <label>`,
 /// the label exact or a prefix ending in `*`; `#` starts the reason.
 struct Accepted {
     map: String,
@@ -486,6 +514,10 @@ fn run_map(
         Vec::new()
     };
     let mut through = 0usize;
+    let sunk = runs
+        .iter()
+        .filter(|r| r.through.is_none() && r.crossed.is_some())
+        .count();
     let mut tf = vec![0u8; floors.len()];
     for r in &runs {
         if let Some(p) = r.through {
@@ -501,8 +533,12 @@ fn run_map(
         } else if at.is_some() {
             let _ = writeln!(
                 text,
-                "  run {} ok, ends ({:.2}, {:.2}, {:.2})",
-                r.kind, r.end.x, r.end.y, r.end.z
+                "  run {} {}, ends ({:.2}, {:.2}, {:.2})",
+                r.kind,
+                if r.crossed.is_some() { "sunk" } else { "ok" },
+                r.end.x,
+                r.end.y,
+                r.end.z
             );
         }
     }
@@ -523,18 +559,22 @@ fn run_map(
     }
     // The body each through run crossed, accepted or new.
     let mut through_by: std::collections::BTreeMap<String, (usize, Vec3)> = Default::default();
-    for p in runs.iter().filter_map(|r| r.through) {
-        through_by
-            .entry(suspect(sim, &labels, p))
-            .or_insert((0, p))
-            .0 += 1;
+    for r in &runs {
+        let Some(p) = r.through else {
+            continue;
+        };
+        let mut s = suspect(sim, &labels, p);
+        if r.gap && s.starts_with("SO ") {
+            s.replace_range(..2, "SG");
+        }
+        through_by.entry(s).or_insert((0, p)).0 += 1;
     }
     let (mut acc, mut new) = (0usize, 0usize);
     let mut rank: Vec<_> = through_by.into_iter().collect();
     rank.sort_by(|a, b| b.1 .0.cmp(&a.1 .0).then(a.0.cmp(&b.0)));
     let _ = writeln!(
         text,
-        "{key:10} floors {:6}  gaps {gaps:5}  runs {:6}  through {through:5}  floors through {through_floors:5}",
+        "{key:10} floors {:6}  gaps {gaps:5}  runs {:6}  through {through:5}  sunk {sunk:4}  floors through {through_floors:5}",
         floors.len(),
         runs.len()
     );
@@ -572,6 +612,7 @@ fn run_map(
         gaps,
         runs: runs.len(),
         through,
+        sunk,
         accepted: acc,
         new,
     }))
@@ -614,7 +655,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
     let out = out.into_inner().unwrap();
-    let (mut f, mut g, mut r, mut t, mut acc, mut new) = (0, 0, 0, 0, 0, 0);
+    let (mut f, mut g, mut r, mut t, mut k, mut acc, mut new) = (0, 0, 0, 0, 0, 0, 0);
     let mut sites = String::new();
     for (i, rep) in out.iter().enumerate() {
         let rep = rep.as_ref().map_err(|e| e.as_str())?;
@@ -628,6 +669,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         g += rep.gaps;
         r += rep.runs;
         t += rep.through;
+        k += rep.sunk;
         acc += rep.accepted;
         new += rep.new;
     }
@@ -635,7 +677,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::fs::write(&p, &sites).expect("ORDN_SITES");
     }
     println!(
-        "ordnance: maps {}  floors {f}  gaps {g}  runs {r}  through {t}  accepted {acc}  new {new}",
+        "ordnance: maps {}  floors {f}  gaps {g}  runs {r}  through {t}  sunk {k}  accepted {acc}  new {new}",
         maps.len()
     );
     Ok(())

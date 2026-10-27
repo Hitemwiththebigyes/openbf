@@ -26,6 +26,9 @@ pub const FRICTION_GAIN: f32 = 1.37;
 /// A bounce leaves the grenade this far off the surface; a stick, [`STICK_OFF`].
 pub const PUSH_OFF: f32 = 0.1;
 pub const STICK_OFF: f32 = 0.01;
+/// Where the push-off's room check starts along the normal: off the surface
+/// it bounced on (`Sim::push_off_room`, issue #37).
+pub const PUSH_ROOM_START: f32 = 0.001;
 /// BF1 counts a bounce on a floor: normal.y above this.
 pub const FLOOR_NY: f32 = 0.7;
 /// BF2 counts a bounce that leaves it slower than this (speed², m²/s²).
@@ -284,8 +287,16 @@ impl Sticky {
     /// The contact handler (§4.2 steps 2-5, B1 `FUN_0027f1e8` / B2
     /// `FUN_00320fe8`). `point` and `n` are the sweep's hit; the caller
     /// records the first contact and fills [`Self::anchor`] after a
-    /// [`Contact::Stuck`].
-    pub fn contact(&mut self, c: &StickyClass, point: Vec3, n: Vec3, what: Surface) -> Contact {
+    /// [`Contact::Stuck`]. A bounce pushes it `push_off` along `n`: the
+    /// PS2's [`PUSH_OFF`], less where a surface is nearer.
+    pub fn contact(
+        &mut self,
+        c: &StickyClass,
+        point: Vec3,
+        n: Vec3,
+        what: Surface,
+        push_off: f32,
+    ) -> Contact {
         let bit = match what {
             Surface::Water => {
                 self.vel = Vec3::new(0.0, if c.bf2 { -2.0 } else { -0.2 }, 0.0);
@@ -314,7 +325,7 @@ impl Sticky {
             match bounce(self.vel, n) {
                 None => self.bounces = REST_BOUNCES,
                 Some(v) => {
-                    self.pos = point + n * PUSH_OFF;
+                    self.pos = point + n * push_off;
                     self.vel = v;
                     let counted = if c.bf2 {
                         v.length_squared() < SLOW_SPEED_SQ
@@ -445,7 +456,7 @@ mod tests {
             if s.moving && prev.y > 0.0 && s.pos.y <= 0.0 {
                 let t = prev.y / (prev.y - s.pos.y);
                 let point = prev + (s.pos - prev) * t;
-                let r = s.contact(c, point, Vec3::Y, Surface::Terrain);
+                let r = s.contact(c, point, Vec3::Y, Surface::Terrain, PUSH_OFF);
                 contacts.push((tick, r, s.vel.length_squared()));
             }
         }
@@ -525,7 +536,11 @@ mod tests {
         ] {
             let c = class(bf2, mask);
             let mut s = thrown(&c, p - v * DT, v, 1.0);
-            assert_eq!(s.contact(&c, p, n, hull), want, "bf2 {bf2} mask {mask:#x}");
+            assert_eq!(
+                s.contact(&c, p, n, hull, PUSH_OFF),
+                want,
+                "bf2 {bf2} mask {mask:#x}"
+            );
             if want == Contact::Stuck {
                 assert!(s.armed && !s.moving && s.vel == Vec3::ZERO);
                 assert!(near(s.pos, p + n * STICK_OFF, 1e-6));
@@ -537,10 +552,10 @@ mod tests {
                 handle: UnitHandle { index: 1, gen: 0 },
                 kind: 0,
             };
-            assert_eq!(s.contact(&c, p, n, man), Contact::Bounced);
+            assert_eq!(s.contact(&c, p, n, man, PUSH_OFF), Contact::Bounced);
             let mut s = thrown(&c, p - v * DT, v, 1.0);
             assert_eq!(
-                s.contact(&c, p, Vec3::Y, Surface::Terrain),
+                s.contact(&c, p, Vec3::Y, Surface::Terrain, PUSH_OFF),
                 Contact::Bounced
             );
         }
@@ -552,7 +567,7 @@ mod tests {
         let c = class(false, 0);
         let mut s = thrown(&c, Vec3::Y, Vec3::new(3.0, -9.0, 0.0), 0.9);
         assert_eq!(
-            s.contact(&c, Vec3::ZERO, Vec3::Y, Surface::Water),
+            s.contact(&c, Vec3::ZERO, Vec3::Y, Surface::Water, PUSH_OFF),
             Contact::Water
         );
         assert!(s.armed && s.moving);

@@ -1,4 +1,4 @@
-# ordnance_census's accepted through runs (card GRFL). One line each: `<map|*> <S-|SO|--> <label>  # <reason>`; the
+# ordnance_census's accepted through runs (card GRFL). One line each: `<map|*> <S-|SG|SO|--> <label>  # <reason>`; the
 # label is exact or a prefix ending in `*`. A through run (a grenade that passed an up-facing SOLDIER-layer face) is
 # keyed by the body it crossed and is ACCEPTED when a line covers that key; every other is NEW and fails the gate.
 # The footer's counts are pinned in engine/artifacts/loop/gates.toml (`[ordnance] footer`), so an accepted body still
@@ -9,12 +9,14 @@
 # S-: the crossed body is on the soldier layer only. The disc gives it no ordnance layer, so a grenade passes it by
 # authoring; what the PS2 does at each is not measured (no PCSX2 throw was made).
 bf2_pol1 S- com_inv_col*  # 6140 runs: invisible walls (OrdnanceCollision none); their tops are not floors, the census takes them on a map whose hub heights are not its floors
+bf1_tat2 S- com_inv_col*  # 1 run: an invisible wall's top (OrdnanceCollision none on the disc)
 bf2_kam1 S- kam_bldg_mushplatform1*  # 935 runs: the platform's soldier-only skirt prim at y 61.4, crossed by throws off the deck's edge
 bf2_fel1 S- fel1_bldg_bladder*  # 36 runs: the bladder plants
 bf1_nab1 S- com_weap_gunturret*  # 33 runs: a turret's top
 tat1 S- com_weap_gunturret*  # 15 runs: a turret's top
 bf1_nab2 S- com_weap_gunturret*  # 11 runs: a turret's top
 bf1_kas2 S- com_weap_gunturret*  # 7 runs: a turret's top
+bf1_tat2 S- com_weap_gunturret*  # 7 runs: a turret's top
 bf1_rhn1 S- com_weap_gunturret*  # 7 runs: a turret's top
 bf1_yav1 S- com_weap_gunturret*  # 6 runs: a turret's top
 bf1_end1 S- end_bldg_ewok_fence*  # 5 runs: the Ewok fences
@@ -23,28 +25,16 @@ bf1_end1 S- com_weap_gunturret*  # 4 runs: a turret's top
 bf1_yav2 S- com_weap_gunturret*  # 4 runs: a turret's top
 bf1_end1 S- end_bldg_ewok_ramp*  # 4 runs: the Ewok ramps
 bf2_kam1 S- tur_weap_built_gunturret*  # 2 runs: a turret's top
+bf2_tat3 S- tat3_bldg_barracks*  # 9 runs: the barracks roof's edge is a soldier-only box (no ordnance layer on the disc); the grenade drops past it
 bf1_kas1 S- kas1_prop_bamboo2*  # 1 run: a bamboo prop
 
-# SO: the crossed body HAS an ordnance layer and the grenade still passed a soldier face of it: 45 runs of 1,556,912
-# in 20 classes. RESIDUE, NOT TRACED (trees, rocks, bunkers and ruins: a bounce among steep or thin faces). Each line
-# is one class on one map; a fix removes its line.
-bf1_geo1 SO geo_prop_rock_bunker*  # 1 run: residue
-bf1_nab1 SO nab1_prop_gunganhead_bunker*  # 1 run: residue
-bf1_yav1 SO yav_bldg_ruins_bldgpiece1*  # 1 run: residue
-bf2_cor1 SO cor1_bldg_grand_hall_outside*  # 1 run: residue
-bf2_dag1 SO dag1_prop_barrier_1*  # 4 runs: residue
-bf2_dag1 SO dag1_prop_grandtree*  # 4 runs: residue
-bf2_dag1 SO dag1_prop_grandtree_2*  # 11 runs: residue
-bf2_dea1 SO dea1_bldg_central_shaft04*  # 2 runs: residue
-bf2_dea1 SO dea1_bldg_garbage_room*  # 2 runs: residue
-bf2_fel1 SO fel1_bldg_destroyed_gunship*  # 1 run: residue
-bf2_geo1 SO geo_bldg_bunker_1_outside*  # 1 run: residue
-bf2_geo1 SO geo_prop_boulder_1*  # 1 run: residue
-bf2_hot1 SO hoth_bldg_bunker*  # 1 run: residue
-bf2_mus1 SO mus1_bldg_conference*  # 2 runs: residue
-bf2_pol1 SO pol_bldg_health*  # 1 run: residue
-bf2_uta1 SO uta1_bldg_building02*  # 1 run: residue
-bf2_uta1 SO uta1_bldg_lizardpen*  # 6 runs: residue
-bf2_uta1 SO uta1_bldg_sphere_hanger_wings*  # 2 runs: residue
-tat2 SO tat2_bldg_medium1*  # 1 run: residue
-bf2_yav1 SO yav_bldg_ruins_bldgpiece1*  # 1 run: residue
+# SG: the crossed body has both layers, but its ordnance faces do not reach under that soldier face where the grenade
+# went down: a gap in the authoring, as the census's static gap test counts them.
+bf2_dag1 SG dag1_prop_grandtree_2 dag1_prop_grandtree_19  # 2 runs: the grenade rolls off the root's ordnance face (x -46.00) to where the soldier face over it has none (x -46.06), and lands on the terrain 0.9 m down
+bf2_dea1 SG dea1_bldg_central_shaft04 dea1_bldg_central_shaft04  # 2 runs: the shaft's floor at (-101.5, 49.9, -109.4) is soldier-only; the grenade falls to the shaft's bottom
+
+# SO: the crossed body HAS an ordnance layer and the grenade still passed a soldier face of it. Each line is traced
+# (issue #37, 2026-10-27); exact keys, so a new case on the same model is NEW.
+bf2_dag1 SO dag1_prop_grandtree dag1_prop_grandtree6  # 1 run: a 2 cm seam in the root mesh at x 33.20..33.22 (no soldier or ordnance face across it); a point-sized grenade glances off the seam's side and drops through
+bf2_dag1 SO dag1_prop_grandtree_2 dag1_prop_grandtree_12  # 1 run: the same root seam at x 44.39..44.40 (the soldier face spans it, the ordnance face does not)
+bf2_pol1 SO pol_bldg_health pol_bldg_health  # 1 run: under the stairs the floor (y 33.07) stops at x -86.51 and the stair's sloped sheet meets that height at x -86.56; a point-sized grenade drops into the 5 cm slot between them and hits the sheet's underside below the floor
