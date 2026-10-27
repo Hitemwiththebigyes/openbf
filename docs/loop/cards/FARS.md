@@ -48,3 +48,7 @@ Created 2026-09-29 by REDB (lane 2): split out of REDB when its RE showed the re
 
 ## Planner note (2026-09-30, M-ALPHA)
 `defer: post-alpha` — not needed for the alpha's six showcase maps or its checklist. Value 4 → 3 until the alpha (restore from `value_pre_alpha`).
+
+## Note (Claude, 2026-10-27, from the maintainer's INBOX note)
+Choosing how the near scene meets the far image: a per-pixel dither + discard fade may be expensive on a weak GPU, and a
+hard seam may look wrong. Measure both (fps and a view sheet) on the Iris Xe proxy before choosing.

@@ -78,3 +78,7 @@ carries +6.4 of RHN1's +5.2 dluma. Pair `lead_tmp/brgt/sheet_rhn1.png`; numbers 
 
 ## Notes
 - planner 2026-10-19 16:25: `defer: post-alpha` removed - the maintainer's 10-19 ask 1 (speed on an Iris Xe laptop): far culling on by default is one of ISPD's biggest candidate savings, and this card is what lets it default on faithfully.
+
+## Note (Claude, 2026-10-27, from the maintainer's INBOX note)
+Choosing how the near scene meets the far image: a per-pixel dither + discard fade may be expensive on a weak GPU, and a
+hard seam may look wrong. Measure both (fps and a view sheet) on the Iris Xe proxy before choosing.

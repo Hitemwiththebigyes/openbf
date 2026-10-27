@@ -60,3 +60,9 @@ None of these pointers supplies the still-owed saber melee/block/throw derivatio
   `..._AcquiredTarget`): the event rule is card UVO2's.
 
 - ANNC RE 2026-09-30 (`analysis/re-announcer.md` §2.6, [D]/[H]): BF2 hero voice and music. Class properties: `SoldierMusic` (0xf5b46be4, class+0x1264, e.g. `all_hero_Luke_lp`), 0xe4dee4ee (class+0x1258, `hero_<n>_spawn`), 0xd3a93472 / 0xef9e29f7 (class+0x125c / +0x1260, `hero_<n>_exhausted`), class+0x1254 (a fourth line); parser `FUN_00252bb0`. The hero HUD resolves them per team (`FUN_00383208` B2 381077-381083); the hero manager `FUN_003e6cf8` plays them through `FUN_00382580` / `FUN_003825c8` (spawn line at the hero + a HUD message) / `FUN_00382880` (exhausted). Gates `ScriptCB_EnableHeroVO` / `EnableHeroMusic` (`DAT_005fd083` / `DAT_005fd082`, default 1, read in the soldier spawn `FUN_002360c8`; only `tat2g_eli` clears them). When each fires is NOT traced. They are 2-D lines on `global_vo_slow`, i.e. the same voice queue as the commander's (ANNC builds that queue).
+
+## Note (Claude, 2026-10-27, from the maintainer's INBOX note): PS2 behaviour to measure on PCSX2
+Questions, not facts: does an AI hero ever appear in BF2 single player (sample at least 240 s); what a dead hero does
+(animation, fade, any pickup dropped); the "Play as X?" prompt's layout, countdown and buttons; the unlock points, offer
+time and respawn time; whether the PS2 drains hero health over time, and how fast. A drain would be a fact about the PS2
+only: this card's rule (no time drain, the maintainer) stands. Combo data -> COMBO; blade, block, throw -> SABR.
