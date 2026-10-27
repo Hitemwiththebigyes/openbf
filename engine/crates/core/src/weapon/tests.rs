@@ -5,6 +5,41 @@ use std::collections::HashMap;
 
 mod ammo;
 
+#[test]
+fn shot_pattern_advances_wraps_and_participates_in_replay_hash() {
+    let class = WeaponClass {
+        shot_tilts: vec![
+            (-0.1 * DEG, -0.8 * DEG),
+            (0.8 * DEG, 0.0),
+            (-0.1 * DEG, 0.8 * DEG),
+        ],
+        shots_per_salvo: 3,
+        ..WeaponClass::default()
+    };
+    let mut state = WeaponState::new(&class, true, 0);
+    let mut shots = Vec::new();
+    state.update(
+        DT30,
+        &class,
+        fi(true, false),
+        &mut GameLcg::new(7),
+        &mut shots,
+    );
+    assert_eq!(
+        shots.iter().map(|s| s.tilt).collect::<Vec<_>>(),
+        class.shot_tilts
+    );
+    assert_eq!(state.tilt_index, 0);
+    let bytes = |state: &WeaponState| {
+        let mut out = Vec::new();
+        state.hash_into(&mut |b| out.extend_from_slice(b));
+        out
+    };
+    let initial = bytes(&state);
+    state.tilt_index = 1;
+    assert_ne!(bytes(&state), initial);
+}
+
 const DT30: f32 = 1.0 / 30.0;
 
 fn fi(held: bool, infinite_ammo: bool) -> FireInput {

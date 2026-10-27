@@ -200,6 +200,7 @@ pub struct WeaponClass {
     /// Radians.
     pub pitch_spread: f32,
     pub yaw_spread: f32,
+    pub shot_tilts: Vec<(f32, f32)>,
     /// [stand, crouch, prone] × [still, move, zoom], radians.
     pub posture_spread: [[f32; 3]; 3],
     pub spread_per_shot: f32,
@@ -349,6 +350,7 @@ impl Default for WeaponClass {
             initial_salvo_delay: 0.0,
             pitch_spread: 0.0,
             yaw_spread: 0.0,
+            shot_tilts: Vec::new(),
             posture_spread: [[0.0; 3]; 3],
             spread_per_shot: 0.0,
             spread_recover_rate: 0.0,
@@ -443,6 +445,7 @@ impl WeaponClass {
             initial_salvo_delay: 0.0,
             pitch_spread: 0.25 * DEG,
             yaw_spread: 0.25 * DEG,
+            shot_tilts: Vec::new(),
             posture_spread: [[0.0; 3]; 3],
             spread_per_shot: 1.1 * DEG,
             spread_recover_rate: 4.8 * DEG,
@@ -881,6 +884,7 @@ pub fn ai_sniper_yaw(dist_sq: f32) -> f32 {
 /// shot, as in FUN_002892a8).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ShotSpec {
+    pub tilt: (f32, f32),
     pub charge: f32,
     /// Half-angle magnitudes (radians) at spawn time.
     pub pitch_spread: f32,
@@ -953,6 +957,7 @@ pub struct WeaponState {
     /// blocks triggering; held channel slots draw and holster their weapons.
     pub active: bool,
     pub shots_fired: u64,
+    pub tilt_index: u32,
     /// The rounds this weapon was issued (the clip and the reserve at its
     /// making; [`SPARE_INFINITE`] = endless). Never written again: the PS2's
     /// cap of the reserve (B1 weapon+0x94, B2 ammo[2]), which the AI's
@@ -985,6 +990,7 @@ impl WeaponState {
             ai_dispersion: None,
             active: true,
             shots_fired: 0,
+            tilt_index: 0,
             issued: class
                 .rounds_per_clip
                 .saturating_add(reserve_clips.saturating_mul(class.rounds_per_clip)),
@@ -1263,6 +1269,11 @@ impl WeaponState {
                                 break;
                             }
                             shots.push(ShotSpec {
+                                tilt: c
+                                    .shot_tilts
+                                    .get(self.tilt_index as usize)
+                                    .copied()
+                                    .unwrap_or_default(),
                                 charge: self.charge,
                                 pitch_spread: self.pitch_spread(c),
                                 yaw_spread: self.yaw_spread(c),
@@ -1272,6 +1283,8 @@ impl WeaponState {
                             }
                             self.heat += c.heat_per_shot;
                             self.shots_fired += 1;
+                            self.tilt_index =
+                                (self.tilt_index + 1) % c.shot_tilts.len().max(1) as u32;
                         }
                         // Spread grows once per salvo, capped at SpreadLimit.
                         self.spread = (self.spread + self.spread_mult * c.spread_per_shot)
@@ -1316,6 +1329,10 @@ impl WeaponState {
         eat(&self.spare.to_le_bytes());
         eat(&self.fire_cmd.to_le_bytes());
         eat(&[self.state as u8, self.overheated as u8, self.human as u8]);
+        if self.tilt_index != 0 {
+            eat(b"tilt");
+            eat(&self.tilt_index.to_le_bytes());
+        }
     }
 }
 

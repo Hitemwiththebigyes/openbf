@@ -108,7 +108,7 @@ pub(super) fn draw(
             continue;
         };
         let offset = inst.child_offset(parent.idx);
-        let mut child = LiveEffect::new(def.clone(), era, frame_at(&nodes, 0.0), &mut Lcg(offset));
+        let mut child = LiveEffect::new(def.clone(), frame_at(&nodes, 0.0), &mut Lcg(offset));
         child.t = now;
         child.frame = frame_at(&nodes, now);
         for (k, (child_inst, child_em)) in child
@@ -121,6 +121,6 @@ pub(super) fn draw(
             child_inst.update_path(child_em, now, false, |time| frame_at(&nodes, time));
             child_inst.rgba = parent.rgba;
         }
-        child.draws(era, eye, forward, texture, out);
+        child.draws(eye, forward, texture, out);
     }
 }

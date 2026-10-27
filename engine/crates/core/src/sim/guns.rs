@@ -451,7 +451,7 @@ impl Sim {
                     up,
                     spec.pitch_spread,
                     spec.yaw_spread,
-                    (0.0, 0.0),
+                    spec.tilt,
                 );
                 let bolt = Bolt::spawn(
                     origin,

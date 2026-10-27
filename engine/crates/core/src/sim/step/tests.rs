@@ -3,6 +3,7 @@ use crate::collision::CollisionWorld;
 use crate::sim::tests::{ai, fire, flat_ground};
 use crate::sim::{Cheats, InputLog};
 use crate::soldier::GroundRules;
+use crate::unit::UnitHandle;
 use crate::unit::UnitSpec;
 use crate::weapon::WeaponClass;
 

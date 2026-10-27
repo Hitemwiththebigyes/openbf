@@ -1609,7 +1609,9 @@ fn fielded_classes_hold_their_sidearm_and_grenades() {
                 for h in &c.held {
                     assert_ne!(h.slot, c.weapon_slot);
                     assert_eq!(
-                        h.channel == 1 && h.weapon.repair.is_none(),
+                        h.channel == 1
+                            && h.weapon.repair.is_none()
+                            && h.weapon.name != "cis_weap_inf_wrist_rocket",
                         h.weapon.ordnance.sticky.is_some(),
                         "{}",
                         c.class
@@ -1627,18 +1629,9 @@ fn fielded_classes_hold_their_sidearm_and_grenades() {
                     .filter(|h| h.weapon.ordnance.sticky.is_some())
                     .count();
             }
-            // The plain trooper throws a thermal detonator on every side but
-            // BF1's CIS (the super battle droid: a wrist rocket) and REP
-            // (the haywire detonator, also a sticky).
             let fill = r.fill_class();
             let has = fill.held.iter().any(|h| h.channel == 1);
-            assert_eq!(
-                has,
-                !((game == "bf1" || game == "bf2") && r.faction == "cis"),
-                "{game} {}: {}",
-                r.faction,
-                fill.class
-            );
+            assert!(has, "{game} {}: {}", r.faction, fill.class);
             assert!(thrown >= 2, "{game} {}: {thrown} thrown slots", r.faction);
         }
     }

@@ -13,7 +13,7 @@ fn lvl(rel: &str) -> PathBuf {
 }
 
 /// Bake the given LVLs into one ClassDb, or `None` if the data is absent.
-fn db(rels: &[&str], tag: &str) -> Option<ClassDb> {
+pub(super) fn db(rels: &[&str], tag: &str) -> Option<ClassDb> {
     let paths: Vec<PathBuf> = rels.iter().map(|r| lvl(r)).collect();
     if let Some(missing) = paths.iter().find(|p| !p.exists()) {
         eprintln!("SKIP: {} not present", missing.display());

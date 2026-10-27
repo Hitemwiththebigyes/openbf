@@ -228,6 +228,9 @@ pub fn load_classdb(classes_dir: &Path, game: &str, factions: &[&str]) -> Result
             classes_dir.display()
         ));
     }
+    if game == "bf1" && factions.contains(&"cis") {
+        db.sbd_weapons = Some(Box::new(load_classdb(classes_dir, "bf2", &["cis"])?));
+    }
     Ok(db)
 }
 
@@ -594,6 +597,22 @@ pub fn weapon_from_db(db: &ClassDb, weapon: &str) -> Result<WeaponClass> {
         .engine_base(&ord_name)
         .map_or(OrdKind::Other, OrdKind::from_base);
     let mut w = WeaponClass::from_props(weapon, &wsrc, ord);
+    let tilt_count = db
+        .prop_hash(weapon, 0xa4df_afc0)
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(0);
+    w.shot_tilts = db
+        .props_all_hash(weapon, 0xa412_0aa8)
+        .into_iter()
+        .take(tilt_count)
+        .filter_map(|v| {
+            let mut pair = v.split_whitespace().filter_map(|n| n.parse::<f32>().ok());
+            Some((
+                pair.next()? * core::weapon::DEG,
+                pair.next()? * core::weapon::DEG,
+            ))
+        })
+        .collect();
     w.flash = db
         .engine_base(weapon)
         .is_some_and(|b| !NO_FLASH_BASES.iter().any(|n| b.eq_ignore_ascii_case(n)))
@@ -666,7 +685,10 @@ pub fn held_slots(db: &ClassDb, soldier: &str, primary: u8) -> Vec<HeldSlot> {
             {
                 return None;
             }
-            let weapon = if s.channel == 1 && db.engine_base(&name) != Some("repair") {
+            let weapon = if s.channel == 1
+                && db.engine_base(&name) != Some("repair")
+                && name != "cis_weap_inf_wrist_rocket"
+            {
                 thrown_weapon_from_db(db, &name).ok()??
             } else {
                 weapon_from_db(db, &name).ok()?
@@ -1086,14 +1108,63 @@ impl ClassRoster {
             ));
         }
         let src = ClassSrc { db, class };
-        let slots = db.weapon_slots(class);
+        let (weapon_db, weapon_owner) = if class == "cis_inf_battledroid" {
+            db.sbd_weapons
+                .as_deref()
+                .map_or((db, class), |canonical| (canonical, "cis_inf_rifleman"))
+        } else {
+            (db, class)
+        };
+        let slots = weapon_db.weapon_slots(weapon_owner);
         let primary = primary_slot(&slots).with_context(|| format!("{class}: no WeaponName"))?;
         let (weapon_name, total_clips, weapon_slot) = (
             primary.weapon.clone(),
             primary.ammo.unwrap_or(0),
             primary.slot,
         );
-        let weapon = weapon_from_db(db, &weapon_name)?;
+        let mut weapon = weapon_from_db(weapon_db, &weapon_name)?;
+        let mut held = held_slots(weapon_db, weapon_owner, weapon_slot);
+        if weapon_owner != class {
+            for selected in
+                std::iter::once(&mut weapon).chain(held.iter_mut().map(|s| &mut s.weapon))
+            {
+                let name = if selected.name == "cis_weap_inf_wrist_trishot" {
+                    "cis_weap_inf_wrist_shrapnel"
+                } else {
+                    &selected.name
+                };
+                let native = weapon_from_db(db, name)?;
+                selected.fire_sound = native.fire_sound;
+                selected.fire_loop_sound = native.fire_loop_sound;
+                selected.reload_sound = native.reload_sound;
+                selected.empty_sound = native.empty_sound;
+                selected.change_sound = native.change_sound;
+                selected.ordnance.ordnance_sound = native.ordnance.ordnance_sound;
+                selected.ordnance.collision_sound = native.ordnance.collision_sound;
+                if let (Some(selected), Some(native)) =
+                    (&mut selected.ordnance.impact, native.ordnance.impact)
+                {
+                    if let (Some(selected), Some(native)) =
+                        (&mut selected.explosion, native.explosion)
+                    {
+                        selected.sound = native.sound;
+                    }
+                }
+                if let (Some(selected), Some(native)) =
+                    (&mut selected.ordnance.explosion, native.ordnance.explosion)
+                {
+                    selected.look.sound = native.look.sound;
+                }
+            }
+        }
+        let mut anim = class_anim(db, class, &db.weapon_slots(class));
+        if weapon_owner != class {
+            for (weapon, _) in &mut anim.banks {
+                if weapon == "cis_weap_inf_wrist_shrapnel" {
+                    *weapon = "cis_weap_inf_wrist_trishot".into();
+                }
+            }
+        }
         let unit_type = db
             .prop(class, "UnitType")
             .map(|u| u.trim().to_owned())
@@ -1128,14 +1199,14 @@ impl ClassRoster {
                 .unwrap_or(HealthType::Person),
             weapon,
             total_clips,
-            held: held_slots(db, class, weapon_slot),
-            anim: class_anim(db, class, &slots),
+            held,
+            anim,
             skins: class_skins(db, class),
             slots,
             weapon_slot,
             geometry: db.prop(class, "GeometryName").map(|g| g.trim().to_owned()),
             weapon_geometry: weapon_geometry(db, class),
-            weapon_hud: weapon_hud(db, &weapon_name),
+            weapon_hud: weapon_hud(weapon_db, &weapon_name),
             foley_class: db
                 .prop_hash(class, crate::foley::FOLEY_FX_CLASS)
                 .map_or(0, |v| crate::classdb::fnv1a_lowercase(v.trim())),

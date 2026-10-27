@@ -124,12 +124,11 @@ fn original_cutters_animate_emit_and_loop_across_both_weapon_channels() {
             vis.update(&walk, core::TICK_DT);
             fx.ingest(&walk);
             if tick == 0 {
-                let era = fx.library().unwrap().era;
-                let before = fx.live()[0].particles(era);
+                let before = fx.live()[0].particles();
                 let origin = fx.live()[0].frame.pos;
                 let point = vis.fire_points(&walk)[walk.player.index as usize].unwrap();
                 fx.set_repair_origins(&vis.fire_points(&walk));
-                let after = fx.live()[0].particles(era);
+                let after = fx.live()[0].particles();
                 let mut checked = 0;
                 for (before, after) in before.iter().flatten().zip(after.iter().flatten()) {
                     assert!(after.pos.abs_diff_eq(before.pos + point - origin, 1e-5));

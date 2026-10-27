@@ -253,6 +253,64 @@ fn by_level(records: &[SoundProp]) -> HashMap<(u32, u32), SoundProp> {
 }
 
 impl Bank {
+    fn import_sbd_sounds(&mut self, root: &Path, game: &str) {
+        let names: &[&str] = match game {
+            "bf1" => &[
+                "cis_weap_inf_blaster_fire",
+                "cis_weap_inf_wrist_shrapnel",
+                "cis_weap_inf_rocket_fire",
+                "cis_weap_inf_equip_med",
+                "cis_weap_inf_reload_med",
+                "rep_weap_inf_equip_sm",
+            ],
+            "bf2" => &[
+                "cis_weap_inf_wrist_blaster_fire",
+                "cis_weap_inf_wrist_trishot_fire",
+                "cis_weap_inf_wrist_rocket_fire",
+                "com_weap_inf_equip_med",
+                "com_weap_inf_equip_lg",
+            ],
+            _ => return,
+        };
+        let Some(source) = Bank::load(&root.join(format!("{game}_geo1/sounds"))) else {
+            return;
+        };
+        let mut pending: Vec<_> = names.iter().map(|name| fnv1a_lowercase(name)).collect();
+        let mut imported = Vec::new();
+        while let Some(hash) = pending.pop() {
+            if imported.contains(&hash) {
+                continue;
+            }
+            imported.push(hash);
+            let Some(mut prop) = source.props.get(&hash).cloned() else {
+                continue;
+            };
+            pending.extend(prop.layers.iter().copied());
+            let Some(paths) = prop
+                .samples
+                .iter()
+                .map(|(id, _)| {
+                    source
+                        .sample_path(*id)
+                        .and_then(|p| std::path::absolute(p).ok())
+                })
+                .collect::<Option<Vec<_>>>()
+            else {
+                continue;
+            };
+            for (sample, path) in prop.samples.iter_mut().zip(paths) {
+                let mut id = sample.0;
+                while self.sample_paths.contains_key(&id) {
+                    id = id.wrapping_sub(1);
+                }
+                self.sample_paths
+                    .insert(id, path.to_string_lossy().into_owned());
+                sample.0 = id;
+            }
+            self.props.insert(hash, prop);
+        }
+    }
+
     fn load(dir: &Path) -> Option<Bank> {
         let txt = pak::read_to_string(dir.join("sounds.ron")).ok()?;
         let ron: SoundsRon = ron::from_str(&txt)
@@ -687,7 +745,10 @@ impl SoundLib {
         let mut music_takes = HashMap::new();
         let (core, global_dir, global_files) = match (root, game) {
             (Some(root), Some(game)) => {
-                let core = Bank::load(&root.join(format!("core_{game}")).join("sounds"));
+                let mut core = Bank::load(&root.join(format!("core_{game}")).join("sounds"));
+                if let Some(core) = &mut core {
+                    core.import_sbd_sounds(root, &game);
+                }
                 let dir = root.join("audio").join(format!("global_{game}"));
                 let g = read_index(&dir.join("global.ron"));
                 note_indexed(&g, &mut indexed);

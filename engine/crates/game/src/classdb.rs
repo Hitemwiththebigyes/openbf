@@ -68,6 +68,7 @@ pub struct WeaponSlot {
 /// drop, not a silent merge — use [`ClassDb::get_kind`] to assert the kind.
 #[derive(Default)]
 pub struct ClassDb {
+    pub(crate) sbd_weapons: Option<Box<ClassDb>>,
     classes: HashMap<String, ClassDef>,
     /// A `bf2_*` class file was loaded: the db is a BF2 disc's.
     bf2: bool,

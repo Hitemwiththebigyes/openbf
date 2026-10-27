@@ -37,6 +37,11 @@
   and space aim differently (§Vehicles & space).
 
 ### Combat
+- SBD weapons (2026-10-27, issue #27): BF2's wrist blaster, tri-shot and wrist
+  rockets, including slot ammunition, damage, spread and timing, on both map sets.
+  Both discs' values and the source tests are recorded in `analysis/sbd-weapons.md`.
+  SBD sounds follow the map's source game: BF1 on BF1 maps, BF2 on BF2 maps.
+  This presentation choice does not change the shared gameplay numbers.
 - Weapon balance: **fresh rebalance pass**. Baked ODF stats are the starting point, then a
   tuning pass (documented per weapon, PS2 values kept in data for reference/revert).
 - Awards & medals: **KEEP (BF2 system)** — grind-to-permanent-unlock stays. Settings

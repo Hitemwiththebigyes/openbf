@@ -372,7 +372,11 @@ pub fn bake_weapon(
     std::fs::create_dir_all(out.join("weapons"))?;
     std::fs::write(
         out.join("weapons").join(format!("{}.glb", m.name)),
-        crate::glb::model_to_glb(&m, &crate::alpha::legacy_per_texture_or(&m), false)?,
+        if m.name.to_ascii_lowercase().starts_with("hud_") {
+            crate::glb::hud_model_to_glb(&m, &crate::alpha::legacy_per_texture_or(&m))?
+        } else {
+            crate::glb::model_to_glb(&m, &crate::alpha::legacy_per_texture_or(&m), false)?
+        },
     )?;
     let wanted: Vec<String> = m
         .segments
