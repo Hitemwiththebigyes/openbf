@@ -1260,10 +1260,14 @@ impl WalkSim {
             .bolts
             .iter()
             .filter(|b| {
-                self.sim
-                    .weapon_classes
-                    .get(b.weapon_class)
-                    .is_none_or(|w| w.ordnance.laser.is_none())
+                self.sim.weapon_classes.get(b.weapon_class).is_none_or(|w| {
+                    w.ordnance.laser.is_none()
+                        && !(w.ordnance.kind == core::weapon::OrdKind::Missile
+                            && w.ordnance
+                                .impact
+                                .as_ref()
+                                .is_some_and(|l| l.trail.is_some()))
+                })
             })
             .map(|b| {
                 let dir = b.vel.normalize_or_zero();

@@ -16,7 +16,6 @@ fn draws(fx: &Fx) -> Vec<ParticleDraw> {
     let mut out = Vec::new();
     for e in fx.live() {
         e.draws(
-            fx.library().unwrap().era,
             Vec3::new(0.0, 2.0, 8.0),
             Vec3::NEG_Z,
             &mut |_| None,
@@ -183,12 +182,12 @@ fn an_ammo_gain_follows_the_unit_and_plays_once_while_its_effect_is_alive() {
     fx.ingest_sim(&sim);
     assert_eq!(fx.live().len(), 1);
     fx.update(0.35);
-    let before = fx.live()[0].particles(Era::Bf1);
+    let before = fx.live()[0].particles();
     sim.events.clear();
     sim.units[unit.index as usize].soldier.pos += Vec3::X * 2.0;
     fx.ingest_sim(&sim);
     assert_eq!(fx.live()[0].frame.pos, Vec3::X * 2.0);
-    let after = fx.live()[0].particles(Era::Bf1);
+    let after = fx.live()[0].particles();
     for (a, b) in before.iter().flatten().zip(after.iter().flatten()) {
         assert!((b.pos - a.pos).abs_diff_eq(Vec3::X * 2.0, 0.0001));
     }

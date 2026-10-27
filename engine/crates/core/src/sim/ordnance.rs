@@ -6,10 +6,11 @@
 use super::input::{buttons, PadState};
 use super::state::{Event, Sim};
 use crate::collision::{ray_terrain_ps2, HullFilter, Layers};
+use crate::projectile::{Bolt, Shooter};
 use crate::sticky::{self, Anchor, Contact, Sticky, Surface};
 use crate::unit::Controller;
 use crate::vehicle::VehicleKind;
-use crate::weapon::{FireInput, FireState};
+use crate::weapon::{shot_direction, FireInput, FireState, ShotSpec};
 use glam::Vec3;
 
 /// How long a grenade that has touched down is expected to keep bouncing
@@ -79,14 +80,101 @@ impl Sim {
             };
             shots.clear();
             let wc = &self.weapon_classes[class];
+            let u = &mut self.units[i];
+            if u.held[k].channel == 1 && wc.ordnance.sticky.is_none() {
+                let stance = match u.soldier.stance {
+                    crate::soldier::Stance::Crouch => 1,
+                    crate::soldier::Stance::Prone => 2,
+                    _ => 0,
+                };
+                u.held[k].state.set_posture(
+                    wc,
+                    stance,
+                    PadState::axis(p.ly).abs().max(PadState::axis(p.lx).abs()),
+                    false,
+                );
+            }
+            let was_reloading = u.held[k].state.reloading();
             self.units[i].held[k]
                 .state
                 .update(dt, wc, input, &mut self.lcg, &mut shots);
-            for _ in 0..shots.len() {
-                self.launch(i, class);
+            if !was_reloading
+                && self.units[i].held[k].state.reloading()
+                && self.weapon_classes[class].ordnance.sticky.is_none()
+            {
+                self.events.push(Event::Reload {
+                    unit: self.handle(i),
+                    weapon_class: class as u32,
+                });
+            }
+            if self.weapon_classes[class].ordnance.sticky.is_some() {
+                for _ in &shots {
+                    self.launch(i, class);
+                }
+            } else if !shots.is_empty() {
+                self.soldier_bolts(i, class, &shots);
             }
         }
         held0
+    }
+
+    pub(super) fn soldier_bolts(&mut self, i: usize, class: usize, shots: &[ShotSpec]) {
+        let unit = self.handle(i);
+        // A human's shot leaves the fire point toward what the reticle's
+        // ray hits (card AIMA); a bot's leaves the chest along its aim
+        // (card FPNT has the fire point for bots).
+        let (origin, (fwd, right, up)) =
+            if matches!(self.units[i].controller, Controller::Player { .. }) {
+                self.human_shot(i)
+            } else {
+                (self.units[i].muzzle(), self.units[i].aim_frame())
+            };
+        let who = Shooter {
+            owner: unit,
+            team: self.units[i].team,
+            weapon_class: class,
+            is_player: self.units[i].is_player,
+        };
+        let targets: Vec<_> = self
+            .alive_units()
+            .filter(|(h, _)| *h != unit)
+            .map(|(h, u)| (h, u.capsule()))
+            .collect();
+        // Perception's hearing reads this (`perception::scan`): anyone
+        // within HEAR_RADIUS of a shot knows a shooter is there, with no
+        // line of sight.
+        self.units[i].last_shot_tick = self.tick;
+        for spec in shots {
+            let dir = shot_direction(
+                &mut self.lcg,
+                fwd,
+                right,
+                up,
+                spec.pitch_spread,
+                spec.yaw_spread,
+                spec.tilt,
+            );
+            let wc = &self.weapon_classes[class];
+            let bolt = Bolt::spawn(
+                origin,
+                dir,
+                wc.ordnance.velocity,
+                wc.ordnance.life_span,
+                who,
+                self.heightfield.as_ref(),
+                self.water_plane(),
+                &self.collision,
+                HullFilter::All,
+                targets.iter().copied(),
+            );
+            self.events.push(Event::Shot {
+                unit,
+                weapon_class: class as u32,
+                origin,
+                dir,
+            });
+            self.bolts.push(bolt);
+        }
     }
 
     /// Step channel 0 to its next slot: the weapon in the hands trades

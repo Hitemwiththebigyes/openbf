@@ -119,7 +119,6 @@ fn bespin_delivers_a_clip_every_two_seconds_with_a_red_effect_and_a_playable_sou
         let mut out = Vec::new();
         for effect in fx.live() {
             effect.draws(
-                game::fx::emitter::Era::Bf1,
                 Vec3::new(0.0, 2.0, 8.0),
                 Vec3::NEG_Z,
                 &mut |_| None,

@@ -148,6 +148,7 @@ pub struct EffectDef {
     pub hash: u32,
     pub name: Option<String>,
     pub emitters: Vec<FxEmitter>,
+    era: Era,
     /// Empty for BF2 (every particle its own seed).
     caches: Vec<Vec<Variant>>,
     children: Vec<Option<Arc<EffectDef>>>,
@@ -194,6 +195,7 @@ impl EffectDef {
             hash,
             name,
             emitters,
+            era,
             caches,
             children,
         }
@@ -214,17 +216,45 @@ pub struct Library {
 }
 
 impl Library {
+    fn read_set(dir: &Path) -> Option<FxSet> {
+        let path = dir.join("effects.ron");
+        if !pak::exists(&path) {
+            return None;
+        }
+        match pak::read_to_string(&path)
+            .map_err(anyhow::Error::from)
+            .and_then(|t| ron::from_str::<FxSet>(&t).map_err(anyhow::Error::from))
+        {
+            Ok(set) => Some(set),
+            Err(e) => {
+                eprintln!("effects {}: {e:#}", path.display());
+                None
+            }
+        }
+    }
+
     /// `sets` highest layer first: an effect in two layers is the first's.
     pub fn from_sets(era: Era, sets: Vec<FxSet>, rng: &mut Lcg) -> Library {
         let mut effects = HashMap::new();
         for set in sets {
+            let effect_era = match set.game.as_str() {
+                "bf1" => Era::Bf1,
+                "bf2" => Era::Bf2,
+                _ => era,
+            };
             for e in set.effects {
                 effects.entry(e.hash).or_insert_with(|| {
                     let mut emitters = Vec::new();
                     for em in &e.emitters {
                         flatten(em, &mut emitters);
                     }
-                    Arc::new(EffectDef::new(e.hash, e.name.clone(), emitters, era, rng))
+                    Arc::new(EffectDef::new(
+                        e.hash,
+                        e.name.clone(),
+                        emitters,
+                        effect_era,
+                        rng,
+                    ))
                 });
             }
         }
@@ -258,16 +288,18 @@ impl Library {
         dirs.push(assets_dir.join(format!("common_{game}")));
         let mut sets = Vec::new();
         for d in &dirs {
-            let path = d.join("effects.ron");
-            if !pak::exists(&path) {
-                continue;
+            if let Some(set) = Self::read_set(d) {
+                sets.push(set);
             }
-            match pak::read_to_string(&path)
-                .map_err(anyhow::Error::from)
-                .and_then(|t| ron::from_str::<FxSet>(&t).map_err(anyhow::Error::from))
-            {
-                Ok(set) => sets.push(set),
-                Err(e) => eprintln!("effects {}: {e:#}", path.display()),
+        }
+        let sbd = assets_dir.join("side_bf2/effects/cis");
+        if game == "bf1" && factions.contains(&"cis") {
+            if let Some(mut set) = Self::read_set(&sbd) {
+                let hash = crate::classdb::fnv1a_lowercase("cis_sfx_sbd_missiles_red");
+                set.effects.retain(|e| e.hash == hash);
+                sets.push(set);
+                dirs.push(sbd);
+                dirs.push(assets_dir.join("common_bf2"));
             }
         }
         let mut lib = Library::from_sets(era, sets, &mut Lcg(0x5eed_f00d));
@@ -315,7 +347,8 @@ enum Gain {
 }
 
 impl LiveEffect {
-    pub fn new(def: Arc<EffectDef>, era: Era, frame: Frame, rng: &mut Lcg) -> LiveEffect {
+    pub fn new(def: Arc<EffectDef>, frame: Frame, rng: &mut Lcg) -> LiveEffect {
+        let era = def.era;
         let instances = def
             .emitters
             .iter()
@@ -368,7 +401,8 @@ impl LiveEffect {
     }
 
     /// Every emitter's live particles, unthinned (`keep` all).
-    pub fn particles(&self, era: Era) -> Vec<Vec<emitter::Particle>> {
+    pub fn particles(&self) -> Vec<Vec<emitter::Particle>> {
+        let era = self.def.era;
         self.instances
             .iter()
             .enumerate()
@@ -382,12 +416,12 @@ impl LiveEffect {
     /// This effect's draws for the view at `eye` looking along `forward`.
     pub fn draws(
         &self,
-        era: Era,
         eye: Vec3,
         forward: Vec3,
         texture: &mut dyn FnMut(&str) -> Option<TextureHandle>,
         out: &mut Vec<ParticleDraw>,
     ) {
+        let era = self.def.era;
         let d = (self.frame.pos - eye).dot(forward);
         for (i, inst) in self.instances.iter().enumerate() {
             if inst.is_dead() {
@@ -508,8 +542,7 @@ impl Fx {
             return false;
         };
         let rng = self.rng.get_or_insert(Lcg(0x0bf2_5eed));
-        self.live
-            .push(LiveEffect::new(def.clone(), lib.era, frame, rng));
+        self.live.push(LiveEffect::new(def.clone(), frame, rng));
         true
     }
 
@@ -687,13 +720,7 @@ impl Fx {
             let dirs = &lib.texture_dirs;
             let mut texture = |name: &str| sheet(r, dirs, cache, name);
             for e in &self.live {
-                e.draws(
-                    lib.era,
-                    camera.position,
-                    camera.forward(),
-                    &mut texture,
-                    &mut out,
-                );
+                e.draws(camera.position, camera.forward(), &mut texture, &mut out);
             }
             let sheet = texture(ripple::TEXTURE);
             self.water.draws(camera.position, lift, sheet, &mut out);
@@ -1386,13 +1413,13 @@ mod tests {
         assert!(fx.spawn(BF1_IMPACT, Frame::at(Vec3::new(1.0, 2.0, 3.0))));
         let e = &fx.live()[0];
         assert_eq!(e.emitted(), [2, 1]);
-        let ps = e.particles(Era::Bf1);
+        let ps = e.particles();
         assert_eq!((ps[0].len(), ps[1].len()), (2, 1));
         // Sparks: no velocity, so they sit at the hit; born at alpha 0.
         assert!(ps[0].iter().all(|p| p.pos == Vec3::new(1.0, 2.0, 3.0)));
         assert!(ps[0].iter().all(|p| p.frame == Some(0) && p.rgba[3] == 0.0));
         fx.update(0.15);
-        let ps = fx.live()[0].particles(Era::Bf1);
+        let ps = fx.live()[0].particles();
         assert_eq!(
             (ps[0].len(), ps[1].len()),
             (2, 0),
@@ -1417,16 +1444,11 @@ mod tests {
         assert_eq!(sizes.len(), 20);
         assert!(sizes.iter().all(|s| (0.3..0.6).contains(s)));
         let mut rng = Lcg(3);
-        let e = LiveEffect::new(
-            def,
-            Era::Bf1,
-            Frame::at(Vec3::new(0.0, 0.0, -10.0)),
-            &mut rng,
-        );
-        let ps = e.particles(Era::Bf1);
+        let e = LiveEffect::new(def, Frame::at(Vec3::new(0.0, 0.0, -10.0)), &mut rng);
+        let ps = e.particles();
         assert!(ps[0].iter().all(|p| sizes.contains(&p.size)));
         let mut out = Vec::new();
-        e.draws(Era::Bf1, Vec3::ZERO, Vec3::NEG_Z, &mut |_| None, &mut out);
+        e.draws(Vec3::ZERO, Vec3::NEG_Z, &mut |_| None, &mut out);
         assert_eq!(out.len(), 3);
         match &out[0].shape {
             render::ParticleShape::Sprite { half, .. } => {

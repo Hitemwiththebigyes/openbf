@@ -176,7 +176,7 @@ if want side; then
   "$BAKE" weapon  "$B1/SIDE/REP.LVL" rep_weap_inf_fusioncutter,rep_weap_inf_launcher,rep_weap_inf_pistol,rep_weap_inf_rifle,rep_weap_inf_sniperrifle "$OUT/side_bf1"
   "$BAKE" weapon  "$B1/SIDE/CIS.LVL" cis_weap_inf_fusioncutter,cis_weap_inf_launcher,cis_weap_inf_pistol,cis_weap_inf_sniperrifle "$OUT/side_bf1"
   "$BAKE" weapon  "$B2/SIDE/REP.LVL" rep_weap_inf_chaingun,rep_weap_inf_fusioncutter,rep_weap_inf_launcher,rep_weap_inf_pistol,rep_weap_inf_rifle,rep_weap_inf_sniperrifle "$OUT/side_bf2" ${PCSIDE_REP:+"$PCSIDE_REP"}
-  "$BAKE" weapon  "$B2/SIDE/CIS.LVL" cis_weap_inf_fusioncutter,cis_weap_inf_launcher,cis_weap_inf_pistol,cis_weap_inf_rifle,cis_weap_inf_sniperrifle "$OUT/side_bf2" ${PCSIDE_CIS:+"$PCSIDE_CIS"}
+  "$BAKE" weapon  "$B2/SIDE/CIS.LVL" cis_weap_inf_fusioncutter,cis_weap_inf_launcher,cis_weap_inf_pistol,cis_weap_inf_rifle,cis_weap_inf_sniperrifle,hud_cis_wristblaster,hud_cis_trishot,hud_cis_wristrocket "$OUT/side_bf2" ${PCSIDE_CIS:+"$PCSIDE_CIS"}
   "$BAKE" weapon  "$B2/SIDE/ALL.LVL" all_weap_inf_bowcaster,all_weap_inf_fusioncutter,all_weap_inf_launcher,all_weap_inf_pistol,all_weap_inf_rifle,all_weap_inf_seeker,all_weap_inf_sniperrifle "$OUT/side_bf2"
   "$BAKE" weapon  "$B2/SIDE/IMP.LVL" imp_weap_inf_fusioncutter,imp_weap_inf_launcher,imp_weap_inf_pistol,imp_weap_inf_rifle,imp_weap_inf_sniperrifle "$OUT/side_bf2"
   # The torpedo launcher's model is SHARED, not per-side: BF1 IMP/REP/CIS's

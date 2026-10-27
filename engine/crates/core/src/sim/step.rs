@@ -12,10 +12,10 @@ use super::input::{buttons, PadState};
 use super::state::{Call, DeathCause, Event, Sim, LETHAL_LANDING_SPEED};
 use crate::ai::{self, AiState};
 use crate::collision::{Capsule, AIR_STEP, STEP_HEIGHT};
-use crate::projectile::{Bolt, Shooter, TERRAIN_RAY_STEP};
+use crate::projectile::TERRAIN_RAY_STEP;
 use crate::soldier::{GroundRules, Stance};
-use crate::unit::{Controller, UnitHandle};
-use crate::weapon::{shot_direction, FireInput};
+use crate::unit::Controller;
+use crate::weapon::FireInput;
 use crate::{TICK_DT, TICK_HZ};
 use glam::Vec3;
 
@@ -787,15 +787,14 @@ impl Sim {
             }
             if reload_started {
                 let h = self.handle(i);
-                self.events.push(Event::Reload { unit: h });
+                self.events.push(Event::Reload {
+                    unit: h,
+                    weapon_class: wc_idx as u32,
+                });
             }
             if shots.is_empty() {
                 continue;
             }
-            // Perception's hearing reads this (`perception::scan`): anyone
-            // within HEAR_RADIUS of a shot knows a shooter is there, with no
-            // line of sight.
-            self.units[i].last_shot_tick = self.tick;
             // Design decision 2's fairness rule, asserted where the shot is
             // made: an AI unit may only fire at a contact its own perception
             // holds. The think of this same tick has already written `ai`
@@ -806,53 +805,7 @@ impl Sim {
                 st.target
                     .is_some_and(|t| st.contacts.iter().flatten().any(|c| c.handle == t))
             };
-            let shooter = self.handle(i);
-            // A human's shot leaves the fire point toward what the reticle's
-            // ray hits (card AIMA); a bot's leaves the chest along its aim
-            // (card FPNT has the fire point for bots).
-            let human = matches!(self.units[i].controller, Controller::Player { .. });
-            let (origin, (fwd, right, up)) = if human {
-                self.human_shot(i)
-            } else {
-                (self.units[i].muzzle(), self.units[i].aim_frame())
-            };
-            let who = Shooter {
-                owner: shooter,
-                team: self.units[i].team,
-                weapon_class: wc_idx,
-                is_player: self.units[i].is_player,
-            };
-            let (speed, life) = {
-                let o = &self.weapon_classes[wc_idx].ordnance;
-                (o.velocity, o.life_span)
-            };
-            let targets: Vec<(UnitHandle, Capsule)> = self
-                .alive_units()
-                .filter(|(h, _)| *h != shooter)
-                .map(|(h, u)| (h, u.capsule()))
-                .collect();
-            for spec in &shots {
-                let dir = shot_direction(
-                    &mut self.lcg,
-                    fwd,
-                    right,
-                    up,
-                    spec.pitch_spread,
-                    spec.yaw_spread,
-                    (0.0, 0.0),
-                );
-                let bolt = Bolt::spawn(
-                    origin,
-                    dir,
-                    speed,
-                    life,
-                    who,
-                    self.heightfield.as_ref(),
-                    self.water_plane(),
-                    &self.collision,
-                    crate::collision::HullFilter::All,
-                    targets.iter().copied(),
-                );
+            for _ in &shots {
                 if ai_shooter {
                     self.nav_stats.ai_shots += 1;
                     // The rule is about the AI's DECISION, so it is checked
@@ -878,14 +831,8 @@ impl Sim {
                         self.nav_stats.carry_shots += 1;
                     }
                 }
-                self.events.push(Event::Shot {
-                    unit: shooter,
-                    weapon_class: wc_idx as u32,
-                    origin,
-                    dir,
-                });
-                self.bolts.push(bolt);
             }
+            self.soldier_bolts(i, wc_idx, &shots);
         }
 
         // 5. Bolt flight + impacts (in spawn order).
@@ -1071,7 +1018,7 @@ impl Sim {
 
     /// A human's shot (§10.2 step 6): from the fire point F along
     /// normalize(H - F), with the spread's frame built on that line.
-    fn human_shot(&self, i: usize) -> (Vec3, (Vec3, Vec3, Vec3)) {
+    pub(super) fn human_shot(&self, i: usize) -> (Vec3, (Vec3, Vec3, Vec3)) {
         let u = &self.units[i];
         // The scope view: from the scope point along the aim itself.
         if u.scoped() {

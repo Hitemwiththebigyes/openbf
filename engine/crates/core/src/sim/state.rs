@@ -155,6 +155,7 @@ pub enum Event {
     /// A reload started (ReloadSound hook).
     Reload {
         unit: UnitHandle,
+        weapon_class: u32,
     },
     /// `unit` selected the weapon `weapon_class` with a switch input (its
     /// `WeaponChangeSound`, re-weapon-sounds.md §7.1).

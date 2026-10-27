@@ -187,8 +187,8 @@ pub fn each(walk: &WalkSim, ears: Vec3, mut play: impl FnMut(&str, Vec3)) {
                     play(n, *pos);
                 }
             }
-            Event::Reload { unit } => {
-                if let Some(n) = &wc_of(*unit).reload_sound {
+            Event::Reload { unit, weapon_class } => {
+                if let Some(n) = &walk.sim.weapon_classes[*weapon_class as usize].reload_sound {
                     play(n, walk.sim.units[unit.index as usize].soldier.pos);
                 }
             }
@@ -380,6 +380,21 @@ pub fn sound_names(
     // `(hash, "name", source),` lines; the type is the bake's.
     let text = pak::read_to_string(map_dir.join("sounds").join("names.ron")).unwrap_or_default();
     let mut names = crate::foley::names();
+    for weapon in &walk.sim.weapon_classes {
+        for name in [
+            &weapon.fire_sound,
+            &weapon.reload_sound,
+            &weapon.change_sound,
+            &weapon.empty_sound,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            names
+                .entry(crate::classdb::fnv1a_lowercase(name))
+                .or_insert_with(|| name.clone());
+        }
+    }
     names.extend(text.lines().filter_map(|l| {
         let mut f = l.trim().trim_start_matches('(').splitn(3, ',');
         let hash = f.next()?.trim().parse().ok()?;

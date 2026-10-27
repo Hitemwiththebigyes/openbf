@@ -25,6 +25,7 @@ mod pickup_seek;
 mod resupply_feedback;
 mod roster;
 mod route_patch;
+mod sbd;
 mod shell_layout;
 mod skinned_glb;
 mod skirt_climb;

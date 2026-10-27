@@ -214,7 +214,7 @@ fn append_events(csv: &mut String, tick: usize, events: &[core::sim::Event]) {
             Event::Impact { .. } => continue,
             Event::Despawn { unit } => format!("{tick},despawn,{},,\n", unit.index),
             Event::Respawn { unit } => format!("{tick},respawn,{},,\n", unit.index),
-            Event::Reload { unit } => format!("{tick},reload,{},,\n", unit.index),
+            Event::Reload { unit, .. } => format!("{tick},reload,{},,\n", unit.index),
             Event::Throw { unit, .. } => format!("{tick},throw,{},,\n", unit.index),
             Event::WeaponSelect { unit, weapon_class } => {
                 format!("{tick},weapon_select,{},{weapon_class},\n", unit.index)
