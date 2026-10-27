@@ -10,6 +10,10 @@ extracted from your ISOs on your own machine.
 
 Work in progress: playable, but far from finished.
 
+**Want to help develop it? Start with the [open issues](https://github.com/sprucey149/openbf/issues).**
+Comment on an unassigned task and wait for confirmed scope and assignment before coding,
+so contributors and automated agents do not duplicate work. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Building your copy
 
 One command turns your two disc images into one game file:
@@ -86,21 +90,23 @@ Tested and working on Linux and Windows, with the NTSC-U PS2 releases (SLUS-2089
 
 ## How it was made
 
-The engine is written in Rust, and nearly all of it was written by AI agents (Anthropic's Claude)
-running in a loop. Each behaviour is checked against the original game, running in the PCSX2
-emulator, by reading the game's memory and comparing rendered pixels.
+The engine is written in Rust, with substantial help from AI agents and community contributors.
+Development uses automated tests and comparisons with the
+original games in PCSX2, including memory readings and rendered images. Work is at different
+stages of implementation and verification; an implemented feature is not necessarily fully validated.
 That scaffolding is published too:
 - `PLAN.md`: the goals and the locked feature set
 - `engine/CRATES.md`: a map of the code
-- `analysis/`: the reverse-engineering notes, with every behaviour traced to the original game
+- `analysis/`: reverse-engineering notes, supporting references, and remaining uncertainties
 - `docs/loop/`: how the AI loop is run (its rules, its session prompt, the backlog and every work card)
 - `scripts/`: the build, bake, test-gate and loop tools
 
 No code from the original games is included; the decompilation is used only as a reference for
 behaviour.
 
-This repository is updated in batches; the work is tracked as cards (units of work) in
-`docs/loop/cards/`.
+This repository is updated as changes are integrated. [GitHub Issues](https://github.com/sprucey149/openbf/issues)
+coordinate feature scope and ownership; `docs/loop/cards/` contains detailed implementation notes
+and smaller work items. A card without an issue is not automatically available: propose an issue first.
 
 ## Join in
 
@@ -112,9 +118,13 @@ welcome and hoped for.**
 - **Found a bug?** Open an issue: say what you did, what you saw, which map, and attach a
   screenshot if you can. Press **F9** in the game right after it happens: that saves a snapshot of every unit's state
   to `openbf_data/playtest/last.json`. Attach that file too; it usually shows the cause.
-- **Want a feature?** Open an issue and describe it. The open cards in `docs/loop/cards/` show
-  what is already planned.
-- **Want to write code?** See [CONTRIBUTING.md](CONTRIBUTING.md).
+- **Want a feature?** Search the [issues](https://github.com/sprucey149/openbf/issues) first, then open
+  an issue describing the player experience and intended scope. The cards in `docs/loop/cards/`
+  provide more roadmap detail.
+- **Want to write code?** Choose an unassigned issue, comment that you would like to take it,
+  and wait for confirmed scope and assignment. Assigned issues are reserved. If your idea has no
+  issue, open one before coding. Use one feature per branch/PR and an early draft for larger work.
+  [CONTRIBUTING.md](CONTRIBUTING.md) explains the workflow and evidence expected.
 
 It's MIT licensed, so you're also free to fork it and take it your own way. If you do, I'd love
 to hear about it, and even more to see your improvements come back here.

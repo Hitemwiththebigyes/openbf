@@ -13,6 +13,7 @@ branch:
 resume:
 created: 2026-09-30
 defer: post-alpha
+public_issue: https://github.com/sprucey149/openbf/issues/15
 ---
 ## Why
 The leafpatch object is also a `LeafSpawner` (RTTI `9LeafPatch` / `11LeafSpawner`): when a patch is first drawn it spawns up to its class's byte +0x80 (hash 0xfd7fae90; 6 on the YAV leafpatch/leafpatch2, DAG1 and KAS2 classes) leaf particles at random points in its ellipsoid, from a pool of 100 that also refills every 30 s from patches near each camera. Decoration (the drifting leaves under the canopy); the port draws none.

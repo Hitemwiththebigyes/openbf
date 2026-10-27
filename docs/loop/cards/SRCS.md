@@ -13,6 +13,7 @@ effort:
 branch:
 resume:
 created: 2026-10-21
+public_issue: https://github.com/sprucey149/openbf/issues/20
 ---
 ## Why
 INBOX 2026-10-21 19:30: with XBTEX the bake mixes donors; the player should see what pack.py found and used. Aspyr's

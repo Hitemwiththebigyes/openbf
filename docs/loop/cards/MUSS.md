@@ -14,6 +14,7 @@ resume:
 created: 2026-09-25 (from QUEUE.md)
 defer: post-alpha
 acceptance: needed
+public_issue: https://github.com/sprucey149/openbf/issues/17
 ---
 
 ## Why / Evidence / Acceptance

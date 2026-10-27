@@ -13,6 +13,7 @@ branch:
 resume:
 created: 2026-09-29
 defer: post-alpha
+public_issue: https://github.com/sprucey149/openbf/issues/16
 ---
 
 ## Why

@@ -13,6 +13,7 @@ effort:
 branch:
 resume: 2026-10-24 prerequisite checkpoint; no implementation. Read lead_tmp/unlk2_cloud/next_prompt.md and source_checkpoint.md; implement shared per-tick class attribution and save/load acceptance after restoring runtime inputs. Original Acceptance retained.
 created: 2026-10-21
+public_issue: https://github.com/sprucey149/openbf/issues/19
 ---
 ## Why
 The maintainer (INBOX 2026-10-21 17:50 item 4b). One number per class, per class not per side.
