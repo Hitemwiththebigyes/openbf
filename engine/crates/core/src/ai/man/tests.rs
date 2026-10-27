@@ -763,8 +763,10 @@ fn a_bot_in_a_recoilless_turret_hits_a_soldier_forty_metres_out() {
     building(&mut sc, Vec3::new(0.0, 3.0, -5.0), Vec3::new(3.0, 3.0, 6.0));
     sit(&mut sc);
     let e = sc.enemy;
-    let hit = until(&mut sc.s, 5 * HZ, |s| hits_on(s, e) > 0);
-    assert!(hit.is_some(), "no bolt hit the soldier in 5 s");
+    // 10 s: the PS2's bolt prims (issue #41) are slimmer than the capsule
+    // the 5 s was set on; the first hit lands near 9 s.
+    let hit = until(&mut sc.s, 10 * HZ, |s| hits_on(s, e) > 0);
+    assert!(hit.is_some(), "no bolt hit the soldier in 10 s");
 }
 
 /// A gunner keeps to its turret's arc (OURS, card TURR): an enemy it holds
@@ -877,8 +879,10 @@ fn tower_shot(at: Vec3) {
     );
     sit(&mut sc);
     let e = sc.enemy;
-    let hit = until(&mut sc.s, 5 * HZ, |s| hits_on(s, e) > 0);
-    assert!(hit.is_some(), "no bolt hit the soldier at {at} in 5 s");
+    // 10 s: the PS2's bolt prims (issue #41) are slimmer than the capsule
+    // the 5 s was set on; the first hit lands near 9 s.
+    let hit = until(&mut sc.s, 10 * HZ, |s| hits_on(s, e) > 0);
+    assert!(hit.is_some(), "no bolt hit the soldier at {at} in 10 s");
 }
 
 /// Card TBRD: a bot boards a building turret from the PS2's board-agent

@@ -408,6 +408,13 @@ doesn't hash to it — OPEN).
 
 ### 6.2 Damage application (health component)
 
+> **Corrected 2026-10-27 (issue #41, `re-hitzones.md`):** soldiers DO have a per-node multiplier: every soldier
+> class with no ODF `HitLocation` (all of them) gets a hard-coded default {head prim, x3.0} - BF2 `FUN_002517e8`
+> (B2:170444-170450, node 0 = coll_head), BF1 `FUN_0020e2e0` (B1:122725, node 2). Droidekas (walkerdroid) and the
+> acklay get none. The soldier's TakeDamage is BF2 `FUN_00238e20` (its health vtable `DAT_0061ea80`, slot +0x24 ->
+> `FUN_0024ec88`), which this section's chain missed; `headShots` / the "headshot" effect count these soldier hits.
+
+
 **BF2 FUN_001dfb38** (server; client variant FUN_001df7d0) [V]. Health
 component = entity+0x170: `[0]` health, `[1]` max, `[3]` shield, `[4]` shield
 max, `[7]` regen/bonus fraction (cf. "player%d.bonusHealthFraction"),

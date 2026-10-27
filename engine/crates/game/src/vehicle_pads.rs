@@ -516,9 +516,14 @@ pub fn install(
         .collect();
     // Each class's hull (card VHULL), before anything spawns from a pad; a
     // building turret has none — its building is the world's own body.
-    sim.hull_parts = hull_parts_from(m, map_dir, &sides, &b.classes, |c| {
-        vehicle_class::is_turret(&db, c)
-    });
+    sim.hull_parts = hull_parts_from(
+        m,
+        map_dir,
+        &sides,
+        &b.classes,
+        |c| vehicle_class::is_turret(&db, c),
+        |c| crate::assets::hit_locations(&db, c),
+    );
     sim.sync_hulls();
     let nodes = hardpoints_from(m, &sides);
     b.riders = b
@@ -736,6 +741,7 @@ pub fn hull_parts(
         &side_vehicle_files(map_dir, game),
         classes,
         turret,
+        |_| Vec::new(),
     )
 }
 
@@ -745,6 +751,7 @@ fn hull_parts_from(
     sides: &[(std::path::PathBuf, manifest::VehicleManifest)],
     classes: &[String],
     turret: impl Fn(&str) -> bool,
+    hit_locations: impl Fn(&str) -> Vec<(String, f32)>,
 ) -> Vec<Option<std::sync::Arc<[core::collision::HullPart]>>> {
     classes
         .iter()
@@ -754,7 +761,7 @@ fn hull_parts_from(
             }
             let (dir, k, entry) = class_collision(m, map_dir, sides, c)?;
             let cg = crate::assets::load_collision_geom(dir, &entry).ok()?;
-            let parts = crate::assets::hull_parts(&cg, &k.collision);
+            let parts = crate::assets::hull_parts(&cg, &k.collision, &hit_locations(c));
             (!parts.is_empty()).then(|| parts.into())
         })
         .collect()

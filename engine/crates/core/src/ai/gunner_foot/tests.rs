@@ -379,7 +379,9 @@ fn aim_error_scales_misses_with_range() {
     // 0.3 against bots (`analysis/re-soldier-ai.md` 17). These assertions
     // protect close/far accuracy and the human/bot distinction. The TPOS
     // shooter stands still; there is no strafe on a burst.
-    assert!(rates[1] > 0.6 && rates[1] < 0.95, "8 m rate {}", rates[1]);
+    // (0.5: the PS2's bolt prims, issue #41, are slimmer than the capsule
+    // the band was first set on.)
+    assert!(rates[1] > 0.5 && rates[1] < 0.95, "8 m rate {}", rates[1]);
     assert!(rates[4] < 0.35, "40 m rate {}", rates[4]);
     for (b, h) in bots.iter().zip(&rates) {
         assert!(

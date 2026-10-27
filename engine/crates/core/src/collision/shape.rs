@@ -479,6 +479,11 @@ pub struct Body {
     /// tunnels, caves and the hollow trunks all have open edges. `false`
     /// for primitives.
     pub closed: bool,
+    /// A hull body's damage factor for a direct hit (its class's
+    /// `HitLocation` for this prim: the vehicles' x4 critical prims, BF1's
+    /// two x0 ones; issue #41, `analysis/re-ai-difficulty.md` 9.2); 1.0 for
+    /// every other body.
+    pub hit_mult: f32,
 }
 
 impl Body {
@@ -511,6 +516,7 @@ impl Body {
             layers,
             owner: None,
             instance: None,
+            hit_mult: 1.0,
         }
     }
 }
@@ -593,6 +599,8 @@ pub struct HullPart {
     /// [`Body::closed`] of `shape`, worked out once by [`HullPart::new`]
     /// (card HULLC: `set_hull` places every part every tick).
     pub(super) closed: bool,
+    /// [`Body::hit_mult`] of the body placed from this part.
+    pub hit_mult: f32,
 }
 
 impl HullPart {
@@ -602,7 +610,13 @@ impl HullPart {
             closed: shape.closed(),
             shape,
             layers,
+            hit_mult: 1.0,
         }
+    }
+
+    /// This part with a direct hit's damage factor (see [`Body::hit_mult`]).
+    pub fn with_hit_mult(self, hit_mult: f32) -> HullPart {
+        HullPart { hit_mult, ..self }
     }
 
     /// The same part: the same placement bit for bit, layers and shape (a
@@ -612,6 +626,7 @@ impl HullPart {
         let bits = |m: &Mat4| m.to_cols_array().map(f32::to_bits);
         bits(&self.local) == bits(&o.local)
             && self.layers == o.layers
+            && self.hit_mult.to_bits() == o.hit_mult.to_bits()
             && match (&self.shape, &o.shape) {
                 (Shape::Mesh(a), Shape::Mesh(b)) => Arc::ptr_eq(a, b),
                 (Shape::Sphere { radius: a }, Shape::Sphere { radius: b }) => {

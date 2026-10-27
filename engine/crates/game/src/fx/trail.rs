@@ -193,6 +193,8 @@ mod tests {
                 hit: Hit::None,
                 end: Vec3::NEG_Z * 50.0,
                 shooter_is_player: true,
+                hulls: core::collision::HullFilter::All,
+                hit_mult: 1.0,
             };
             let mut second = first.clone();
             second.age = age;

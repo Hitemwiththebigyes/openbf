@@ -21,7 +21,7 @@
 
 use super::input::{buttons, PadState};
 use super::state::{Event, Sim};
-use crate::collision::{Capsule, HullFilter, Layers};
+use crate::collision::{HullFilter, Layers};
 use crate::projectile::{Bolt, Shooter};
 use crate::unit::{Controller, UnitHandle};
 use crate::vehicle::gun::{self, GunSetup, GunState, AIM_RAY};
@@ -405,11 +405,6 @@ impl Sim {
             st.target
                 .is_some_and(|t| st.contacts.iter().flatten().any(|c| c.handle == t))
         };
-        let targets: Vec<(UnitHandle, Capsule)> = self
-            .alive_units()
-            .filter(|(h, _)| !riders.contains(h))
-            .map(|(h, u)| (h, u.capsule()))
-            .collect();
         let mut shots = Vec::new();
         for (k, w) in g.weapons.iter().enumerate() {
             let held = match k {
@@ -453,7 +448,7 @@ impl Sim {
                     spec.yaw_spread,
                     spec.tilt,
                 );
-                let bolt = Bolt::spawn(
+                let bolt = Bolt::fire(
                     origin,
                     d,
                     speed,
@@ -463,7 +458,6 @@ impl Sim {
                     self.water_plane(),
                     &self.collision,
                     HullFilter::except(Some(m.vehicle)),
-                    targets.iter().copied(),
                 );
                 if ai {
                     self.nav_stats.ai_shots += 1;

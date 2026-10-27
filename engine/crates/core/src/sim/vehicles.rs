@@ -1070,6 +1070,8 @@ mod tests {
             hit: Hit::Target(Target::Vehicle(v)),
             end: Vec3::new(10.0, 1.0, 0.0),
             shooter_is_player: false,
+            hulls: crate::collision::HullFilter::All,
+            hit_mult: 1.0,
         }
     }
 
@@ -1717,13 +1719,22 @@ mod tests {
             ..PadState::default()
         };
         s.step(&[fire]);
-        let b = s.bolts.first().expect("a bolt");
-        assert_eq!(b.hit, Hit::Target(Target::Vehicle(v)), "{b:?}");
-        assert!(
-            b.end.z > -3.01 && b.end.z < -2.99,
-            "at the near face: {}",
-            b.end
-        );
+        // The hull is met along the flight (issue #41; 3 m at 2.67 m a
+        // tick: the second tick), at its near face.
+        let mut at = None;
+        for _ in 0..4 {
+            at = at.or(s.events.iter().find_map(|e| match e {
+                Event::Impact {
+                    pos,
+                    vehicle: Some(h),
+                    ..
+                } if *h == v => Some(*pos),
+                _ => None,
+            }));
+            s.step(&[PadState::default()]);
+        }
+        let at = at.expect("an impact on the hull");
+        assert!(at.z > -3.01 && at.z < -2.99, "at the near face: {at}");
         // The BF2 rifle's bolt along the same line, landed.
         let shooter = crate::projectile::Shooter {
             owner: p,
@@ -1753,6 +1764,60 @@ mod tests {
             dir: Some(Vec3::NEG_Z),
         }));
         assert_eq!(s.vehicle(v).unwrap().health.cur, 892.0);
+    }
+
+    /// Issue #41: a bolt into a hull part its class authors a HitLocation
+    /// for (the x4 critical prims) does that much more: a human's always, a
+    /// bot's only on Hard and Elite (the PS2's level 3), as a headshot.
+    #[test]
+    fn a_critical_prim_takes_its_hit_location() {
+        use crate::collision::{HullPart, Layers, Shape};
+        use crate::skill::Difficulty;
+        let damage = |mult: f32, human: bool, d: Difficulty| {
+            let (mut s, p, v) = parked(true);
+            s.difficulty = d;
+            s.hull_parts = vec![Some(
+                vec![HullPart::new(
+                    glam::Mat4::from_translation(Vec3::Y),
+                    Shape::Box {
+                        half: Vec3::new(2.0, 1.0, 3.0),
+                    },
+                    Layers::ALL,
+                )
+                .with_hit_mult(mult)]
+                .into(),
+            )];
+            s.sync_hull(v.index as usize);
+            let bf2 = s.add_weapon_class(WeaponClass::bf2_rifle());
+            let b = Bolt::fire(
+                Vec3::new(0.0, 1.0, 0.0),
+                Vec3::NEG_Z,
+                80.0,
+                2.0,
+                crate::projectile::Shooter {
+                    owner: p,
+                    team: 0,
+                    weapon_class: bf2,
+                    is_player: human,
+                },
+                s.heightfield.as_ref(),
+                s.water_plane(),
+                &s.collision,
+                crate::collision::HullFilter::All,
+            );
+            s.bolts.push(b);
+            let before = s.vehicle(v).unwrap().health.cur;
+            for _ in 0..4 {
+                s.step(&[PadState::default()]);
+            }
+            before - s.vehicle(v).unwrap().health.cur
+        };
+        let plain = damage(1.0, true, Difficulty::Normal);
+        assert_eq!(plain, 8.0, "the BF2 rifle's 80 x VehicleScale 0.1");
+        assert_eq!(damage(4.0, true, Difficulty::Normal), 32.0);
+        assert_eq!(damage(4.0, false, Difficulty::Normal), 8.0, "a bot: no x4");
+        assert_eq!(damage(4.0, false, Difficulty::Hard), 32.0);
+        assert_eq!(damage(0.0, true, Difficulty::Normal), 0.0, "BF1's x0 prims");
     }
 
     /// A destroyed vehicle leaves no wreck (§6) and no hull: the next walk

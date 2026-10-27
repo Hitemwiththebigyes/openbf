@@ -296,6 +296,9 @@ pub enum HullFilter {
     Except([Option<VehicleHandle>; 2]),
     /// The vehicles' hulls only (the AI's hull probe, card STFAL).
     Hulls,
+    /// The vehicles' hulls but these (a live bolt's per-tick test, issue
+    /// #41: a rider's bolt passes its own vehicle).
+    HullsExcept([Option<VehicleHandle>; 2]),
 }
 
 impl HullFilter {
@@ -304,10 +307,23 @@ impl HullFilter {
         HullFilter::Except([a, None])
     }
 
+    /// The hulls this filter admits and no map body; `None` when it admits
+    /// no hull.
+    pub fn hulls_only(self) -> Option<HullFilter> {
+        match self {
+            HullFilter::All | HullFilter::Hulls => Some(HullFilter::Hulls),
+            HullFilter::Except(skip) | HullFilter::HullsExcept(skip) => {
+                Some(HullFilter::HullsExcept(skip))
+            }
+            HullFilter::Static => None,
+        }
+    }
+
     /// Does a query under this filter see a body owned by `owner`?
     pub fn admits(self, owner: Option<VehicleHandle>) -> bool {
         match (self, owner) {
             (HullFilter::Hulls, owner) => owner.is_some(),
+            (HullFilter::HullsExcept(skip), owner) => owner.is_some() && !skip.contains(&owner),
             (_, None) | (HullFilter::All, _) => true,
             (HullFilter::Static, Some(_)) => false,
             (HullFilter::Except(skip), Some(o)) => !skip.contains(&Some(o)),
@@ -540,6 +556,7 @@ impl CollisionWorld {
             .map(|p| {
                 let mut b = Body::placed(pose * p.local, p.shape.clone(), p.layers, p.closed);
                 b.owner = Some(owner);
+                b.hit_mult = p.hit_mult;
                 b
             })
             .collect();
@@ -611,10 +628,13 @@ impl CollisionWorld {
                 f(body);
             }
         };
+        let hulls_only = matches!(hulls, HullFilter::Hulls | HullFilter::HullsExcept(_));
         match self
             .grid
             .cells_for(self.generation, min_x, max_x, min_z, max_z)
         {
+            // A hull query visits no map body: skip the grid.
+            _ if hulls_only => {}
             None => {
                 for body in &self.bodies {
                     seen(body);

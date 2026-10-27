@@ -63,10 +63,8 @@ fn target_case(switch: bool) -> (WalkSim, Vec3) {
         .unwrap();
     w.sim.step(&[pad(buttons::FIRE)]);
     assert_eq!(w.sim.bolts.len(), 1, "real fire must spawn a bolt");
-    assert_eq!(
-        w.sim.bolts[0].hit,
-        core::projectile::Hit::Target(core::projectile::Target::Unit(victim))
-    );
+    // The victim is met along the flight (issue #41), not at the press.
+    let _ = victim;
     assert_eq!(w.sim.bolts[0].weapon_class, fired);
     if switch {
         w.sim.step(&[pad(0)]);
@@ -246,10 +244,8 @@ fn seat_gun_contact_uses_seat_weapon() {
     w.sim.step(&[pad(buttons::FIRE)]);
     assert_eq!(w.sim.bolts.len(), 1, "real seat must fire");
     assert_eq!(w.sim.bolts[0].weapon_class, gun_class);
-    assert_eq!(
-        w.sim.bolts[0].hit,
-        core::projectile::Hit::Target(core::projectile::Target::Unit(victim))
-    );
+    // The victim is met along the flight (issue #41), not at the press.
+    let _ = victim;
     for _ in 0..20 {
         w.sim.step(&[pad(0)]);
         if w.sim
@@ -421,41 +417,27 @@ fn coincident_contacts_and_missing_property_are_not_deduplicated_or_guessed() {
 }
 
 #[test]
-fn airborne_expiry_and_stale_target_have_no_contact_sound() {
-    for stale in [false, true] {
-        let (mut w, _, _) = scene();
-        if !stale {
-            w.sim.heightfield = None;
-            w.sim.units[w.player.index as usize].soldier.pos.y = 100.0;
-            w.sim.units[w.player.index as usize].soldier.pitch = 0.5;
-        }
-        let target = stale.then(|| {
-            w.sim
-                .spawn(&UnitSpec::trooper(1, Vec3::new(0.0, 0.0, -20.0)))
-                .unwrap()
-        });
-        w.sim.step(&[pad(buttons::FIRE)]);
-        assert_eq!(w.sim.bolts.len(), 1);
-        if let Some(target) = target {
-            assert_eq!(
-                w.sim.bolts[0].hit,
-                core::projectile::Hit::Target(core::projectile::Target::Unit(target))
-            );
-            w.sim.units[target.index as usize].gen += 1;
-        } else {
-            assert_eq!(w.sim.bolts[0].hit, core::projectile::Hit::None);
-        }
-        for _ in 0..90 {
-            w.sim.step(&[pad(0)]);
-            assert!(!w
-                .sim
-                .events
-                .iter()
-                .any(|e| matches!(e, Event::Impact { .. })));
-            assert!(sounds(&w).is_empty());
-        }
-        assert!(w.sim.bolts.is_empty());
+fn airborne_expiry_has_no_contact_sound() {
+    // A bolt fired into the empty sky expires with no contact. (The stale
+    // target - one recycled while the bolt was in flight - is gone: since
+    // issue #41 the bolt is swept against whoever stands in its way.)
+    let (mut w, _, _) = scene();
+    w.sim.heightfield = None;
+    w.sim.units[w.player.index as usize].soldier.pos.y = 100.0;
+    w.sim.units[w.player.index as usize].soldier.pitch = 0.5;
+    w.sim.step(&[pad(buttons::FIRE)]);
+    assert_eq!(w.sim.bolts.len(), 1);
+    assert_eq!(w.sim.bolts[0].hit, core::projectile::Hit::None);
+    for _ in 0..90 {
+        w.sim.step(&[pad(0)]);
+        assert!(!w
+            .sim
+            .events
+            .iter()
+            .any(|e| matches!(e, Event::Impact { .. })));
+        assert!(sounds(&w).is_empty());
     }
+    assert!(w.sim.bolts.is_empty());
 }
 
 #[test]

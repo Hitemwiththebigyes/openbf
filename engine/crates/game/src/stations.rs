@@ -99,6 +99,7 @@ pub fn install_collision(sim: &mut Sim, m: &Manifest, map_dir: &Path, db: &Class
             Ok(crate::assets::hull_parts(
                 &cg,
                 class.map_or(&[], |c| c.collision.as_slice()),
+                &[],
             ))
         })
         .collect::<Result<_>>()?;

@@ -135,11 +135,6 @@ impl Sim {
             weapon_class: class,
             is_player: self.units[i].is_player,
         };
-        let targets: Vec<_> = self
-            .alive_units()
-            .filter(|(h, _)| *h != unit)
-            .map(|(h, u)| (h, u.capsule()))
-            .collect();
         // Perception's hearing reads this (`perception::scan`): anyone
         // within HEAR_RADIUS of a shot knows a shooter is there, with no
         // line of sight.
@@ -155,7 +150,7 @@ impl Sim {
                 spec.tilt,
             );
             let wc = &self.weapon_classes[class];
-            let bolt = Bolt::spawn(
+            let bolt = Bolt::fire(
                 origin,
                 dir,
                 wc.ordnance.velocity,
@@ -165,7 +160,6 @@ impl Sim {
                 self.water_plane(),
                 &self.collision,
                 HullFilter::All,
-                targets.iter().copied(),
             );
             self.events.push(Event::Shot {
                 unit,

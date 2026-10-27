@@ -357,6 +357,30 @@ impl Unit {
         }
     }
 
+    /// Issue #41: what a bolt's flight `from` along the unit `dir` meets of
+    /// this soldier within `max_t`, the nearest of his bolt prims - the
+    /// PS2's sweep keeps the nearest (B2 FUN_00168318, B1 FUN_00167b90) and
+    /// tests only these (BF2 mask 0x400: coll_head, coll_torso, coll_body;
+    /// FUN_002517e8 B2:170187-170556, analysis/re-hitzones.md). BF2's posture
+    /// lists on both games' maps (BF1 has no torso and a taller body; one
+    /// gameplay), placed in the soldier's frame (+z his facing) and scaled
+    /// by `CollisionRootScale` `s` (the head's radius by max(s, 1)). The
+    /// head's place is the posture list's; BF2 moves it each frame to a
+    /// point of the animation (FUN_0024f350), not ported (PROVISIONAL).
+    pub fn bolt_hit(&self, from: Vec3, dir: Vec3, max_t: f32) -> Option<(f32, HitZone)> {
+        self.bolt_prims().hit(from, dir, max_t)
+    }
+
+    /// What [`Unit::bolt_hit`] reads of him, taken once a tick by the sweep.
+    pub fn bolt_prims(&self) -> BoltPrims {
+        BoltPrims {
+            pos: self.soldier.pos,
+            yaw: self.soldier.yaw,
+            stance: self.soldier.stance,
+            scale: self.consts.collision_scale,
+        }
+    }
+
     /// Aim frame from yaw/pitch (render::Camera convention: yaw 0 = -Z,
     /// positive yaw left): (forward, right, up).
     pub fn aim_frame(&self) -> (Vec3, Vec3, Vec3) {
@@ -578,6 +602,167 @@ impl Unit {
             eat(&z.divisor.to_bits().to_le_bytes());
         }
     }
+}
+
+/// A soldier's place, turn, stance and `CollisionRootScale`: all a bolt's
+/// test of his prims reads (`Unit::bolt_hit`).
+#[derive(Clone, Copy, Debug)]
+pub struct BoltPrims {
+    pub pos: Vec3,
+    pub yaw: f32,
+    pub stance: Stance,
+    pub scale: f32,
+}
+
+impl BoltPrims {
+    /// The prims' reach around `pos`: (lower corner, upper corner).
+    pub fn bounds(&self) -> (Vec3, Vec3) {
+        let r = 1.2 * self.scale.max(1.0);
+        (
+            self.pos - Vec3::new(r, 0.0, r),
+            self.pos + Vec3::new(r, 2.1 * self.scale.max(1.0), r),
+        )
+    }
+
+    /// See [`Unit::bolt_hit`].
+    pub fn hit(&self, from: Vec3, dir: Vec3, max_t: f32) -> Option<(f32, HitZone)> {
+        let s = self.scale;
+        let (sy, cy) = fmath::sin_cos(self.yaw);
+        let fwd = Vec3::new(-sy, 0.0, -cy);
+        let right = Vec3::new(cy, 0.0, -sy);
+        let at = |x: f32, y: f32, z: f32| self.pos + right * x + Vec3::Y * y + fwd * z;
+        let head_r = 0.17 * s.max(1.0);
+        let mut best: Option<(f32, HitZone)> = None;
+        let mut take = |t: Option<f32>, z: HitZone| {
+            if let Some(t) = t.filter(|t| *t <= max_t && best.is_none_or(|b| *t < b.0)) {
+                best = Some((t, z));
+            }
+        };
+        match self.stance {
+            Stance::Prone | Stance::Roll | Stance::Dead => {
+                take(
+                    ray_sphere(from, dir, at(0.0, 0.28 * s, 0.75 * s), head_r),
+                    HitZone::Head,
+                );
+                let half = Vec3::new(0.25, 0.2, 0.87 * s);
+                let c = at(0.0, 0.2, -0.25 * s);
+                take(ray_yawed_box(from, dir, c, right, fwd, half), HitZone::Body);
+            }
+            Stance::Crouch => {
+                take(
+                    ray_sphere(from, dir, at(0.0, 1.2 * s, 0.25), head_r),
+                    HitZone::Head,
+                );
+                take(
+                    ray_sphere(from, dir, at(0.0, 0.7 * s, 0.0), 0.4 * s),
+                    HitZone::Torso,
+                );
+                let c = at(0.0, 0.35 * s, 0.0);
+                take(
+                    ray_upright_cylinder(from, dir, c, 0.35, 0.35 * s),
+                    HitZone::Body,
+                );
+            }
+            _ => {
+                take(
+                    ray_sphere(from, dir, at(0.0, 1.65 * s, 0.16), head_r),
+                    HitZone::Head,
+                );
+                take(
+                    ray_sphere(from, dir, at(0.0, 1.15 * s, 0.0), 0.4 * s),
+                    HitZone::Torso,
+                );
+                let c = at(0.0, 0.55 * s, 0.0);
+                take(
+                    ray_upright_cylinder(from, dir, c, 0.35, 0.55 * s),
+                    HitZone::Body,
+                );
+            }
+        }
+        best
+    }
+}
+
+/// The bolt prim a hit met (`Unit::bolt_hit`): the head takes the PS2's
+/// default `HitLocation` x3 (B2:170444-170450, B1:122725; issue #41).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HitZone {
+    Head,
+    Torso,
+    Body,
+}
+
+/// First `t >= 0` where the ray meets the sphere (0 when it starts inside).
+fn ray_sphere(o: Vec3, d: Vec3, c: Vec3, r: f32) -> Option<f32> {
+    let m = o - c;
+    let b = m.dot(d);
+    let cc = m.length_squared() - r * r;
+    if cc <= 0.0 {
+        return Some(0.0);
+    }
+    if b > 0.0 {
+        return None;
+    }
+    let disc = b * b - cc;
+    (disc >= 0.0).then(|| -b - disc.sqrt())
+}
+
+/// An upright cylinder of radius `r` and half height `hh` centred `c`.
+fn ray_upright_cylinder(o: Vec3, d: Vec3, c: Vec3, r: f32, hh: f32) -> Option<f32> {
+    let (lo, hi) = (c.y - hh, c.y + hh);
+    let (mx, mz) = (o.x - c.x, o.z - c.z);
+    let a = d.x * d.x + d.z * d.z;
+    let inside = mx * mx + mz * mz <= r * r;
+    // The side's interval [t0, t1] (all t when the ray runs straight up).
+    let (t0, t1) = if a < 1e-12 {
+        if !inside {
+            return None;
+        }
+        (f32::NEG_INFINITY, f32::INFINITY)
+    } else {
+        let b = mx * d.x + mz * d.z;
+        let cc = mx * mx + mz * mz - r * r;
+        let disc = b * b - a * cc;
+        if disc < 0.0 {
+            return None;
+        }
+        let q = disc.sqrt();
+        ((-b - q) / a, (-b + q) / a)
+    };
+    // The caps' interval.
+    let (s0, s1) = if d.y.abs() < 1e-12 {
+        if o.y < lo || o.y > hi {
+            return None;
+        }
+        (f32::NEG_INFINITY, f32::INFINITY)
+    } else {
+        let (a0, a1) = ((lo - o.y) / d.y, (hi - o.y) / d.y);
+        (a0.min(a1), a0.max(a1))
+    };
+    let (enter, exit) = (t0.max(s0), t1.min(s1));
+    (enter <= exit && exit >= 0.0).then(|| enter.max(0.0))
+}
+
+/// A box of half extents `half` (along `right`, up, `fwd`) centred `c`.
+fn ray_yawed_box(o: Vec3, d: Vec3, c: Vec3, right: Vec3, fwd: Vec3, half: Vec3) -> Option<f32> {
+    let m = o - c;
+    let (lo, ld) = (
+        Vec3::new(m.dot(right), m.y, m.dot(fwd)),
+        Vec3::new(d.dot(right), d.y, d.dot(fwd)),
+    );
+    let (mut enter, mut exit) = (f32::NEG_INFINITY, f32::INFINITY);
+    for k in 0..3 {
+        if ld[k].abs() < 1e-12 {
+            if lo[k].abs() > half[k] {
+                return None;
+            }
+            continue;
+        }
+        let (a, b) = ((-half[k] - lo[k]) / ld[k], (half[k] - lo[k]) / ld[k]);
+        enter = enter.max(a.min(b));
+        exit = exit.min(a.max(b));
+    }
+    (enter <= exit && exit >= 0.0).then(|| enter.max(0.0))
 }
 
 /// One entry of a team's class table (`Sim::classes[team]`): everything the
@@ -914,6 +1099,58 @@ impl UnitSpec {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Issue #41: a soldier's bolt prims, standing at the origin facing -Z
+    /// (yaw 0): a level shot at head, chest and shin height meets the head,
+    /// the torso and the body; one 0.6 m to the side misses; from above, the
+    /// head; prone, the head lies 0.75 m ahead of the feet; a bigger
+    /// `CollisionRootScale` reaches further.
+    #[test]
+    fn a_soldiers_bolt_prims_are_the_ps2s() {
+        let at = |stance, scale| BoltPrims {
+            pos: Vec3::ZERO,
+            yaw: 0.0,
+            stance,
+            scale,
+        };
+        let stand = at(Stance::Stand, 1.0);
+        // From 20 m to his right, level, toward him.
+        let shot = |p: &BoltPrims, y: f32, z: f32| {
+            p.hit(Vec3::new(20.0, y, z), Vec3::NEG_X, 40.0)
+                .map(|(_, zone)| zone)
+        };
+        assert_eq!(shot(&stand, 1.65, -0.16), Some(HitZone::Head));
+        assert_eq!(shot(&stand, 1.15, 0.0), Some(HitZone::Torso));
+        assert_eq!(shot(&stand, 0.3, 0.0), Some(HitZone::Body));
+        assert_eq!(shot(&stand, 1.0, 0.6), None, "beside him");
+        assert_eq!(shot(&stand, 2.0, -0.16), None, "over his head");
+        // The near face: the head's sphere 0.17 m from its centre.
+        let (t, _) = stand
+            .hit(Vec3::new(20.0, 1.65, -0.16), Vec3::NEG_X, 40.0)
+            .unwrap();
+        assert!((t - (20.0 - 0.17)).abs() < 1e-4, "{t}");
+        // From straight above: the head first.
+        let down = stand.hit(Vec3::new(0.0, 10.0, -0.16), Vec3::NEG_Y, 20.0);
+        assert_eq!(down.map(|(_, z)| z), Some(HitZone::Head));
+        // Prone: the head 0.28 m up and 0.75 m ahead (-Z); the body behind.
+        let prone = at(Stance::Prone, 1.0);
+        assert_eq!(shot(&prone, 0.28, -0.75), Some(HitZone::Head));
+        assert_eq!(shot(&prone, 0.2, 0.2), Some(HitZone::Body));
+        assert_eq!(shot(&prone, 1.0, 0.0), None, "over a prone soldier");
+        // Turned to face +X, the prone head lies at +X.
+        let turned = BoltPrims {
+            yaw: -std::f32::consts::FRAC_PI_2,
+            ..prone
+        };
+        let from_side = turned.hit(Vec3::new(0.75, 0.28, 20.0), Vec3::NEG_Z, 40.0);
+        assert_eq!(from_side.map(|(_, z)| z), Some(HitZone::Head));
+        // The wookiee's 1.15: his head at 1.9 m.
+        assert_eq!(
+            shot(&at(Stance::Stand, 1.15), 1.9, -0.16),
+            Some(HitZone::Head)
+        );
+        assert_eq!(shot(&stand, 1.9, -0.16), None);
+    }
 
     const DT: f32 = AimBlock::PERIOD as f32 * crate::TICK_DT;
     /// Skill 17's decay (m/s) and floor (m), a soldier's MaxSpeed.

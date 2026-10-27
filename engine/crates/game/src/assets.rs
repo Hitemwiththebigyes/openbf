@@ -921,6 +921,7 @@ pub fn body_layers(
 pub fn hull_parts(
     cg: &CollisionGeom,
     class_collision: &[(String, String)],
+    hit_locations: &[(String, f32)],
 ) -> Vec<core::collision::HullPart> {
     use core::collision::{HullPart, Layers, Shape};
     let mut out = Vec::new();
@@ -943,13 +944,38 @@ pub fn hull_parts(
         let Some(shape) = prim_shape(p).filter(|_| layers != Layers::NONE) else {
             continue;
         };
-        out.push(HullPart::new(
-            crate::viewer::instance_matrix(p.rotation, p.translation),
-            shape,
-            layers,
-        ));
+        // The class's HitLocation for this prim (issue #41: the x4 critical
+        // prims), matched by name.
+        let mult = hit_locations
+            .iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case(&p.name))
+            .map_or(1.0, |(_, m)| *m);
+        out.push(
+            HullPart::new(
+                crate::viewer::instance_matrix(p.rotation, p.translation),
+                shape,
+                layers,
+            )
+            .with_hit_mult(mult),
+        );
     }
     out
+}
+
+/// A class's `HitLocation` lines (`"<collision prim> <factor>"`, BF2
+/// `FUN_00214600`, at most 10, only those not 1.0; `analysis/re-ai-difficulty.md`
+/// 9.2): the vehicles' critical prims (issue #41).
+pub fn hit_locations(db: &crate::classdb::ClassDb, class: &str) -> Vec<(String, f32)> {
+    db.props_all(class, "HitLocation")
+        .into_iter()
+        .filter_map(|v| {
+            let mut w = v.split_whitespace();
+            let name = w.next()?.to_ascii_lowercase();
+            let m: f32 = w.next()?.parse().ok()?;
+            (m != 1.0).then_some((name, m))
+        })
+        .take(10)
+        .collect()
 }
 
 impl Scene {

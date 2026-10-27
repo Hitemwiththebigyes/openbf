@@ -101,6 +101,10 @@ pub struct SoldierConstants {
     /// horizontal diagonal of the model's bind-pose box, set by the game
     /// layer per model (`game::roster::AIM_SIZE`); 1.0 for a model not in it.
     pub aim_size: f32,
+    /// `CollisionRootScale` (BF2 key 0xc64a53ab, default 1.0; the wookiee
+    /// 1.15, BF2's snipers 0.95): the bolt prims' scale (`Unit::bolt_hit`,
+    /// issue #41; analysis/re-hitzones.md).
+    pub collision_scale: f32,
 }
 
 impl Default for SoldierConstants {
@@ -129,6 +133,7 @@ impl Default for SoldierConstants {
             prone_down_lock: 40.0 / 30.0,
             prone_up_lock: 45.0 / 30.0,
             aim_size: 1.0,
+            collision_scale: 1.0,
         }
     }
 }
@@ -158,6 +163,7 @@ impl SoldierConstants {
         set("MaxSpeed", &mut c.max_speed);
         set("MaxStrafeSpeed", &mut c.max_strafe_speed);
         set("MaxTurnSpeed", &mut c.max_turn_speed);
+        set("CollisionRootScale", &mut c.collision_scale);
         set("MaxPitchSpeed", &mut c.max_pitch_speed);
         set("Acceleration", &mut c.acceleration);
         set("Acceleraton", &mut c.acceleration);

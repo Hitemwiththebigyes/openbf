@@ -7,17 +7,123 @@
 //! in `step` (step 4).
 
 use super::state::{DeathCause, Event, Sim};
+use crate::collision::{HullFilter, Layers};
 use crate::impact::Surface;
 use crate::projectile::{Bolt, Hit, Target};
 use crate::soldier::Stance;
 use crate::unit::{Controller, UnitHandle};
+use crate::vehicle::VehicleHandle;
 use crate::TICK_HZ;
+use glam::Vec3;
 
 // Only for `kill_environment`'s docs, which link `LETHAL_LANDING_SPEED`.
 #[cfg(doc)]
 use super::state::LETHAL_LANDING_SPEED;
 
+/// The head prim's HitLocation factor (see `Sim::hit_scale`).
+pub const HEADSHOT_SCALE: f32 = 3.0;
+
 impl Sim {
+    /// The PS2's per-frame bolt sweep (B1 FUN_00273128, BF2 FUN_0030fad0;
+    /// `re-ordnance-kinds.md` §2.4 [V][M]; issue #41: the port had kept the
+    /// spawn ray's target): what each live bolt passes through on this
+    /// tick's flight - the soldiers but its shooter (their
+    /// bolt prims, `Unit::bolt_hit`) and the hulls its `Bolt::hulls` admits. The nearest such
+    /// hit short of where the flight ends becomes the bolt's hit, so it lands
+    /// this tick. The map and the terrain were asked at the press: they do
+    /// not move. A rider of a vehicle whose hull the bolt passes is passed
+    /// too (a gun's own crew). Cost: one prim list a tick, a box test per bolt and
+    /// soldier, and a hull-only ray per bolt.
+    pub(super) fn sweep_bolts(&mut self, dt: f32) {
+        if self.bolts.is_empty() {
+            return;
+        }
+        type Body = (
+            UnitHandle,
+            Option<VehicleHandle>,
+            crate::unit::BoltPrims,
+            Vec3,
+            Vec3,
+        );
+        let units: Vec<Body> = self
+            .alive_units()
+            .map(|(h, u)| {
+                let p = u.bolt_prims();
+                let (min, max) = p.bounds();
+                (h, u.mount.map(|m| m.vehicle), p, min, max)
+            })
+            .collect();
+        let (world, bolts) = (&self.collision, &mut self.bolts);
+        for b in bolts.iter_mut() {
+            let step = dt.min(b.remaining.max(0.0));
+            let speed = b.vel.length();
+            if step <= 0.0 || speed <= 0.0 {
+                continue;
+            }
+            let dir = b.vel / speed;
+            let mut reach = speed * step;
+            let (from, to) = (b.pos, b.pos + dir * reach);
+            let (lo, hi) = (from.min(to), from.max(to));
+            let mut hit = None;
+            let crew = match b.hulls {
+                HullFilter::Except(s) | HullFilter::HullsExcept(s) => s,
+                _ => [None; 2],
+            };
+            let mut mult = 1.0;
+            for (h, rides, prims, min, max) in &units {
+                if *h == b.owner
+                    || (rides.is_some() && crew.contains(rides))
+                    || max.cmplt(lo).any()
+                    || min.cmpgt(hi).any()
+                {
+                    continue;
+                }
+                if let Some((t, zone)) = prims.hit(from, dir, reach) {
+                    reach = t;
+                    hit = Some(Target::Unit(*h));
+                    mult = if zone == crate::unit::HitZone::Head {
+                        HEADSHOT_SCALE
+                    } else {
+                        1.0
+                    };
+                }
+            }
+            if let Some(filter) = b.hulls.hulls_only() {
+                if let Some(r) = world.ray_with(from, dir, reach, Layers::ORDNANCE, filter) {
+                    if let Some(v) = r.owner.filter(|_| r.t < reach) {
+                        reach = r.t;
+                        hit = Some(Target::Vehicle(v));
+                        mult = r.hit_mult;
+                    }
+                }
+            }
+            if let Some(target) = hit {
+                b.hit = Hit::Target(target);
+                b.hit_mult = mult;
+                b.end = from + dir * reach;
+                b.remaining = reach / speed;
+            }
+        }
+    }
+
+    /// The struck prim's damage factor (issue #41): a soldier's head prim
+    /// takes the PS2's default HitLocation x3 (BF2 FUN_002517e8
+    /// B2:170444-170450, BF1 FUN_0020e2e0 B1:122725; analysis/re-hitzones.md),
+    /// a vehicle prim its class's HitLocation (the x4 critical prims; BF1's
+    /// two x0). A factor over 1 is a bot's only on the PS2's top level (BF2
+    /// FUN_001e0580 B2:91567-91580: dropped for an AI attacker under level
+    /// 3; the port's Hard and Elite). BF1 has no such gate; one rule on both
+    /// games' maps.
+    fn hit_scale(&self, b: &Bolt) -> f32 {
+        let bot_gate =
+            !b.shooter_is_player && self.difficulty_of(b.team) < crate::skill::Difficulty::Hard;
+        if b.hit_mult > 1.0 && bot_gate {
+            1.0
+        } else {
+            b.hit_mult
+        }
+    }
+
     /// Impact handler (BF1 FUN_00276810 → TakeDamage FUN_001bc190; BF2
     /// FUN_00313c40 → FUN_001dfb38): damage only if the remembered target is
     /// still the same live entity (id guard).
@@ -55,7 +161,8 @@ impl Sim {
                     self.difficulty_of(b.team).tier().human_damage
                 } else {
                     1.0
-                } * self.buff_scale(Some(b.owner), h);
+                } * self.buff_scale(Some(b.owner), h)
+                    * self.hit_scale(b);
                 let v = self.unit_mut(h).unwrap();
                 let damage = if invincible {
                     0.0
@@ -119,10 +226,11 @@ impl Sim {
                     struck: true,
                 });
                 self.push_impact(b, Surface::Vehicle, Some(vh));
+                let scale = self.hit_scale(b);
                 self.damage_vehicle_by(
                     vh,
                     &desc,
-                    1.0,
+                    scale,
                     Some(b.owner),
                     Some(b.team),
                     Some(b.vel.normalize_or_zero()),
@@ -358,7 +466,6 @@ mod tests {
     use crate::sim::PadState;
     use crate::skill::Difficulty;
     use crate::unit::UnitSpec;
-    use crate::TICK_DT;
     use glam::Vec3;
 
     /// Late projectiles cannot attribute the replacement occupant's identity
@@ -393,6 +500,8 @@ mod tests {
             hit: Hit::Target(Target::Unit(victim)),
             end: Vec3::ZERO,
             shooter_is_player: false,
+            hulls: crate::collision::HullFilter::All,
+            hit_mult: 1.0,
         };
         s.resolve_bolt(&bolt(old));
         assert_eq!(s.nav_stats.ai_hits, 0, "new AI is not the old idle shooter");
@@ -488,6 +597,8 @@ mod tests {
             hit: Hit::Target(Target::Unit(victim)),
             end: Vec3::ZERO,
             shooter_is_player,
+            hulls: crate::collision::HullFilter::All,
+            hit_mult: 1.0,
         };
         let hp = |s: &Sim, h: UnitHandle| s.unit(h).unwrap().health.cur;
         s.resolve_bolt(&bolt(bot, human, false));
@@ -532,6 +643,8 @@ mod tests {
             hit: Hit::Target(Target::Unit(v)),
             end: Vec3::ZERO,
             shooter_is_player: false,
+            hulls: crate::collision::HullFilter::All,
+            hit_mult: 1.0,
         });
         let u = &s.units[v.index as usize];
         assert!(!u.alive && u.body);
@@ -586,6 +699,8 @@ mod tests {
             hit,
             end,
             shooter_is_player: false,
+            hulls: crate::collision::HullFilter::All,
+            hit_mult: 1.0,
         };
         let world = || {
             let mut s = Sim::empty(3);
@@ -726,18 +841,10 @@ mod tests {
         let (mut s, p, t) = duel();
         s.step(&[fire()]);
         assert_eq!(s.bolts.len(), 1, "trigger shot spawned");
-        let b = &s.bolts[0];
-        assert_eq!(b.hit, Hit::Target(Target::Unit(t)));
-        let way = b.vel.normalize();
-        // From the fire point to the capsule's front face at 19.5 m (radius
-        // 0.5), where the reticle's ray meets it (card AIMA).
-        let flight = (b.end - s.unit(p).unwrap().fire_point()).length();
-        assert!((19.2..19.4).contains(&flight), "{flight}");
-        assert!(
-            (b.remaining + TICK_DT - flight / 80.0).abs() < 1e-4,
-            "{}",
-            b.remaining
-        );
+        // Issue #41: the target is found along the flight, not at the press
+        // (the press finds only the ground far behind it).
+        assert!(!matches!(s.bolts[0].hit, Hit::Target(_)));
+        let way = s.bolts[0].vel.normalize();
         assert_eq!(s.weapon_classes[0].ordnance.max_range(), 120.0);
         let mut hit_tick = None;
         for _ in 0..12 {
@@ -812,20 +919,80 @@ mod tests {
         assert_eq!(s.unit(p).unwrap().weapon.shots_fired, 6);
     }
 
-    /// Predictive raycast semantics (report §5.1): a target that steps out
-    /// of the path after the shot is still hit; one stepping in is not.
+    /// Issue #41: a bolt that meets a soldier's head prim does the PS2's
+    /// HitLocation x3 - a human's always, a bot's only on Hard and Elite
+    /// (the PS2's level 3). The same bolt at his chest is the x1.
     #[test]
-    fn predictive_raycast_hits_dodgers_and_ignores_late_entrants() {
+    fn a_headshot_takes_three_times_the_damage() {
+        // A bolt from 20 m at a still soldier's head prim (1.65 m up, 0.16 m
+        // ahead of his feet) or his chest (the torso, 1.15 m), by a human or
+        // a bot of team 1: the damage it does.
+        fn shot(human: bool, d: Difficulty, y: f32) -> f32 {
+            let (mut s, p, t) = duel();
+            s.difficulty = d;
+            s.unit_mut(t).unwrap().health.max = 3000.0;
+            s.unit_mut(t).unwrap().health.cur = 3000.0;
+            // The target faces the shooter (+Z), so his head is 0.16 m nearer.
+            s.unit_mut(t).unwrap().soldier.yaw = std::f32::consts::PI;
+            let z = if y > 1.5 { -20.0 + 0.16 } else { -20.0 };
+            let from = Vec3::new(0.0, y, 0.0);
+            let b = Bolt::fire(
+                from,
+                Vec3::new(0.0, y, z) - from,
+                80.0,
+                1.5,
+                crate::projectile::Shooter {
+                    owner: p,
+                    team: 0,
+                    weapon_class: 0,
+                    is_player: human,
+                },
+                s.heightfield.as_ref(),
+                s.water_plane(),
+                &s.collision,
+                crate::collision::HullFilter::All,
+            );
+            s.bolts.push(b);
+            for _ in 0..30 {
+                s.step(&[PadState::default()]);
+                if let Some(d) = s.events.iter().find_map(|ev| match ev {
+                    Event::Hit { damage, .. } => Some(*damage),
+                    _ => None,
+                }) {
+                    return d;
+                }
+            }
+            panic!("no hit (human {human}, {d:?}, y {y})");
+        }
+        let (head, chest) = (1.65, 1.15);
+        let body = shot(true, Difficulty::Normal, chest);
+        assert!(body > 0.0);
+        // The PS2's x3, not the constant (a test of the rule, not of itself).
+        assert_eq!(shot(true, Difficulty::Normal, head), body * 3.0);
+        assert_eq!(shot(false, Difficulty::Normal, head), body, "a bot: no x3");
+        assert_eq!(
+            shot(false, Difficulty::Hard, head),
+            shot(false, Difficulty::Hard, chest) * 3.0,
+            "a bot on the PS2's top level: x3"
+        );
+    }
+
+    /// Issue #41 (OURS; the PS2's one ray at the press, report §5.1, hit a
+    /// target that stepped out of the path after the shot and never one
+    /// that stepped in): a bolt strikes what it passes through. A target
+    /// that steps aside mid-flight is missed; a unit that steps into the
+    /// path is hit.
+    #[test]
+    fn a_bolt_hits_what_it_passes_through() {
         let (mut s, _p, t) = duel();
         s.step(&[fire()]);
         // Teleport the target sideways mid-flight.
         s.unit_mut(t).unwrap().soldier.pos.x += 10.0;
-        let mut hit = false;
         for _ in 0..10 {
             s.step(&[PadState::default()]);
-            hit |= s.events.iter().any(|e| matches!(e, Event::Hit { .. }));
+            assert!(!s.events.iter().any(|e| matches!(e, Event::Hit { .. })));
         }
-        assert!(hit, "dodging after the shot does not help (authentic)");
+        assert_eq!(s.unit(t).unwrap().health.cur, 300.0, "the dodger is missed");
 
         // Late entrant: fire at nothing, then move a unit into the path.
         let mut s2 = Sim::empty(3);
@@ -836,11 +1003,13 @@ mod tests {
         s2.step(&[fire()]);
         assert_eq!(s2.bolts[0].hit, Hit::None);
         s2.unit_mut(late).unwrap().soldier.pos.x = 0.0;
+        let mut hit = false;
         for _ in 0..60 {
             s2.step(&[PadState::default()]);
-            assert!(!s2.events.iter().any(|e| matches!(e, Event::Hit { .. })));
+            hit |= s2.events.iter().any(|e| matches!(e, Event::Hit { .. }));
         }
-        assert_eq!(s2.unit(late).unwrap().health.cur, 300.0);
+        assert!(hit, "the unit that stepped in is hit");
+        assert!(s2.unit(late).unwrap().health.cur < 300.0);
     }
 
     /// Terrain in the way: the bolt ends on the slope, nobody is hurt.
@@ -1036,9 +1205,8 @@ mod tests {
 
         // The control: without the wall the identical shot reaches the
         // trooper, so it is the body and nothing else that stopped it.
-        let (mut s, _, t) = duel();
+        let (mut s, _, _) = duel();
         s.step(&[fire()]);
-        assert_eq!(s.bolts[0].hit, Hit::Target(Target::Unit(t)));
         // … and a soldier is soft to the impact effect (FXP3), beside the
         // hit and with no expiry.
         for _ in 0..60 {
@@ -1148,6 +1316,9 @@ mod tests {
                 }
             };
             let v = s.spawn(&victim).unwrap();
+            // Enough health that every arm's hits are counted whole.
+            s.unit_mut(v).unwrap().health.max = 3000.0;
+            s.unit_mut(v).unwrap().health.cur = 3000.0;
             let full = s.unit(v).unwrap().health.cur;
             let e = s
                 .spawn(&UnitSpec {
@@ -1160,6 +1331,9 @@ mod tests {
             // its own, so the table may still be empty here).
             s.players.resize(1, None);
             s.players[0] = Some(e);
+            // At his chest: a level shot meets the head prim, and the
+            // headshot's x3 (issue #41) is not what this compares.
+            s.units[e.index as usize].soldier.pitch = -0.08;
             // Short enough that the victim SURVIVES in every arm: past the
             // kill the damage would clip at the killing bolt and the arms
             // would no longer be comparable.

@@ -91,7 +91,9 @@ fn battle(game: &str) -> Option<(Sim, UnitHandle, UnitHandle)> {
     let shooter = sim
         .spawn(&class.spec(0, Vec3::ZERO, 0.0, Controller::Player { slot: 0 }, 0, 0))
         .unwrap();
-    sim.unit_mut(shooter).unwrap().soldier.pitch = 0.0;
+    // At the body: a level shot meets the head prim, whose x3 (the PS2's
+    // headshot, issue #41) is not what this suite measures.
+    sim.unit_mut(shooter).unwrap().soldier.pitch = -0.2;
     let target = sim
         .spawn(&UnitSpec {
             max_health: 10_000.0,

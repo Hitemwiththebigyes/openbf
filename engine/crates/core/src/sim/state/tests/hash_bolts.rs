@@ -15,6 +15,8 @@ fn bolt() -> Bolt {
         hit: Hit::None,
         end: Vec3::new(9.0, 10.0, 11.0),
         shooter_is_player: false,
+        hulls: crate::collision::HullFilter::All,
+        hit_mult: 1.0,
     }
 }
 

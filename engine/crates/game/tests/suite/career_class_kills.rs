@@ -314,6 +314,8 @@ fn a_player_killed_before_their_bolt_lands_still_gets_class_credit() {
             hit: Hit::Target(Target::Unit(victim)),
             end,
             shooter_is_player: owner == player,
+            hulls: core::collision::HullFilter::All,
+            hit_mult: 1.0,
         });
     }
     walk.step_tick(&[PadState::default()]);

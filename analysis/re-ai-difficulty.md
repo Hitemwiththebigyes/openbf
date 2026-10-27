@@ -509,6 +509,13 @@ For openbf: keep the 77.5° half-angle; the 10 m omni is BF2-only.
 
 ### 9.2 The level-3 multiplier is `HitLocation` — the vehicle critical-hit zones (closes §8.1) [V]
 
+> **Corrected 2026-10-27 (issue #41, `re-hitzones.md`):** soldiers DO have a per-node multiplier: every soldier
+> class with no ODF `HitLocation` (all of them) gets a hard-coded default {head prim, x3.0} - BF2 `FUN_002517e8`
+> (B2:170444-170450, node 0 = coll_head), BF1 `FUN_0020e2e0` (B1:122725, node 2). Droidekas (walkerdroid) and the
+> acklay get none. The soldier's TakeDamage is BF2 `FUN_00238e20` (its health vtable `DAT_0061ea80`, slot +0x24 ->
+> `FUN_0024ec88`), which this section's chain missed; `headShots` / the "headshot" effect count these soldier hits.
+
+
 **Chain (BF2).** `FUN_0020a940` (soldier TakeDamage, 121219) → `FUN_001e0580(soldier+0x170, desc,
 dir, pos, hit, …)` (91541). The "health component" is the sub-object at entity+0x170 with its vptr
 at +0xbc (GCC 2.95 "vptr after the fields"; the tables carry two header words, so vtbl+0x24 is

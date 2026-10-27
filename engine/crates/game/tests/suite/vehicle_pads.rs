@@ -672,3 +672,54 @@ fn the_showcase_maps_place_their_droids() {
     }
     eprintln!("{ran} of 6 maps checked");
 }
+
+/// Issue #41: a vehicle's critical prims (its class's `HitLocation`, the
+/// PS2's x4 on 15 BF2 classes) reach its hull with that factor and in the
+/// ORDNANCE subset - a bolt can strike them. On BF2 Hoth (the AT-AT's neck,
+/// the AT-ST's hips) and Geonosis (the AT-TE, the spider walker), every pad
+/// class that authors one has a part carrying it.
+#[test]
+fn vehicle_critical_prims_are_on_the_hull() {
+    use core::collision::Layers;
+    let classes = game::assets::baked_root().join("classes");
+    let mut checked = 0;
+    for (map, mission) in [("bf2_hot1", "bf2_hot1_con"), ("bf2_geo1", "bf2_geo1_con")] {
+        let dir = game::assets::baked_root().join(map);
+        let (Some(m), Ok(mission)) = (
+            conquest_manifest(&dir),
+            MissionDef::load(&missions_dir().join(format!("{mission}.ron"))),
+        ) else {
+            eprintln!("SKIP: no {map} bake");
+            continue;
+        };
+        let (b, _) = build_for(&dir, &m, &mission);
+        let mut sim = core::sim::Sim::empty(1);
+        game::vehicle_pads::install(&mut sim, &m, &dir, &classes, &mission.factions())
+            .expect("install");
+        let mut db = ClassDb::default();
+        for f in game::roster::class_files(
+            &m.source_game.to_ascii_lowercase(),
+            &["all", "imp", "rep", "cis"],
+        ) {
+            let p = classes.join(f);
+            if p.exists() {
+                db.load(&p).unwrap();
+            }
+        }
+        for (i, c) in b.classes.iter().enumerate() {
+            let want = game::assets::hit_locations(&db, c);
+            let Some((_, mult)) = want.first() else {
+                continue;
+            };
+            let parts = sim.hull_parts[i].as_ref().expect("a hull");
+            assert!(
+                parts
+                    .iter()
+                    .any(|p| p.hit_mult == *mult && p.layers.contains(Layers::ORDNANCE)),
+                "{map} {c}: no part at x{mult} in the ordnance subset ({want:?})"
+            );
+            checked += 1;
+        }
+    }
+    eprintln!("classes with a critical prim checked: {checked}");
+}

@@ -1,12 +1,13 @@
-//! Blaster bolts: simulated projectiles with ONE predictive raycast at spawn
-//! (BF1 FUN_002762a0 spawn / FUN_002764c0 move+collide / FUN_00272e98
-//! lifetime; BF2 FUN_00313600). Authentic consequences kept deliberately
-//! (re-blaster-damage §5.1): the bolt hits the object the spawn ray found
-//! at the precomputed time as long as that object is still alive — targets
-//! cannot dodge after the shot, and anything entering the path later is
-//! never hit. Flagged for a PCSX2 confirmation; a per-tick sweep would be
-//! an openbf divergence. Complete bit-exact bolt replay serialization is
-//! owned here by `Bolt::hash_into` (card HASH).
+//! Blaster bolts (BF1 FUN_002762a0 spawn / FUN_002764c0 move+collide /
+//! FUN_00272e98 lifetime; BF2 FUN_00313600). A fired bolt (`Bolt::fire`)
+//! asks ONE predictive ray at the press of what does not move - buildings
+//! and terrain (mask 0x48 / BF2 0x90) - and is swept against soldiers and
+//! vehicles each frame from its previous to its current place (B1
+//! FUN_00273128, BF2 FUN_0030fad0; `re-ordnance-kinds.md` §2.4 [V][M],
+//! `Sim::sweep_bolts`): a unit that steps out of the line is missed and
+//! one that steps in is hit. `Bolt::spawn` (every candidate on the one ray)
+//! is the AI's shot PREDICTION. Complete bit-exact bolt replay serialization
+//! is owned here by `Bolt::hash_into` (card HASH).
 
 use crate::collision::{ray_heightfield, Capsule, CollisionWorld, HullFilter, Layers};
 use crate::heightfield::Heightfield;
@@ -61,6 +62,14 @@ pub struct Bolt {
     /// bolt into a human from a human's own (D12's damage multiplier); the
     /// owner may be dead and recycled by the time the bolt lands.
     pub shooter_is_player: bool,
+    /// The hulls this bolt may strike (`Bolt::fire`'s filter): a rider's bolt
+    /// passes its own vehicle. The sim tests them, and the soldiers, along
+    /// each tick's flight (`Sim::sweep_bolts`, issue #41).
+    pub hulls: HullFilter,
+    /// The struck prim's HitLocation factor, set by the sweep (issue #41):
+    /// a soldier's head x3 (`Unit::bolt_hit`), a vehicle prim its class's
+    /// (`Body::hit_mult`: the x4 critical prims, BF1's x0 two), else 1.0.
+    pub hit_mult: f32,
 }
 
 /// Who fired (carried by the bolt for damage attribution + friendly fire).
@@ -117,6 +126,55 @@ impl Bolt {
             }
             Hit::Water => eat(&[6]),
         }
+        let skip = match self.hulls {
+            HullFilter::All | HullFilter::Hulls => [None; 2],
+            HullFilter::Static => {
+                eat(&[7]);
+                [None; 2]
+            }
+            HullFilter::Except(s) | HullFilter::HullsExcept(s) => s,
+        };
+        for v in skip.iter().flatten() {
+            eat(&v.index.to_le_bytes());
+            eat(&v.gen.to_le_bytes());
+        }
+        if self.hit_mult != 1.0 {
+            eat(b"HITMULT");
+            eat(&self.hit_mult.to_bits().to_le_bytes());
+        }
+    }
+
+    /// A shot's bolt (issue #41; the module header): at the press only what
+    /// does not move is asked - the terrain, the water and the map's bodies -
+    /// for where the flight ends; the soldiers and the hulls `hulls` admits
+    /// are tested along each tick's flight by `Sim::sweep_bolts`, so a bolt
+    /// strikes what it passes through then.
+    #[allow(clippy::too_many_arguments)]
+    pub fn fire(
+        origin: Vec3,
+        dir: Vec3,
+        speed: f32,
+        life_span: f32,
+        shooter: Shooter,
+        hf: Option<&Heightfield>,
+        water: Option<crate::water::Plane<'_>>,
+        world: &CollisionWorld,
+        hulls: HullFilter,
+    ) -> Bolt {
+        let mut b = Bolt::spawn(
+            origin,
+            dir,
+            speed,
+            life_span,
+            shooter,
+            hf,
+            water,
+            world,
+            HullFilter::Static,
+            std::iter::empty(),
+        );
+        b.hulls = hulls;
+        b
     }
 
     /// Spawn with the predictive raycast: candidates = terrain + the given
@@ -205,6 +263,8 @@ impl Bolt {
             hit,
             end: origin + dir * best_t,
             shooter_is_player: shooter.is_player,
+            hulls,
+            hit_mult: 1.0,
         }
     }
 
