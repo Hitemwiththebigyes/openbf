@@ -6422,7 +6422,7 @@ the classifier should see it). Until then PLAN.md stays ~390 KB. Report `reports
   the far patch and the 3.229 m sea-seam deleted; `WaterRanges.near` stays unread; the disc's never-issued
   decimated build is not ported.
 - 2026-09-17 lane 1 (OCB's landing): your flythrough report was queued the same day as KASF, MUSS, UTAS and CORB
-  (`engine/artifacts/loop/pete_flythrough_review_20260917.md`).
+  (`engine/artifacts/loop/playtest_flythrough_review_20260917.md`).
 - 2026-09-17 lane 1 (CLN1 `d3e69cf`): no behaviour gates for a test-only branch (the proof is in its report); it
   found a host-libm `atan2` in `game/src/layout.rs` feeding the sim hash — queue DET1.
 - 2026-09-17 lane 1 (WA's RE): the build scoped to the water sheets each map's `Effect("Water")` names, not every

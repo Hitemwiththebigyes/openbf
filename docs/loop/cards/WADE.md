@@ -20,7 +20,7 @@ alpha: yes
 
 ## Why (rewritten 2026-10-06 after the capture + RE; the original card text is kept below)
 The maintainer, playtest 2026-10-04: "Water still isn't transparent ... you can't see its body in the water"
-(`playtest/pete_20261004/2_kas2_stormtrooper_in_water.png`), and his walkabout findings of 2026-09-28: BF2 FEL1's
+(`playtest/playtest_20261004/2_kas2_stormtrooper_in_water.png`), and his walkabout findings of 2026-09-28: BF2 FEL1's
 river cuts a soldier's shins off, BF2 YAV1's bazaar soldier stands ON a water sheet.
 - **The water is not too opaque: the soldier is drawn after it.** The port's water writes depth and the skinned
   passes come after the water runs (`render/src/frame.rs`, "They stay after the water runs ... where the disc draws
@@ -91,7 +91,7 @@ The maintainer (INBOX 2026-09-28, walkabout findings (a) and (b)): two soldier-i
 
 ## Planner note (2026-09-30, M-ALPHA)
 `defer: post-alpha` — not needed for the alpha's six showcase maps or its checklist. Value 4 → 3 until the alpha (restore from `value_pre_alpha`).
-- 2026-10-04 (the maintainer's playtest, via Claude; value 3 -> 5 and `defer` cleared at his word): "Water still isn't transparent. Screenshot 2 is empire stormtrooper standing in bf1 kas2 water and you can't see its body in the water." `playtest/pete_20261004/2_kas2_stormtrooper_in_water.png`: the trooper's legs end in a hard line at the water, nothing shows below it. BF1 KAS2 joins FEL1 and YAV1 as a spot to pair.
+- 2026-10-04 (the maintainer's playtest, via Claude; value 3 -> 5 and `defer` cleared at his word): "Water still isn't transparent. Screenshot 2 is empire stormtrooper standing in bf1 kas2 water and you can't see its body in the water." `playtest/playtest_20261004/2_kas2_stormtrooper_in_water.png`: the trooper's legs end in a hard line at the water, nothing shows below it. BF1 KAS2 joins FEL1 and YAV1 as a spot to pair.
 
 - 2026-10-06 (lane 2, capture + RE; report `reports/20261006_1215_card_WADE.md`): the original acceptance is met - five PS2 stands on three maps paired with the port (`pcsx2/ref/<map>/wade/pairs/`), `analysis/re-water.md` section 9 [O], this card re-phased to build, card WDRN opened for the sim half (drowning, dead triggers), a note on FXP5 for the ripple and the splash. The stand itself needs no sim card: the port's floor is the PS2's.
 - 2026-10-06 planner: `engine/CRATES.md` taken out of `files:`. The picker refuses a card whose files overlap a card in progress, and 22 open cards listed the map, so any one of them held the other 21 (a chain card in progress held WADE and WTHR). The map's row for a new or moved source file is still owed in the same branch (`scripts/size_report.sh --check-map`); a rebase conflict in it is one line. Undo: add the path back.

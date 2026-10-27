@@ -20,7 +20,7 @@ domain: audio
 Filed by the audit of ANNC2 (2026-10-05, PARTLY; `reports/20261005_1150_audit_ANNC2.md`, evidence
 `engine/artifacts/lead_tmp/audit-annc2/` = A/). The maintainer, 2026-10-04, BF1 Kashyyyk Docks as the Empire: "it has empire
 voiceovers and droid voiceover lines". ANNC2 filed that under its era-mix rule; it is not one. His battle was the
-map's default pairing (screenshot `playtest/pete_20261004/1_kas2_empire_hud_blotch.png`: a stormtrooper, an AT-ST,
+map's default pairing (screenshot `playtest/playtest_20261004/1_kas2_empire_hud_blotch.png`: a stormtrooper, an AT-ST,
 the Rebels' bowcaster in the console), and ANNC2's landing leaves it as it was.
 
 The cause is the sound bank. A BF1 planet's SOUND LVL holds one sub-level per map and era (`kas1gcw`, `kas1cw`,

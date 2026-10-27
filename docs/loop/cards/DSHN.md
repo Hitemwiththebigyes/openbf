@@ -20,7 +20,7 @@ chrome, with hard white highlights. The maintainer says the other droids look si
 battle, so the player sees this constantly.
 
 ## Evidence
-- Port: `lead_tmp/pete_0929/shiny_sbd.png` (BF1 NAB-style ground, SBD in play: white bands on the arms, chest and legs).
+- Port: `lead_tmp/playtest_0929/shiny_sbd.png` (BF1 NAB-style ground, SBD in play: white bands on the arms, chest and legs).
 - PS2: `lead_tmp/unit-audit/pcsx2/sbd_ingame.png`, `10_sbd_idle.png`, `10_sbd_idle_crop.png` (UAUD1's frames). The PS2's
   SBD is a matte mid grey, with one soft highlight on the head dome. (the maintainer's note gives these at `pcsx2/`; they are
   in `lead_tmp/unit-audit/pcsx2/`.)

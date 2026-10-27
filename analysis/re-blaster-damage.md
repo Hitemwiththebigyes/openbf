@@ -439,7 +439,7 @@ scales × victim HealthType (and BF2's time falloff). [V]
 
 The impact handler reaches TakeDamage through the hit prim's owner interface
 (`prim.iface+0x1c*(decompiler detail omitted)*engine/artifacts/lead_tmp/ffln/` (`ff_scale.py`, `tk_ps2.py`, `tk_report.py`, `run_tk.sh`,
-`ps2_bf2_kam1_pete.jsonl`). Checks run: `re_check.py fn b2 91318 91324 90935 90953 359400 359406 346223 346227`,
+`ps2_bf2_kam1_playtest.jsonl`). Checks run: `re_check.py fn b2 91318 91324 90935 90953 359400 359406 346223 346227`,
 `fn b1 64020 64038`, `writers b2 DAT_005fcbe0` (1: FUN_001df3c8), `writers b1 DAT_00517508` (1: FUN_001bbaf8),
 `word b2 0x5fcbe0` / `word b1 0x517508` (both 1.0), `callers` of both setters.
 
@@ -466,7 +466,7 @@ The impact handler reaches TakeDamage through the hit prim's owner interface
   `FUN_00362c60` (346227), which adds 1 to the killer's kill byte (+4 + team slot x 2 + hero) AND to his team-kill
   byte (+8 + ...) (359400-359404) and to a per-victim byte through the pointer at +0x14 (359405-359406). `tk_ps2.py`
   polls those from a live battle. BF2 KAM1 conquest, 16 AI a team, the player spawned, pinned at the maintainer's spot
-  (-4, 60.3, 108.6) and kept alive, 515 s of wall time (`run_tk.sh bf2_kam1 _pete`): **91 kills by AI, of them 11 of
+  (-4, 60.3, 108.6) and kept alive, 515 s of wall time (`run_tk.sh bf2_kam1 _playtest`): **91 kills by AI, of them 11 of
   a teammate (12.1 %; 12.6 % of the 87 that were not the killer's own) and 4 of the killer himself**; the human
   killed nobody. The per-victim bytes agree with the counters for every player (enemy 76 + friend 11 + self 4 = 91;
   the enemy path `FUN_00362268` 359237-359243 writes the same kill byte and table). These are CREDITED kills, by any

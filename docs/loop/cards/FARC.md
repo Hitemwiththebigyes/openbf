@@ -62,7 +62,7 @@ waterfall in the port only), `cp4_tflank__sheet.png` b180, `cp6_reflectingpool__
 ## Planner note (2026-09-30, M-ALPHA)
 `defer: post-alpha` — not needed for the alpha's six showcase maps or its checklist. Value 4 → 3 until the alpha (restore from `value_pre_alpha`).
 
-- Planner 2026-09-30 17:30: Raised 3 → 4 (the maintainer INBOX 11:10: "card FARC (the far WATER pass) … raise it"). BF2 KAM1 has NearSceneRange (0.8, 60, 90), FarSceneRange 800 and no LowResTerrain sheet; its sea shows a hard edge and a flat dark-green plane past the foam disc (lead_tmp/pete_0930/kam1_port_overview_sea_boundary.png). KAMR (M1 5, alpha) researches Kamino; take KAM1's far water together with it.
+- Planner 2026-09-30 17:30: Raised 3 → 4 (the maintainer INBOX 11:10: "card FARC (the far WATER pass) … raise it"). BF2 KAM1 has NearSceneRange (0.8, 60, 90), FarSceneRange 800 and no LowResTerrain sheet; its sea shows a hard edge and a flat dark-green plane past the foam disc (lead_tmp/playtest_0930/kam1_port_overview_sea_boundary.png). KAMR (M1 5, alpha) researches Kamino; take KAM1's far water together with it.
 
 ## Note (KAMR RE, 2026-09-30): Kamino answered
 `analysis/re-kamino.md` §2: on both Kaminos the PS2 draws the ocean in whole 160 m tiles reaching 0.8*FarSceneRange

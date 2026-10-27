@@ -80,7 +80,7 @@ to the maintainer. It is in BOTV's deps (B5-B7 are checked there).
   - How long fighters stand, like for like (under 0.5 m in 1 s): the PS2's on-foot attack rows 24 % (Kamino and Polis
     Massa; the whole combat agent 36 / 24 %), the port's 49 / 56 % after FGHT (64 / 72 before). `tools/ps2_still.py`.
     The PS2 captures are 15 Hz in game time: a per-sample speed is NOT the port's measure.
-  - **`lead_tmp/sair/ps2/bf2_kam1_pete_units.csv` is not "the player at the maintainer's spot"**: the player (slot k 0) dies at
+  - **`lead_tmp/sair/ps2/bf2_kam1_playtest_units.csv` is not "the player at the maintainer's spot"**: the player (slot k 0) dies at
     t 59.3, 7 s into the capture, and from t 80.8 the sampler's hold pins a team-2 AI bot (the reused entity address
     0x1dd8770) at -4.0, 60.3, 108.6 with 400 hp to the end. No PS2 capture has enemies coming at a living held player:
     the PS2 column of the maintainer's scene (the port: 7.2 bots engaging him at once, a teammate within 3 m 33.5 %, still 51.4 %;

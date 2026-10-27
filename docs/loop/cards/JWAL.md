@@ -21,7 +21,7 @@ jumping forward carries the soldier INSIDE the hollow, under the deck. The maint
 shouldn't will ruin the game."
 
 ## Evidence
-- `lead_tmp/pete_0929/kas2_platform_wall_outside.png` (the wall from outside) and `kas2_platform_inside.png` (inside:
+- `lead_tmp/playtest_0929/kas2_platform_wall_outside.png` (the wall from outside) and `kas2_platform_inside.png` (inside:
   bamboo all round, the wooden deck as a ceiling). The models are probably `kas2_bldg_platform_*` (see ELFR's census).
 - **The LEAK census reproduces it (2026-09-29, `game/examples/leak_census.rs`, on main before any fix).** No KAS2
   platform stands on the terrain: all 11 `kas2_bldg_platform_1` decks are at y 16.6-18.6 over terrain at about -5.9. The

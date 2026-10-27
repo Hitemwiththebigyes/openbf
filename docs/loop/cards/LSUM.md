@@ -22,7 +22,7 @@ alpha: yes
 **Why.** Kamino's decks are 1.5-2 x darker than the PS2's and the largest term is this one: the PS2 adds ambient +
 sun (+ Light2, + points) in GS units and multiplies by the texel once; `shade_unfogged` adds the linearised colours in
 LINEAR light. Where two terms are of one size (Kamino: ambient 100, sun (65,85,105)) the port is 1.37-1.40 x dark.
-The maintainer's own BF2 Kamino frame shows it (`playtest/pete_20261004/4_kam1_bots_bunched.png`: a near-black deck).
+The maintainer's own BF2 Kamino frame shows it (`playtest/playtest_20261004/4_kam1_bots_bunched.png`: a near-black deck).
 
 **The contradiction this card was waiting on is resolved.** The display-unit sum made COR1 / NAB2 / MUS1 worse because
 `bake::lighting::AMBIENT_FLOOR` (0.045 linear = 60/255 in display units) gives them an ambient the PS2 does not have

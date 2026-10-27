@@ -20,8 +20,8 @@ alpha: yes
 The maintainer, 2026-10-04: "empire hud weapons has a weird blotch on it" and "pistol weapon hud is all messed up". The weapon panel is on screen all the time.
 
 ## Evidence
-- `playtest/pete_20261004/1_kas2_empire_hud_blotch.png` (BF1 KAS2, Empire, rifle): a light-blue ellipse over the health bar's middle, under the rifle icon; the top pill shows `4` with no icon.
-- `playtest/pete_20261004/3_kam1_pistol_hud.png` (BF2 KAM1, Republic, pistol): a ring with the infinity sign drawn over the clip count (reads `oo46`), the grenade icon overlapping the top pill, the gun icon stretched across the panel and over the pills.
+- `playtest/playtest_20261004/1_kas2_empire_hud_blotch.png` (BF1 KAS2, Empire, rifle): a light-blue ellipse over the health bar's middle, under the rifle icon; the top pill shows `4` with no icon.
+- `playtest/playtest_20261004/3_kam1_pistol_hud.png` (BF2 KAM1, Republic, pistol): a ring with the infinity sign drawn over the clip count (reads `oo46`), the grenade icon overlapping the top pill, the gun icon stretched across the panel and over the pills.
 - Not measured: which draw is the blob (draw-isolate it), and what the PS2 shows for the same weapons (PCSX2 frames).
 
 ## Acceptance
