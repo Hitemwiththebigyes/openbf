@@ -1209,7 +1209,15 @@ impl Animator {
         // The action: a shot (re)starts shoot, a reload's first update
         // starts reload; it ends with its clip, or in a special state.
         let mut restart = false;
-        if let Ok(s) = stance {
+        // A BF2 sprint is a special state on the legs, but the hands still
+        // throw and shoot in it, as BF1's sprint on the stand's clips does:
+        // the action takes the stand's clips and the legs keep sprinting.
+        let hands = match stance {
+            Ok(s) => Some(s),
+            Err(Special::Sprint) => Some(0),
+            Err(_) => None,
+        };
+        if let Some(s) = hands {
             let kind = if let Some(variant) = i.throw {
                 Some(ActionKind::Throw(variant))
             } else if i.fired {

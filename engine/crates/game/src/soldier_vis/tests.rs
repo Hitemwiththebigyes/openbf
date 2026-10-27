@@ -909,3 +909,99 @@ fn no_frozen_wait_after_a_lock_animation() {
         assert_eq!(cases, 16);
     }
 }
+
+/// The maintainer 2026-10-27: a grenade thrown while sprinting showed no throw. The
+/// sim throws in a sprint; the BF2 sprint is a special state on the legs, and
+/// the hands' action was dropped in every special state. Both games: the
+/// upper body plays the throw (and a shot) while the legs keep sprinting.
+#[test]
+fn a_sprinting_soldier_shows_his_throw_and_shot() {
+    use crate::animator::{ActionKind, AnimInput, Animator};
+    use core::soldier::Stance;
+    let root = crate::assets::baked_root();
+    let mut cases = 0;
+    for (game, geometry) in [("bf1", "rep_inf_trooper"), ("bf2", "rep_inf_trooper")] {
+        if !root
+            .join(format!("side_{game}/soldiers/{geometry}.glb"))
+            .exists()
+        {
+            eprintln!("skip: no {game} {geometry} bake");
+            continue;
+        }
+        let t = team(&[("trooper", Some(geometry), None)]);
+        let vis = SoldierVisuals::load_cpu(&root, game, &[t.clone(), t]);
+        let sa = &vis.assets[0];
+        let (Some(rig), clips, skel) = (&sa.rig, &sa.asset.clips, &sa.asset.skeleton) else {
+            panic!("{game} {geometry}: no rig");
+        };
+        let sprint = AnimInput {
+            stance: Stance::Sprint,
+            vel: glam::Vec2::new(0.0, 9.0),
+            yaw: 0.0,
+            max_speed: 7.0,
+            root_scale: 1.0,
+            dead: false,
+            hard_lock: false,
+            set: 0,
+            fired: false,
+            throw: None,
+            throw_windup: 0.0,
+            reloading: false,
+            reload_time: 0.0,
+            alert: false,
+            aim: (0.0, 0.0),
+        };
+        let name = |c: Option<usize>| c.map_or("-".to_string(), |c| clips[c].name.clone());
+        for (kind, input) in [
+            (
+                ActionKind::Throw(0),
+                AnimInput {
+                    throw: Some(0),
+                    ..sprint
+                },
+            ),
+            (
+                ActionKind::Shoot,
+                AnimInput {
+                    fired: true,
+                    ..sprint
+                },
+            ),
+        ] {
+            let Some((want, _)) = rig.action_slots(0, 0, kind) else {
+                panic!("{game}: no stand {kind:?} clip");
+            };
+            let mut a = Animator::new();
+            let dt = 1.0 / 30.0;
+            for _ in 0..20 {
+                a.step(rig, clips, skel, &sprint, dt);
+            }
+            let legs = name(a.lower_clip());
+            a.step(rig, clips, skel, &input, dt);
+            for _ in 0..3 {
+                a.step(rig, clips, skel, &sprint, dt);
+            }
+            assert_eq!(
+                a.upper_clip(),
+                Some(want.clip),
+                "{game} {kind:?}: the upper body plays {}",
+                name(a.upper_clip())
+            );
+            // The legs keep running (a BF1 shot arms the alert and takes its
+            // run, the PS2's rule).
+            let now = name(a.lower_clip());
+            assert!(
+                now.contains("sprint") || now.contains("run"),
+                "{game} {kind:?}: the legs play {now}, not {legs}"
+            );
+            println!(
+                "{game} {kind:?}: hands {}, legs {now}",
+                clips[want.clip].name
+            );
+            cases += 1;
+        }
+    }
+    if cases > 0 {
+        assert_eq!(cases, 4);
+    }
+}
