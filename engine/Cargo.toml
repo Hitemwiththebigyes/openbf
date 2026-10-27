@@ -25,11 +25,11 @@ glam = "0.30"
 bytemuck = { version = "1", features = ["derive"] }
 pollster = "0.4"
 wgpu = "27"
-winit = "0.30"
+winit = { version = "0.30", features = ["serde"] }
 egui = "0.33"
 egui-wgpu = "0.33"
 egui-winit = "0.33"
-gilrs = "0.11"
+gilrs = { version = "0.11", features = ["serde-serialize"] }
 kira = "0.10"
 flate2 = "1"
 serde = { version = "1", features = ["derive"] }

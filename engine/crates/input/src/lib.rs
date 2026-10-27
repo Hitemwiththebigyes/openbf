@@ -37,17 +37,22 @@
 use core::sim::{buttons, PadState};
 use gilrs::Button;
 
-/// The physical button -> logical bit table, as DATA: the one place a remap
-/// changes (PLAN §Platform & meta, "full remap"). Nothing yet writes a custom
-/// one — [`Mapping::ps2_default`] is what the game builds — but the table is
-/// the shape a settings screen fills in, and having it is what makes
-/// [`pad_from_gamepad`] a loop rather than a hard-coded list.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Mapping {
     pub table: Vec<(Button, u32)>,
 }
 
 impl Mapping {
+    pub fn remap(&mut self, index: usize, button: Button) {
+        if index >= self.table.len() {
+            return;
+        }
+        if let Some(other) = self.table.iter().position(|(b, _)| *b == button) {
+            self.table[other].0 = self.table[index].0;
+        }
+        self.table[index].0 = button;
+    }
+
     /// The default layout the module header describes.
     pub fn ps2_default() -> Mapping {
         Mapping {
@@ -399,6 +404,29 @@ pub fn pad_from_gamepad_with_arms(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remapping_swaps_conflicting_buttons_without_duplicate_actions() {
+        let mut mapping = Mapping::default();
+        let fire = mapping.table[0];
+        let reload = mapping
+            .table
+            .iter()
+            .position(|(button, _)| *button == Button::West)
+            .unwrap();
+        let old_reload = mapping.table[reload];
+        mapping.remap(0, Button::West);
+        assert_eq!(mapping.table[0], (Button::West, fire.1));
+        assert_eq!(mapping.table[reload], (fire.0, old_reload.1));
+        assert_eq!(
+            mapping
+                .table
+                .iter()
+                .filter(|(button, _)| *button == Button::West)
+                .count(),
+            1
+        );
+    }
 
     #[test]
     fn the_left_stick_reads_as_the_dpad_arms() {

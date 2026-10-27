@@ -1076,6 +1076,9 @@ impl App {
             if input::pump(g) {
                 self.pad_warning = input::log_pads(g);
                 self.gameplay_stick.select(None);
+                if let Some(front) = self.front.as_mut() {
+                    front.reset_control_device();
+                }
             }
             if let Some((_, pad)) = g.gamepads().next() {
                 use gilrs::Button;
@@ -1130,7 +1133,7 @@ impl App {
                 self.gameplay_stick.select(Some(id));
                 let (state, arms) = input::pad_from_gamepad_with_arms(
                     &pad,
-                    &input::Mapping::ps2_default(),
+                    &self.profile.settings.controller_bindings,
                     self.gameplay_stick.arms,
                 );
                 self.gameplay_stick.arms = arms;
@@ -1285,11 +1288,19 @@ impl winit::application::ApplicationHandler for App {
         event: winit::event::WindowEvent,
     ) {
         use winit::event::WindowEvent;
+        if self.capture_keyboard(&event) {
+            return;
+        }
         if let (Some(o), Some(w)) = (&mut self.overlay, &self.window) {
             let _ = o.on_window_event(w, &event);
         }
         self.mouse_window_event(&event);
         match event {
+            WindowEvent::Focused(false) => {
+                self.keys_held = 0;
+                self.keys_tapped = 0;
+                self.prev_menu_buttons = 0;
+            }
             WindowEvent::CloseRequested => {
                 if let Some((walk, _)) = self.walk.as_mut() {
                     if !self.round_recorded {

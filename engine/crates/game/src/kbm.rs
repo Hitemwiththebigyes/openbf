@@ -32,7 +32,7 @@ pub fn menu_bits(keys: u32, shell: bool) -> u32 {
     bits
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Trigger {
     Key(KeyCode),
     Mouse(MouseButton),
@@ -40,7 +40,7 @@ pub enum Trigger {
     WheelDown,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Bind {
     pub bits: u32,
     pub walk: (i8, i8),
@@ -56,12 +56,31 @@ impl Bind {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Bindings {
     pub table: Vec<(Trigger, Bind)>,
 }
 
 impl Bindings {
+    pub fn remap(&mut self, index: usize, trigger: Trigger) -> bool {
+        if index >= self.table.len() {
+            return false;
+        }
+        let (old, bind) = self.table[index];
+        let other = self.table.iter().position(|(t, _)| *t == trigger);
+        let wheel = |t| matches!(t, Trigger::WheelUp | Trigger::WheelDown);
+        if (wheel(trigger) && bind.walk != (0, 0))
+            || other.is_some_and(|i| wheel(old) && self.table[i].1.walk != (0, 0))
+        {
+            return false;
+        }
+        if let Some(other) = other {
+            self.table[other].0 = self.table[index].0;
+        }
+        self.table[index].0 = trigger;
+        true
+    }
+
     pub fn pc_default() -> Bindings {
         use buttons as b;
         use KeyCode as K;
@@ -170,6 +189,10 @@ impl Kbm {
     pub fn follow(&mut self, settings: &crate::profile::Settings) {
         self.sensitivity = settings.mouse_sensitivity;
         self.invert_y = settings.invert_y;
+        if self.bindings != settings.keyboard_bindings {
+            self.release_keys();
+            self.bindings = settings.keyboard_bindings.clone();
+        }
     }
 
     pub fn press(&mut self, t: Trigger, down: bool) {

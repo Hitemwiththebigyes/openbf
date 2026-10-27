@@ -53,6 +53,10 @@ pub struct Settings {
     pub mouse_sensitivity: f32,
     #[serde(default)]
     pub invert_y: bool,
+    #[serde(default)]
+    pub keyboard_bindings: crate::kbm::Bindings,
+    #[serde(default)]
+    pub controller_bindings: input::Mapping,
     /// Alive-AI cap override (None = the mission's authentic cap).
     pub ai_alive_cap: Option<u32>,
     pub last_map: Option<String>,
@@ -72,6 +76,8 @@ impl Default for Settings {
             music_volume: 1.0,
             mouse_sensitivity: 1.0,
             invert_y: false,
+            keyboard_bindings: crate::kbm::Bindings::default(),
+            controller_bindings: input::Mapping::default(),
             ai_alive_cap: None,
             last_map: None,
             last_mode: None,
@@ -184,6 +190,22 @@ mod tests {
         let s: Settings = ron::from_str("(assist_intensity: 0.5, fov_scale: 1.1)").unwrap();
         assert_eq!((s.mouse_sensitivity, s.invert_y), (1.0, false));
         assert_eq!(s.assist_intensity, 0.5);
+        assert_eq!(s.keyboard_bindings, crate::kbm::Bindings::default());
+        assert_eq!(s.controller_bindings, input::Mapping::default());
+    }
+
+    #[test]
+    fn remapped_controls_survive_serialization() {
+        let mut settings = Settings::default();
+        settings
+            .keyboard_bindings
+            .remap(0, crate::kbm::Trigger::Key(winit::keyboard::KeyCode::KeyP));
+        settings.controller_bindings.remap(0, gilrs::Button::West);
+        let encoded = ron::to_string(&settings).unwrap();
+        let decoded: Settings = ron::from_str(&encoded).unwrap();
+        assert_eq!(decoded, settings);
+        assert_ne!(decoded.keyboard_bindings, crate::kbm::Bindings::default());
+        assert_ne!(decoded.controller_bindings, input::Mapping::default());
     }
 
     #[test]
