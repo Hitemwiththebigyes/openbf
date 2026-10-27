@@ -197,4 +197,3 @@ Acceptance, as run:
 | bf2 | rep_weap_inf_shotgun | 0 | rep_weap_inf_rifle | yes | yes | 2 |
 | bf2 | rep_weap_inf_sniper_rifle | 0 | rep_weap_inf_sniperrifle | yes | yes | 3 |
 | bf2 | rep_weap_inf_thermaldetonator | 1 | com_weap_inf_grenadethermal | yes | yes | 9 |
-

@@ -28,4 +28,3 @@ LandedHeight, because a `PropCollisionObject` (one of the `geo_prop_flatrocks` t
 -63.005, 273.348)..(66.151, -62.390, 280.100)) lies under the pad and the pad's ray (terrain + the building layer) hits
 it. When the rocks join the collision world, the pad spawn's ground probe must see them; the referee is
 `lead_tmp/vrest/join.py` (the Flyer row: `laat3` goes from +0.249 to 0).
-

@@ -95,4 +95,3 @@ edits, thresholds, baselines, goldens or exemptions.
    rounds finish, classify other moves NOISE/EXPOSED/CAUSED as usual.
 6. This source slice earns no VTAT whole-card/default/held-path acceptance.
    Keep both cards incomplete until every applicable original check passes.
-

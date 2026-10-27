@@ -59,4 +59,3 @@ Card OBST replaces that steering; these rules are to be measured again on top of
   between `kam_bldg_pod2`'s wall and a Steep stop, 20 reversals in 10 s, 28 m walked for 1.8 m net
   (`lead_tmp/fght/scene_c7/t652400.json` unit 30; the same spot in `scene_c6/t623600.json` unit 27). Runner:
   `lead_tmp/fght/tools/scene_seeds.sh <binary> <out dir>`.
-

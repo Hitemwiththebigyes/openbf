@@ -95,4 +95,3 @@ Do not claim complete second-source parity from this bounded repair.
    Run32maps x8seeds Normal/Hard, all rounds finish, boarding/fidelity moves
    classified normally; unchanged CI/sim/sweep/arena/leak/bake/GPU/parity/
    behavior gates. Original GUNWT/GBOARD/WGCAL/UTALK Acceptance remains owed.
-

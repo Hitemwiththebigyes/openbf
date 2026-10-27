@@ -112,4 +112,3 @@ unit circle of (6.5, 4.5) - and its backward take-off -6.596. BF1's own jump rul
 - Seen in `FUN_002471b0` while reading the roll (B2 162242-162262), not measured: the roll's speed-up to
   RollSpeedFactor x MaxSpeed adds to the FORWARD component only when it is positive, and to the side component
   always - a back-diagonal roll (allowed up to 120 degrees) would be boosted sideways only. The port scales both.
-

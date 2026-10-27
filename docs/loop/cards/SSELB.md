@@ -68,4 +68,3 @@ full screens over a 3-D backdrop - the side select, the spawn map, the class sel
   the shell movie, sets the two team names and enters the mission; the mission's side select is this card's. The BF2
   loading screen between them is LDBF2.
 - 2026-10-20 (the maintainer): every menu and screen takes the left stick AND the D-pad, the same way. The shared input is in: `input::stick_arms`, ORed into `windowed.rs` `menu_edges` (the shell, the pause menu, the screens built on `MenuInput`) and into the sim's SPAWN_POST_* bits. New screens read `menu_edges`, never a button directly; a test per screen that stick and D-pad give the same move.
-

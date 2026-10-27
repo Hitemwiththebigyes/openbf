@@ -109,4 +109,3 @@ Do not broaden this into the event0x27/no-line path or flyer work.
    BF1 controls. Run current full CI and unchanged applicable sim/sweep/
    arena/leak/behavior/bake/GPU/parity gates; classify refusals normally.
    Fixture passes do not earn those missing checks or parent acceptance.
-

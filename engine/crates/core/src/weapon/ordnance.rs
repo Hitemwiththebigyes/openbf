@@ -257,15 +257,12 @@ pub struct ExplosionClass {
     /// (ctor 0 — no area damage).
     pub damage_inner: f32,
     pub damage_outer: f32,
-    /// `Push`, `PushRadiusInner`, `PushRadius` = `PushRadiusOuter` (ctor 0),
-    /// applied by `Sim::explode` (card KNOCK, `analysis/re-knockback.md`).
+    /// `Push` and `PushRadius` = `PushRadiusOuter` (ctor 0), applied by
+    /// `Sim::explode` (card KNOCK, `analysis/re-knockback.md`). The disc's
+    /// `PushRadiusInner` is not read: the push fades over the whole radius
+    /// (`sim::blast::knock_falloff`).
     pub push: f32,
-    pub push_inner: f32,
     pub push_outer: f32,
-    /// BF2's `PushDeadOnly` (hash 0x26d8bec1, class +0xa0 bit 0, constructor
-    /// default on; re-knockback §4 / §7) as authored; `None` = the game's
-    /// default: on in BF2, and BF1 has no such key (it pushes the living).
-    pub push_dead_only: Option<bool>,
     /// Its `Effect` / `WaterEffect` (card FXP3, [`crate::impact`]).
     /// Render-only: the sim never reads it; filled by the game's class
     /// loader.
@@ -281,9 +278,7 @@ impl Default for ExplosionClass {
             damage_inner: 0.0,
             damage_outer: 0.0,
             push: 0.0,
-            push_inner: 0.0,
             push_outer: 0.0,
-            push_dead_only: None,
             look: crate::impact::ExplosionLook::default(),
         }
     }
@@ -308,14 +303,8 @@ impl ExplosionClass {
         if let Some(v) = pf(src, "Push") {
             e.push = v;
         }
-        if let Some(v) = pf(src, "PushRadiusInner") {
-            e.push_inner = v;
-        }
         if let Some(v) = any(["PushRadiusOuter", "PushRadius"]) {
             e.push_outer = v;
-        }
-        if let Some(v) = pf(src, "PushDeadOnly") {
-            e.push_dead_only = Some(v != 0.0);
         }
         e
     }

@@ -66,4 +66,3 @@ maps (nav_walls' pinned table: uta1 8 -> 7, the rest unchanged); 64 -> 61 stays 
 - Gates GPU-free (`lead_tmp/utax/gates2/SUMMARY.md`): sim, simhash, arena, leak, ordnance, protect, map PASS; fidelity PASS
   (better: recycled all maps 46 -> 33); sweep MOVED on bf2_uta1 only (declared); ci 1833/0/53 (+1 test). `--auto`
   (`gates/`) refuses: gpu ADAPTER LOST.
-

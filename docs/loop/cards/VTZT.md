@@ -25,4 +25,3 @@ Doc numbers: `analysis/re-turret-draw.md:327` and the commit say the yaw-only ey
 ## Acceptance
 Each of M1-M4 (the exact edits above) fails at least one test; the 6 named mutations stay killed; behaviour-neutral (every gate PASS); the three doc lines corrected.
 ## GitHub checkpoint recovery (2026-10-24)
-

@@ -44,4 +44,3 @@ unowned rider losses in 8 BF2 END1 rounds were there. VDROP gives a class of bas
 The backlog cap: Endor is not one of the six showcase maps, the card is value 3 and blocks no alpha card. What is on
 main (VDROP's "a class of base `trap` gets no collision body", PROVISIONAL) keeps the bikes passing as on the PS2;
 what is missing is the logs' real place and the trap itself. Reverse: `loopctl.py set TRAP defer=`.
-

@@ -116,4 +116,3 @@ behavior. Update module headers and CRATES rows for changed/new files.
    scenes; classify refusals normally. GUNWT's TAT1/NAB1 call-rate acceptance
    and order/answer/allocation scope remain owed separately. Inline fixtures
    do not earn these real-content checks or acceptance of the parent card.
-

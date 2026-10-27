@@ -31,4 +31,3 @@ Tooling only (no game code); value 3.
 Fixture-first development is possible, but both full corpora, original name sources and the five real-property reader controls must be restored before acceptance. Keep annotation/name-query work separate from RECHK search normalization; no existing receipt is rewritten.
 
 ## GitHub checkpoint recovery (2026-10-24)
-

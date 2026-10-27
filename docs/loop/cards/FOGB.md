@@ -67,4 +67,3 @@ The near-model question stays open: `re-fog` §0.3/§2.2's reading and §9.3's p
 contested, and `viewer/look.rs`'s BF1 near-scene-fog comment (600–602) does not settle them. Do not disable BF1
 near fog globally from the bamboo/soldier observation alone. Keep opacity, scene/matrix and VU explanations
 open until the original control and a plainly opaque near-prop pair distinguish them. FOGN keeps BF2's scope.
-

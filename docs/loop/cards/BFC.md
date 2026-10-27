@@ -65,4 +65,3 @@ pair). `lead_tmp/kamr/sbs/bf1_kam1/cp0_cp2_beta1_spawn.png`.
 `ref/bf1_kam1/cp0_cp2_beta1_spawn` is the best PS2 referee pose for BF1's post light (a friendly post 18 m ahead, the
 deck washed green; knock-out frames in `lead_tmp/b1dk/ps2/frames/k1__*.png`) and the port cannot use it: about 85 % of
 its frame there is the inside of a `kam_prop_pillar` the PS2 culls. Fixing this card gives card B1LL its referee.
-

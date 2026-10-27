@@ -26,4 +26,3 @@ On the PS2, BF2's AI driver waits for the human player when the player is near o
 - Scene (BF2 rules, a 2-seat hover): a bot takes the pilot seat with the player on foot 8 m off: the hover stands 15 s (+-1 think) and leaves at once when the player gets in; the player 30 m off facing away: it leaves after the 4 s window; facing it from 100 m: it holds to 15 s. Mutation-checked.
 - The sweep's boarding / stall counts on BF2 maps sorted NOISE / EXPOSED / CAUSED; a headless round's player is parked (the census must not change where the player stands far from vehicles).
 - BF1 untouched (a BF1 driver does not wait for the player: re-driver-wait.md A5).
-

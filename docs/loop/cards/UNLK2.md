@@ -10,7 +10,7 @@ files: engine/crates/game/src/profile.rs,engine/crates/game/src/walk.rs,engine/c
 declares: ci=+4
 needs:
 effort:
-branch: codex/career-battle-stats
+branch:
 resume: 2026-10-27 class-counter implementation and hit/capture follow-up complete; serial workspace CI passed. Local main integration and packed executable rebuild authorized by the user. Historical cloud checkpoint files are absent; native size/map limitations are recorded below.
 created: 2026-10-21
 public_issue: https://github.com/sprucey149/openbf/issues/19

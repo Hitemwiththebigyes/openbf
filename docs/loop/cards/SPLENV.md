@@ -65,4 +65,3 @@ SPL10's scratch bake DIFF=0 and wall-slice proof debt remain mandatory.
    parity and behavior gate stays unchanged. No schema or byte-format change
    is intended. A moved output is investigated, never rebaselined. Keep this
    card and its parent incomplete until those original gates pass.
-

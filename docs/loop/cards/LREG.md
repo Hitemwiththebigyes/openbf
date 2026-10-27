@@ -63,4 +63,3 @@ on a dim scene). The state `ref/states/bf1_geo1_walk_cp0_cp6_b000.p2s` is kept f
 - FUN_00597e98 gives a model inside such a region the light, weighted by FUN_005adc48. The set holds at most 2
   directionals in all, Light1 / Light2 first.
 - The weight function and which models sit in the regions are this card's to read.
-

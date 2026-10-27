@@ -22,4 +22,3 @@ Cleanse 19 (2026-10-20, card CLN14): `scripts/size_report.sh --strict` exits 1 o
 ## Acceptance
 - `scripts/size_report.sh`: soldier_vis.rs not in the over-1,500 list, and its waiver line deleted; `--check-map` exit 0 with the new files in engine/CRATES.md; `--strict` exit 0.
 - Every gate PASS, nothing declared; goldens unchanged and the test count (gates.toml [ci] passed) unchanged.
-

@@ -51,4 +51,3 @@ historical guarded hunks independently instead of silently blessing them.
   fixture must fail; restored tightened code and all existing guard/tool tests
   pass. No blanket authorization, weaker threshold, baseline/golden rewrite or
   automatic historical approval is part of this repair.
-

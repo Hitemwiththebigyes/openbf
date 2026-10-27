@@ -64,4 +64,3 @@ whole body (select, lines 81-86: shoot and reload only when the soldier stands s
 - BF2 clip names carry `_upper` / `_lower` / `_full`; look clips up with `animator::find_clip`, never `c.name ==`.
 - Before landing a change the bake or the clip lookup: overlay the scratch bake in the worktree and run
   `goldens.sh --check` (the branch gpu gate renders the old shared bake).
-

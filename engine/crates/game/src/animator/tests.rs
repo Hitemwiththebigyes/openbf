@@ -180,6 +180,7 @@ fn input(speed: f32) -> AnimInput {
         max_speed: 7.0,
         root_scale: 1.0,
         dead: false,
+        getup_lock: false,
         set: 0,
         fired: false,
         throw: None,
@@ -1361,4 +1362,73 @@ fn seat_exit_interrupted_turn_bf1() {
 #[test]
 fn seat_exit_interrupted_turn_bf2() {
     seat_exit_turn_scene(rig_bf2());
+}
+
+/// A knocked-down soldier moving at `speed` m/s, `t` degrees from his facing.
+fn knocked(stance: Stance, t: f32, speed: f32) -> AnimInput {
+    AnimInput {
+        stance,
+        vel: speed * glam::Vec2::new(t.to_radians().sin(), t.to_radians().cos()),
+        ..input(0.0)
+    }
+}
+
+/// A tumble's root turns to its travel on its first update (the front clip
+/// toward it, the back clip away from it), so a soldier thrown sideways
+/// rolls along his travel and not across it; the get-up holds the turn.
+#[test]
+fn a_tumble_rolls_along_its_travel() {
+    for rig in [rig_bf1(), rig_bf2()] {
+        for (travel, back, twist) in [
+            (89.0, false, 89.0),
+            (-89.0, false, -89.0),
+            (0.0, false, 0.0),
+            (180.0, true, 0.0),
+            (120.0, true, -60.0),
+            (-135.0, true, 45.0),
+        ] {
+            let mut r = Run::new(rig.clone());
+            r.steps(&input(0.0), 5);
+            r.steps(&knocked(Stance::Tumble, travel, 6.0), 1);
+            assert_eq!(r.a.body(), Some(Body::Special(Special::Tumble(back))));
+            let tw = r.a.twist().to_degrees();
+            assert!((tw - twist).abs() < 1e-3, "{travel}: {tw} not {twist}");
+            r.steps(&knocked(Stance::GetUp, 0.0, 0.0), 10);
+            assert!(matches!(r.a.body(), Some(Body::Special(Special::Land(_)))));
+            assert!((r.a.twist().to_degrees() - twist).abs() < 1e-3, "held");
+        }
+    }
+}
+
+/// The lock after a get-up plays `stand_getupfront / back` (the get-up's
+/// side) instead of the standing idle; a lock with no get-up before it (the
+/// prone's) does not, and the clip ends with the lock.
+#[test]
+fn the_getup_lock_plays_the_stand_up_clip() {
+    let locked = AnimInput {
+        getup_lock: true,
+        ..input(0.0)
+    };
+    for rig in [rig_bf1(), rig_bf2()] {
+        for back in [false, true] {
+            let mut r = Run::new(rig.clone());
+            r.steps(&input(0.0), 3);
+            r.steps(
+                &knocked(Stance::GetUp, if back { 180.0 } else { 0.0 }, 1.0),
+                3,
+            );
+            assert_eq!(r.a.body(), Some(Body::Special(Special::Land(back))));
+            r.steps(&locked, 20);
+            assert_eq!(r.a.body(), Some(Body::Special(Special::StandUp(back))));
+            assert_eq!(
+                Special::StandUp(back).name(),
+                ["stand_getupfront", "stand_getupback"][usize::from(back)]
+            );
+            r.steps(&input(0.0), 1);
+            assert!(matches!(r.a.body(), Some(Body::Feet(0, _))));
+        }
+        let mut r = Run::new(rig);
+        r.steps(&locked, 3);
+        assert!(matches!(r.a.body(), Some(Body::Feet(0, _))));
+    }
 }

@@ -86,4 +86,3 @@ retains findings 1, 4, 5, merged SPWS and its entire original Acceptance.
    squad answers with slow off/on and commander exemption through a real battle
    and sound log. Preserve GSND/SPWS's separate primary-evidence and all-gate
    requirements. Fixtures alone do not earn real-content acceptance.
-

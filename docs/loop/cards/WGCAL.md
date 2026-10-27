@@ -89,4 +89,3 @@ Keep every original GUNWT and GBOARD Acceptance bar and restoration hold.
    Run unchanged CI and applicable sim/sweep/arena/leak/bake/GPU/parity/behavior
    gates. The complete original GUNWT rates/reissue/console policy remain owed;
    fixture success alone does not earn acceptance.
-

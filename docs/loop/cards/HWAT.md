@@ -37,4 +37,3 @@ FUN_004768f0 (a water grid present DAT_005648dc, the cell clamp, the wet test FU
 on every spring every tick and raises E+0x2170+32i by max, with the same v.y *= 0.5 / v.xz, omega *= 0.9 overshoot rule;
 BF2 gates it on K+0xe76 (FloatsOnWater). Read by me and by both HSTEP-audit verifiers (`lead_tmp/audit-hstep/wf/V1`,
 `V2`). Build the BF1 rule ungated (by the class's game), not BF2's flag for both.
-

@@ -31,4 +31,3 @@ The 32-case CP matrix covers both teams, all tiers and human/handicap settings.
 See [re-bleed-reachability.md](../../../../analysis/re-bleed-reachability.md).
 Runtime code is unchanged; comments now describe both responsibilities. The
 keep-with-test acceptance is complete; the deletion/cleanup alternative was not taken.
-

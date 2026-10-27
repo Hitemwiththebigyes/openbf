@@ -48,4 +48,3 @@ menu emit UI sound events; 2-D playback through the CORE / map sound library.
   the shell-screen template's defaults are accept `shell_menu_accept`, back `shell_menu_cancel`, exit `shell_menu_exit`,
   error `shell_menu_error`, enter none; every focus move in a button stack plays `shell_select_change` (also when the
   walk wraps back to the same button). One sound table for the shell and the pause menu.
-

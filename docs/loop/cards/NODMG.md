@@ -112,4 +112,3 @@ start killing - expect kills / deaths to move on bf2_geo1, bf2_kas2, bf2_end1, b
 
 ## Planner note
 `files:` left empty for the measure phase (no code is written), so the parked ARVSA branch's combat.rs tests do not hold it back. At `phase=build` fill `files:` - likely engine/crates/core/src/sim/combat.rs, sim/blast.rs, sim/vehicles.rs; ARVSA (parked, waits on the RTX) adds tests to combat.rs and blast.rs: rebase on it once it lands.
-

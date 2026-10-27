@@ -57,4 +57,3 @@ ANIML says "no action clip in ... sprint". Related: BLKS (the black box's sprint
   component, a scale division, the droid fallback. Add a pistol-sprint fixture (`audit-sprcl/ps2/run1/bf2_r2.pkl`, upper
   phase) and a diagonal one, and a droid rig case for the fallback. The PS2 divides by whole cm/s (9.16, not the bake's
   9.1627): optional, 0.00002 of phase per update.
-

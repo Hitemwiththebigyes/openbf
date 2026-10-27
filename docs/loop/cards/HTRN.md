@@ -31,4 +31,3 @@ Card BSPN's sweep (the PS2's spawn draw) took BF1 Hoth's recycles from 6 to 37 o
 - After the fix: BF1 Hoth recycles over 32 seeds (`sweep_seeds.py --seeds 1-32 --maps bf1_hot1`) at or under 5, from 56; the 8-seed sweep's other maps unchanged or declared.
 
 - 2026-10-09 12:45 planner. `defer: post-alpha`: BF1 Hoth is not a showcase map (BF2 Hoth is), value 3, and the rise that filed it was gone after the rebase over FGHTA (the BSPN report). Undo: `loopctl.py set HTRN defer=`.
-

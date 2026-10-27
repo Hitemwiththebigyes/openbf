@@ -75,4 +75,3 @@ point-light/hologram behavior, constants, schemas or rendering gates.
    CI/map/protect/GPU/golden/parity/sim/sweep/arena/leak/behavior gates before
    earned landing. View and declare actual golden moves through normal gates.
    Preserve GCL16's original Acceptance and all earlier validation obligations.
-

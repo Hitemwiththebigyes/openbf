@@ -429,6 +429,15 @@ pub const ENERGY_RECOVER_THRESHOLD: f32 = 25.0;
 
 // ── A blast's push and what follows (card KNOCK, `analysis/re-knockback.md`) ──
 
+/// One knock-down on every map (the maintainer, 2026-10-27, FEATURE_SET "One gameplay"):
+/// the push, the throw, the tumble, the get-up and its lock all follow BF1's
+/// rules, the game that throws the living (BF2 pushes only the dead by
+/// default, re-knockback §4). A named deviation on BF2 maps.
+pub const KNOCK_RULES: GroundRules = GroundRules::Bf1;
+/// Ours, PROVISIONAL (FEEL_NOTES): the disc's Push x this. Both games' Push
+/// with the falloff of `Sim::kick_and_push` threw the player too far.
+pub const KNOCK_PUSH_SCALE: f32 = 0.75;
+
 /// The push's lift: `normalize(d) + (0, this, 0)`, not renormalised (B1
 /// FUN_002009a0, ELF 0x3f19999a; §1).
 pub const KNOCK_LIFT: f32 = 0.6;
@@ -850,9 +859,9 @@ impl Soldier {
             // no gravity while the floor bit is still set: the update after
             // the push moves him straight off it (§2 [M]).
             let grounded = self.grounded;
-            self.air_steer(dt, fwd_in, strafe_in, (t1, t2), c, rules, grounded);
+            self.air_steer(dt, fwd_in, strafe_in, (t1, t2), c, KNOCK_RULES, grounded);
             if !grounded {
-                self.vel.y -= rules.thrown_gravity() * dt;
+                self.vel.y -= KNOCK_RULES.thrown_gravity() * dt;
             }
             self.pos += self.vel * dt;
             if grounded && self.time_in_stance > THROWN_LAND_AFTER {
@@ -870,7 +879,7 @@ impl Soldier {
             return;
         }
         if matches!(self.stance, Stance::Tumble | Stance::GetUp | Stance::Dead) {
-            self.knock_slide(dt, (t1, t2), n, c, rules);
+            self.knock_slide(dt, (t1, t2), n, c, KNOCK_RULES);
             self.prev_buttons = pad.buttons;
             return;
         }

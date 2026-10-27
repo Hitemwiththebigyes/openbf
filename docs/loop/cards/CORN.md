@@ -113,4 +113,3 @@ values, 1 better), arena_flat PASS; arena maps + leak NOT run (STOP at 08:33, st
   firefight (`hold` 2 / `fight` within a second) - count them out before reading a door's stall number.
 - `core/src/nav.rs` is also OBSV2's / TGAP's / FLNK's neighbourhood (`route.rs` calls the search): check what is in
   flight before building.
-

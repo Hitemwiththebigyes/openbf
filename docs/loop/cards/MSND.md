@@ -58,4 +58,3 @@ Each field consumed with a test; the sweep / arena moves declared (a re-baseline
 - Per-team cap on the asymmetric BF1 maps was already right (`initial_ai`: kas1 31 + 25, nab2 21 + 25); pinned by a test.
 - Acceptance run: `round_rules_reach_the_sim` + `listener_is_player_zero_or_the_attacking_team` pass; 3 mutations
   (no checked_sub, delay fixed at 10, split ignored) each fail them.
-

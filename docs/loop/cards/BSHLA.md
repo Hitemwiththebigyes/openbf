@@ -62,4 +62,3 @@ screen is BSHLB; the BF2 loading screen LDBF2.
 - ERAM's two notes (BSHL card) go to BSHLB (the IA screen).
 - The attract movie (30 s idle on the title, segments 32-33) is optional here; build it if the decoder makes it free.
 - 2026-10-20 (the maintainer): every menu and screen takes the left stick AND the D-pad, the same way. The shared input is in: `input::stick_arms`, ORed into `windowed.rs` `menu_edges` (the shell, the pause menu, the screens built on `MenuInput`) and into the sim's SPAWN_POST_* bits. New screens read `menu_edges`, never a button directly; a test per screen that stick and D-pad give the same move.
-

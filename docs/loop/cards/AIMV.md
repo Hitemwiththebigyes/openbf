@@ -57,4 +57,3 @@ Read a supplied snapshot first; identify BUILD commit and schema before judging 
 Phase measure until the symptom/census and measured allowance exist. Re-phase build
 with exact files/declares once ownership is proven. This is one root-cause task, not
 authorization to change goldens or tolerances. Current cloud prerequisites block it.
-

@@ -31,4 +31,3 @@ And the acceptance's mutation as landed ("the higher tier plays the lower: 0.500
 ## Acceptance
 - Re-run the audit's list (`lead_tmp/audit-arvs/tools/chain_mut.sh` with `mk_mut.py` pointed at the branch): every one of the 18 non-equivalent survivors (R1 R3 R5 R6 R7 R8 R9 R10 R13 R14 R16 R22 R24 A1 A2 A5 A7 A8) fails at least one ci test; R0 still passes; paste the table.
 - The null unchanged: `arena 3000 42 flat all` / `arena 9000 42 tat2 all` byte-identical to the gate baseline; `vs all` 24-seed tables byte-identical to `lead_tmp/audit-arvs/runs/t24/land_*.txt` (tests only, no behaviour move).
-

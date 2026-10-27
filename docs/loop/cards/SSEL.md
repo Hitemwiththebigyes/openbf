@@ -29,4 +29,3 @@ first: 5
 
 ## Notes
 - planner 2026-10-19 16:25: the death camera belongs here too (what the PS2 shows between a death and the spawn screen: does it follow the body, turn to the killer, how long) - measure it in the same PCSX2 captures; card CFOVM is its FOV. The maintainer (INBOX 10-19 (a)): the in-game unit select (the rotating trooper line-up, framed by the map's camera shots) is probably the same on PS2 and PC, so its layout may follow the PC game's, checked against a PCSX2 capture; the shell is not (BSHL).
-

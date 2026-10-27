@@ -39,4 +39,3 @@ fields, the defaults) and which maps enable and seed it (not YAV2 / RHN1 / RHN2 
 - Build: the port's frame at the four cp2up poses shows the shafts in the PS2's diff bands (band luminance lift within 2
   levels of the PS2's); the port seeds 1,080 rays on BF1 END1 and 4 on BF1 GEO1 (the RAM counts) and none where the map's
   FX does not enable them; goldens that move are declared.
-

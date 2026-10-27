@@ -41,4 +41,3 @@ Planner 2026-10-21 20:50 (the maintainer via INBOX 17:50 item 3): `first: 6` - t
 - Built: `core::droideka` (branch deku b04f2b0), report `reports/20261021_2215_card_DEKU.md`. `sim.rs` not touched: nothing spawns the unit yet.
 - Bar (5) as written (1.27 +- 0.05) is the continuous v0^2 / 2g. The PS2's own order (position, then gravity, twice a tick; B2:109626-109653) gives a discrete apex of 1.354 m at 30 Hz, and the test holds that value. Bar (3)'s drop takes 16 ticks = 0.533 s, inside 0.505 +- one tick.
 - For DEKF / DEKD: `StepReport::weapons_off / weapons_on` must set each weapon's `active` (the PS2 stops a salvo already in progress: B1 FUN_001d0a68 slot +0x58). BF2's walk-form ordnance bodies (13 `p_-o-` bone prims) are not in `prims()`. The BF2 ball boost (sprint) is not built.
-

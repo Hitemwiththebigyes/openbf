@@ -90,4 +90,3 @@ flyers/turrets, velocity interpretation and full UTALK rates stay GUNWT.
    Run32maps x8seeds Normal/Hard, all rounds finish, boarding/stall moves
    classified normally; unchanged CI/sim/sweep/arena/leak/bake/GPU/parity/
    behavior gates and full GUNWT/GBOARD/WGCAL/WGOUT/UTALK acceptance remain.
-

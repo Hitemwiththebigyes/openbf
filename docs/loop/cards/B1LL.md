@@ -80,4 +80,3 @@ Re-take that table in this card's acceptance (`reports/20261005_1535_card_B1DK.m
   13.103 -> 12.853, geo1 -2.60, kas1 -1.72, rhn2 -1.70, tat1 -2.08, hot1 +0.09 (worst), BF2 0.000.
   cp1_cp10_post2_v1 14.51 -> 9.52; walk/cp3_cp12 x4 mean 18.40 -> 18.94 (+0.54, bar 0.5: main's floor there is
   already ~10 levels over the PS2 at three bearings, the enemy light adds R+6 G+3 B+3; a droideka covers the PS2 frame).
-

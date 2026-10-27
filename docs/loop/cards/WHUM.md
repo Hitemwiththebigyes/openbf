@@ -88,4 +88,3 @@ player is the loudest thing missing from a firefight after the explosions.
   frame, `audio::Audio`). Whichever of WHUM / VSND lands first builds it; the other reuses it.
 
 - Note from VSND's build (2026-10-03, landed 79eac42): the loop handle is built - `audio::Voice` (`Audio::play_voice(&SoundData, db, rate, pan)`, `Voice::set(db, rate, pan, secs)`, stops when dropped). `SoundLib::loop_voices` (game/src/sounds.rs) is the engine layers' user: reuse its shape, or give it a second key space.
-

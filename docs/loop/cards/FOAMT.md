@@ -4,7 +4,7 @@ title: The foam layer's `FoamTile(5,5)`: `mungefs::fx` parses it, the manifest d
 milestone: M1
 value: 2
 phase: re
-status: todo
+status: blocked
 deps:
 files: analysis/re-foam-tiling.md (new)
 declares:
@@ -15,7 +15,7 @@ resume: (private workflow note omitted)
 created: 2026-09-25
 defer: post-alpha
 public_issue: https://github.com/sprucey149/openbf/issues/18
-tries: 1
+tries: 2
 ---
 
 ## Why

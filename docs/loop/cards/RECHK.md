@@ -48,4 +48,3 @@ AUDIT of re-ordnance-kinds.md (2026-10-22): `re_check.py absent b1 0x6d4a8840 0x
 Fixture-first scanner controls are possible; real BF1/BF2 corpus/ELF and REP/IMP LVL reproductions and four old receipts remain required. Keep all merged RCSRC acceptance checks. Neither a synthetic raw word nor a fixture text replaces the actual GeometryLowRes/GeometryName and Waver cases.
 
 ## GitHub checkpoint recovery (2026-10-24)
-

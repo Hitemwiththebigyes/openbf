@@ -95,4 +95,3 @@ GUNWT's remaining reissues/rates and all existing acceptance holds stay intact.
    raw rows. Run all32maps x8seeds Normal/Hard with unchanged gates; no-command
    controls must remain identical. Class/console/other-command coverage and
    full parent SQVEH acceptance remain required before that parent is done.
-

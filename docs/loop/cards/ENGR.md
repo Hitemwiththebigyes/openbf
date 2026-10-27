@@ -63,4 +63,3 @@ Not in BOTV's deps (value 3, not an alpha card): PERF does not wait for it.
 - BF2 GEO1 has one `com_item_healthrecharge_unbuilt` (a buildable health droid, hologram `com_holo_health`): the same
   build rule would apply; not on a showcase map.
 - 2026-10-05 planner - **The maintainer has read the bot design: "BOTD read, go" (INBOX 2026-10-03 14:08). All eight decisions take the note's defaults; the 16 deviations D1-D16 are all on. This card is released (BOTD is done).**
-

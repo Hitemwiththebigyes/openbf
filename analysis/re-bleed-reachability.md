@@ -92,4 +92,3 @@ Independent source review supported the clamp bound, legal drain path and need
 for both the counter repair and Sim despawn consumer. These are current-runtime
 findings; this session does not revalidate original-game parity or the content
 of generated missions. The empty-CP early return remains outside the witness.
-

@@ -60,4 +60,3 @@ surface-normal placement, long-held charges, margins or hull/rider changes.
   normal cleanup gates pass, with executed test counts and exact restoration
   proof. Runtime production prefix is byte-identical; existing default sim
   and trace pins stay unchanged. Missing full gates leave the card incomplete.
-

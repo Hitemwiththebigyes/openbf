@@ -20,4 +20,3 @@ AIMF (73632e1) rewrote the soldier acquisition; the gates showed sim/simhash/swe
 
 ## Do / Acceptance
 A recorded or scripted headless aim replay (dummy rig: enemy just off the ray, friend on the crosshair, enemy past LockOnRange + r) whose motion.csv magnet column changes; hash it in sim_gates.sh (gpu_tests/sim_gates edits may be classifier-denied -> For the maintainer). Declares: sim (new baseline).
-

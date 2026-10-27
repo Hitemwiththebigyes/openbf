@@ -77,4 +77,3 @@ Rebased on main 1763d73 (MIXH + AMBS): conflicts in game/src/sounds.rs (struct f
 UTA1 s3/s4 (`lead_tmp/ucry/census/rebased/summary*.txt`): hurt cries per qualifying hit 1457 / 1723 = 0.846, death 542 / 542;
 frames over full scale before the limiter with / without cries 4877/3662 (1.33x), 4258/2850 (1.49x), 324/193 (1.68x),
 185/102 (1.81x); through the limiter peak 1.00 and 0 frames over in all 8 renders; under -3 dB at most 0.34 % (NAB1 s1, 0.28 % without cries).
-

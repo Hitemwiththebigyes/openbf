@@ -77,4 +77,3 @@ No schema, core sim, geometry, constants, shaders, bake or gate changes.
    protect/GPU/golden/parity/sim/sweep/arena/leak/bake/behavior gates through
    the normal isolated-worktree workflow. Preserve complete BOLTSURF and
    GCL16 Acceptance; fixture success never completes those cards.
-

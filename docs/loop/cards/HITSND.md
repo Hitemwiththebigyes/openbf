@@ -95,4 +95,3 @@ VOICEP's implemented findings 2+3 still require their full validation.
    Require firing-ordnance contact names/positions, one contact per actual
    bolt impact and no false current-weapon contacts per splash victim; retain
    explosion/contact controls. Fixtures do not earn real-content acceptance.
-

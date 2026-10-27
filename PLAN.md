@@ -36,6 +36,7 @@ One line per decision; the full text, with every number, is VERBATIM in `analysi
 **Movement & feel** (FEATURE_SET.md L5+)
 - (the maintainer, 2026-09-03) Aim assist is NEVER off by default, at any difficulty. [L6]
 - (the maintainer, 2026-09-03) Universalised unit behaviour. [L9]
+- (the maintainer, 2026-10-27) One gameplay, both games: damage, health, stamina, jump, roll, grenades, blast push identical everywhere.
 - Stances: one contextual button — moving = roll (both games had roll; [L24]
 - Sprint: BF2 system, limited stamina. Infinite stamina exists only as a cheat. [L33]
 - Jet/jump-pack: BF2 feel; infinite fuel via cheat. [L34]
@@ -83,7 +84,7 @@ One line per decision; the full text, with every number, is VERBATIM in `analysi
 - (the maintainer, 2026-09-03) One UI for the whole blended game: BF2's shell, menus and HUD on every map of both games. [L164]
 - (the maintainer, 2026-09-03) One voice set, one command set, everywhere. [L171]
 - HUD: BF2. [L176]
-- End-of-round (scoreboard, medal ceremony): BF2. [L177]
+- End-of-round (the maintainer, 2026-10-27): BF1 scenic map shot + banner, then flip-through stats; "Victory/Defeat in N" when all CPs held; Triangle at a friendly CP = class change on all maps.
 - Announcer/VO: per source map. SFX where games differ: BF2. [L178]
 - Music: union, per-map source game. [L179]
 

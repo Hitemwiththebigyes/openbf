@@ -52,4 +52,3 @@ Leave BHUD3/OVHT/VSEAC responsibilities and every SPL15 gate intact.
    Original SPL15/SPLIT_RECIPE full CI, applicable GPU/golden/parity/behaviour
    checks pass with unchanged HUD/spawn/map captures. No declaration,
    approval, threshold or golden changes. A source trial cannot earn this bar.
-

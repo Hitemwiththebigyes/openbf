@@ -73,4 +73,3 @@ WeaponAmmo 0 primary remains endless; the held-slot cap stays unchanged. Mutatin
 the primary cap back to N clips must fail a refill check. Existing baked-class,
 HUD, per-part sweep and arena acceptance stays required. This is current source
 inspection, not new PS2 remeasurement; restore the worker's inputs first.
-

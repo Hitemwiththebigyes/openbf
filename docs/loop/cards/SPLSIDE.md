@@ -65,4 +65,3 @@ Dry formatted sizes: parent 1,244 lines, child 416.
    no missing/extra files), unchanged GPU/goldens and applicable sim, motion,
    sweep, arena, leak, parity and behavior gates. Investigate every move;
    never rebaseline. Neither this card nor SPL14 is done until these pass.
-

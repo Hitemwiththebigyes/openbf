@@ -25,4 +25,3 @@ Equivalent survivors (no shipped change, no test needed): skel lookup geometry-f
 engine/artifacts/lead_tmp/audit-rkhul/: logs/mut_*.log, tools/mut_chain.py (M0-M12 in one lock hold), tools/mut_bake.py + bake_M4_rotation_order_swapped/, wf/C4-new-mutations/ (N1-N6, bake_N6_*), logs/census_side.txt + census_maps.txt + maplocal_prims.txt (tools/bake_census.rs), wf/C5-maplocal/, wf/C1-python-census/.
 ## Acceptance
 A vehicle bake test with a prim whose stored rotation is not the identity on a rotated bone (one of the M4 list) and a chunk-geometry prim: `python3 engine/artifacts/lead_tmp/audit-rkhul/tools/mut_chain.py M4_rotation_order_swapped` and the N6 mutation (wf/C4-new-mutations) each FAIL a test; the tat1 bake's skiff p_fin1 / p_fin2 at x -1.77 / +1.77, z -4.10 (bind) if the map rule is changed; the two comments true.
-

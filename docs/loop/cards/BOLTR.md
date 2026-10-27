@@ -88,4 +88,3 @@ Do not broaden into event matching/duplicate-shot redesign or lifecycle policy.
    equal. View paired GPU frames of mounted immediate hits and control shots,
    then full CI/map/protect/GPU/golden/parity/sim/sweep/arena/leak/bake/behavior
    gates. Preserve complete BOLTM/BOLTSURF/GCL16 Acceptance and pending holds.
-

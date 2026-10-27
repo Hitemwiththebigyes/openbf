@@ -70,4 +70,3 @@ does not multiply, a light region (LREG), the SunInfo back light (BACKL), or the
 ## Notes
 - Created 2026-09-29 by PXWA (lane 2). The states `ref/states/bf1_bes2_walk_cp*_b000.p2s` are kept (a 1-unit battle,
   every pad parked, the player held — reload one and it stands at the post).
-

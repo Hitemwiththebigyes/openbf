@@ -70,4 +70,3 @@ instead of 6.5 s. And FUN_002faf90 (from FUN_00202880) refuses a point 300 m ahe
 
 Settle the [H] gate with a 2-minute live sample before building: a human flyer held above MaxPlayerFlyHeight, its
 record+0x184 read.
-

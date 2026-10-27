@@ -51,4 +51,3 @@ fdiff: matched 2 of 4 ticks first_divergence tick 3 group units field x
 Existing port-binary fixture pairs: 600/600 matched, including full vs compact.
 These are fixture checks; the real-map speed-mutation Acceptance is still owed.
 PSHASH remains todo, so its conditional real PS2 comparison is not yet applicable.
-

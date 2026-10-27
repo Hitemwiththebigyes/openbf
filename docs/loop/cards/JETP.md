@@ -59,4 +59,3 @@ infinite fuel via cheat".
   randint(3, 8) s and jet 80 m along its direction; hover-jet classes fly at a target 20 m or more away when the
   fuel lasts and no barrier crosses the line. On a route: the follower sets jump or jet from the connection's flags.
   The deathmatch agent jets straight up at random. BF1: an evade jump every 3-8 s and JetJumpHintHelper.
-

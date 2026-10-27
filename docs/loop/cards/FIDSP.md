@@ -35,4 +35,3 @@ Real current-main parity, PIN_FAILS=200 mutation, six block totals and measured 
 no baseline rows proposed, no gates.toml changes, no commit/landing. See `reports/20261024_0946_card_FIDSP.md`.
 
 ## GitHub checkpoint recovery (2026-10-24)
-

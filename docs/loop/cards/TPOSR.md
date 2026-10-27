@@ -99,4 +99,3 @@ Numbers on the landing's code: 32 maps x 8 seeds, a per-tick observer, a switch 
 - planner 2026-10-20 05:20: value 4 -> 5, and TCMP now `deps += TPOSR`. TPOS's audit (PARTLY) found the reservation lapse;
   TCMP gives Elite the cover the Tactician runs, so the fix goes in before TCMP builds on it (both edit behave.rs).
   Undo: `loopctl.py set TPOSR value=4`; `loopctl.py set TCMP deps=BOTD,TIER,TPOS,GRAI,ARVS`.
-

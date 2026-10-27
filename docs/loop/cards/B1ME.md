@@ -33,4 +33,3 @@ pairs) and its live roster (`lead_tmp/unit-audit/ramcensus_bf1.txt`: Republic, C
 
 ## Planner note (2026-09-30, M-ALPHA)
 `defer: post-alpha` — not needed for the alpha's six showcase maps or its checklist. Value 3 (kept).
-

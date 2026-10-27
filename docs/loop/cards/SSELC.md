@@ -64,4 +64,3 @@ live: `analysis/re-spawn-flow.md` §0 item 8 and §6.5 (second pass, 2026-10-20)
   spawn screens at the level start use the camera shots' 48 deg (§1.1); the FEL1 0.40237 state is the one-update ease.
 - Open [H] (re-spawn-flow §11): who writes `E+0x190`; what the `+0xb8` test excludes (likely a self-kill); why the one
   explosion kill kept no killer.
-

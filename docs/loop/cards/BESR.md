@@ -98,4 +98,3 @@ passed only because they all arrived at the hub's centre from one side.
   `lead_tmp/mouth/build/deaths/`), and over whole rounds 156 -> 39 in 24 seeds (`build/sw/j_00`, `j_MH`; 58 -> 11 in
   seeds 1-8 against this card's bar of 147). Recycles 28 -> 28. Re-measure this card's legs (`35->4`, `101->62`,
   `25->2`) on today's main before any work: `58->59` and `51->61` were MOUTH's defect.
-

@@ -60,4 +60,3 @@ not have: card FPV.
 - RE: the clip the PS2 picks for a throw per weapon / class (both games), the layer and the time the grenade leaves the
   hand; then built: a picture strip per game of a throw (third person, and first person), the PS2's beside it; a test
   that a throw sets the throw clip on the upper layer for its duration.
-

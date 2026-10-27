@@ -90,4 +90,3 @@ the field alive at once, and a dead player respawns by himself when the 4.0 s ti
   arena_tat2_1.txt`), so the move is exactly this rule: declared `arena`.
 - NOT run: the windowed shell battle with a pad (the game is pad-only; Xvfb's xkey cannot press Cross). The maintainer's first
   shell battle is the check: the side list, then the map, then the class, X each.
-

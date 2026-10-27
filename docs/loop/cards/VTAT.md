@@ -80,4 +80,3 @@ analysis/re-<topic>.md: the PS2 automatic turret's acquisition (range, cone, LOS
 
 ## Current-source reconciliation (2026-10-24 10:33 UTC)
 BRSTU already routes TriggerSingle seat fire through tap (ai/gunner.rs:125-135); the shot predicate still rejects MaxPressedTime > 0 at line 123. Remaining charge/class-default/held-path work follows the 10-21 audit note. The three original scene tests remain required, including tap as a regression control; no fresh PS2 claim or runtime result is inferred here.
-

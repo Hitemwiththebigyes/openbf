@@ -44,4 +44,3 @@ Both halves have their own acceptance above; land them as two commits on one bra
 
 ## Note (cleanse CLNF, 2026-10-06)
 Two more `game` files are over the 1,500 cap with no split card or waiver: `game/src/main/windowed.rs` (1,632; WTHR's splashes and the black box hooks) and `game/src/sounds.rs` (1,550). They join this card (same crate, same recipe) rather than a new one; `scene.rs` is 1,770 and `assets.rs` 1,616 today.
-

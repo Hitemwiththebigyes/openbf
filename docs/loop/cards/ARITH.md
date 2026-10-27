@@ -38,4 +38,3 @@ Research rec. 7 (Lewis; ida-pro-mcp ships `int_convert` for this reason): struct
 Keep it a single file under ~200 lines; no MCP wrapper (research suggests a typed tool, but a CLI the RE session already calls via Bash is the smallest thing). If GHMCP lands GO, an MCP wrapper can be a follow-up.
 
 ## GitHub checkpoint recovery (2026-10-24)
-
