@@ -454,6 +454,10 @@ pub fn faction_row(faction: &str) -> usize {
     }
 }
 
+/// The point a wall pulls the chase camera in toward: this high above the
+/// soldier's feet (m). Ours (issue #36); the PS2's camera collision is unread.
+pub const CAMERA_PULL_BODY_Y: f32 = 1.0;
+
 pub struct WalkSim {
     pub sim: Sim,
     pending_class_kills: std::collections::BTreeMap<String, u32>,
@@ -1023,9 +1027,12 @@ impl WalkSim {
         }
         let me = &self.sim.units[self.player.index as usize];
         let ideal = me.ideal_camera(self.sim.ground_rules, self.sim.views());
-        let (center, position) = self.drawn_eye(me, &ideal);
+        let (_, position) = self.drawn_eye(me, &ideal);
+        // Walls pull the camera in toward the soldier's middle, not the look
+        // point above him, so he keeps his place on the screen (issue #36).
+        let body = me.soldier.pos + Vec3::Y * CAMERA_PULL_BODY_Y;
         Camera {
-            position: self.settle_camera(center, position),
+            position: self.settle_camera(body, position),
             yaw: me.soldier.yaw,
             pitch: core::fmath::atan2(ideal.forward.y, ideal.forward.with_y(0.0).length()),
             fov_y: self.fov_y(),
