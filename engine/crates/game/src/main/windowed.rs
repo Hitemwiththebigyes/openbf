@@ -65,6 +65,7 @@ fn play_event_sounds(
     let mut voices = Vec::new();
     engines.tick(walk, |h, l| sl.engine(h, l), &mut voices);
     sl.loop_voices(audio, &voices, &listener);
+    sl.play_repair_loops(audio, &walk.sim, &listener);
     // The soldiers' steps and stance sounds (card FOLY).
     if let Some(foley) = foley {
         let view = game::foley::View::of(&walk.camera(), aspect);
@@ -214,25 +215,6 @@ fn rain_splashes(
     }
 }
 
-/// Fold the player's round into the career and autosave.
-fn record_round(profile: &mut game::profile::Profile, walk: &WalkSim) {
-    let me = &walk.sim.units[walk.player.index as usize];
-    // A time-limit tie is `MissionVictory({1,2})`: both teams win.
-    let won = walk
-        .sim
-        .outcome
-        .map(|w| w == me.team || w == core::sim::OUTCOME_DRAW);
-    profile.record_round(won, me.kills, me.deaths, me.weapon.shots_fired, 0);
-    if let Err(e) = profile.save() {
-        eprintln!("profile autosave failed: {e:#}");
-    } else {
-        println!(
-            "career: {} rounds, {} wins, {} kills / {} deaths",
-            profile.career.rounds, profile.career.wins, profile.career.kills, profile.career.deaths
-        );
-    }
-}
-
 /// PS2 BF2 pause-menu cheat words → openbf effects (analysis/re-cheat-codes.md
 /// §6). Every word toggles. The returned line is the confirmation shown in the
 /// HUD feed (the PS2 plays `shell_menu_accept`; that property is not in the
@@ -309,6 +291,9 @@ fn hud_title(walk: &WalkSim) -> String {
 
 // ── Windowed viewer (winit 0.30 ApplicationHandler + gilrs) ──────────────────
 
+#[path = "windowed/career.rs"]
+mod career;
+use career::record_round;
 /// The BF2 PS2 shell's front screens (card BSHLA).
 #[path = "windowed/front.rs"]
 mod front;
@@ -1042,7 +1027,7 @@ impl App {
         if let Some((walk, _)) = self.walk.as_mut() {
             if !self.round_recorded {
                 self.round_recorded = true;
-                record_round(&mut self.profile, walk);
+                record_round(&mut self.profile, walk, self.feed.battle_stats());
             }
         }
         self.walk = None;
@@ -1296,7 +1281,7 @@ impl winit::application::ApplicationHandler for App {
                 if let Some((walk, _)) = self.walk.as_mut() {
                     if !self.round_recorded {
                         self.round_recorded = true;
-                        record_round(&mut self.profile, walk);
+                        record_round(&mut self.profile, walk, self.feed.battle_stats());
                     }
                 }
                 self.blackbox_exit();
@@ -1570,17 +1555,23 @@ impl winit::application::ApplicationHandler for App {
                             tick_pad.clear_look();
                         });
                         self.kbm.consumed(&pad, ticks);
+                        if walk.flush_class_kills(&mut self.profile) {
+                            if let Err(e) = self.profile.save() {
+                                eprintln!("profile autosave failed: {e:#}");
+                            }
+                        }
                         look = self.kbm.look();
                         if let Some(p) = self.frame_profile.as_mut() {
                             p.lap("sim_ms");
+                        }
+                        if let Some(vis) = self.soldier_vis.as_mut() {
+                            vis.update(walk, dt);
+                            self.fx.set_repair_origins(&vis.fire_points(walk));
                         }
                         self.fx.update(dt);
                         if let Some(w) = self.weather.as_mut() {
                             w.update(dt);
                             rain_splashes(w, &mut self.fx, walk, aspect, dt);
-                        }
-                        if let Some(vis) = self.soldier_vis.as_mut() {
-                            vis.update(walk, dt);
                         }
                         if let (Some(audio), Some(sl)) = (self.audio.as_mut(), self.sounds.as_mut())
                         {
@@ -1701,7 +1692,7 @@ impl winit::application::ApplicationHandler for App {
                     }
                     if walk.sim.outcome.is_some() && !self.round_recorded {
                         self.round_recorded = true;
-                        record_round(&mut self.profile, walk);
+                        record_round(&mut self.profile, walk, self.feed.battle_stats());
                     }
                     // The tick hook above has read the events; the model
                     // carries the new lines to the HUD's message box.

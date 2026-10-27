@@ -563,11 +563,13 @@ pub(super) fn run_headless(v: &ViewerArgs) -> Result<()> {
                 sl.voice(tick, &mut walk);
             }
             frame.vis.update(&walk, core::TICK_DT);
+            let fire_points = frame.vis.fire_points(&walk);
+            frame.fx.set_repair_origins(&fire_points);
+            frame.bolts.set_fire_points(fire_points);
             frame.fx.update(core::TICK_DT);
             if let Some(w) = frame.weather.as_mut() {
                 w.update(core::TICK_DT);
             }
-            frame.bolts.set_fire_points(frame.vis.fire_points(&walk));
             frame.bolts.update(&walk, core::TICK_DT);
             tick_event_feed(&mut frame.feed, &walk.sim, walk.player, v.hud);
             if v.events.is_some() {

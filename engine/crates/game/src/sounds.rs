@@ -401,6 +401,20 @@ pub enum Refused {
 /// queued behind chatter (re-announcer.md 1.5).
 pub const CHATTER_KEY_MAX: f32 = 0.999;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum LoopSource {
+    Engine(u32, u8),
+    Repair(core::unit::UnitHandle, usize),
+}
+
+struct LoopRequest {
+    source: LoopSource,
+    sound: u32,
+    pos: Vec3,
+    gain: f32,
+    pitch: f32,
+}
+
 pub struct SoundLib {
     /// Layers waiting for their delay.
     timers: Vec<Timer>,
@@ -440,9 +454,7 @@ pub struct SoundLib {
     /// Decoded clips, keyed by PATH: a bank sample id and a segment id are
     /// hashes of different things and may collide.
     cache: HashMap<PathBuf, audio::SoundData>,
-    /// The engine layers playing, by (vehicle, layer); `None` for a layer
-    /// with no take to loop.
-    loops: HashMap<(u32, u8), Option<audio::Voice>>,
+    loops: HashMap<LoopSource, Option<audio::Voice>>,
     /// The world's emitters sounding, by index into
     /// `crate::ambience::Ambience::emitters` ([`SoundLib::ambient_voices`]).
     ambient: HashMap<usize, AmbientVoice>,
@@ -866,18 +878,29 @@ impl SoundLib {
         v: &crate::engine_sound::Voice,
         listener: &Listener,
     ) -> Option<((f32, f32), f32)> {
-        let (p, _) = self.find(v.sound)?;
-        let d = (v.pos - listener.pos).length();
+        self.loop_level(v.sound, v.pos, v.gain_factor, v.pitch_factor, listener)
+    }
+
+    pub(super) fn loop_level(
+        &self,
+        sound: u32,
+        pos: Vec3,
+        gain_factor: f32,
+        pitch_factor: f32,
+        listener: &Listener,
+    ) -> Option<((f32, f32), f32)> {
+        let (p, _) = self.find(sound)?;
+        let d = (pos - listener.pos).length();
         if !p.flat && d >= p.mute_distance.unwrap_or(p.max_distance) {
             return None;
         }
-        let gain = (p.gain * v.gain_factor).clamp(0.0, 1.0) * attenuation(d, &p) * self.bus_of(&p);
+        let gain = (p.gain * gain_factor).clamp(0.0, 1.0) * attenuation(d, &p) * self.bus_of(&p);
         let ears = if p.flat {
             (gain, gain)
         } else {
-            ears_3d(gain, side(listener, v.pos))
+            ears_3d(gain, side(listener, pos))
         };
-        Some((ears, (p.pitch * v.pitch_factor).max(0.1)))
+        Some((ears, (p.pitch * pitch_factor).max(0.1)))
     }
 
     /// The final gain of the bus `p` plays on ([`bus_table`]; 1.0 for one
@@ -900,30 +923,19 @@ impl SoundLib {
     ) {
         let mut live = std::collections::HashSet::new();
         for v in voices {
-            let Some((ears, rate)) = self.engine_level(v, listener) else {
-                continue;
+            let request = LoopRequest {
+                source: LoopSource::Engine(v.vehicle, v.layer),
+                sound: v.sound,
+                pos: v.pos,
+                gain: v.gain_factor,
+                pitch: v.pitch_factor,
             };
-            let key = (v.vehicle, v.layer);
-            live.insert(key);
-            let (db, pan) = mixer_pair(ears);
-            let rate = f64::from((rate * self.rate_mul).max(0.05));
-            if let Some(voice) = self.loops.get_mut(&key) {
-                if let Some(voice) = voice {
-                    voice.set(db, rate, pan, core::TICK_DT);
-                }
-                continue;
+            if self.play_loop_voice(audio, &request, listener) {
+                live.insert(request.source);
             }
-            let path = self.find(v.sound).and_then(|(p, core)| {
-                let id = self.pick_sample(&p.samples)?;
-                self.bank(core)?.sample_path(id)
-            });
-            let voice = path
-                .filter(|p| self.sound(audio, p).is_ok())
-                .and_then(|p| audio.play_voice(&self.cache[&p], db, rate, pan));
-            self.played += u64::from(voice.is_some());
-            self.loops.insert(key, voice);
         }
-        self.loops.retain(|k, _| live.contains(k));
+        self.loops
+            .retain(|k, _| !matches!(k, LoopSource::Engine(..)) || live.contains(k));
     }
 
     /// Stop every engine layer's voice (the pause menu, the battle's end);

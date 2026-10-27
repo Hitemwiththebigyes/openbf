@@ -210,6 +210,8 @@ pub struct WeaponClass {
     /// Sound property names (FireSound / ReloadSound / FireEmptySound /
     /// WeaponChangeSound).
     pub fire_sound: Option<String>,
+    pub fire_loop_sound: Option<String>,
+    pub muzzle_effect: Option<String>,
     pub reload_sound: Option<String>,
     pub empty_sound: Option<String>,
     pub change_sound: Option<String>,
@@ -354,6 +356,8 @@ impl Default for WeaponClass {
             spread_limit: 0.0,
             ordnance: OrdnanceClass::default(),
             fire_sound: None,
+            fire_loop_sound: None,
+            muzzle_effect: None,
             reload_sound: None,
             empty_sound: None,
             change_sound: None,
@@ -479,6 +483,8 @@ impl WeaponClass {
                 }),
             },
             fire_sound: Some("all_weap_inf_rifle_fire".into()),
+            fire_loop_sound: None,
+            muzzle_effect: None,
             reload_sound: Some("all_weap_inf_reload_med".into()),
             empty_sound: Some("com_weap_inf_ammo_empty".into()),
             change_sound: Some("all_weap_inf_equip_med".into()),
@@ -789,6 +795,8 @@ impl WeaponClass {
             w.spread_limit = v * DEG;
         }
         w.fire_sound = src.prop("FireSound").map(|s| s.trim().to_owned());
+        w.fire_loop_sound = src.prop("FireLoopSound").map(|s| s.trim().to_owned());
+        w.muzzle_effect = src.prop("MuzzleFlashEffect").map(|s| s.trim().to_owned());
         w.reload_sound = src.prop("ReloadSound").map(|s| s.trim().to_owned());
         w.empty_sound = src.prop("FireEmptySound").map(|s| s.trim().to_owned());
         w.change_sound = src.prop("WeaponChangeSound").map(|s| s.trim().to_owned());

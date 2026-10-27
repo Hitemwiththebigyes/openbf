@@ -346,7 +346,7 @@ pub struct EventFeed {
     inside: Vec<Option<(u32, u64)>>,
     points: i32,
     kills: i32,
-    captures: i32,
+    battle: crate::profile::BattleStats,
     /// The four order names, up / down / right / left.
     order_labels: [String; 4],
     driver_labels: [String; 4],
@@ -383,7 +383,7 @@ impl EventFeed {
             inside: Vec::new(),
             points: 0,
             kills: 0,
-            captures: 0,
+            battle: Default::default(),
             order: None,
         }
     }
@@ -540,6 +540,37 @@ impl EventFeed {
                 self.ambush.push(edge);
             }
             match *e {
+                Event::Shot { unit, .. } if unit == viewer => {
+                    self.battle.shots = self.battle.shots.saturating_add(1);
+                }
+                Event::Hit {
+                    shooter,
+                    victim,
+                    damage,
+                    ..
+                } if shooter == viewer
+                    && damage > 0.0
+                    && sim
+                        .units
+                        .get(victim.index as usize)
+                        .is_some_and(|u| u.gen == victim.gen && u.team != my_team) =>
+                {
+                    self.battle.hits = self.battle.hits.saturating_add(1);
+                }
+                Event::VehicleHit {
+                    shooter: Some(shooter),
+                    vehicle,
+                    damage,
+                    ..
+                } if shooter == viewer
+                    && damage > 0.0
+                    && sim
+                        .vehicles
+                        .get(vehicle.index as usize)
+                        .is_some_and(|v| v.gen == vehicle.gen && v.team != Some(my_team)) =>
+                {
+                    self.battle.hits = self.battle.hits.saturating_add(1);
+                }
                 Event::Kill { shooter, victim } => {
                     let (k, v) = (
                         &sim.units[shooter.index as usize],
@@ -596,7 +627,7 @@ impl EventFeed {
                         self.say(text, relation(team), tick);
                     }
                     if let Some(first) = self.capture_credit(sim, viewer, cp, team) {
-                        self.captures += 1;
+                        self.battle.captures = self.battle.captures.saturating_add(1);
                         self.points += if first {
                             points::CAPTURE
                         } else {
@@ -754,8 +785,12 @@ impl EventFeed {
             kills: self.kills,
             deaths: sim.units[viewer.index as usize].deaths as i32,
             hero_points: 0,
-            captures: self.captures,
+            captures: self.battle.captures.min(i32::MAX as u32) as i32,
         }
+    }
+
+    pub fn battle_stats(&self) -> crate::profile::BattleStats {
+        self.battle
     }
 }
 
