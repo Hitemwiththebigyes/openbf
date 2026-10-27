@@ -425,7 +425,10 @@ impl Sim {
             if let Some(m) = self.magnet[slot].filter(|_| !p.mouse_aim()) {
                 unit_pads[ph.index as usize] = self.apply_assist(slot, ph, m, &p, dt);
             }
-            self.acquire_magnet(slot, ph, p.pressed(buttons::FIRE));
+            let steering = p.mouse_aim()
+                || PadState::axis(p.rx).abs() > super::input::MAGNET_STEER
+                || PadState::axis(p.ry).abs() > super::input::MAGNET_STEER;
+            self.acquire_magnet_steering(slot, ph, p.pressed(buttons::FIRE), steering);
         }
 
         // 2b. DOORS (DR2): open or close by who stands in their triggers

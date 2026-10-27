@@ -230,6 +230,13 @@ struct Candidate {
 /// @0x25f4a8, `analysis/re-aim-assist.md` §3.3).
 const STICKY_WIDEN: f32 = std::f32::consts::FRAC_PI_4;
 
+/// OURS, PROVISIONAL: the share of the held magnet's score a challenger must
+/// beat while the player is not steering ([`Sim::acquire_magnet`]).
+pub const MAGNET_HOLD: f32 = 0.5;
+/// OURS, PROVISIONAL: an aim-stick deflection past this (either axis) is the
+/// player steering the aim; a mouse always is.
+pub const MAGNET_STEER: f32 = 0.2;
+
 /// FUN_00241b98 in its 3-D mode (`re-aim-assist.md` §3.4): `t + 16·d²` for a
 /// target of radius `r` centred `ctr`, seen from `pos` along the unit `dir`
 /// — `t` its distance along the axis (0 to `maxd + r`), `d` its distance
@@ -320,7 +327,28 @@ impl Sim {
     /// building; the port removes it); the query box is tested against each
     /// candidate's bounds sphere and has no 300 cap; the PS2's LockOffAngle
     /// hold (launchers only) and channel 1 are not ported.
+    ///
+    /// OURS (issue: the magnet flicks between two enemies side by side):
+    /// on the PS2 a challenger that scores lower than the held magnet takes
+    /// it, and the pull itself turns the aim toward the one it does not
+    /// hold, so two soldiers close together trade the magnet every few
+    /// ticks. While the player is not `steering` the aim, a challenger must
+    /// score under [`MAGNET_HOLD`] of the held one's score (a far nearer
+    /// enemy stepping in); while steering, the PS2's rule. (The tests' entry:
+    /// the tick calls [`Sim::acquire_magnet_steering`].)
+    #[cfg(test)]
     pub(super) fn acquire_magnet(&mut self, slot: usize, ph: UnitHandle, fire_held: bool) {
+        self.acquire_magnet_steering(slot, ph, fire_held, false);
+    }
+
+    /// [`Sim::acquire_magnet`] with whether the player steers the aim.
+    pub(super) fn acquire_magnet_steering(
+        &mut self,
+        slot: usize,
+        ph: UnitHandle,
+        fire_held: bool,
+        steering: bool,
+    ) {
         let Some(p) = self.unit(ph) else {
             self.magnet[slot] = None;
             self.reticle_pick[slot] = None;
@@ -367,7 +395,7 @@ impl Sim {
             let s = cone_score(u.r, cone, er, pos, dir, u.ctr);
             if s >= 0.0 && live(t) && clear(&u) {
                 valid = passes(&u) && (u.ctr - pos).length() <= lor + u.r;
-                best = s;
+                best = if steering { s } else { s * MAGNET_HOLD };
             } else {
                 target = None;
                 valid = false;
@@ -695,6 +723,83 @@ mod tests {
             s.acquire_magnet(0, p, firing);
             assert_eq!(s.magnet[0].is_some(), kept, "firing {firing}");
         }
+    }
+
+    /// Two enemies side by side, the second scoring a little better than
+    /// the held first: a player who is not steering keeps the first; one
+    /// steering the aim gets the second (the PS2's rule). A far nearer enemy
+    /// takes the magnet either way.
+    #[test]
+    fn the_magnet_holds_its_target_unless_the_player_steers() {
+        let a = (1, Vec3::new(0.3, 0.0, -20.0));
+        let b = (1, Vec3::new(-0.6, 0.0, -20.0));
+        for (steering, want) in [(false, 0), (true, 1)] {
+            let (mut s, p, o) = range(&[a, b]);
+            s.magnet[0] = Some(AimTarget::Unit(o[0]));
+            // Aim a little toward the second.
+            s.units[p.index as usize].soldier.yaw = 0.01;
+            s.acquire_magnet_steering(0, p, false, steering);
+            assert_eq!(
+                s.magnet[0],
+                Some(AimTarget::Unit(o[want])),
+                "steering {steering}"
+            );
+        }
+        // On the aim's line (the eye 1.3 m over a body's middle): the held
+        // one at 20 m, the newcomer at 6 m.
+        let (mut s, p, o) = range(&[
+            (1, Vec3::new(0.3, 0.0, -20.0)),
+            (1, Vec3::new(0.0, 0.0, -6.0)),
+        ]);
+        for &h in &o {
+            s.unit_mut(h).unwrap().soldier.pos.y = 1.3;
+        }
+        s.magnet[0] = Some(AimTarget::Unit(o[0]));
+        s.acquire_magnet_steering(0, p, false, false);
+        assert_eq!(
+            s.magnet[0],
+            Some(AimTarget::Unit(o[1])),
+            "a far nearer enemy"
+        );
+    }
+
+    /// The flicker in play: two enemies 1.5 m apart 20 m out walking across
+    /// the view at 4 m/s, the player holding FIRE and not touching the aim
+    /// stick for 4 s, the pull on. On the PS2's rule the magnet changes
+    /// hands 17 times; it is held.
+    #[test]
+    fn two_enemies_side_by_side_do_not_trade_the_magnet() {
+        let (mut s, _, o) = range(&[
+            (1, Vec3::new(0.5, 0.0, -20.0)),
+            (1, Vec3::new(-1.0, 0.0, -20.0)),
+        ]);
+        for &h in &o {
+            s.unit_mut(h).unwrap().health.cur = 1.0e9;
+            s.unit_mut(h).unwrap().health.max = 1.0e9;
+        }
+        // The pull on (the SP Auto Aim option): it is what turns the aim.
+        s.assist_armed = true;
+        let pad = PadState {
+            buttons: buttons::FIRE,
+            ..Default::default()
+        };
+        let (mut last, mut changes) = (None, 0);
+        for _ in 0..120 {
+            // Walking side by side (placed: a bot's own walk would turn).
+            for &h in &o {
+                let u = s.unit_mut(h).unwrap();
+                u.soldier.pos.x += 4.0 / 30.0;
+                u.soldier.pos.z = -20.0;
+            }
+            s.step(&[pad]);
+            let m = s.magnet[0];
+            if m.is_some() && last.is_some() && m != last {
+                changes += 1;
+            }
+            last = m.or(last);
+        }
+        assert!(last.is_some(), "a magnet");
+        assert!(changes <= 1, "the magnet changed hands {changes} times");
     }
 
     /// The tournament is order-dependent (§3.3): with nothing held, a
