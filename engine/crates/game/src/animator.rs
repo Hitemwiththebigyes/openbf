@@ -607,6 +607,17 @@ pub struct Rig {
     /// Per asset clip: its root speed (`[x, z]` m/s, the bake's
     /// `root_speed`), for a walk, run or sprint.
     root: Vec<Option<[f32; 2]>>,
+    /// Per asset clip: a thrown flight (`thrown_flying*`), drawn over the
+    /// soldier ([`Rig::root_bone`]).
+    flight: Vec<bool>,
+    /// `bone_root` and its rest translation. The flight clips hold it 1.3 to
+    /// 1.8 m off the soldier's position (BF1 and BF2 alike: front +1.8 m z,
+    /// back -1.65, right -1.25 x), so the drawn body left his place (and
+    /// his hit prims) until he landed: off the screen's bottom when thrown
+    /// toward the camera (the maintainer 2026-10-27). Ours, PROVISIONAL (the PS2's
+    /// draw of these clips is not measured): a flight clip keeps the root's
+    /// rest x and z; its height and every rotation are the clip's.
+    root_bone: Option<(usize, glam::Vec3)>,
     /// BF2: the rifle's prone clips borrowed from BF1 (the bake's
     /// `BORROWED_PRONE`, issue #40; the PS2's BF2 has no prone): per
     /// [`bf2::MOVES`], then the shot and the reload, then the four
@@ -651,6 +662,13 @@ impl Rig {
             sets,
             bf2,
             root,
+            flight: clips
+                .iter()
+                .map(|c| c.name.to_ascii_lowercase().contains("thrown_flying"))
+                .collect(),
+            root_bone: skel
+                .index_of("bone_root")
+                .map(|b| (b, skel.local_bind[b].w_axis.truncate())),
             prone: bf2::MOVES
                 .iter()
                 .map(|m| format!("human_rifle_prone_{m}"))
@@ -1024,7 +1042,11 @@ impl Player {
         let (mask, game) = (if upper { &rig.upper } else { &rig.lower }, rig.game);
         let Some(s) = self.slot else { return };
         let c = &clips[s.clip];
-        let sampled = c.sample(skel, self.t * c.frames.saturating_sub(1) as f32, s.looping);
+        let mut sampled = c.sample(skel, self.t * c.frames.saturating_sub(1) as f32, s.looping);
+        if let (Some(true), Some((b, rest))) = (rig.flight.get(s.clip), rig.root_bone) {
+            let x = &mut sampled.0[b].translation;
+            (x.x, x.z) = (rest.x, rest.z);
+        }
         let cur = factor
             * if self.blend > 0.0 {
                 (self.secs / self.blend).min(1.0)

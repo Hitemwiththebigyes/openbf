@@ -1005,3 +1005,70 @@ fn a_sprinting_soldier_shows_his_throw_and_shot() {
         assert_eq!(cases, 4);
     }
 }
+
+/// The maintainer 2026-10-27 (F9, BF2 Coruscant): a soldier a blast throws "flies past
+/// the bottom of the screen until he lands", with no ceiling near. The
+/// flight clips hold bone_root 1.3 to 1.8 m off the soldier's position, so
+/// the body was drawn away from him (and from his hit prims). Both games,
+/// all four throws: the drawn root stays over the soldier.
+#[test]
+fn a_thrown_soldier_is_drawn_over_his_position() {
+    use crate::animator::{AnimInput, Animator};
+    use core::soldier::Stance;
+    let root = crate::assets::baked_root();
+    let mut cases = 0;
+    for (game, geometry) in [("bf1", "rep_inf_trooper"), ("bf2", "rep_inf_trooper")] {
+        if !root
+            .join(format!("side_{game}/soldiers/{geometry}.glb"))
+            .exists()
+        {
+            eprintln!("skip: no {game} {geometry} bake");
+            continue;
+        }
+        let t = team(&[("trooper", Some(geometry), None)]);
+        let vis = SoldierVisuals::load_cpu(&root, game, &[t.clone(), t]);
+        let sa = &vis.assets[0];
+        let (Some(rig), clips, skel) = (&sa.rig, &sa.asset.clips, &sa.asset.skeleton) else {
+            panic!("{game} {geometry}: no rig");
+        };
+        let b = skel.index_of("bone_root").expect("bone_root");
+        let rest = skel.local_bind[b].w_axis.truncate();
+        // Body-frame velocity picks the clip: front, back, left, right.
+        for vel in [(0.0, 9.0), (0.0, -9.0), (9.0, 1.0), (-9.0, 1.0)] {
+            let input = AnimInput {
+                stance: Stance::Thrown,
+                vel: glam::Vec2::new(vel.0, vel.1),
+                yaw: 0.0,
+                max_speed: 7.0,
+                root_scale: 1.0,
+                dead: false,
+                hard_lock: false,
+                set: 0,
+                fired: false,
+                throw: None,
+                throw_windup: 0.0,
+                reloading: false,
+                reload_time: 0.0,
+                alert: false,
+                aim: (0.0, 0.0),
+            };
+            let mut a = Animator::new();
+            for _ in 0..12 {
+                a.step(rig, clips, skel, &input, 1.0 / 30.0);
+            }
+            let clip = &clips[a.lower_clip().expect("a flight clip")].name;
+            assert!(clip.contains("thrown_flying"), "{game}: {clip}");
+            let at = a.pose(skel).0[b].translation;
+            let off = glam::Vec2::new(at.x - rest.x, at.z - rest.z).length();
+            println!("{game} {clip}: root {off:.3} m off the soldier");
+            assert!(
+                off < 0.05,
+                "{game} {clip}: the body is drawn {off:.2} m away"
+            );
+            cases += 1;
+        }
+    }
+    if cases > 0 {
+        assert_eq!(cases, 8);
+    }
+}
