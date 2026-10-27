@@ -1,6 +1,7 @@
 use core::collision::Layers;
 use core::sim::{buttons, Event, PadState, Sim, SpawnStage};
 use core::unit::{Controller, UnitHandle};
+use game::event_feed::EventFeed;
 use game::profile::Profile;
 use game::walk::{ClassVisual, TeamTemplate, WalkSim};
 use glam::Vec3;
@@ -87,18 +88,27 @@ fn utapau_match() -> Option<WalkSim> {
     Some(walk)
 }
 
-fn tap(walk: &mut WalkSim, buttons: u32) {
-    walk.step_tick(&[PadState {
-        buttons,
-        ..Default::default()
-    }]);
-    walk.step_tick(&[PadState::default()]);
+fn step(walk: &mut WalkSim, feed: &mut EventFeed, pad: PadState) {
+    walk.step_tick(&[pad]);
+    feed.tick(&walk.sim, walk.player);
 }
 
-fn choose_class(walk: &mut WalkSim, name: &str) {
+fn tap(walk: &mut WalkSim, feed: &mut EventFeed, buttons: u32) {
+    step(
+        walk,
+        feed,
+        PadState {
+            buttons,
+            ..Default::default()
+        },
+    );
+    step(walk, feed, PadState::default());
+}
+
+fn choose_class(walk: &mut WalkSim, feed: &mut EventFeed, name: &str) {
     assert_eq!(walk.sim.spawn_stage[0], SpawnStage::Map);
     walk.sim.set_spawn_points(0, 12);
-    tap(walk, buttons::SPAWN_ACCEPT);
+    tap(walk, feed, buttons::SPAWN_ACCEPT);
     assert_eq!(walk.sim.spawn_stage[0], SpawnStage::Class);
     let class = walk.teams[0]
         .classes
@@ -110,13 +120,13 @@ fn choose_class(walk: &mut WalkSim, name: &str) {
         if usize::from(walk.sim.spawn_choice[0]) == class {
             break;
         }
-        tap(walk, buttons::SPAWN_CLASS_NEXT);
+        tap(walk, feed, buttons::SPAWN_CLASS_NEXT);
         while walk.sim.class_carousel[0].slide > 0 {
-            walk.step_tick(&[PadState::default()]);
+            step(walk, feed, PadState::default());
         }
     }
     assert_eq!(usize::from(walk.sim.spawn_choice[0]), class);
-    tap(walk, buttons::SPAWN_ACCEPT);
+    tap(walk, feed, buttons::SPAWN_ACCEPT);
     assert_eq!(walk.sim.spawn_stage[0], SpawnStage::Accepted);
     assert_eq!(
         usize::from(walk.sim.unit(walk.player).unwrap().spec.class),
@@ -124,7 +134,7 @@ fn choose_class(walk: &mut WalkSim, name: &str) {
     );
 }
 
-fn shoot_enemy(walk: &mut WalkSim) -> UnitHandle {
+fn shoot_enemy(walk: &mut WalkSim, feed: &mut EventFeed) -> UnitHandle {
     let pos = walk.soldier().pos;
     let target_pos = [Vec3::NEG_Z, Vec3::X, Vec3::Z, Vec3::NEG_X]
         .into_iter()
@@ -168,6 +178,7 @@ fn shoot_enemy(walk: &mut WalkSim) -> UnitHandle {
         };
         let mut killed = false;
         walk.advance_with(core::TICK_DT * 3.0, &[pad], |walk| {
+            feed.tick(&walk.sim, walk.player);
             shots += walk
                 .sim
                 .events
@@ -190,6 +201,92 @@ fn shoot_enemy(walk: &mut WalkSim) -> UnitHandle {
         "authored weapon {} did not kill its real-roster target ({shots} shots, {:?}, alive {})",
         walk.sim.weapon_classes[player.weapon_class].name, player.weapon, player.alive
     );
+}
+
+#[test]
+fn battle_stats_filter_non_player_and_non_enemy_damage_and_deduplicate_ticks() {
+    use core::unit::UnitSpec;
+    use core::vehicle::{SeatKind, VehicleKind, VehicleSpec};
+
+    let mut walk = WalkSim::new(9, Vec3::ZERO, None);
+    let player = walk.player;
+    let enemy = walk
+        .sim
+        .spawn(&UnitSpec::trooper(1, Vec3::X * 10.0))
+        .unwrap();
+    let friend = walk
+        .sim
+        .spawn(&UnitSpec::trooper(0, Vec3::X * 20.0))
+        .unwrap();
+    let shot = |unit| Event::Shot {
+        unit,
+        weapon_class: 0,
+        origin: Vec3::ZERO,
+        dir: Vec3::NEG_Z,
+    };
+    let hit = |shooter, victim, damage| Event::Hit {
+        shooter,
+        victim,
+        damage,
+        age: 0.0,
+        health_left: 100.0,
+        dir: Vec3::NEG_Z,
+    };
+    walk.sim.events = vec![
+        shot(player),
+        shot(player),
+        shot(enemy),
+        hit(player, enemy, 20.0),
+        hit(player, enemy, 0.0),
+        hit(player, friend, 10.0),
+        hit(player, player, 10.0),
+        hit(enemy, player, 20.0),
+    ];
+    let mut feed = EventFeed::default();
+    feed.tick(&walk.sim, player);
+    let expected = game::profile::BattleStats {
+        shots: 2,
+        hits: 1,
+        captures: 0,
+    };
+    assert_eq!(feed.battle_stats(), expected);
+    feed.tick(&walk.sim, player);
+    assert_eq!(feed.battle_stats(), expected);
+
+    let vehicle = walk.sim.spawn_vehicle(&VehicleSpec {
+        kind: VehicleKind::Hover,
+        class: 0,
+        home_team: None,
+        neutral_when_empty: true,
+        spawn_pad: None,
+        pos: Vec3::NEG_Z * 20.0,
+        yaw: 0.0,
+        max_health: 100.0,
+        health_type: core::weapon::HealthType::Vehicle,
+        seats: vec![SeatKind::Pilot],
+    });
+    walk.sim.vehicles[vehicle.index as usize].team = Some(1);
+    walk.sim.vehicles[vehicle.index as usize].alive = false;
+    walk.sim.tick += 1;
+    walk.sim.events = vec![Event::VehicleHit {
+        shooter: Some(player),
+        vehicle,
+        damage: 100.0,
+        dir: Some(Vec3::NEG_Z),
+    }];
+    feed.tick(&walk.sim, player);
+    assert_eq!(feed.battle_stats().hits, 2);
+    walk.sim.vehicles[vehicle.index as usize].team = Some(0);
+    walk.sim.tick += 1;
+    feed.tick(&walk.sim, player);
+    assert_eq!(feed.battle_stats().hits, 2);
+
+    let mut profile = Profile::default();
+    walk.record_battle(&mut profile, feed.battle_stats());
+    assert_eq!(profile.career.rounds, 1);
+    assert_eq!(profile.career.wins, 0);
+    assert_eq!(profile.career.shots, 2);
+    assert_eq!(profile.career.hits, 2);
 }
 
 #[test]
@@ -224,10 +321,13 @@ fn a_player_killed_before_their_bolt_lands_still_gets_class_credit() {
     assert!(!me.alive);
     assert_eq!(me.kills, 1);
     let mut profile = Profile::default();
-    walk.record_battle(&mut profile);
+    let mut feed = EventFeed::default();
+    feed.tick(&walk.sim, walk.player);
+    walk.record_battle(&mut profile, feed.battle_stats());
     assert_eq!(profile.career.class_kills["trooper"], 1);
     assert_eq!(profile.career.kills, 1);
     assert_eq!(profile.career.deaths, 1);
+    assert_eq!(profile.career.hits, 1);
     assert!(!walk.flush_class_kills(&mut profile));
 }
 
@@ -238,13 +338,32 @@ fn real_match_class_switching_autosaves_and_profile_reload_keep_each_kill_once()
     };
     let _file = ProfileFile::new();
     let mut profile = Profile::default();
-    profile.record_round(Some(true), 10, 2, 100, 50);
+    let mut feed = EventFeed::default();
+    profile.record_round(Some(true), 10, 2, 100, 50, 2);
     profile
         .career
         .class_kills
         .insert("all_inf_officer".into(), 3);
-    choose_class(&mut walk, "all_inf_officer");
-    shoot_enemy(&mut walk);
+    choose_class(&mut walk, &mut feed, "all_inf_officer");
+    let post = walk
+        .sim
+        .cps
+        .iter()
+        .position(|cp| cp.owner != Some(0))
+        .unwrap();
+    let mut at = walk.sim.cps[post].def.pos;
+    at.y = walk.sim.ground_under(at, false);
+    walk.sim.unit_mut(walk.player).unwrap().soldier.pos = at;
+    for _ in 0..2000 {
+        step(&mut walk, &mut feed, PadState::default());
+        if walk.sim.cps[post].owner == Some(0) {
+            break;
+        }
+    }
+    assert_eq!(walk.sim.cps[post].owner, Some(0));
+    assert_eq!(feed.battle_stats().captures, 1);
+    assert_eq!(feed.stats(&walk.sim, walk.player).captures, 1);
+    shoot_enemy(&mut walk, &mut feed);
     let hash = walk.sim.hash();
     assert!(walk.flush_class_kills(&mut profile));
     assert_eq!(walk.sim.hash(), hash);
@@ -254,18 +373,18 @@ fn real_match_class_switching_autosaves_and_profile_reload_keep_each_kill_once()
     profile.save().unwrap();
     assert_eq!(Profile::load_or_default(), profile);
     profile = Profile::load_or_default();
-    shoot_enemy(&mut walk);
+    shoot_enemy(&mut walk, &mut feed);
 
     walk.request_respawn();
     for _ in 0..600 {
-        walk.step_tick(&[PadState::default()]);
+        step(&mut walk, &mut feed, PadState::default());
         if walk.sim.spawn_stage[0] == SpawnStage::Map {
             break;
         }
     }
-    choose_class(&mut walk, "all_inf_wookiee");
+    choose_class(&mut walk, &mut feed, "all_inf_wookiee");
     walk.sim.battle.teams[1].reinforcements = 1.0;
-    shoot_enemy(&mut walk);
+    shoot_enemy(&mut walk, &mut feed);
     assert!(walk.flush_class_kills(&mut profile));
     assert!(!walk.flush_class_kills(&mut profile));
     assert_eq!(profile.career.class_kills["all_inf_officer"], 5);
@@ -273,16 +392,22 @@ fn real_match_class_switching_autosaves_and_profile_reload_keep_each_kill_once()
     assert_eq!(profile.career.class_kills.len(), 2);
 
     let me = walk.sim.unit(walk.player).unwrap();
-    let shots = me.weapon.shots_fired;
+    let stats = feed.battle_stats();
+    assert!(stats.shots > me.weapon.shots_fired);
+    assert!(stats.hits >= 3);
+    assert_eq!(stats.captures, 1);
+    feed.tick(&walk.sim, walk.player);
+    assert_eq!(feed.battle_stats(), stats);
     assert_eq!(walk.sim.outcome, Some(0));
-    walk.record_battle(&mut profile);
+    walk.record_battle(&mut profile, stats);
     assert!(!walk.flush_class_kills(&mut profile));
     assert_eq!(profile.career.rounds, 2);
     assert_eq!(profile.career.wins, 2);
     assert_eq!(profile.career.kills, 13);
     assert_eq!(profile.career.deaths, 3);
-    assert_eq!(profile.career.shots, 100 + shots);
-    assert_eq!(profile.career.hits, 50);
+    assert_eq!(profile.career.shots, 100 + stats.shots);
+    assert_eq!(profile.career.hits, 50 + stats.hits);
+    assert_eq!(profile.career.captures, 3);
 
     profile.save().unwrap();
     let restored = Profile::load_or_default();
@@ -290,5 +415,5 @@ fn real_match_class_switching_autosaves_and_profile_reload_keep_each_kill_once()
     let saved_twice = Profile::load_or_default();
     assert_eq!(restored, profile);
     assert_eq!(saved_twice, profile);
-    println!("bf2_uta1: officer +2, respawn, Wookiee +1, victory; aggregate +3; catch-up ticks, repeated flush/save and disk reload preserve counts");
+    println!("bf2_uta1: officer +2, respawn, Wookiee +1, victory; shots +{}, hits +{}, captures +{}; repeated tick/save and disk reload preserve counts", stats.shots, stats.hits, stats.captures);
 }

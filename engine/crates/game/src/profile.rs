@@ -130,6 +130,13 @@ pub struct Career {
     pub class_kills: std::collections::BTreeMap<String, u32>,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BattleStats {
+    pub shots: u64,
+    pub hits: u64,
+    pub captures: u32,
+}
+
 /// Where the game keeps what it writes (the profile, the playtest snapshots of
 /// a packed build): `openbf_data/` beside the running game file, on every OS.
 pub fn data_dir() -> PathBuf {
@@ -202,6 +209,7 @@ impl Profile {
         deaths: u32,
         shots: u64,
         hits: u64,
+        captures: u32,
     ) {
         self.career.rounds += 1;
         if won == Some(true) {
@@ -211,6 +219,7 @@ impl Profile {
         self.career.deaths += deaths;
         self.career.shots += shots;
         self.career.hits += hits;
+        self.career.captures += captures;
     }
 }
 
@@ -270,7 +279,7 @@ mod tests {
             name: "retained player".into(),
             ..Default::default()
         };
-        original.record_round(Some(true), 12, 3, 240, 90);
+        original.record_round(Some(true), 12, 3, 240, 90, 2);
         original.settings.mouse_sensitivity = 1.7;
         original.settings.invert_y = true;
         original.settings.last_map = Some("tat2".into());
@@ -348,7 +357,7 @@ mod tests {
     #[test]
     fn reserved_saved_controls_repair_only_their_layout_and_preserve_career() {
         let mut profile = Profile::default();
-        profile.record_round(Some(true), 12, 3, 240, 90);
+        profile.record_round(Some(true), 12, 3, 240, 90, 2);
         profile
             .settings
             .keyboard_bindings
@@ -385,7 +394,7 @@ mod tests {
         assert_eq!(p.career, Career::default());
         p.settings.assist_intensity = 0.7;
         p.settings.last_map = Some("tat2".into());
-        p.record_round(Some(true), 12, 3, 240, 90);
+        p.record_round(Some(true), 12, 3, 240, 90, 2);
         p.career.class_kills.insert("all_inf_officer".into(), 7);
         p.career.class_kills.insert("all_inf_wookiee".into(), 5);
         p.save().expect("save");

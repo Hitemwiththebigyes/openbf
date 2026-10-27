@@ -993,14 +993,25 @@ impl WalkSim {
         changed
     }
 
-    pub fn record_battle(&mut self, profile: &mut crate::profile::Profile) {
+    pub fn record_battle(
+        &mut self,
+        profile: &mut crate::profile::Profile,
+        stats: crate::profile::BattleStats,
+    ) {
         self.flush_class_kills(profile);
         let me = &self.sim.units[self.player.index as usize];
         let won = self
             .sim
             .outcome
             .map(|winner| winner == me.team || winner == core::sim::OUTCOME_DRAW);
-        profile.record_round(won, me.kills, me.deaths, me.weapon.shots_fired, 0);
+        profile.record_round(
+            won,
+            me.kills,
+            me.deaths,
+            stats.shots,
+            stats.hits,
+            stats.captures,
+        );
     }
 
     pub fn camera(&self) -> Camera {

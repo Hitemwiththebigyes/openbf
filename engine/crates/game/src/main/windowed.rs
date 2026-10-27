@@ -214,19 +214,6 @@ fn rain_splashes(
     }
 }
 
-/// Fold the player's round into the career and autosave.
-fn record_round(profile: &mut game::profile::Profile, walk: &mut WalkSim) {
-    walk.record_battle(profile);
-    if let Err(e) = profile.save() {
-        eprintln!("profile autosave failed: {e:#}");
-    } else {
-        println!(
-            "career: {} rounds, {} wins, {} kills / {} deaths",
-            profile.career.rounds, profile.career.wins, profile.career.kills, profile.career.deaths
-        );
-    }
-}
-
 /// PS2 BF2 pause-menu cheat words → openbf effects (analysis/re-cheat-codes.md
 /// §6). Every word toggles. The returned line is the confirmation shown in the
 /// HUD feed (the PS2 plays `shell_menu_accept`; that property is not in the
@@ -303,6 +290,9 @@ fn hud_title(walk: &WalkSim) -> String {
 
 // ── Windowed viewer (winit 0.30 ApplicationHandler + gilrs) ──────────────────
 
+#[path = "windowed/career.rs"]
+mod career;
+use career::record_round;
 /// The BF2 PS2 shell's front screens (card BSHLA).
 #[path = "windowed/front.rs"]
 mod front;
@@ -1036,7 +1026,7 @@ impl App {
         if let Some((walk, _)) = self.walk.as_mut() {
             if !self.round_recorded {
                 self.round_recorded = true;
-                record_round(&mut self.profile, walk);
+                record_round(&mut self.profile, walk, self.feed.battle_stats());
             }
         }
         self.walk = None;
@@ -1290,7 +1280,7 @@ impl winit::application::ApplicationHandler for App {
                 if let Some((walk, _)) = self.walk.as_mut() {
                     if !self.round_recorded {
                         self.round_recorded = true;
-                        record_round(&mut self.profile, walk);
+                        record_round(&mut self.profile, walk, self.feed.battle_stats());
                     }
                 }
                 self.blackbox_exit();
@@ -1700,7 +1690,7 @@ impl winit::application::ApplicationHandler for App {
                     }
                     if walk.sim.outcome.is_some() && !self.round_recorded {
                         self.round_recorded = true;
-                        record_round(&mut self.profile, walk);
+                        record_round(&mut self.profile, walk, self.feed.battle_stats());
                     }
                     // The tick hook above has read the events; the model
                     // carries the new lines to the HUD's message box.
