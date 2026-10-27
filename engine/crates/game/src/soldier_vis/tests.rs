@@ -597,7 +597,8 @@ fn the_feet_keep_to_the_ground() {
             (Stance::Crouch, true, [1.2, 2.0, 3.0]),
             (Stance::Prone, true, [0.6, 1.0, 1.5]),
         ] {
-            // BF2's rifle set has no prone walk.
+            // BF2's prone walk is BF1's (issue #40), with no measured root
+            // speed of its own.
             if game == "bf2" && stance == Stance::Prone {
                 continue;
             }
@@ -672,5 +673,76 @@ fn the_feet_keep_to_the_ground() {
     }
     if rows > 0 {
         assert_eq!(rows, 21);
+    }
+}
+
+/// Issue #40: a prone soldier plays prone clips on both games - BF2's
+/// borrowed from BF1 (the disc has none; the sets' prone rows hold the stand
+/// idle) - in every weapon set, lying still and crawling, and his shot and
+/// reload are the prone ones.
+#[test]
+fn a_prone_soldier_lies_down_on_both_games() {
+    use crate::animator::{ActionKind, AnimInput, Animator};
+    use core::soldier::Stance;
+    let root = crate::assets::baked_root();
+    for (game, geometry) in [
+        ("bf1", "rep_inf_trooper"),
+        ("bf2", "rep_inf_trooper"),
+        ("bf2", "cis_inf_sbdroid"),
+        ("bf2", "all_inf_wookie"),
+    ] {
+        if !root
+            .join(format!("side_{game}/soldiers/{geometry}.glb"))
+            .exists()
+        {
+            eprintln!("skip: no {game} {geometry} bake");
+            continue;
+        }
+        let t = team(&[("trooper", Some(geometry), None)]);
+        let vis = SoldierVisuals::load_cpu(&root, game, &[t.clone(), t]);
+        let sa = &vis.assets[0];
+        let (Some(rig), clips, skel) = (&sa.rig, &sa.asset.clips, &sa.asset.skeleton) else {
+            panic!("{game} {geometry}: no rig");
+        };
+        let mut set = 0;
+        while rig.set_name(set) != "?" {
+            for speed in [0.0f32, 1.0] {
+                let input = AnimInput {
+                    stance: Stance::Prone,
+                    vel: glam::Vec2::new(0.0, speed),
+                    yaw: 0.0,
+                    max_speed: 7.0,
+                    root_scale: 1.0,
+                    dead: false,
+                    getup_lock: false,
+                    set,
+                    fired: false,
+                    throw: None,
+                    throw_windup: 0.0,
+                    reloading: false,
+                    reload_time: 0.0,
+                    alert: false,
+                    aim: (0.0, 0.0),
+                };
+                let mut a = Animator::new();
+                for _ in 0..60 {
+                    a.step(rig, clips, skel, &input, 1.0 / 30.0);
+                }
+                let name = |c: Option<usize>| c.map_or("-", |c| clips[c].name.as_str());
+                let (lo, up) = (name(a.lower_clip()), name(a.upper_clip()));
+                assert!(
+                    lo.contains("prone") && up.contains("prone"),
+                    "{game} {geometry} {} at {speed} m/s: legs {lo}, body {up}",
+                    rig.set_name(set)
+                );
+            }
+            for kind in [ActionKind::Shoot, ActionKind::Reload] {
+                if let Some((up, _)) = rig.action_slots(set, 2, kind) {
+                    let n = &clips[up.clip].name;
+                    assert!(n.contains("prone"), "{game} {geometry} {kind:?}: {n}");
+                }
+            }
+            set += 1;
+        }
     }
 }

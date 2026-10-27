@@ -161,10 +161,12 @@ if want side; then
   # BF2 SIDE gets the PC-stock tier too, from the matching PC side LVL.
   # This is where the proportional gain is biggest: a first-person weapon
   # sheet is 128x64 on the PS2 and 512x256 on the PC.
-  "$BAKE" soldier "$B2/SIDE/REP.LVL" rep_inf_arctrooper,rep_inf_clonecommander,rep_inf_ep3armoredpilot,rep_inf_ep3heavytrooper,rep_inf_ep3jettrooper,rep_inf_ep3sniper,rep_inf_ep3trooper,rep_inf_feluciatrooper,rep_inf_jettrooper,rep_inf_pilot,rep_inf_trooper "$OUT/side_bf2" "$B2/INGAME.LVL" ${PCSIDE_REP:+"$PCSIDE_REP"}
-  "$BAKE" soldier "$B2/SIDE/CIS.LVL" cis_inf_bdroid,cis_inf_magnaguard,cis_inf_sbdroid "$OUT/side_bf2" "$B2/INGAME.LVL" ${PCSIDE_CIS:+"$PCSIDE_CIS"}
-  "$BAKE" soldier "$B2/SIDE/ALL.LVL" all_inf_bothanspy,all_inf_engineer,all_inf_marksperson,all_inf_markspersonsnow,all_inf_snowtrooper,all_inf_soldier,all_inf_tantive4trooper,all_inf_vanguard,all_inf_wookie "$OUT/side_bf2" "$B2/INGAME.LVL"
-  "$BAKE" soldier "$B2/SIDE/IMP.LVL" imp_inf_atatcommander,imp_inf_atatpilot,imp_inf_darktrooper,imp_inf_gunner,imp_inf_scout,imp_inf_shocktrooper,imp_inf_snowtrooper,imp_inf_stormtrooper "$OUT/side_bf2" "$B2/INGAME.LVL"
+  # BF2 has no prone clips: BF1_ANIMS lends BF1's rifle prone set to every BF2
+  # soldier (bake::soldier::BORROWED_PRONE, issue #40; the bones share names).
+  BF1_ANIMS="$A1" "$BAKE" soldier "$B2/SIDE/REP.LVL" rep_inf_arctrooper,rep_inf_clonecommander,rep_inf_ep3armoredpilot,rep_inf_ep3heavytrooper,rep_inf_ep3jettrooper,rep_inf_ep3sniper,rep_inf_ep3trooper,rep_inf_feluciatrooper,rep_inf_jettrooper,rep_inf_pilot,rep_inf_trooper "$OUT/side_bf2" "$B2/INGAME.LVL" ${PCSIDE_REP:+"$PCSIDE_REP"}
+  BF1_ANIMS="$A1" "$BAKE" soldier "$B2/SIDE/CIS.LVL" cis_inf_bdroid,cis_inf_magnaguard,cis_inf_sbdroid "$OUT/side_bf2" "$B2/INGAME.LVL" ${PCSIDE_CIS:+"$PCSIDE_CIS"}
+  BF1_ANIMS="$A1" "$BAKE" soldier "$B2/SIDE/ALL.LVL" all_inf_bothanspy,all_inf_engineer,all_inf_marksperson,all_inf_markspersonsnow,all_inf_snowtrooper,all_inf_soldier,all_inf_tantive4trooper,all_inf_vanguard,all_inf_wookie "$OUT/side_bf2" "$B2/INGAME.LVL"
+  BF1_ANIMS="$A1" "$BAKE" soldier "$B2/SIDE/IMP.LVL" imp_inf_atatcommander,imp_inf_atatpilot,imp_inf_darktrooper,imp_inf_gunner,imp_inf_scout,imp_inf_shocktrooper,imp_inf_snowtrooper,imp_inf_stormtrooper "$OUT/side_bf2" "$B2/INGAME.LVL"
   # BF2's pistols are baked for the HUD's weapon row (card HUDW): the PS2
   # shows a weapon's own model there, and every BF2 side's second weapon is
   # its pistol (IMP's has been baked since the officer's primary names it).

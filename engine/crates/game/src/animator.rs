@@ -587,6 +587,10 @@ pub struct Rig {
     /// Per asset clip: its root speed (`[x, z]` m/s, the bake's
     /// `root_speed`), for a walk, run or sprint.
     root: Vec<Option<[f32; 2]>>,
+    /// BF2: the rifle's prone clips borrowed from BF1 (the bake's
+    /// `BORROWED_PRONE`, issue #40; the PS2's BF2 has no prone): per
+    /// [`bf2::MOVES`], then the shot and the reload.
+    prone: Vec<Option<usize>>,
 }
 
 impl Rig {
@@ -626,7 +630,25 @@ impl Rig {
             sets,
             bf2,
             root,
+            prone: bf2::MOVES
+                .iter()
+                .chain(&["shoot", "reload"])
+                .map(|m| find_clip(clips, &format!("human_rifle_prone_{m}")))
+                .collect(),
         }
+    }
+
+    /// BF2: the borrowed prone clip `k` of [`Rig::prone`] as a whole-body
+    /// slot.
+    fn prone_slot(&self, k: usize, looping: bool) -> Option<Slot> {
+        Some(Slot {
+            clip: (*self.prone.get(k)?)?,
+            looping,
+            blend_in: 0.2,
+            blend_out: 0.2,
+            aim: aim::AimKind::None,
+            pair: None,
+        })
     }
 
     /// The set a weapon class puts in the soldier's hands: `bank` is the
@@ -780,12 +802,24 @@ impl Rig {
                         Some(bf2::move_pair(s, 0)),
                     ],
                 };
+                // A BF2 set's prone rows hold the stand idle (the resolver's
+                // last fallback: the disc has no prone), so a prone soldier
+                // plays the borrowed clips first: the move, its other gait,
+                // the idle.
+                let prone = match body {
+                    Body::Feet(2, m) => [m.ids().1, m.other_gait().ids().1, 0]
+                        .into_iter()
+                        .find_map(|k| self.prone_slot(k, true)),
+                    _ => None,
+                };
                 let at = |layer| {
-                    pairs
-                        .iter()
-                        .flatten()
-                        .find_map(|&p| self.slot2(set, p, layer))
-                        .or_else(|| self.slot2(set, bf2::move_pair(0, 0), layer))
+                    prone.or_else(|| {
+                        pairs
+                            .iter()
+                            .flatten()
+                            .find_map(|&p| self.slot2(set, p, layer))
+                            .or_else(|| self.slot2(set, bf2::move_pair(0, 0), layer))
+                    })
                 };
                 (at(0), at(1))
             }
@@ -823,6 +857,16 @@ impl Rig {
                     ActionKind::Reload => 5,
                 };
                 let p = bf2::action_pair(s, k);
+                // A prone shot or reload: the borrowed clip (see `Rig::prone`).
+                let n = bf2::MOVES.len();
+                let prone = match kind {
+                    ActionKind::Shoot if s == 2 => self.prone_slot(n, false),
+                    ActionKind::Reload if s == 2 => self.prone_slot(n + 1, false),
+                    _ => None,
+                };
+                if let Some(up) = prone {
+                    return Some((up, Some(up)));
+                }
                 Some((self.slot2(set, p, 0)?, self.slot2(set, p, 1)))
             }
             _ => None,

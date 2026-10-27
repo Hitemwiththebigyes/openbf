@@ -8,9 +8,29 @@ use super::{
 use crate::anim_sets;
 use crate::skin_glb::{skinned_to_glb, Clip};
 use anyhow::{anyhow, bail, Context, Result};
-use mungefs::anim::AnimBank;
+use mungefs::anim::{crc32_lower, AnimBank};
 use mungefs::model::Model;
 use std::path::Path;
+
+/// The BF1 rifle prone clips a BF2 soldier borrows (`bake_soldier_anims`,
+/// issue #40): the moves the animator plays and the four transitions.
+pub const BORROWED_PRONE: &[&str] = &[
+    "human_rifle_prone_idle_emote",
+    "human_rifle_prone_idle_checkweapon",
+    "human_rifle_prone_idle_lookaround",
+    "human_rifle_prone_turnleft",
+    "human_rifle_prone_turnright",
+    "human_rifle_prone_walkforward",
+    "human_rifle_prone_walkbackward",
+    "human_rifle_prone_walkleft",
+    "human_rifle_prone_walkright",
+    "human_rifle_prone_shoot",
+    "human_rifle_prone_reload",
+    "human_rifle_stand_getdown_prone",
+    "human_rifle_crouch_getdown_prone",
+    "human_rifle_prone_getup_stand",
+    "human_rifle_prone_getup_crouch",
+];
 
 /// Bake one soldier model (+ textures) from a SIDE LVL.
 pub fn bake_soldier(lvl_path: &str, model: &str, outdir: &str) -> Result<BakedSoldier> {
@@ -145,8 +165,54 @@ pub fn bake_soldier_anims(
             wanted.push((c.name.clone(), b, k));
         }
         let mut sets = plan.sets;
+        // BF2 has no prone clips (`missing`); BF1's rifle prone clips are
+        // borrowed when `BF1_ANIMS` names BF1's COMMON.LVL (issue #40, one
+        // gameplay: a BF2 soldier goes prone too). The two games' soldier
+        // bones share names.
+        let bf1_buf = match (&sanm, std::env::var_os("BF1_ANIMS")) {
+            (Some(_), Some(p)) => Some(std::fs::read(&p).with_context(|| format!("{p:?}"))?),
+            _ => None,
+        };
+        let bf1_banks = match &bf1_buf {
+            Some(b) => {
+                let inner = mungefs::open(b).map_err(|e| anyhow!("{e}"))?;
+                mungefs::anim::find_banks(inner).map_err(|e| anyhow!("{e}"))?
+            }
+            None => Vec::new(),
+        };
+        let bf1_human: Vec<&AnimBank> = bf1_banks
+            .iter()
+            .filter(|b| b.name.starts_with("human"))
+            .collect();
+        let mut borrowed = Vec::new();
+        for name in BORROWED_PRONE {
+            if wanted.iter().any(|w| w.0 == *name) || bf1_human.is_empty() {
+                continue;
+            }
+            if let Some((full, bank, k)) = find_clip(&bf1_human, name) {
+                meta.missing.retain(|m| m != name);
+                borrowed.push(full.clone());
+                wanted.push((full, bank, k));
+            }
+        }
         for (name, bank, k) in wanted {
-            let decoded = bank.decode_clip(k).map_err(|e| anyhow!("{name}: {e}"))?;
+            let mut decoded = bank.decode_clip(k).map_err(|e| anyhow!("{name}: {e}"))?;
+            if borrowed.contains(&name) {
+                // BF1's bone lengths are not this model's: a bone the clip
+                // does not move keeps the model's own rest offset - but the
+                // root and the pelvis, which carry the body's height on the
+                // floor (a prone idle holds them low and still).
+                let height = ["dummyroot", "bone_root", "bone_pelvis"].map(crc32_lower);
+                for t in decoded
+                    .tracks
+                    .iter_mut()
+                    .filter(|t| !t.translated && !height.contains(&t.bone_crc))
+                {
+                    if let Some(b) = skel.bones.iter().find(|b| b.crc == t.bone_crc) {
+                        t.translations.fill(b.t);
+                    }
+                }
+            }
             if plan.measured.contains(&name) {
                 if let Some(v) = anim_sets::root_speed(&name, &decoded, sanm.is_some()) {
                     sets.root_speed.insert(name.clone(), v);
