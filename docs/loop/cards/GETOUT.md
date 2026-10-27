@@ -99,4 +99,3 @@ stay SQVEH scope; no parent acceptance or old validation debt is removed.
    Retain BUILD/input SHAs, raw seat/claim/clock/event rows and captures. All32
    maps x8seeds Normal/Hard finish; classify changed rows under existing rules.
    Full SQVEH and PILEIN acceptance remains independent and incomplete.
-

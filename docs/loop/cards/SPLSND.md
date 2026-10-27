@@ -78,4 +78,3 @@ when the extraction is implemented; preserve all other waivers.
    counts, warning-set comparison, raw content checks and normal gate receipts.
    Full parent SPL8 is not done until its other source and gate requirements
    finish. Preserve current approvals, thresholds and goldens.
-

@@ -23,7 +23,7 @@ bf2_kam1 22.5 (all maps 11.6); BF2 KAM1 cp2_cp3 30.4 and BF1 KAM1 cp4_cp4 30.2 /
 of the five worst posts. Alpha: the showcase maps do not cover Kamino, and the maintainer plays it.
 
 ## Evidence
-- The maintainer's frames `lead_tmp/pete_0930/kam1_play_5.png` … `kam1_play_11.png`; Claude's port overview
+- The maintainer's frames `lead_tmp/playtest_0930/kam1_play_5.png` … `kam1_play_11.png`; Claude's port overview
   `kam1_port_overview_sea_boundary.png` (`--cam-overview`, default settings).
 - **Sea edge:** a foam-wave disc around the platforms, then a flat dark-green plane to the horizon (`kam1_play_7`,
   the overview). BF2 KAM1: `NearSceneRange (0.8, 60, 90)`, `FarSceneRange 800`, no `LowResTerrain` sheet → what draws past
@@ -36,7 +36,7 @@ of the five worst posts. Alpha: the showcase maps do not cover Kamino, and the m
 - **Invisible floors — the maintainer's answer (2026-09-30 ~18:45, no need to ask him again):** it is the **inclined floating ramps
   (runways) that connect the circular platforms**. He can WALK on them (collision is there) but the ramp's surface is not
   drawn. There are SEVERAL on the map (BF2 KAM1 at least; check BF1 too); he photographed one — it is in one of
-  `lead_tmp/pete_0930/kam1_play_5.png` … `kam1_play_11.png`, so look at those frames for the ramp. The census should find
+  `lead_tmp/playtest_0930/kam1_play_5.png` … `kam1_play_11.png`, so look at those frames for the ramp. The census should find
   every walkable inclined surface with no drawn mesh under it; the likely leads are a ramp model the port skips or draws
   one-sided/back-face-culled from above, a mesh dropped by the bake or in a LOD/far-scene split, or a collision-only
   object.

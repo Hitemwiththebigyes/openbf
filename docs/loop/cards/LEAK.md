@@ -20,7 +20,7 @@ class of hole, not just that one: all maps, all invisible walls, all collision h
 leak. The round sweep proves that rounds end, not that units stay out of closed volumes.
 
 ## Evidence
-- The known case: JWAL (`lead_tmp/pete_0929/kas2_platform_*.png`).
+- The known case: JWAL (`lead_tmp/playtest_0929/kas2_platform_*.png`).
 - The collision code: `engine/crates/core/src/collision.rs`, `collision/walls.rs` (`wall_sweep`), the soldier
   integrator in `core/src/soldier.rs` / `sim/`; the nav hub graph in `core/src/nav.rs`.
 

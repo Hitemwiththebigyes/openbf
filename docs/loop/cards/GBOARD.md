@@ -98,4 +98,3 @@ baseline, threshold or pin edits.
    Run unchanged CI, sim/sweep/arena/leak/bake/parity/behavior gates as applicable.
    The original GUNWT TAT1/NAB1 voice-rate bars remain with the parent; this
    slice does not claim to meet them. Synthetic pass alone is not acceptance.
-

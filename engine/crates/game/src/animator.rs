@@ -187,6 +187,8 @@ pub struct AnimInput {
     /// a 1.15 Wookiee walks at v / 1.15 on his longer legs.
     pub root_scale: f32,
     pub dead: bool,
+    /// Standing in the lock that follows a get-up ([`Special::StandUp`]).
+    pub getup_lock: bool,
     /// The set of the weapon in hand ([`Rig::weapon_set`]).
     pub set: usize,
     /// A shot left the weapon this update.
@@ -472,6 +474,9 @@ pub enum Special {
     Tumble(bool),
     Land(bool),
     Rest(bool),
+    /// The lock after a get-up (`stand_getupfront / back`, ids 0x10 / 0x11):
+    /// the side of the get-up clip before it (re-knockback §2).
+    StandUp(bool),
 }
 
 impl Special {
@@ -492,6 +497,7 @@ impl Special {
             Special::Tumble(b) => ["thrown_tumblefront", "thrown_tumbleback"][usize::from(b)],
             Special::Land(b) => ["thrown_landfrontsoft", "thrown_landbacksoft"][usize::from(b)],
             Special::Rest(b) => ["thrown_restfrontsoft", "thrown_restbacksoft"][usize::from(b)],
+            Special::StandUp(b) => ["stand_getupfront", "stand_getupback"][usize::from(b)],
         }
     }
 
@@ -499,7 +505,9 @@ impl Special {
     fn thrown(self) -> Option<bool> {
         match self {
             Special::Flying(d) => Some(d == 1),
-            Special::Tumble(b) | Special::Land(b) | Special::Rest(b) => Some(b),
+            Special::Tumble(b) | Special::Land(b) | Special::Rest(b) | Special::StandUp(b) => {
+                Some(b)
+            }
             _ => None,
         }
     }
@@ -1096,6 +1104,11 @@ impl Animator {
             (Err(Special::Dead), Some(Body::Special(sp))) if sp.thrown().is_some() => {
                 Err(Special::Rest(sp.thrown().unwrap_or(false)))
             }
+            (Ok(0), Some(Body::Special(Special::Land(b) | Special::StandUp(b))))
+                if i.getup_lock =>
+            {
+                Err(Special::StandUp(b))
+            }
             (s, _) => s,
         };
         let stance = self.jump.step(rig, clips, i, stance, dt);
@@ -1198,7 +1211,7 @@ impl Animator {
                 Body::Feet(s, mv)
             }
         };
-        self.body = Some(body);
+        let was_body = self.body.replace(body);
         let mv = match body {
             Body::Feet(_, m) => Some(m),
             Body::Special(_) => None,
@@ -1302,8 +1315,24 @@ impl Animator {
             self.travel = t;
         }
         let rolling = body == Body::Special(Special::Roll);
+        let tumble = match body {
+            Body::Special(Special::Tumble(back)) => Some(if back {
+                wrap(self.travel - PI)
+            } else {
+                self.travel
+            }),
+            _ => None,
+        };
+        if let (Some(t), false) = (
+            tumble,
+            matches!(was_body, Some(Body::Special(Special::Tumble(_)))),
+        ) {
+            self.twist = t;
+        }
         let target = match mv {
             _ if rolling => Some(self.travel),
+            _ if tumble.is_some() => tumble,
+            _ if matches!(body, Body::Special(Special::Land(_))) => None,
             Some(m) if m.moving() => Some(self.leg),
             Some(_) => None,
             None => Some(0.0),

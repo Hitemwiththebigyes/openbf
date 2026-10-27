@@ -23,7 +23,7 @@ AI-side half of Kamino's "ramps and paths" trouble; the render-side half is KRMP
 query falling through slits) and STLVL (level-aware arrival) may be related; STHOP changed the walking rules today.
 
 ## Evidence
-- <repo>/engine/artifacts/lead_tmp/pete_0930/kam1_bf2_2230_ai_stuck_on_rail.png: two droids on the black rail at about x 720-1010, y 240-640, the walkway at the right
+- <repo>/engine/artifacts/lead_tmp/playtest_0930/kam1_bf2_2230_ai_stuck_on_rail.png: two droids on the black rail at about x 720-1010, y 240-640, the walkway at the right
   (x 1100-1900) empty. The maintainer says they are "just getting stuck next to a path".
 - RE (re-kamino.md §4.2): the rail IS walkable on the PS2 (feet 79.106 over the 0.57 m rail) and the port's soldier hops there;
   §4.1: the wall-box tops along bridges and ramps are a walkable level 0.44-0.77 m above the drawn rail. A bot steering along
@@ -38,7 +38,7 @@ baseline in `loop/loop_baselines`, no census cluster whose members stand on a ra
 the pose in `kam1_bf2_2230_ai_stuck_on_rail.png` with the bots on the walkway.
 
 ## Notes
-Filed 2026-09-30 22:50 from the maintainer's third BF2 Kamino play session (three frames, `lead_tmp/pete_0930/kam1_bf2_2230_*.png`); a claim in Why/Evidence marked as reading of the image is Claude's, not measured.
+Filed 2026-09-30 22:50 from the maintainer's third BF2 Kamino play session (three frames, `lead_tmp/playtest_0930/kam1_bf2_2230_*.png`); a claim in Why/Evidence marked as reading of the image is Claude's, not measured.
 
 - Fable 2026-10-01: the cause was the port's hub ARRIVAL (at the authored radius; the PS2 arrives at the waypoint or past its plane, RE_LOG 'Arrival and locate'), not the rail's collision. f293fd2: `brain::hub_reached`, `route::walk_point`, `route::approach_leg`. KAM1 0/8 -> 1/8, region deaths 367 -> 117 over 8 seeds. Evidence and what is left: `lead_tmp/kamai-fable/README.md`.
 

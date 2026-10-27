@@ -61,4 +61,3 @@ original audit-kit/multi-map acceptance; this slice claims no credit for them.
 - Focused tests, full core/game libraries, fmt and workspace all-target Clippy
   pass. Production code is byte-identical to the parent. No gate move declared;
   full CI and all unchanged applicable cleanup gates must pass for acceptance.
-

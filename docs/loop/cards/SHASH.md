@@ -65,4 +65,3 @@ full CI and auto/landing gates with restored gate inputs. No commit, push,
 landing or completed-card claim. Exact checks and evidence are in the report.
 
 ## GitHub checkpoint recovery (2026-10-24)
-

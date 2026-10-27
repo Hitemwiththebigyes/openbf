@@ -92,4 +92,3 @@ RE_LOG: the planning-graph entry's "Audit 2026-10-03" addendum.
 - AQD (merged in above) is therefore NOT fixed: its test passes with the start rule and waits in
   `lead_tmp/loc3/locate_ps2_with_aqd.rs` for LOC3B.
 - The 2026-10-06 HUBP note (BF2 KAM1 hub 92's floor under the deck) was not looked at: the unit locate did not change.
-

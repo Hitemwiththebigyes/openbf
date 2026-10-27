@@ -118,4 +118,3 @@ approved (his 16:00 note).
   Fixed on the branch (6647001: given up under / over the spot on the last leg; `arrive` refuses it from below; test +
   2 mutations). Landed rows: travel-standing spells 10 -> 0, B9 standing with overwatch counted 0.05 % = main's, recycled
   35 -> 33. Report `reports/20261016_1103_land_SNPR.md`. Owed: the planner removes `[approvals.SNPR]`.
-

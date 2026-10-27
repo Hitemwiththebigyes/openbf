@@ -35,4 +35,3 @@ debug build PASS. Parent/candidate scripted aim non-hash columns identical at al
 These asset-free checks do not earn acceptance: real walk/aim logs, TAT1 bake,
 font, adapter and both configured baseline trees are absent. No pins, gates.toml,
 goldens or thresholds changed. `declares: sim` remains the intended re-baseline;
-

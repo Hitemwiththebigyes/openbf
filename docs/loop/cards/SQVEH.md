@@ -78,4 +78,3 @@ press; logs `lead_tmp/sqveh/scenes/{O1,OP4,OP5,L15,P3,FB}/events.csv`, sampler `
   `steer`'s Follow branch (the leader's mount is where the board goal goes). Receivers today are AI on foot only; a
   bot in a vehicle takes no order (the PS2's do, with x3 reach). The scene test to extend:
   `game/tests/squad_orders_ps2.rs`.
-

@@ -122,7 +122,7 @@ fn juni_every_air_row_and_complete_flight() {
 }
 
 #[test]
-fn juni_fall_uses_bf2_but_thrown_keeps_each_original_rule() {
+fn juni_fall_uses_bf2_and_thrown_uses_bf1_on_every_map() {
     for rules in BOTH {
         for stance in [Stance::Fall, Stance::Thrown] {
             for input in [(0, 0), (FWD, 0), (-FWD, 0), (0, FWD)] {
@@ -138,8 +138,8 @@ fn juni_fall_uses_bf2_but_thrown_keeps_each_original_rule() {
                     ..Default::default()
                 };
                 for row in 0..8 {
-                    if stance == Stance::Thrown && rules == GroundRules::Bf1 {
-                        // Original BF1: one-sided approach, 70*1.2*0.2/30,
+                    if stance == Stance::Thrown {
+                        // KNOCK_RULES: BF1's on every map: one-sided approach, 70*1.2*0.2/30,
                         // no drag, MaxSpeed forward/back, MaxStrafeSpeed side.
                         let raise = |cur: f32, stick: i16, cap: f32| {
                             let target = f32::from(stick) / 32767.0 * 0.2 * cap;
@@ -156,7 +156,6 @@ fn juni_fall_uses_bf2_but_thrown_keeps_each_original_rule() {
                         want.z = -raise(-want.z, input.0, c.max_speed);
                         want.y -= 13.5 / 30.0;
                     } else {
-                        // Preserve the existing BF2 Thrown ControlSpeed selection.
                         want = air_row(want, 0.0, input, c.acceleration, false);
                     }
                     s.step(DT, &pad, &c, rules);
@@ -375,19 +374,12 @@ fn juni_thrown_grounded_first_update_and_landing_locks() {
             ly: -FWD,
             ..Default::default()
         };
-        let first = if rules == GroundRules::Bf1 {
-            Vec3::new(0.4, 2.0, -0.2) // opposite stick: 3 - 70*1.2/30
-        } else {
-            air_row(s.vel, 0.0, (-FWD, 0), c.acceleration, true)
-        };
+        // KNOCK_RULES: BF1's throw on every map.
+        let first = Vec3::new(0.4, 2.0, -0.2); // opposite stick: 3 - 70*1.2/30
         go(&mut s, &pad, &c, rules, true);
         close(s.vel, first, "thrown first update skips gravity");
         assert!(!s.grounded && s.no_fire());
-        let second = if rules == GroundRules::Bf1 {
-            Vec3::new(0.4, 1.55, 0.36) // opposite: another 70*1.2*0.2/30
-        } else {
-            air_row(first, 0.0, (-FWD, 0), c.acceleration, false)
-        };
+        let second = Vec3::new(0.4, 1.55, 0.36); // opposite: another 70*1.2*0.2/30
         go(&mut s, &pad, &c, rules, true);
         close(
             s.vel,
@@ -427,12 +419,8 @@ fn juni_thrown_grounded_first_update_and_landing_locks() {
                     }
                 }
                 assert_eq!(s.stance, Stance::Stand);
-                let lock = if rules == GroundRules::Bf1 {
-                    58.0 / 30.0
-                } else {
-                    1.9
-                };
-                assert_eq!(s.lock_timer, lock, "original get-up lock {rules:?}");
+                // KNOCK_RULES: BF1's lock (`stand_getupfront`, 58 frames) everywhere.
+                assert_eq!(s.lock_timer, 58.0 / 30.0, "get-up lock {rules:?}");
                 let at = s.pos;
                 go(&mut s, &PadState { ly: FWD, ..JUMP }, &c, rules, true);
                 assert!(s.no_fire());

@@ -116,4 +116,3 @@ The lead re-read the GS words.
   downward cone are visible (`lead_tmp/lflr/lflr_sheet.png`, `diff_cp2.png`), at about half the PS2's added level (the
   additive blend in linear light: card ADDB). The flare is cut by the lamp dish's depth like the PS2's GEQUAL test.
 - Left: the hologram's own flare + icon UV animation -> card HOLOF (value 2).
-

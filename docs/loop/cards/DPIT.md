@@ -68,4 +68,3 @@ site A, none at B.
 ## Notes
 - DEA1 is not a showcase map: `defer: post-alpha` (the planner may lift it).
 - Run scratch binaries under the memory cap (OFFG's note).
-

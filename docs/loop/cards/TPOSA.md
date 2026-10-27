@@ -27,4 +27,3 @@ Card TPOS (value 5) is bigger than one session: its Tactician (slice 2, branch t
 
 ## Notes
 - TPOS keeps the rest (the Tactician, reservations, the cycle, Capture / Guard / Overwatch, the deletions) and rebases onto this.
-

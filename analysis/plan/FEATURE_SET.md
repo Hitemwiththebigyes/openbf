@@ -21,6 +21,14 @@
   +25 % forward boost; a BF1-sourced droideka has no `BallJumpHeight`, so it
   takes 1.27 m as a PROVISIONAL default. The BUILD stays HELD (P7-class, the
   vehicle/entity work). The RE for each such difference cites both ELFs.
+- **(the maintainer, 2026-10-27) One gameplay, both games.** The blanket form of the rule above:
+  gameplay is the same on every map of both games — weapon damage, class health and
+  stamina, jumping, rolling/dodging, grenade throwing, blast push. Where the discs differ,
+  one number wins (the better game, per the 2026-10-25 rule) and is recorded next to both
+  games' values. Sounds, voices, rosters and per-class ammo counts may still differ.
+  Grenades throw on the press, as on the PS2 (the hold-to-charge throw is to be checked
+  against the discs). Blast push is one value per explosion type, toned down, falling off
+  with distance, only inside a critical radius.
 - Stances: one contextual button — **moving = roll** (both games had roll; BF1's was
   harder), **stationary = stance cycle** stand → crouch → prone/army-crawl (BF1 prone
   returns; BF2 dropped it). `RE:` BF1 stance machine + both roll implementations.
@@ -187,7 +195,13 @@
   replaced by BF2's if the port ever finds them in BF2's global bank) — the
   same fallback pattern as the HUD icons.
 - HUD: **BF2**.
-- End-of-round (scoreboard, medal ceremony): **BF2**.
+- End-of-round (the maintainer, 2026-10-27 — replaces "BF2"): the round really ends; **BF1's scenic
+  shot of the map** under the victory/defeat banner (not BF2's frozen frame), then the stats
+  screens the player flips through (scoreboard, medals).
+- (the maintainer, 2026-10-27) When one team holds every CP, the HUD shows "Victory in N" / "Defeat in N"
+  for the countdown.
+- (the maintainer, 2026-10-27) Class change at a friendly CP: Triangle near your own CP opens class
+  select (BF2), on every map of both games.
 - Announcer/VO: **per source map**. SFX where games differ: **BF2**.
 - Music: union, per-map source game.
 
@@ -319,4 +333,3 @@ GS/VIF/VU renderer internals, IOP sound drivers, PSS movie codec, PAL/NTSC logic
 plumbing. KB/M input paths (PC-ism, dropped by decision #28; our own KB/M was added 2026-10-25, see Platform & meta). BF1 Historical Campaign
 scripting. BF2's on-foot X-lock aim mechanic (the vehicle/space lock-on is NOT dropped —
 §Vehicles & space).
-

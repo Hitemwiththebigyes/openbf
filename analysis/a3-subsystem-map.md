@@ -1121,4 +1121,3 @@ the binding tables (and match the renamed labels in the decomp corpora).
 | SetWorldExtents | — | 0018b3a8 |
 | SetupTempHeap | — | 0018b7f0 |
 | StealArtistHeap | — | 0018b410 |
-

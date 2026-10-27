@@ -34,4 +34,3 @@ A PCSX2 run (capture job): an AT-ST driven into the cp3 bunker's side on BF2 HOT
   The port runs BF2's on both games' maps.
 - Card WCON moves the walker's contact pass between the fall and the legs (the PS2's order). Re-run this card's
   bunker step-up after it lands.
-

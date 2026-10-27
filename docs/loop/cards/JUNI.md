@@ -98,4 +98,3 @@ paired32maps x8seeds with finish/boarding/stuck/behavior rows, arena/sim/leak/
 GPU/golden/parity/full CI, unchanged refusal classification and approved
 baseline process, plus the maintainer's BF1-map feel check. A declared sim/sweep/arena/
 leak move never approves a behavior threshold or permits a pin/golden edit.
-

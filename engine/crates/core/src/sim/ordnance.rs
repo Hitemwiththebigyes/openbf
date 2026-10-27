@@ -334,7 +334,8 @@ impl Sim {
         if first {
             g.touched = Some(self.tick);
         }
-        let out = g.contact(&class, point, n, what);
+        let room = self.push_off_room(point, n);
+        let out = g.contact(&class, point, n, what, room);
         if out == Contact::Stuck {
             g.anchor = Some(match what {
                 Surface::Vehicle { handle, .. } => match self.vehicle(handle) {
@@ -407,6 +408,32 @@ impl Sim {
     /// Kamino decks). The PS2's grenades rest on those decks; what its mesh
     /// test does behind the origin is unread (re-grenades §13.2), and the
     /// baked meshes' windings are mixed, so a one-sided ray is no answer.
+    /// How far a bounce may push the grenade off along `n`
+    /// ([`sticky::PUSH_OFF`]), or half the way to a surface it would meet
+    /// first. Ours (issue #37): the underside of a step's lip, 2.5 cm over
+    /// the floor, pushed it 4.5 cm down through that floor.
+    fn push_off_room(&self, point: Vec3, n: Vec3) -> f32 {
+        let start = point + n * sticky::PUSH_ROOM_START;
+        let len = sticky::PUSH_OFF - sticky::PUSH_ROOM_START;
+        let mut t = len;
+        if let Some(h) = self
+            .collision
+            .ray_with(start, n, len, Layers::ORDNANCE, HullFilter::All)
+        {
+            t = t.min(h.t);
+        }
+        if let Some(hf) = self.heightfield.as_ref() {
+            if let Some(f) = ray_terrain_ps2(hf, &self.collision.cutters, start, start + n * len) {
+                t = t.min(len * f);
+            }
+        }
+        if t < len {
+            sticky::PUSH_ROOM_START + t * 0.5
+        } else {
+            sticky::PUSH_OFF
+        }
+    }
+
     fn sweep_sticky(
         &self,
         g: &Sticky,
@@ -1240,6 +1267,75 @@ mod tests {
                 "{case}: it lies on the floor, y {}",
                 g.pos.y
             );
+        }
+    }
+
+    /// Issue #37 (BF2 Jabba's Palace, the cell corridor's step): a grenade
+    /// that meets the underside of a step's lip, 2.5 cm over the floor, is
+    /// pushed off along the lip's down-facing normal. The PS2's full 0.1 m
+    /// put it under the floor; the push stops short of the floor now.
+    #[test]
+    fn a_grenade_under_a_steps_lip_stays_over_the_floor() {
+        use crate::collision::{trimesh, Body, CollisionWorld, Shape};
+        const FLOOR: f32 = 10.0;
+        let floor = [
+            [-30.0, FLOOR, -30.0],
+            [30.0, FLOOR, -30.0],
+            [30.0, FLOOR, 30.0],
+            [-30.0, FLOOR, 30.0],
+        ];
+        // The lip: its bottom edge 2.5 cm over the floor at z 2, rising
+        // toward -z, facing down and toward the thrower (the traced normal).
+        let n = Vec3::new(0.0, -0.45, -0.89).normalize();
+        let up = n.cross(Vec3::X).normalize() * -1.0;
+        let edge = Vec3::new(0.0, FLOOR + 0.025, 2.0);
+        let lip = [
+            edge - Vec3::X * 5.0,
+            edge + Vec3::X * 5.0,
+            edge + Vec3::X * 5.0 + up * 0.5,
+            edge - Vec3::X * 5.0 + up * 0.5,
+        ]
+        .map(|v| v.to_array());
+        for (winding, bf2) in [(0, true), (1, true), (0, false), (1, false)] {
+            let quad: [u32; 6] = if winding == 0 {
+                [0, 1, 2, 0, 2, 3]
+            } else {
+                [0, 2, 1, 0, 3, 2]
+            };
+            for k in 0..9 {
+                let mut s = Sim::empty(7);
+                let sheet = |c: &[[f32; 3]; 4]| {
+                    Body::new(
+                        glam::Mat4::IDENTITY,
+                        Shape::Mesh(trimesh(c, &quad).expect("mesh")),
+                    )
+                };
+                s.collision = CollisionWorld::new(vec![sheet(&floor), sheet(&lip)], Vec::new());
+                let wc = s.add_weapon_class(thermal(bf2));
+                let owner = s
+                    .spawn(&UnitSpec::player(0, Vec3::new(20.0, FLOOR, 20.0)))
+                    .unwrap();
+                let class = s.weapon_classes[wc].ordnance.sticky.clone().unwrap();
+                // Level throws 0.5 m short of the lip, low enough to meet it
+                // within the PS2 push-off's reach of the floor.
+                let start = Vec3::new(0.0, FLOOR + 0.04 + 0.01 * k as f32, 1.5);
+                let g = Sticky::new(start, Vec3::new(0.0, 0.0, 6.0), &class, 1.0e6, owner, 0, wc);
+                s.stickies.push(g);
+                let mut low = f32::MAX;
+                for _ in 0..300 {
+                    s.step(&[pad(0)]);
+                    let Some(g) = s.stickies.first() else { break };
+                    low = low.min(g.pos.y);
+                    if !g.moving {
+                        break;
+                    }
+                }
+                assert!(
+                    low > FLOOR,
+                    "winding {winding} bf2 {bf2} from y {}: under the floor, lowest {low}",
+                    start.y
+                );
+            }
         }
     }
 

@@ -38,4 +38,3 @@ can still replenish its entire issue. See the AMCAP entry in FEEL_NOTES.
 - Changing the predicate to BF2's full-magazine rule must fail the independent
   partial-magazine assertion. Applicable integration CI and gameplay checks
   belong to the complete PR3 integration, not this arithmetic test alone.
-

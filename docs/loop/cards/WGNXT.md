@@ -99,4 +99,3 @@ transitions or claim complete reissue parity from this slice.
    all32maps x8seeds Normal+Hard boarding/stall/finish comparisons and full
    CI/sim/sweep/arena/leak/bake/GPU/golden/parity/behavior gates remain required.
    Sort unrelated refusals with the unchanged NOISE/EXPOSED/CAUSED rules.
-

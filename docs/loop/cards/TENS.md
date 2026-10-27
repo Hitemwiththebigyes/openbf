@@ -55,4 +55,3 @@ risk on both platform maps. The port's AI, projectiles and flyers use the same f
 The floor census (`lead_tmp/kamr/tools/floor_census.rs`, 0.5 m cells) on BF1 KAM1: 609,483 reachable points
 (152,371 m2) of walkable y = 0 heightfield with nothing drawn within 0.3 m; BF1 BES1 at 1 m cells: 265,324 m2.
 `analysis/re-kamino.md` §4.1. The maintainer's "invisible floors" on BF1 Kamino is this card.
-

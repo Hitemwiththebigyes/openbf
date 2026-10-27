@@ -58,4 +58,3 @@ Planner 2026-10-21 20:50: the maintainer (INBOX 17:50 item 4) wants BF1 unlocks 
 - Still owed: every writer/default/reset of the compared score, death/new-battle/side-change and downward-score
   crossings; event-to-score map including hero exclusions and special bonuses; bots and BF1 primary evidence;
   real roster and rendered gate/text/silhouette checks. Original Acceptance is unchanged; no new build card opened.
-

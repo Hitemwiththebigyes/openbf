@@ -25,4 +25,3 @@ Found building VRIDE (analysis/re-vehicle-riders.md 7): the port's walker scopin
 ## Acceptance
 - A census through the baked dbs: per walker class (AT-TE, AT-AT, AT-ST, spiders, one-man AT-ST, tauntaun, kaadu) every seat's PilotType / EyePointOffset / Track* before and after; a test that a walker turret section's seat key stays on its section (mutation: drop the claim -> fails).
 - Sweep + arena: the move is declared (sim) with the classes whose pilot seat changes named; BF1's walker setter twin read first (does BF1's turret setter fall through the same way?).
-

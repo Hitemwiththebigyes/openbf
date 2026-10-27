@@ -609,6 +609,7 @@ fn the_feet_keep_to_the_ground() {
                     max_speed: 7.0,
                     root_scale: 1.0,
                     dead: false,
+                    getup_lock: false,
                     set: 0,
                     fired: false,
                     throw: None,

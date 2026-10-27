@@ -85,4 +85,3 @@ prove that height proximity cannot determine the struck surface.
    bake/behavior gates through the normal isolated-worktree workflow. Declare
    actual measured golden moves before any approved update. Synthetic tests
    are implementation evidence only; preserve GCL16 and earlier full debts.
-

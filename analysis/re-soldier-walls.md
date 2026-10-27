@@ -43,7 +43,7 @@
 
 Card JWAL (lane 2). The maintainer's play session (INBOX 2026-09-29): on BF1 Kashyyyk Docks (KAS2), a round wooden platform's
 bamboo side wall stops a walking soldier, but a run at it plus a jump forward carries him INSIDE, onto the ground
-under the deck (`lead_tmp/pete_0929/kas2_platform_wall_outside.png`, `kas2_platform_inside.png`). Question: what
+under the deck (`lead_tmp/playtest_0929/kas2_platform_wall_outside.png`, `kas2_platform_inside.png`). Question: what
 lets him in, does the PS2 let him in too, and what should the port do?
 
 ## 0. Answer

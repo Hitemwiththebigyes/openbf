@@ -82,4 +82,3 @@ slab (left there by its spider walker), in the capture volume and 1 m from the c
   side stands clamped at 3 alive or fewer the round lasts a median 24 s, p90 76 s, max 226 s; 1,059 of that side's
   1,107 last deaths are kills, 43 the last resort. Reverse: build the hunt if a later sweep shows endgames over 2 min
   on more than a few rounds (now 4 of 287).
-

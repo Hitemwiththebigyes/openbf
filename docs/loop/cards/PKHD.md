@@ -35,4 +35,3 @@ holds them again (and the land job takes it). STATUS / orient still list it as w
 After it lands the planner may set SNPR / HJAM back to `parked` with `needs:` (their resume lines name the maintainer's questions).
 
 ## GitHub checkpoint recovery (2026-10-24)
-

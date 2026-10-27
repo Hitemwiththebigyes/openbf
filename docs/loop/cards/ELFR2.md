@@ -85,4 +85,3 @@ blended; the risky ones: `kam_crate` 0x05 (§0.6(a), grime alpha mid 0.55 — th
 `defer: post-alpha` — not needed for the alpha's six showcase maps or its checklist. Value 4 → 3 until the alpha (restore from `value_pre_alpha`).
 
 Both halves have their own acceptance above; land them as two commits on one branch, one `land.py`.
-

@@ -44,4 +44,3 @@ mesh lookup and draw order. Retain BHUD/BMAP/CPBAR/EVMSG reference coverage.
    pass with nothing declared; no approvals, thresholds or goldens change.
    HUD also requires unchanged approved HUD/spawn/map captures and applicable
    GPU/golden/parity gates. Each slice retains its full original gate set.
-

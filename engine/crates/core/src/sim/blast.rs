@@ -200,14 +200,16 @@ impl Sim {
     /// - **the death kick** (B1 FUN_00200e68 -> FUN_00200f90, §3): a body
     ///   whose unit is dead - this blast's kill or an older corpse - gets
     ///   [`crate::soldier::DEATH_KICK`] along normalize(feet - blast);
-    /// - **the push** (`vt+0x84`, B1 FUN_002009a0, §1): unless the class
-    ///   pushes only the dead and this one lives (BF2's `PushDeadOnly`,
-    ///   [`ExplosionClass::push_dead_only`], §4), or it is mounted, thrown,
-    ///   tumbling or getting up: [`crate::soldier::Soldier::knock`] with
-    ///   normalize(c - blast) + (0, 0.6, 0) and Push x the falloff of
-    ///   PushRadiusInner / Outer on the same sphere as the damage. BF1's
-    ///   droids are pushed like the clones: the ChunkFrequency roll is card
-    ///   DCHK's (a named, temporary deviation).
+    /// - **the push** (`vt+0x84`, B1 FUN_002009a0, §1): unless it is
+    ///   mounted, thrown, tumbling or getting up:
+    ///   [`crate::soldier::Soldier::knock`] with normalize(c - blast) + (0,
+    ///   0.6, 0) and Push x [`crate::soldier::KNOCK_PUSH_SCALE`] x
+    ///   [`knock_falloff`], under [`crate::soldier::KNOCK_RULES`] on every
+    ///   map. Deviations (the maintainer, 2026-10-27): the living are pushed on BF2
+    ///   maps too (BF2's `PushDeadOnly` is not read), and the push fades with
+    ///   the distance (the disc authors PushRadiusInner = Outer, all or
+    ///   nothing). BF1's droids are pushed like the clones: the
+    ///   ChunkFrequency roll is card DCHK's (a named, temporary deviation).
     fn kick_and_push(&mut self, h: UnitHandle, e: &ExplosionClass, pos: Vec3, c: Vec3, w: f32) {
         let Some(u) = self
             .units
@@ -216,17 +218,13 @@ impl Sim {
         else {
             return;
         };
-        let (alive, mounted) = (u.alive, u.mount.is_some());
-        let rules = self.ground_rules;
+        let mounted = u.mount.is_some();
         let i = h.index as usize;
-        if !alive {
+        if !u.alive {
             let feet = self.units[i].soldier.pos;
             self.units[i].soldier.kick(feet - pos);
         }
-        let dead_only = e
-            .push_dead_only
-            .unwrap_or(rules == crate::soldier::GroundRules::Bf2);
-        if e.push <= 0.0 || (dead_only && alive) || mounted {
+        if e.push <= 0.0 || mounted {
             return;
         }
         if self.units[i].soldier.stance.knocked() {
@@ -237,16 +235,31 @@ impl Sim {
         if len <= 1e-4 {
             return;
         }
-        let f = blast_falloff(len, w, e.push_inner, e.push_outer);
+        let f = knock_falloff(len, w, e.push_outer);
         if f <= 0.0 {
             return;
         }
         let draw = self.lcg.unit();
         let dir = d / len + Vec3::Y * crate::soldier::KNOCK_LIFT;
-        self.units[i].soldier.knock(dir, e.push * f, rules, draw);
+        let scale = e.push * crate::soldier::KNOCK_PUSH_SCALE * f;
+        self.units[i]
+            .soldier
+            .knock(dir, scale, crate::soldier::KNOCK_RULES, draw);
         self.nav_stats.knocks += 1;
     }
+}
 
+/// The push's share at `d` from the blast for a body of width `w`: 1 at the
+/// blast, falling linearly to 0 at `outer` (PushRadius) from the body's near
+/// side. Ours (the maintainer, 2026-10-27): the PS2 pushes all or nothing inside it.
+pub fn knock_falloff(d: f32, w: f32, outer: f32) -> f32 {
+    if outer <= 0.0 {
+        return 0.0;
+    }
+    (1.0 - (d - w * 0.5).max(0.0) / outer).max(0.0)
+}
+
+impl Sim {
     /// One soldier's splash (B1 FUN_00200e68 → FUN_00221600, §3-§5): riders
     /// of anything but a building turret skip; TakeDamage with the falloff
     /// as the multiplier; D12's human damage layer as for a bolt; the kill
@@ -572,7 +585,6 @@ mod tests {
             damage_inner: 4.5,
             damage_outer: 6.5,
             push: 10.0,
-            push_inner: 4.5,
             push_outer: 4.5,
             ..Default::default()
         }
@@ -588,9 +600,61 @@ mod tests {
         s.units[h.index as usize].soldier.vel
     }
 
+    /// The push a standing soldier at `feet` gets from `e` at `blast` under
+    /// the port's rule: the PS2's (normalize + lift) x Push, x
+    /// [`crate::soldier::KNOCK_PUSH_SCALE`] x [`knock_falloff`].
+    fn port_push(e: &ExplosionClass, feet: Vec3, stance: Stance, blast: Vec3) -> Vec3 {
+        let (lift, w) = soldier_blast_sphere(stance);
+        let d = feet + Vec3::Y * lift - blast;
+        let f = knock_falloff(d.length(), w, e.push_outer);
+        (d.normalize() + Vec3::Y * crate::soldier::KNOCK_LIFT)
+            * e.push
+            * crate::soldier::KNOCK_PUSH_SCALE
+            * f
+    }
+
+    /// The falloff: whole at the blast, half halfway, none at PushRadius
+    /// (measured from the body's near side).
+    #[test]
+    fn knock_falloff_fades_to_the_push_radius() {
+        assert_eq!(knock_falloff(0.5, 1.0, 4.0), 1.0);
+        assert!((knock_falloff(2.5, 1.0, 4.0) - 0.5).abs() < 1e-6);
+        assert_eq!(knock_falloff(4.5, 1.0, 4.0), 0.0);
+        assert_eq!(knock_falloff(9.0, 1.0, 4.0), 0.0);
+        assert_eq!(knock_falloff(1.0, 1.0, 0.0), 0.0);
+    }
+
+    /// One grenade, three soldiers in a line: the nearest flies hardest,
+    /// the next less, the one past PushRadius not at all (the maintainer 2026-10-27,
+    /// on BF1 and BF2 maps alike).
+    #[test]
+    fn knock_the_farther_the_softer_on_both_games() {
+        for rules in [
+            crate::soldier::GroundRules::Bf1,
+            crate::soldier::GroundRules::Bf2,
+        ] {
+            let mut s = sim_for(rules);
+            let at = [1.5, 3.0, 6.5].map(|x| {
+                s.spawn(&UnitSpec::trooper(1, Vec3::new(x, 0.0, 0.0)))
+                    .unwrap()
+            });
+            let e = ExplosionClass {
+                damage: 0.0,
+                damage_outer: 0.0,
+                ..thermal()
+            };
+            s.explode(&e, Vec3::ZERO, None, Some(0));
+            let [near, mid, far] = at.map(|h| vel(&s, h).length());
+            assert!(near > mid && mid > 0.0, "{rules:?}: {near} {mid}");
+            assert_eq!(far, 0.0, "{rules:?}: outside the push radius");
+        }
+    }
+
     /// `bf1_hot1_knock.json` trial 2, P (§6): feet 2.01 m from the blast,
-    /// which is 0.12 m above them: dv (9.13, 10.01, 0.76) and thrown. The
-    /// same soldier 7.5 m off, one tumbling and a rider: nothing.
+    /// which is 0.12 m above them: the PS2's dv (9.13, 10.01, 0.76) and
+    /// thrown. The port pushes the same way, [`port_push`] as strong, and
+    /// still throws him. The same soldier 7.5 m off, one tumbling and a
+    /// rider: nothing.
     #[test]
     fn knock_bf1_pushes_the_living_and_skips_the_knocked() {
         let mut s = sim_for(crate::soldier::GroundRules::Bf1);
@@ -609,10 +673,15 @@ mod tests {
             .spawn(&UnitSpec::trooper(1, Vec3::new(0.0, 0.0, -2.0)))
             .unwrap();
         s.units[tum.index as usize].soldier.stance = Stance::Tumble;
-        s.explode(&e, Vec3::new(0.0, 0.12, 0.0), None, Some(0));
-        let want = Vec3::new(9.13, 10.01, 0.76);
+        let blast = Vec3::new(0.0, 0.12, 0.0);
+        let feet = s.units[p.index as usize].soldier.pos;
+        s.explode(&e, blast, None, Some(0));
+        let ps2 = Vec3::new(9.13, 10.01, 0.76);
+        let want = port_push(&e, feet, Stance::Stand, blast);
+        assert!(want.normalize().dot(ps2.normalize()) > 0.9999);
+        assert!(want.length() < ps2.length());
         assert!(
-            (vel(&s, p) - want).abs().max_element() < 0.02,
+            (vel(&s, p) - want).abs().max_element() < 1e-4,
             "{:?}",
             vel(&s, p)
         );
@@ -637,10 +706,10 @@ mod tests {
         let u = &s.units[b.index as usize];
         assert!(!u.alive && u.body && u.drop_due);
         assert_eq!(u.soldier.stance, Stance::Thrown);
-        // push (n + 0.6 up) x 10 + kick 5 x normalize(feet - blast).
-        let n = (Vec3::new(1.5, 1.0, 0.0) - Vec3::new(0.0, 0.12, 0.0)).normalize();
+        // The port's push + kick 5 x normalize(feet - blast).
+        let blast = Vec3::new(0.0, 0.12, 0.0);
         let k = Vec3::new(1.5, -0.12, 0.0).normalize() * 5.0;
-        let want = (n + Vec3::Y * 0.6) * 10.0 + k;
+        let want = port_push(&thermal(), Vec3::new(1.5, 0.0, 0.0), Stance::Stand, blast) + k;
         assert!((u.soldier.vel - want).abs().max_element() < 1e-4);
         let mut ticks = 0;
         while s.units[b.index as usize].soldier.stance != Stance::Dead {
@@ -653,13 +722,15 @@ mod tests {
             assert!(ticks < 200);
         }
         let secs = ticks as f32 / 30.0;
-        assert!((2.5..=3.6).contains(&secs), "{secs} s");
+        // The PS2 lands him 2.5-3.6 s later; the port's softer push sooner.
+        assert!((1.5..2.5).contains(&secs), "{secs} s");
         assert!(!s.units[b.index as usize].drop_due, "the drop came with it");
     }
 
     /// `bf1_hot1_knock.json` trial 2, C1 (§3 [M]): a corpse 0.9 s dead 2.35 m
-    /// from the blast takes no damage here and gets push + kick (-14.91, 7.22,
-    /// 0.00); its body slides and leaves the world 4.0 s into the dead state.
+    /// from the blast takes no damage here and gets push + kick (PS2 (-14.91,
+    /// 7.22, 0.00); the port's push is [`port_push`]); its body slides and
+    /// leaves the world 4.0 s into the dead state.
     #[test]
     fn knock_bf1_a_corpse_is_pushed_kicked_and_gone_at_four_seconds() {
         let mut s = sim_for(crate::soldier::GroundRules::Bf1);
@@ -671,10 +742,13 @@ mod tests {
         u.soldier.stance = Stance::Dead;
         u.soldier.time_in_stance = 0.9;
         let hp = u.health.cur;
-        s.explode(&thermal(), Vec3::new(0.0, 0.04, 0.0), None, Some(0));
-        let want = Vec3::new(-14.91, 7.22, 0.0);
+        let blast = Vec3::new(0.0, 0.04, 0.0);
+        let feet = s.units[c.index as usize].soldier.pos;
+        s.explode(&thermal(), blast, None, Some(0));
+        let k = (feet - blast).normalize() * crate::soldier::DEATH_KICK;
+        let want = port_push(&thermal(), feet, Stance::Dead, blast) + k;
         assert!(
-            (vel(&s, c) - want).abs().max_element() < 0.05,
+            (vel(&s, c) - want).abs().max_element() < 1e-4,
             "{:?}",
             vel(&s, c)
         );
@@ -689,18 +763,21 @@ mod tests {
         let dead_for = 0.9 + ticks as f32 / 30.0;
         assert!((dead_for - 4.0).abs() <= 1.5 / 30.0, "{dead_for}");
         let x = s.units[c.index as usize].soldier.pos.x;
-        assert!(x < -10.0, "it slid away: {x}");
+        // PS2 past 10 m; the port's softer push about 7 m.
+        assert!(x < -5.0, "it slid away: {x}");
         // Out of the world: the next blast neither gathers nor moves it.
         let v = vel(&s, c);
         s.explode(&thermal(), Vec3::new(x + 1.0, 0.0, 0.0), None, Some(0));
         assert_eq!(vel(&s, c), v);
     }
 
-    /// BF2 (§4): a thermal detonator (PushDeadOnly by default) hurts the
-    /// living and pushes none; a class that authors PushDeadOnly 0 throws
-    /// him - `bf2_hot1flag_knock.json`, P: (-4.80, 8.71, -8.34).
+    /// BF2 (§4): on the PS2 a thermal detonator (PushDeadOnly by default)
+    /// hurts the living and pushes none, and a class that authors
+    /// PushDeadOnly 0 throws him - `bf2_hot1flag_knock.json`, P: (-4.80,
+    /// 8.71, -8.34). The port throws the living on every map: that way,
+    /// [`port_push`] as strong.
     #[test]
-    fn knock_bf2_pushes_only_the_dead_unless_the_class_says() {
+    fn knock_bf2_pushes_the_living_too() {
         let feet = Vec3::new(3.031, -0.0199, -7.4046) - Vec3::new(4.5896, 0.1, -4.6986);
         let blast = Vec3::new(0.0, -feet.y, 0.0);
         let at = Vec3::new(feet.x, 0.0, feet.z);
@@ -709,7 +786,6 @@ mod tests {
             damage_inner: 4.5,
             damage_outer: 6.5,
             push: 10.0,
-            push_inner: 6.5,
             push_outer: 6.5,
             ..Default::default()
         };
@@ -718,16 +794,11 @@ mod tests {
         s.units[p.index as usize].health.cur = 30000.0;
         s.explode(&bf2, blast, None, Some(0));
         assert!(s.units[p.index as usize].health.cur < 30000.0, "damaged");
-        assert_eq!(vel(&s, p), Vec3::ZERO, "and not pushed");
-        assert_eq!(s.units[p.index as usize].soldier.stance, Stance::Stand);
-        let off = ExplosionClass {
-            push_dead_only: Some(false),
-            ..bf2
-        };
-        s.explode(&off, blast, None, Some(0));
-        let want = Vec3::new(-4.80, 8.71, -8.34);
+        let ps2 = Vec3::new(-4.80, 8.71, -8.34);
+        let want = port_push(&bf2, at, Stance::Stand, blast);
+        assert!(want.normalize().dot(ps2.normalize()) > 0.9999);
         assert!(
-            (vel(&s, p) - want).abs().max_element() < 0.02,
+            (vel(&s, p) - want).abs().max_element() < 1e-4,
             "{:?}",
             vel(&s, p)
         );

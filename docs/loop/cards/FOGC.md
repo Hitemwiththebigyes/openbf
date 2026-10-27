@@ -56,4 +56,3 @@ not a function of f alone. Use these poses as the FOGC test set.
 
 ## Planner note (2026-09-30, M-ALPHA)
 `defer: post-alpha` — not needed for the alpha's six showcase maps or its checklist. Value 4 → 3 until the alpha (restore from `value_pre_alpha`).
-

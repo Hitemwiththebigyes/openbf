@@ -30,4 +30,3 @@ The maintainer, 2026-10-07: "a user should always be able to get in a teammate b
 
 ## Notes
 Filed 2026-10-07 by Claude in chat from the maintainer's questions. His words are quoted; the code facts were read by Claude from `core/src/sim/seats.rs`, `sim/guns.rs` and `ai/ride.rs` the same day.
-

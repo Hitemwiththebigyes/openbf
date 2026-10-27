@@ -126,4 +126,3 @@ Value 3 -> 4, `alpha: yes`, defer dropped (NAB1 is a showcase map; report `repor
 - **Not confirmed on the x1.09 maps:** KAS2, TAT1 and RHN2's bottom rows read 0.98-1.05, not 0.92, and the same what-if
   WORSENS TAT1 (10.64 -> 11.91) and KAS2 (9.97 -> 10.29). Read the reach and the UV scale before trusting a mean (a mip of
   the detail texture far from the eye, or the 3x3 reach); acceptance per map by `parity.py`, TAT1 must not rise > 0.5.
-

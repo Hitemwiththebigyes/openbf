@@ -42,4 +42,3 @@ Split from CFOV by the planner 2026-09-28. Vehicle cameras are VSEAT's (ThirdPer
 - planner 2026-10-20 05:20: SSEL's second pass (`analysis/re-spawn-flow.md` §6.5) explains the FEL1 state's tan_v 0.40237 [D]
   as one 65 -> 48 deg ease step frozen by the death camera's switch. Left open (deferred): closing needs the FEL1 state's
   own moment read (a dead player or a spawn screen). SSELC's build can settle it on the way; close then.
-

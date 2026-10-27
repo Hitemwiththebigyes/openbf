@@ -93,4 +93,3 @@ RE here.
 - Acceptance 3 (Intel iGPU, the RTX is lost): no-pass SBD mean on the fixed mask 28.6 (main's bake) -> **44.5** (branch
   overlay; target 43.8 +- 1.5); the branch frame is byte-equal to main + `SBLT_CAMB=128`; mean RGB (25.2, 29.9, 31.0) ->
   (42.7, 45.2, 45.0): the blue cast is gone. Sheet `lead_tmp/sblt/sheet_build_kas2.png` (main | branch | PS2).
-

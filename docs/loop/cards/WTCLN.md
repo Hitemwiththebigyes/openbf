@@ -50,4 +50,3 @@ The maintainer still runs `python3 scripts/loopctl.py worktrees --yes` once for 
 
 ## Notes
 - planner 2026-10-22 00:00: filed from the INBOX note; needs no GPU (scripts only), so it can land during the RTX outage.
-

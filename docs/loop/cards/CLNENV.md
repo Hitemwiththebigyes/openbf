@@ -37,4 +37,3 @@ test assertions, approval controls and ordinary gates.
 3. Shell syntax and existing source-tool/workflow/gate-boundary tests pass.
    Full project CI and applicable unchanged gates remain required; do not
    claim missing content/GPU validation from this fixture.
-

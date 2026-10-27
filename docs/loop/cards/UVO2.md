@@ -72,4 +72,3 @@ post: the rule is built round the player (`analysis/re-unit-chatter.md` 3, 5 `[O
 - Built: `game/src/vo.rs` (entries, context, ranking, speaker rule), AcquiredTarget, FriendlyFire, Grenade, KillingSpree4 / 8, the slaughter counters, BF2's take stepping. Not built: HeadshotKill, repairs, GivePowerup, PathFollowWait, RebelsShootDeadBody, NotShootingCriticalHit, SC_ (no port trigger); the AI detail-level gate (named deviation).
 - Census (`lead_tmp/uvo2/census/tab_post.txt`, `tab_fight.txt`): post 1.53 / 1.06 VO lines a minute (bar at most 1: NOT met -> card UVO3); fight 5.25 / 6.88 lines (0.64 / 0.63 of the PS2's: NOT within 30 %), AcquiredTarget 0.78 / 0.69 -> card UVO4.
 - Mixer (`lead_tmp/uvo2/win2/`, MYG1 CW windowed + follow, 21 VO starts in 3 windows): peaks identical with and without them (1.26 / 1.06 / 1.25 x full scale, the mix's own); no overloaded tick needs a VO start.
-

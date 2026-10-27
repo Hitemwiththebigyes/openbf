@@ -250,7 +250,13 @@ fn sticky_constructor_identity_and_contact_history_are_hashed() {
         0,
     );
     assert_eq!(
-        bounced.contact(&bounce_class, Vec3::ZERO, Vec3::Y, Surface::Terrain),
+        bounced.contact(
+            &bounce_class,
+            Vec3::ZERO,
+            Vec3::Y,
+            Surface::Terrain,
+            crate::sticky::PUSH_OFF
+        ),
         Contact::Bounced
     );
     assert!(!bounced.armed && bounced.bounces == 0);
@@ -363,7 +369,13 @@ fn sticky_class_and_historical_launch_team_change_real_continuation() {
             class_index,
         );
         assert_eq!(
-            g.contact(&class, Vec3::Y, Vec3::Y, Surface::Terrain),
+            g.contact(
+                &class,
+                Vec3::Y,
+                Vec3::Y,
+                Surface::Terrain,
+                crate::sticky::PUSH_OFF
+            ),
             Contact::Stuck
         );
         s.stickies.push(g);

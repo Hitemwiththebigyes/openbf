@@ -61,4 +61,3 @@ PURE MOVE. Changing the existing plan-hash assert_ne to assert_eq fails the
 proof with one lost/edited line. This is a proof-tool control, not a compiled
 behavior mutation. Unmodified main runs 37 commander tests and 986 core tests,
 all passing. The generated extraction has not yet been compiled or integrated.
-

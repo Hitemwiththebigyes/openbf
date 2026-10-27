@@ -100,4 +100,3 @@ ellipsoid only ordnance from OUTSIDE meets; the generator's repair pulse feeds t
 - Mutations killed: drop the one-way rule (the inside bolt is stopped); drop the feed (the 15 s case fails); let
   soldiers collide (the walk fails).
 - Gates: bf1_nab1's rounds still finish (8 seeds, outcome count unchanged); sweep / fidelity moves on bf1_nab1 only.
-

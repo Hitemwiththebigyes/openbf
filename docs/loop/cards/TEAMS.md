@@ -4,7 +4,7 @@ title: Special teams survey: every special roster on both discs (Wampas, Ewoks, 
 milestone: M4
 value: 2
 phase: re
-status: todo
+status: blocked
 deps:
 files: analysis/survey-special-teams.md (new)
 declares:
@@ -15,7 +15,7 @@ resume: (private workflow note omitted)
 created: 2026-09-28
 defer: post-alpha
 public_issue: https://github.com/sprucey149/openbf/issues/22
-tries: 1
+tries: 2
 ---
 
 ## Why

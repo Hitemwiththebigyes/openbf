@@ -57,4 +57,3 @@ ejected [H]. PROVISIONAL (ours): every rider dies'). The player who shoots a tan
   6 hovers, 11 riders, every rider's record = the vehicle's, each destroyer's kills + riders within 0.1 s. Presentation only:
   exposed riders leave a corpse, riders inside the hull are deleted (§10.5). The fidelity gate's `world_death_pct` should fall
   (HVYW's reading: 1.08 -> about 0.2 with the riders as kills) - a move the planner re-takes the baseline for, not a refusal.
-

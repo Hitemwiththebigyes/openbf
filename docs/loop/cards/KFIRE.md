@@ -47,4 +47,3 @@ The map also places 31 `kas1_firelight` and one `kas1_fireflies` instance (`engi
 
 ## Planner note (2026-09-30, M-ALPHA)
 `defer: post-alpha` — not needed for the alpha's six showcase maps or its checklist. Value 3 (kept).
-

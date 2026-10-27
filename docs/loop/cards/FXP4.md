@@ -36,4 +36,3 @@ node matrix; missing model → nothing; ADDITIVE flag 0x400001 B1 / 0x800001 B2)
 
 - FXMF build (2026-09-30): `render::ParticleShape::Mesh` + `game::soldier_vis::FlashModel` (load a common GLB's triangles
   and sheets, place by a matrix, emit additive particle draws) is the reusable path for GEOMETRY particles.
-

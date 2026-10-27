@@ -67,4 +67,3 @@ the real rifle the same 210 ticks take the bar 1.0 -> 0.967. The readout reads h
 The original acceptance explicitly permits a synthetic armed-building fixture and remade mutation patterns. Those may be developed in an isolated loopctl worktree without waiting for the missing audit-htgt kit. Keep the real install/for_walk/setup paths in the test, derive expected values independently and preserve all six required FAIL rows. The HTGT card already records the rifle scale correction; do not re-open the same documentation gap without checking its Notes. Full CI/applicable landing gates and any required real-bake checks remain owed.
 
 ## GitHub checkpoint recovery (2026-10-24)
-

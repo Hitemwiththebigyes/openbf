@@ -70,4 +70,3 @@ original-game winner filters. Findings 4, 8 and 10 remain separate.
    GPU/golden/parity, sim/sweep, arena/leak and behavior gates. Retain the
    original GCL16 checks. Missing inputs permit an implementation checkpoint,
    never an earned landing or whole-card completion.
-

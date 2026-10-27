@@ -42,4 +42,3 @@ Behaviour-neutral: every gate PASS, the sim hashes unmoved.
   cross-era pairs (ERAM); sounds::merge_props documents per-level duplicates
   and cross-era lookup (SNDE/ANNC2); main/battle::squad_icons already labels
   BF1 icons on BF2 maps and their placement PROVISIONAL (SQMK). No new PS2 claim.
-

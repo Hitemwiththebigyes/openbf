@@ -32,4 +32,3 @@ control 123.8/119.0/127.0, bloom off 105.7/102.4/109.0, specular pass off 95.0/9
 the pass adds about 10 and the bloom about 18, and the bloom adds nothing once the pass is off (the highlight takes
 the white deck lines over the threshold). At the stored pose `walk/cp2_cp3_b270` the same box reads PS2 157/163/171
 against 107/114/122 with LSUM + B1DK prototyped (main 76/79/84). `analysis/re-kamino-decks.md` §1.3, §8. A referee box for this card.
-

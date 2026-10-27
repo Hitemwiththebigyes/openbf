@@ -83,4 +83,3 @@ Report `engine/artifacts/loop/reports/20260930_0930_audit_LEAK.md`; scratch `eng
 - The gate half went to **LEAK3G**: scripts/gates.py / land.py are oracle-guarded (hook refused the edit); draft + test in
   lead_tmp/leak3/. The sampler half went to **LEAK3S**. This card's Acceptance "`new` > 0 on a new hole" is met here;
   "Coverage" moves to LEAK3S, "Gate" moved rows / scoped declare to LEAK3G.
-

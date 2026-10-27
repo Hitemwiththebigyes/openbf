@@ -49,4 +49,3 @@ values, mission values, terrain heights, animation timing that moves a unit, hit
   (`game::assets::load_texture`; test `the_detail_companion_goes_with_the_ps2_base`, mutation-checked).
 - Sheets: `census/top20.png` (all sources), `census/top20_xbox_maps.png` (Xbox map textures).
 - Gates without the GPU (`lead_tmp/xbtex/gates2/SUMMARY.md`): sim, simhash, sweep, arena, leak, ordnance identical.
-

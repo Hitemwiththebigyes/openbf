@@ -62,4 +62,3 @@ previous TESTMOD replay repair or alter HITSND/GSND acceptance.
    inherited blocker with its exact receipt. Do not change pins or gate inputs.
 4. Keep pending local acceptance for HITSND, VOICEP, GSND and earlier changes;
    any implementation checkpoint stays incomplete until normal gates are earned.
-

@@ -41,4 +41,3 @@ declares: nothing (presentation).
   0 of 37, sim hashes unchanged. (3) T7: `bf1s_no_post_line_repeats_at_every_loss`. (4) HUD: BF2 reads the script's
   rate (verifier 6/6). 8 mutations caught. PARKED: the RTX was lost mid-gates (gpu moved 97 goldens on the iGPU); every
   other gate PASS. Item 5 split off as card MUSB1.
-

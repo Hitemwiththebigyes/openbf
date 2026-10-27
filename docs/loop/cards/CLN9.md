@@ -36,4 +36,3 @@ CLN9. [TODO — ADDED 2026-09-24 (lane 1) by the cleanse's bug hunt over `0cfdad
   with the patches), so rule (a)'s "alpha 0 on the still plane" has nothing left to test — drop it from the acceptance.
   The cell pick is now the pure `water_anim::cells_in_range` with a CPU test
   (`the_ocean_draws_whole_cells_that_reach_into_the_far_range`); the foam-mesh routing test and (b) stand.
-

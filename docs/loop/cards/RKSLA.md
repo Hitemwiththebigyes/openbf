@@ -26,4 +26,3 @@ AUDIT RKSLF 2026-10-20 (engine/artifacts/loop/audits.md; evidence engine/artifac
 - Held-charge spells over 3 s on the 32-map sweep, seeds 1-8 (the audit's observer, `tools/audit_rk.rs` + `obs_patch.py`, AUDIT_RKH runs): 102 -> 20 or fewer, with on-foot rocket blast self + mate kills not above 11 and on-foot AI exploding shots a round not below 170.
 ## Notes
 Also fix: step.rs's comment "as the PS2's put-away cancels one" (the PS2 also cancels a latched salvo when the clip is short, B1:211403); gunner_foot's test note "No roster soldier carries a charge weapon today" (the mortars do). Not built: a deflected bolt neither damages nor explodes on the PS2 (B1 FUN_00276810 returns before both, B1:197917; B2:304600) - only if the port deflects bolts.
-

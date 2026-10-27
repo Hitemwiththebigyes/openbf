@@ -83,4 +83,3 @@ turns the bike off this rock - the port's probe did not; (d) the PS2's own BF1 E
 - BF1 Endor near-corner driving share stays <= 1 % (HJC census) and crash a ride inside the PS2's 0.28 +- 0.06.
 - A test that drives `hover_drive::drive` past a corner inside the node radius and fails under M5 / M6 (the radius the
   driver hands in zeroed / halved).
-

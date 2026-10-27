@@ -69,4 +69,3 @@ missing game data; full landing is still subject to existing gates. Any required
 worker-prompt change is proposed to the planner, not an edit of the running launcher.
 
 ## GitHub checkpoint recovery (2026-10-24)
-

@@ -52,4 +52,3 @@ state (owner, capture / neutralise progress, who is inside) and the two one-shot
 
 ## Notes
 - 2026-10-13 06:42 (lane 2, card CPBAR's RE): confirmed on today's main that no code names ChargeSound / DischargeSound / DisputeSound - the post is silent. CPBAR's build adds a read-only `Sim` helper for the units inside a post per team (`core/src/sim/round.rs`); the dispute loop (a NEUTRAL post with two sides inside) can take its condition from it. Live rows of both meters for the pitch ramp: `engine/artifacts/lead_tmp/cpbar/ps2/out/*.csv`.
-

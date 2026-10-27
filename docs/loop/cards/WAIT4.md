@@ -96,4 +96,3 @@ module docs and CRATES rows for changed/new source files in the same checkpoint.
    TAT1/NAB1 rate bars, live-claim/order behaviour or GUNWH's player-hold scenes.
    Preserve those cards' original Acceptance and ordering. Missing checks
    remain unpassed; do not mark this card done on fixture passes alone.
-

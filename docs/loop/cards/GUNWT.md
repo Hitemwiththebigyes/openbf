@@ -29,4 +29,3 @@ Card UTALK (2026-10-16) landed BF1's AI squad lines on the port's own seat event
 - Census on UTALK's kit: TAT1 yes lines and need-gunner gate passes within 30 % of 12.0 / 4.25; the sweep / fidelity gates' boarding counts sorted NOISE / EXPOSED / CAUSED.
 ## Notes
 - 2026-10-16 planner (from UTALK's report): this RE pass also corrects `analysis/re-squad-orders.md` 5 / 9b - the follow line fires when the trooper "sets out for a post it is not at" (FUN_00235258 = inside the goal's radius, not "its first path leg fails"), and the lines are now built (UTALK, e22e702). The edit needs the MAIN claim (RULES: RE drafts off the main checkout).
-

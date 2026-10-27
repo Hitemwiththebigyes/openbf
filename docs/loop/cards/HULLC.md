@@ -44,4 +44,3 @@ counts and shares.
 - Before / after pasted for BF2 KAS2, BF1 NAB2 and GEO1 (16 v 16, 1,500 ticks): callgrind total sim instructions and
   `set_hull`'s inclusive share (target: set_hull under 3 %), plus sim ms / tick on a quiet machine (load < 8) or interleaved A B A B.
 - A unit test: a hull part's `closed` equals `watertight(mesh)` of the same mesh (built once), mutation-checked.
-

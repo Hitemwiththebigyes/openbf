@@ -92,4 +92,3 @@ flyer behavior or console evidence; later reissues and original rates stay GUNWT
    Normal and Hard for exact revisions, every round finishes; classify boarding/
    stall moves normally. All unchanged CI/map/protect/sim/sweep/arena/leak/bake/
    GPU/golden/parity/behavior and original GUNWT/UTALK rate bars remain required.
-

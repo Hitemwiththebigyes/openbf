@@ -30,4 +30,3 @@ Cleanse 15 (2026-10-13): `scripts/size_report.sh --strict` exits 1 on main 04878
 Bot cards land in behave.rs all the time (RLOOP, FLNK, TEAM are queued): take this between two of them, on a quiet tree.
 
 ## GitHub checkpoint recovery (2026-10-24)
-

@@ -69,4 +69,3 @@ level's intended floor.
 - Floor: named from 4 traces - a steep upward face (n.y 0.51-0.73) crossed on a tick the wall pass pushes 0.17-0.60 m;
   the ceiling residue is mostly GROUNDED (step-up / slope under a low face, a head walked into a sloped underside). Both -> VCOL2.
 - Not measured with LEAK3's band sampler (LEAK3 is a parked branch, not on main).
-

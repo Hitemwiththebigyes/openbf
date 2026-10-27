@@ -1,6 +1,6 @@
 # OPUS RE (2026-09-30) - [O] UNAUDITED — Kamino bring-up (BF2 and BF1 KAM1): the sky, the sea, the floors, the far pieces
 
-Card KAMR (lane 3). The maintainer's play session on BF2 Kamino (`lead_tmp/pete_0930/kam1_play_5..11.png`): "invisible
+Card KAMR (lane 3). The maintainer's play session on BF2 Kamino (`lead_tmp/playtest_0930/kam1_play_5..11.png`): "invisible
 floors/platforms, far image looking wrong, the sea nearby is wavy but then there's a hard cutoff and it looks flat and a
 different colour, things aren't rendering or appearing where they are supposed to". Parity at main 0994d9a: bf1_kam1
 26.62, bf2_kam1 22.49 (`scripts/parity.py run --maps bf2_kam1,bf1_kam1`, reproduced). Every port number below is at
@@ -297,7 +297,7 @@ use an uninitialised brightness (L+0x80).
 ## 9. Addendum 2026-10-01 (Fable, the maintainer's chat session) — what the maintainer's play frames actually were [V port]
 
 §0's rows "invisible floors/platforms" and "the grey ellipse", and the line "No misplaced object was found", stand for the
-stored poses and are WRONG for what the maintainer saw in play. `lead_tmp/pete_0930/kam1_bf2_2230_*.png`, `kam1_play_11` and
+stored poses and are WRONG for what the maintainer saw in play. `lead_tmp/playtest_0930/kam1_bf2_2230_*.png`, `kam1_play_11` and
 `kam1_play_7` are one port defect that no pose render can show:
 
 - `upload_scene` pushes the water's draws first (BF2 KAM1: range 0..2). `WaterMotion::step` on an ocean SPLICES that

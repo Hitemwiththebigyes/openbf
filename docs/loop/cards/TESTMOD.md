@@ -55,4 +55,3 @@ This does not reopen GCL16, RIDERSTATE, CLN6 or CLN9 acceptance.
    or production behavior change. Normal required landing gates remain intact,
    nothing declared. Missing content/GPU gates remain unpassed and preclude an
    earned landing; publish a pending-validation source checkpoint if necessary.
-

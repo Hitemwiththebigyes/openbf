@@ -44,4 +44,3 @@ no-lock mutants each fail two referees. See reports/20261024_1800_card_PARB.md.
 The old common-props note above is historical: pose_render currently calls
 `assets::load_battle_scene` (SKIPC), including COMMON by default. No scene edit
 or parity rebaseline is part of this source checkpoint.
-

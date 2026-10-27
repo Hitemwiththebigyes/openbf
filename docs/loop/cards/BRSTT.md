@@ -41,4 +41,3 @@ Tests only (no behaviour change), the scenes the audit's judges proposed (`lead_
 - Re-run the audit's list against the branch (`mk_mut.py` with W pointed at the branch worktree; `chain_mut.sh`): each of B02 B03 B04 B11 B12
   B13 B14 B20 B23 B34 B41 B44 fails at least one ci test, R0 passes; paste the table.
 - Behaviour unchanged: sim / walk / aim hashes and one 8 x 32 sweep byte-identical to main (`lead_tmp/audit-brstu/tools/nullcmp.sh` style).
-

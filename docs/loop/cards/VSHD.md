@@ -75,4 +75,3 @@ The NAB1 X-wing pose rendered by the port (VREST's `--cam` recipe, `lead_tmp/vre
 the PS2 pair: the port's shadow band, measured the same way as `lead_tmp/fxc/ps2` (pixels darker with shadows on than off),
 covers 9.5 % +- 3 points of the frame with on / off brightness 0.63 +- 0.08; plus a mungefs test that parses every disc
 `shdw` (240 BF1 + 164 BF2 chunks) without error.
-

@@ -76,4 +76,3 @@ In the port a blast only damages, and a dead unit freezes where it stood.
   move, fidelity PASS, goldens unchanged. Sweep A/B seeds 1-8 against a 9e381b1 build: finished 256/256 both, recycles
   48 -> 38, floor 15 -> 19, under-map 1 -> 0, attacker-less blast 6 -> 17 (BF2 Geonosis; 40 seeds 21 -> 50, traced: an empty
   pad hover's decay explosion on both builds - note on VPAD2). Report `reports/20261021_1100_card_KNOCK.md`.
-

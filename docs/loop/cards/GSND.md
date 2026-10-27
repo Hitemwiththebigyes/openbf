@@ -54,4 +54,3 @@ Every unit spawns on the same tick, so every unit's equip sound and first footst
 ### SPWS Acceptance
 - The PS2's rule cited from `analysis/` or measured (ps2live sound-start sampler, memory note topic-ps2-live-samplers): which sounds a spawn starts.
 - The port's tick 1 on the same scene (`win_run.sh` with a null ALSA device, see report `20261007_0205_card_SNDB.md`): no OVERLOAD line at the first tick unless the PS2 starts the same sounds; the count before / after in the card.- 2026-10-07 (SNDB session): the digest's one-take column for that tick: `one take at most x13 (sum 4.92)` - the 13 `com_weap_inf_equip_sm` starts are ONE take file, so they add up sample for sample (each start's own pitch draw aside), the same mechanism as SNDX's 8 stacked shotgun fires.
-

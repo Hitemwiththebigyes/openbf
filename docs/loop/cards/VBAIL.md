@@ -87,4 +87,3 @@ controlled 90-tick hover-exit/floor-death observer, then Part 2 POL1/tat1 fix an
 its separate sweep bars plus full unchanged gates. The historical split backup
 is absent; no earned Part 1 landing or historical split restoration is claimed.
 Report: reports/20261024_1601_card_VBAIL.md; logs: lead_tmp/vbail_cloud/.
-

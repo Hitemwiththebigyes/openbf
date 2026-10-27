@@ -27,4 +27,3 @@ Found by card B1LL's light referee (lead_tmp/b1ll/referee.py over the BF1 walk s
 ## Acceptance
 - referee.py: the 10 misses -> 0 (place within 5 cm, owner colour).
 - A battle on BF1 HOT1 / END1: bots of the owning team spawn at the post when the PS2 does (count per 8 seeds), the post is never captured; sweep finish counts not worse than main beyond noise.
-

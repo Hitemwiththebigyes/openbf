@@ -64,4 +64,3 @@ Report `reports/20261024_1349_card_GCL16.md`; patch, exact logs and continuation
 No commit, push, landing, MAIN claim or agents.
 
 ## GitHub checkpoint recovery (2026-10-24)
-

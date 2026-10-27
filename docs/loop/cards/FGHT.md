@@ -95,4 +95,3 @@ Build step 7, after MOVR. In BOTV's deps.
 - **Not landed, measured:** Investigate (the noise order) and Evade (a passing shot) - re-soldier-ai 15.2, 15.3;
   the switch build is `lead_tmp/fght/knobs_k6.patch`. The premise "the noise order closes the gap" is false.
 - Report `reports/20261007_0354_card_FGHT.md`.
-

@@ -23,7 +23,7 @@ spots as NOT FOUND — so the ramps have no card. Kamino is not a showcase map, 
 bring-up as alpha (KAMR, value 5).
 
 ## Evidence
-- `engine/artifacts/lead_tmp/pete_0930/kam1_play_11.png` (the PORT, 2570×1481; viewed by the planner): the player stands
+- `engine/artifacts/lead_tmp/playtest_0930/kam1_play_11.png` (the PORT, 2570×1481; viewed by the planner): the player stands
   on a deck edge looking down toward a round platform with a command post. Rail strips with lit lamp slots and two lamp
   housings draw; between the rails, where the walkway should be, the frame shows the platform hull below.
 - `kam1_play_7.png`: "above my head, a little to the right" — a short spur out of a round platform with a turret on it;

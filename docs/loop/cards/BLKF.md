@@ -44,7 +44,7 @@ way and which map body it is", "a snapshot belongs to the commit in its header")
   by its spot: "STOP Wall at 0.00 m body 289 kam_prop_crate611").
 - `win/B`: header `commit b1cffcc969c8 dirty false`, `build_time` 15:30:57. `names.weapons` has 13 entries; a real
   b1cffcc build (`win/A`) has 20 (GREN's pistols, thermal detonators, trishot, mortar).
-- `pete_f9_digest.txt`: TROUBLE lists #4, #22, #27, #18, #7, #19, #26. The trails say #30 (46.1 m walked, 3.1 m net,
+- `playtest_f9_digest.txt`: TROUBLE lists #4, #22, #27, #18, #7, #19, #26. The trails say #30 (46.1 m walked, 3.1 m net,
   26 reversals), #17 (16.9 / 1.3) and #6 (66.2 / 15.3) went nowhere.
 - `tools/compare.py`: 14 trails of dead units across 5 snapshots (1-4 each), ending up to 13.0 s before `trail_tick`.
 
@@ -102,7 +102,7 @@ Undo: `loopctl.py set BLKF value=4`.
 - `win/B` (windowed under Xvfb, a release binary built at ad5ab8f run from the checkout at 2306d05): header
   `build: commit ad5ab8f39961`, `checkout HEAD 2306d05b4e04`, `WARNING: the binary (ad5ab8f39961) is not the
   checkout's HEAD (2306d05b4e04)` (`win/B/digest.txt`).
-- `blackbox_read lead_tmp/jitr/snapshot_20261002_kam1_f9.json` (schema 1, still reads; `pete_f9_digest.txt`): going
+- `blackbox_read lead_tmp/jitr/snapshot_20261002_kam1_f9.json` (schema 1, still reads; `playtest_f9_digest.txt`): going
   nowhere lists #30 (46.1 m / 3.1 m net, 26 reversals), #17 (16.9 / 1.3, 5), #3, #4, #6 (66.2 / 15.3, 1).
 - `compare.py` on the 4 snapshots: 7 dead units' trails, each `trails[].tick` equal to the truth's last tick (3878,
   3878, 3435, 3908, 3945, 3795, 2775); 0 alive trails off `trail_tick`; frames, kills, spawns equal the truth.

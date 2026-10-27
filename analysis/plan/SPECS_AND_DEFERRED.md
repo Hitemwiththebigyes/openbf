@@ -273,4 +273,3 @@ the only committed copy. Their Log entries are now one-line pointers back here.
   (ALPHA RULE v2 landed since and routes OPAQUE / MASK / BLEND per draw; this
   classifier is the remaining refinement for flagged textures whose alpha is
   noise, and it is still unbuilt.)
-

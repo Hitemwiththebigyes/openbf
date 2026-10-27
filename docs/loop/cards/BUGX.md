@@ -38,4 +38,3 @@ CI exits 101 (game suite 194 pass / 2 fail / 1 ignore): absent `gamefont_large` 
 Report `reports/20261024_1056_card_BUGX.md`; continuation `lead_tmp/bugx_cloud/next_prompt.md`.
 
 ## GitHub checkpoint recovery (2026-10-24)
-

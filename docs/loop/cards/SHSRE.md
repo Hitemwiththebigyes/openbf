@@ -40,4 +40,3 @@ PSHASH reads these fields from a running PCSX2; if some group cannot be found, c
 
 ## Notes
 RE job (max effort). Memory-capped scopes for any PCSX2 session as for every PXC card (see `engine/artifacts/pcsx2/README.md`, Concurrency). BF1 first, BF2 only if BF1 is a go.
-

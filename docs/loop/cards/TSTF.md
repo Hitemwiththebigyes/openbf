@@ -39,4 +39,3 @@ tested. ci counts may move; nothing fails.
 - Production prefixes of all four source modules are byte-identical to 3d487d9; roster is integration-test code. Source-map counts refreshed in the isolated checkout. Full acceptance and landing are still pending; see resume/report.
 
 ## GitHub checkpoint recovery (2026-10-24)
-

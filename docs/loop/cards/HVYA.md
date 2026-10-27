@@ -76,4 +76,3 @@ whose launcher is not too weak for that flyer shoots at it at any speed; in the 
 - BF1's `rep_weap_inf_rocket_launcher` (base cannon, bullet ordnance, TargetPerson 1) is not "heavy" by HVYW's rule and fires
   759 of 842 shots at lone soldiers on main 70b9c47 (bf1_geo1, bf1_kam1): PS2-faithful by its own keys, against the letter
   of the maintainer's 2026-10-12 ask. A question for the planner / the maintainer, not this card's build.
-
