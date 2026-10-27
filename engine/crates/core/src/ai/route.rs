@@ -16,8 +16,8 @@
 use super::draw::{route_rand, stance_hold, unit_unit, SALT_HUB_POINT, SALT_POST_POINT};
 use super::state::{AiState, NavTick, Route, RouteSource};
 use super::{
-    ARC_LINE_TOL, ARRIVE_MIN_RADIUS, CORNER_ARRIVE, DETOUR_MAX, DETOUR_RADIUS, HUB_LEVEL_TOL,
-    LEG_LEAD, LEVEL_HUB_NEAR, LEVEL_HUB_REACH, LEVEL_HUB_TRIES,
+    ARC_LINE_TOL, ARRIVE_MIN_RADIUS, CORNER_ARRIVE, DETOUR_MAX, DETOUR_RADIUS, DETOUR_WIDE_SLACK,
+    HUB_LEVEL_TOL, LEG_LEAD, LEVEL_HUB_NEAR, LEVEL_HUB_REACH, LEVEL_HUB_TRIES,
 };
 use crate::nav::{self, NavGraph};
 use crate::sim::Sim;
@@ -603,7 +603,12 @@ fn fill_detour(g: &NavGraph, ty: usize, from: Vec3, r: &mut Route, nt: &mut NavT
     }
     let a = Vec2::new(from.x, from.z);
     let b = Vec2::new(r.waypoint.x, r.waypoint.z);
-    let Some(path) = g.detour(a, b, DETOUR_RADIUS, ty) else {
+    let path = if ty == nav::SOLDIER {
+        soldier_way(g, a, b)
+    } else {
+        g.detour(a, b, DETOUR_RADIUS, ty)
+    };
+    let Some(path) = path else {
         return;
     };
     if path.is_empty() {
@@ -614,6 +619,39 @@ fn fill_detour(g: &NavGraph, ty: usize, from: Vec3, r: &mut Route, nt: &mut NavT
         r.detour_len = (i + 1) as u8;
     }
     nt.detoured += 1;
+}
+
+/// A soldier's corner walk from `a` to `b`: the wide margin's way
+/// ([`DETOUR_RADIUS`]), unless it finds none, ignores a barrier the PS2's
+/// margin (the capsule radius) keeps - one an end point stands within 1.0 m
+/// of, a stair's rail - or is longer than the PS2's by more than
+/// [`DETOUR_WIDE_SLACK`]: then the PS2's (issue #34).
+fn soldier_way(g: &NavGraph, a: Vec2, b: Vec2) -> Option<Vec<Vec2>> {
+    let ty = nav::SOLDIER;
+    let narrow = crate::unit::SOLDIER_RADIUS;
+    let wide = g.detour(a, b, DETOUR_RADIUS, ty);
+    let drops =
+        g.leg_ignores(a, b, DETOUR_RADIUS, ty).len() > g.leg_ignores(a, b, narrow, ty).len();
+    if !drops && wide.as_ref().is_some_and(|w| w.is_empty()) {
+        return wide;
+    }
+    match (wide, g.detour(a, b, narrow, ty)) {
+        (_, Some(p)) if drops => Some(p),
+        (Some(w), Some(p)) if way_len(a, &w, b) > way_len(a, &p, b) + DETOUR_WIDE_SLACK => Some(p),
+        (None, p) => p,
+        (w, _) => w,
+    }
+}
+
+/// The length of the walk from `a` over `corners` to `b` (XZ).
+fn way_len(a: Vec2, corners: &[Vec2], b: Vec2) -> f32 {
+    let mut at = a;
+    let mut len = 0.0;
+    for &c in corners.iter().chain(std::iter::once(&b)) {
+        len += (c - at).length();
+        at = c;
+    }
+    len
 }
 
 /// How near a detour corner counts as reached. A soldier and a walker:

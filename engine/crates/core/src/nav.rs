@@ -1258,7 +1258,7 @@ impl NavGraph {
     /// on the discs are authored inside a SOLDIER barrier (RE_LOG "dead
     /// hubs"), and without this a unit routed to one of them can never find a
     /// clear leg at all. In barrier-index order.
-    fn leg_ignores(&self, a: Vec2, b: Vec2, radius: f32, ty: usize) -> Vec<u16> {
+    pub(crate) fn leg_ignores(&self, a: Vec2, b: Vec2, radius: f32, ty: usize) -> Vec<u16> {
         let mut out = Vec::new();
         for (i, br) in self.barriers.iter().enumerate() {
             if br.blocks(ty) && (br.contains_r(a, radius) || br.contains_r(b, radius)) {

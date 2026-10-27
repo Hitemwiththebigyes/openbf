@@ -236,6 +236,15 @@ pub const ARC_LINE_TOL: f32 = 1.0;
 /// The maintainer's Kamino scene has 13 of 396 trails over 6 reversals for 3 of 376
 /// (the corners then lie 1.0 m off a pod's wall) - not taken.
 pub const DETOUR_RADIUS: f32 = crate::unit::SOLDIER_RADIUS + 0.5;
+/// ...and a soldier's corner walk falls back to the PS2's own margin (the
+/// capsule radius) when the wide one finds no way, ignores a barrier the
+/// PS2's keeps (an end point within its margin), or finds one longer than the
+/// PS2's by more than this (m). OURS, PROVISIONAL (issue #34): BF2
+/// Coruscant's stairs to the War Room are 2.5 m between their rail barriers;
+/// at 1.0 m the east flight is shut or its rail dropped, and the west one is
+/// walked round the outside of its rail, onto the floor 3 m under the
+/// flight's top.
+pub const DETOUR_WIDE_SLACK: f32 = 2.0;
 /// How far to the side an armed side-step offsets the move target (m). The
 /// PS2's contact side-step is 5 m along the path perpendicular
 /// (`FUN_0026aba8`); ours is triggered by the stuck window rather than by a

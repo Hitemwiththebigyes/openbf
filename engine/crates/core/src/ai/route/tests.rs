@@ -371,9 +371,7 @@ fn a_corner_walk_over_the_legs_array_is_continued() {
     let r = plan_leg(&sim, &st, h, 0, 2, None, &mut nt).expect("a leg");
     let g = sim.nav.as_ref().expect("graph");
     let wp = Vec2::new(r.waypoint.x, r.waypoint.z);
-    let whole = g
-        .detour(Vec2::ZERO, wp, DETOUR_RADIUS, nav::SOLDIER)
-        .expect("round the ring");
+    let whole = soldier_way(g, Vec2::ZERO, wp).expect("round the ring");
     assert!(whole.len() > DETOUR_MAX, "a long way round: {whole:?}");
     assert_eq!(usize::from(r.detour_len), DETOUR_MAX, "cut to the array");
     // On the last stored corner: the walk goes on, clear of the ring.
@@ -388,7 +386,7 @@ fn a_corner_walk_over_the_legs_array_is_continued() {
     let r = st.route.expect("the leg");
     let next = r.corner().expect("a corner after the array's last");
     assert_eq!(
-        g.leg_crosses_barrier(last, next, DETOUR_RADIUS, nav::SOLDIER),
+        g.leg_crosses_barrier(last, next, crate::unit::SOLDIER_RADIUS, nav::SOLDIER),
         None
     );
     assert_eq!(next, whole[DETOUR_MAX], "the same way round");
@@ -1093,4 +1091,68 @@ fn a_jet_only_boarding_route_uses_the_units_mover() {
     sim.unit_mut(me).expect("bot").spec.jet = false;
     retarget_board(&sim, me, &mut st, at, &mut nt);
     assert_eq!(st.route, None, "jetless unit cannot cross the same arc");
+}
+
+/// Issue #34: a flight of stairs 2.0 m wide between its rail barriers (BF2
+/// Coruscant's to the War Room). A soldier's corner walk goes up it - at the
+/// wide margin it is shut or walked round the outside - and keeps the rail a
+/// waypoint on the flight stands near.
+#[test]
+fn a_soldier_takes_the_stairs_between_their_rails() {
+    let bar = |cx: f32, cz: f32, hx: f32, hz: f32| nav::Barrier {
+        centre: Vec2::new(cx, cz),
+        axes: [Vec2::X, Vec2::Y],
+        half: Vec2::new(hx, hz),
+        mask: 1,
+        enabled: true,
+    };
+    // The rails (inner faces at x -1.0 and 1.0, z -10 .. -18).
+    let rails = [bar(-1.1, -14.0, 0.1, 4.0), bar(1.1, -14.0, 0.1, 4.0)];
+    let up_the_flight = |g: &NavGraph, a: Vec2, b: Vec2, way: &[Vec2]| {
+        let mut at = a;
+        for &c in way.iter().chain(std::iter::once(&b)) {
+            assert_eq!(
+                g.leg_crosses_barrier(at, c, crate::unit::SOLDIER_RADIUS, nav::SOLDIER),
+                None,
+                "{at} -> {c} crosses a rail: {way:?}"
+            );
+            at = c;
+        }
+        for c in way {
+            assert!(
+                c.x.abs() < 1.0 || c.y > -10.0,
+                "a corner beside the flight: {way:?}"
+            );
+        }
+    };
+    let mut g = crate::ai::tests::l_graph();
+    // The mouth: a wall across it on both sides, so the flight is the way.
+    g.barriers = rails.to_vec();
+    g.barriers.push(bar(16.2, -10.0, 15.0, 0.1));
+    g.barriers.push(bar(-16.2, -10.0, 15.0, 0.1));
+    let (a, b) = (Vec2::new(1.6, -4.0), Vec2::new(0.0, -24.0));
+    assert!(
+        g.detour(a, b, DETOUR_RADIUS, nav::SOLDIER)
+            .is_none_or(|w| w.iter().any(|c| c.x.abs() > 1.0)),
+        "the wide margin finds the flight"
+    );
+    let way = soldier_way(&g, a, b).expect("a way up");
+    assert!(!way.is_empty(), "the straight leg grazes the rail's end");
+    up_the_flight(&g, a, b, &way);
+    // Open floor beside the flight; the waypoint on it 0.7 m from the right
+    // rail, which the wide margin ignores: its way crosses that rail.
+    g.barriers = rails.to_vec();
+    let (a, b) = (Vec2::new(3.0, -4.0), Vec2::new(0.3, -14.0));
+    let wide = g
+        .detour(a, b, DETOUR_RADIUS, nav::SOLDIER)
+        .expect("a wide way");
+    let mut at = a;
+    let crossed = wide.iter().chain(std::iter::once(&b)).any(|&c| {
+        let x = g.leg_crosses_barrier(at, c, crate::unit::SOLDIER_RADIUS, nav::SOLDIER);
+        at = c;
+        x.is_some()
+    });
+    assert!(crossed, "the wide way keeps the rail: {wide:?}");
+    let way = soldier_way(&g, a, b).expect("a way up");
+    up_the_flight(&g, a, b, &way);
 }
