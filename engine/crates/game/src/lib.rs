@@ -30,6 +30,7 @@ pub mod pause;
 pub mod point_light;
 pub mod profile;
 pub mod render_blend;
+mod repair_feedback;
 pub mod ride;
 pub mod roster;
 pub mod shell_movie;

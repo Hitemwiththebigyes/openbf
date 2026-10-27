@@ -1,4 +1,4 @@
-use super::{channel_weapon, in_hand, InHand, SoldierVisuals};
+use super::{in_hand, InHand, SoldierVisuals};
 use crate::walk::WalkSim;
 use core::unit::Unit;
 use core::weapon::{FireState, WeaponClass, WeaponState};
@@ -7,7 +7,7 @@ const UNDERHAND_MAX: f32 = 0.4;
 const BF1_SHOOT3_ABOVE: f32 = 0.7;
 
 pub(super) fn drawn<'u>(u: &'u Unit, classes: &[WeaponClass]) -> (usize, u8, &'u WeaponState) {
-    let hand = channel_weapon(u);
+    let hand = u.active_weapon();
     if classes.get(hand.0).is_some_and(|c| c.offhand_weapon) {
         (u.weapon_class, u.weapon_slot, &u.weapon)
     } else {
@@ -31,7 +31,7 @@ impl SoldierVisuals {
     pub(super) fn note_throws(&mut self, walk: &WalkSim) {
         self.sync_units(walk);
         for (v, u) in self.units.iter_mut().zip(&walk.sim.units) {
-            let (wc, _, state) = channel_weapon(u);
+            let (wc, _, state) = u.active_weapon();
             let class = &walk.sim.weapon_classes[wc];
             let free = u.alive && u.mount.is_none();
             let throwing =

@@ -422,6 +422,17 @@ impl SoldierVisuals {
     pub fn note_shots(&mut self, walk: &WalkSim) {
         self.note_throws(walk);
         for e in &walk.sim.events {
+            if let core::sim::Event::Repair {
+                unit, weapon_class, ..
+            } = e
+            {
+                if let Some(v) = self.units.get_mut(unit.index as usize) {
+                    if v.gen == unit.gen && v.repair_tick != Some(walk.sim.tick) {
+                        v.repair_shot = Some(*weapon_class as usize);
+                        v.repair_tick = Some(walk.sim.tick);
+                    }
+                }
+            }
             let core::sim::Event::Shot { unit, .. } = e else {
                 continue;
             };
@@ -464,7 +475,7 @@ impl SoldierVisuals {
         dt: f32,
         mut census: Option<&mut crate::animator::census::Census>,
     ) {
-        self.note_throws(walk);
+        self.note_shots(walk);
         self.step_hover_nines(walk);
         let fired: Vec<u32> = walk
             .sim
@@ -615,7 +626,9 @@ impl SoldierVisuals {
             root_scale: anim.map_or(1.0, |a| a.root_scale),
             dead: !u.alive,
             set,
-            fired: u.mount.is_none() && v.throwing.is_none() && fired.contains(&(i as u32)),
+            fired: u.mount.is_none()
+                && v.throwing.is_none()
+                && (v.repair_shot.take() == Some(wc) || fired.contains(&(i as u32))),
             throw: v.pending_throw.take(),
             throw_windup: v.throw_windup,
             reloading: weapon.reloading(),

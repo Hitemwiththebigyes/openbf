@@ -1,6 +1,23 @@
 use super::*;
 
 #[test]
+fn both_games_resolve_the_cutters_loop_to_an_audible_take() {
+    let root = crate::assets::baked_root();
+    for map in ["bf1_bes1", "bf2_cor1"] {
+        if !root.join(map).join("sounds/sounds.ron").is_file() {
+            eprintln!("SKIP: {map} sounds are not baked");
+            continue;
+        }
+        let mut lib = SoundLib::load(&root.join(map)).expect("baked map sound bank");
+        let take = lib
+            .prepare_voice("com_weap_inf_fusioncutter_fire")
+            .expect(map);
+        assert!(take.path.is_file(), "{map}: {}", take.path.display());
+        assert!(take.secs > 0.0 && take.gain > 0.0, "{map}");
+    }
+}
+
+#[test]
 fn attenuation_and_pan_shapes() {
     // The rifle fire's CORE template on BF1: 5 - 400 m, rolloff 6.
     let mut p = SoundProp {

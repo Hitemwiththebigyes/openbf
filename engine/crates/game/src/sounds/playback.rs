@@ -1,8 +1,8 @@
 //! Sound playback: prepared voices, one-shots, cries, station starts and delayed layers.
 //! Shared state, lookup, loop voices, mixing and rules remain in the parent sounds module.
 use super::{
-    attenuation, decode_noted, ears_3d, mixer_pair, side, Cry, Handed, Listener, Refused, SoundLib,
-    Start, Timer, CHATTER_KEY_MAX, LAYER_TIMERS,
+    attenuation, decode_noted, ears_3d, mixer_pair, side, Cry, Handed, Listener, LoopRequest,
+    LoopSource, Refused, SoundLib, Start, Timer, CHATTER_KEY_MAX, LAYER_TIMERS,
 };
 use crate::classdb::fnv1a_lowercase;
 use anyhow::{Context, Result};
@@ -11,6 +11,64 @@ use glam::Vec3;
 use std::path::{Path, PathBuf};
 
 impl SoundLib {
+    pub(super) fn play_loop_voice(
+        &mut self,
+        audio: &mut audio::Audio,
+        request: &LoopRequest,
+        listener: &Listener,
+    ) -> bool {
+        let Some((ears, rate)) = self.loop_level(
+            request.sound,
+            request.pos,
+            request.gain,
+            request.pitch,
+            listener,
+        ) else {
+            return false;
+        };
+        let (db, pan) = mixer_pair(ears);
+        let rate = f64::from((rate * self.rate_mul).max(0.05));
+        if let Some(voice) = self.loops.get_mut(&request.source) {
+            if let Some(voice) = voice {
+                voice.set(db, rate, pan, core::TICK_DT);
+            }
+            return true;
+        }
+        let path = self.find(request.sound).and_then(|(p, core)| {
+            let id = self.pick_sample(&p.samples)?;
+            self.bank(core)?.sample_path(id)
+        });
+        let voice = path
+            .filter(|p| self.sound(audio, p).is_ok())
+            .and_then(|p| audio.play_voice(&self.cache[&p], db, rate, pan));
+        self.played += u64::from(voice.is_some());
+        self.loops.insert(request.source, voice);
+        true
+    }
+
+    pub fn play_repair_loops(
+        &mut self,
+        audio: &mut audio::Audio,
+        sim: &core::sim::Sim,
+        listener: &Listener,
+    ) {
+        let mut live = std::collections::HashSet::new();
+        for (unit, class, name, pos) in crate::repair_feedback::loops(sim) {
+            let request = LoopRequest {
+                source: LoopSource::Repair(unit, class),
+                sound: fnv1a_lowercase(name),
+                pos,
+                gain: 1.0,
+                pitch: 1.0,
+            };
+            if self.play_loop_voice(audio, &request, listener) {
+                live.insert(request.source);
+            }
+        }
+        self.loops
+            .retain(|k, _| !matches!(k, LoopSource::Repair(..)) || live.contains(k));
+    }
+
     pub(super) fn sound(&mut self, audio: &mut audio::Audio, path: &Path) -> Result<()> {
         if self.cache.contains_key(path) {
             return Ok(());
@@ -425,7 +483,10 @@ impl SoundLib {
 
     /// Engine layers looping now.
     pub fn loops_playing(&self) -> usize {
-        self.loops.values().filter(|v| v.is_some()).count()
+        self.loops
+            .iter()
+            .filter(|(k, v)| matches!(k, LoopSource::Engine(..)) && v.is_some())
+            .count()
     }
 
     /// U(-1, 1) x `dev` (the PS2's `2 x (r - 0.5) x dev`, B1 `FUN_0044e288`).

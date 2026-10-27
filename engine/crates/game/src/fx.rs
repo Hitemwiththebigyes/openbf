@@ -39,6 +39,7 @@
 mod children;
 pub mod draw;
 pub mod emitter;
+mod repair;
 pub mod ripple;
 mod trail;
 
@@ -302,6 +303,7 @@ pub struct LiveEffect {
     ride: Option<(VehicleHandle, Vec3)>,
     unit: Option<(UnitHandle, Gain)>,
     round: Option<trail::Round>,
+    repair: Option<(UnitHandle, usize)>,
     float: Option<f32>,
 }
 
@@ -328,6 +330,7 @@ impl LiveEffect {
             ride: None,
             unit: None,
             round: None,
+            repair: None,
             float: None,
         };
         fx.advance(0.0);
@@ -733,6 +736,7 @@ impl Fx {
             }
         }
         self.follow_rounds(sim);
+        self.follow_repairs(sim);
         let baked = self.has_effects();
         for e in &sim.events {
             match e {

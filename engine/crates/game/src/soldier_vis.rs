@@ -251,16 +251,7 @@ pub struct InHand {
 
 /// [`InHand`] for `u`, its weapon classes `classes`.
 pub fn weapon_in_hand(u: &core::unit::Unit, classes: &[core::weapon::WeaponClass]) -> InHand {
-    in_hand(classes, channel_weapon(u))
-}
-
-fn channel_weapon(u: &core::unit::Unit) -> (usize, u8, &core::weapon::WeaponState) {
-    (u.active_channel == 1)
-        .then(|| u.held.get(usize::from(u.cur1?)))
-        .flatten()
-        .map_or((u.weapon_class, u.weapon_slot, &u.weapon), |h| {
-            (h.class, h.slot, &h.state)
-        })
+    in_hand(classes, u.active_weapon())
 }
 
 fn in_hand(
@@ -361,6 +352,8 @@ pub struct UnitVisual {
     pub dead_for: f32,
     /// The sim tick of the unit's last shot: its muzzle flash's clock.
     pub shot_tick: Option<u64>,
+    repair_shot: Option<usize>,
+    repair_tick: Option<u64>,
     /// The weapon class last seen in the unit's hands and the set it picks.
     set: Option<(usize, usize)>,
     throwing: Option<usize>,

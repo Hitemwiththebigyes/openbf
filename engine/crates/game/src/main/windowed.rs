@@ -65,6 +65,7 @@ fn play_event_sounds(
     let mut voices = Vec::new();
     engines.tick(walk, |h, l| sl.engine(h, l), &mut voices);
     sl.loop_voices(audio, &voices, &listener);
+    sl.play_repair_loops(audio, &walk.sim, &listener);
     // The soldiers' steps and stance sounds (card FOLY).
     if let Some(foley) = foley {
         let view = game::foley::View::of(&walk.camera(), aspect);
@@ -1563,13 +1564,14 @@ impl winit::application::ApplicationHandler for App {
                         if let Some(p) = self.frame_profile.as_mut() {
                             p.lap("sim_ms");
                         }
+                        if let Some(vis) = self.soldier_vis.as_mut() {
+                            vis.update(walk, dt);
+                            self.fx.set_repair_origins(&vis.fire_points(walk));
+                        }
                         self.fx.update(dt);
                         if let Some(w) = self.weather.as_mut() {
                             w.update(dt);
                             rain_splashes(w, &mut self.fx, walk, aspect, dt);
-                        }
-                        if let Some(vis) = self.soldier_vis.as_mut() {
-                            vis.update(walk, dt);
                         }
                         if let (Some(audio), Some(sl)) = (self.audio.as_mut(), self.sounds.as_mut())
                         {

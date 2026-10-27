@@ -340,6 +340,15 @@ pub struct Unit {
 }
 
 impl Unit {
+    pub fn active_weapon(&self) -> (usize, u8, &WeaponState) {
+        (self.active_channel == 1)
+            .then(|| self.held.get(usize::from(self.cur1?)))
+            .flatten()
+            .map_or((self.weapon_class, self.weapon_slot, &self.weapon), |h| {
+                (h.class, h.slot, &h.state)
+            })
+    }
+
     pub fn capsule(&self) -> Capsule {
         Capsule {
             base: self.soldier.pos,
