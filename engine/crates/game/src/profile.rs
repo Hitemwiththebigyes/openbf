@@ -126,6 +126,8 @@ pub struct Career {
     pub shots: u64,
     pub hits: u64,
     pub captures: u32,
+    #[serde(default)]
+    pub class_kills: std::collections::BTreeMap<String, u32>,
 }
 
 /// Where the game keeps what it writes (the profile, the playtest snapshots of
@@ -215,6 +217,29 @@ impl Profile {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_older_profile_keeps_aggregate_stats_and_starts_with_no_class_kills() {
+        let profile: Profile = ron::from_str(
+            r#"(name:"legacy", settings:(assist_intensity:0.7),
+                career:(rounds:3,wins:2,kills:12,deaths:5,shots:200,hits:80,captures:4))"#,
+        )
+        .unwrap();
+        assert_eq!(
+            profile.career,
+            Career {
+                rounds: 3,
+                wins: 2,
+                kills: 12,
+                deaths: 5,
+                shots: 200,
+                hits: 80,
+                captures: 4,
+                class_kills: Default::default(),
+            }
+        );
+        assert_eq!(profile.settings.assist_intensity, 0.7);
+    }
 
     #[test]
     fn an_older_profile_reads_the_mouse_defaults() {
@@ -361,6 +386,8 @@ mod tests {
         p.settings.assist_intensity = 0.7;
         p.settings.last_map = Some("tat2".into());
         p.record_round(Some(true), 12, 3, 240, 90);
+        p.career.class_kills.insert("all_inf_officer".into(), 7);
+        p.career.class_kills.insert("all_inf_wookiee".into(), 5);
         p.save().expect("save");
         let back = Profile::load_or_default();
         assert_eq!(back, p);

@@ -215,14 +215,8 @@ fn rain_splashes(
 }
 
 /// Fold the player's round into the career and autosave.
-fn record_round(profile: &mut game::profile::Profile, walk: &WalkSim) {
-    let me = &walk.sim.units[walk.player.index as usize];
-    // A time-limit tie is `MissionVictory({1,2})`: both teams win.
-    let won = walk
-        .sim
-        .outcome
-        .map(|w| w == me.team || w == core::sim::OUTCOME_DRAW);
-    profile.record_round(won, me.kills, me.deaths, me.weapon.shots_fired, 0);
+fn record_round(profile: &mut game::profile::Profile, walk: &mut WalkSim) {
+    walk.record_battle(profile);
     if let Err(e) = profile.save() {
         eprintln!("profile autosave failed: {e:#}");
     } else {
@@ -1570,6 +1564,11 @@ impl winit::application::ApplicationHandler for App {
                             tick_pad.clear_look();
                         });
                         self.kbm.consumed(&pad, ticks);
+                        if walk.flush_class_kills(&mut self.profile) {
+                            if let Err(e) = self.profile.save() {
+                                eprintln!("profile autosave failed: {e:#}");
+                            }
+                        }
                         look = self.kbm.look();
                         if let Some(p) = self.frame_profile.as_mut() {
                             p.lap("sim_ms");

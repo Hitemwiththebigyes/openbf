@@ -270,7 +270,7 @@ Flow: disc → `mungefs` → `bake` → `engine/assets_baked/` (schema `manifest
 - `game/src/main.rs` 540 — binary CLI and mode dispatch; flags and environment variables are specified in its module header · `main`, `ViewerArgs`, `BattleSetup`. The binary loads its parts with `#[path]` because the library owns `game/src/`.
 - `game/src/main/battle.rs` 709 — battle construction and shared draw/HUD setup, including the installed-turret bounds/readout fixture · `make_walk`, `walk_draws`, `hud_model`.
 - `game/src/main/headless.rs` 1037 — offscreen bench, frame/orbit capture, walk/ride replay, scene reports and the asset-free scripted aim referee · `run_bench`, `run_headless`, `run_aim_replay`, `tick_event_feed` (drains unused HUD output each replay tick).
-- `game/src/main/windowed.rs` 2000 — windowed shell/loading/battle state machine, per-tick event/audio and black-box hooks, pause/cheats and profile autosave · `App`, `run_windowed`, `run_shell`, `play_event_sounds`, `start_take`.
+- `game/src/main/windowed.rs` 1999 — windowed shell/loading/battle state machine, per-tick event/audio and black-box hooks, pause/cheats and profile autosave, including newly earned class kills · `App`, `run_windowed`, `run_shell`, `play_event_sounds`, `start_take`.
 - `game/src/main/windowed/front.rs` 688 — shell front screens, movie/music, Instant Action, settings and binding capture · `FrontShell`, `App::redraw_shell`; `ui::shell_ps2` owns the screen flow.
 - `game/src/lib.rs` 51 — module roots
 - `game/src/assets.rs` 1403 — baked-map loading into a CPU scene, texture tiers, collision/hull body extraction and mesh-reader re-exports · `load_scene`, `Scene`, `TextureTier`, `mode_layer_index`, `body_layers`, `hull_parts`.
@@ -294,7 +294,7 @@ Flow: disc → `mungefs` → `bake` → `engine/assets_baked/` (schema `manifest
 - `game/src/viewer/turret_pose.rs` 644 — turret/recoil and rider node poses, scene turret records and zoomed-gunner visibility · `pose`, `part_matrices`, `PoseSpec`, `TurretDraw`, `rigged_turrets`, `GunnerHang`, `nine_pose`, `SceneGpu::hidden_for`, `view_draws`, `pose_turrets`, `pose_turrets_at`; module header and `analysis/re-turret-draw.md` 2–4.
 - `game/src/viewer/walker_pose.rs` 287 — walker skeletal posing, CPU skinning and posed rider-node queries · `WalkerRig`, `node_now`, `skin`; module header and `analysis/re-walker.md` §5, §6, §10.
 - `game/src/viewer/camera.rs` 199 — golden/overview camera poses and XFRM placement · `GOLDEN_CAM`, `instance_matrix`, `overview_bounds`, `look_at`; transform convention in `game/src/viewer.rs`.
-- `game/src/walk.rs` 1222 — player integration with `core::Sim`, respawn tracking, chase/seat cameras with eased stance framing, reticle and zoom projection · `WalkSim`, `vehicle_camera`, `turret_scope_camera`, `ps2_reticle_y`; seat camera remains PROVISIONAL (VSEAT); module header and `analysis/re-zoom.md` §5.
+- `game/src/walk.rs` 1265 — player integration with `core::Sim`, respawn tracking, per-tick class kill attribution and shared battle accounting into the profile, chase/seat cameras with eased stance framing, reticle and zoom projection · `WalkSim`, `flush_class_kills`, `record_battle`, `vehicle_camera`, `turret_scope_camera`, `ps2_reticle_y`; seat camera remains PROVISIONAL (VSEAT); module header and `analysis/re-zoom.md` §5.
 - `game/src/walk/tests.rs` 613 — walk integration, camera easing, zoom, aiming, spawning and backdrop regressions extracted from the walk implementation.
 - `game/src/ride.rs` 134 — scripted walk/board/drive/exit ride recorded as `InputLog` for `--ride-script` / `--walk-replay` · `script`, `Ride`.
 - `game/src/layout.rs` 832 — manifest command posts, spawn paths and navigation graph · `MapLayout`, `nav_graph`.
@@ -353,7 +353,7 @@ Flow: disc → `mungefs` → `bake` → `engine/assets_baked/` (schema `manifest
 - `game/src/announce.rs` 742 — mission/post commander lines and unit combat/squad/low-health voice requests into `core::announcer`; BF2 unit voice through `crate::vo` · `Commander`, `CallAsk`, `battle_lines`, `calls`, `gate_calls`, `vo`, `vo_body`; playback in `game/src/main/windowed.rs`; census referee `game/examples/audit_annc.rs`; module/API docs and `analysis/re-unit-chatter.md`.
 - `game/src/vo.rs` 986 — BF2 `VOSound` entry parsing, context/ranking, speaker selection and event requests · `Vo`, `VoLines`, `Entry`, `Said`, `Who`, `Body`, `context`, `best`, `class_lines`, `EVENTS`, `ASKED`; module header and `analysis/re-unit-chatter.md` 3.
 - `game/src/pause.rs` 68 — pause-menu action dispatch and Respawn confirmation state · `PauseMenu`, `apply_menu_action`; `analysis/re-spawn-flow.md` §7, BUGX scene tests.
-- `game/src/profile.rs` 376 — autosaved settings, validated custom controls and career stats · `Profile`
+- `game/src/profile.rs` 403 — autosaved settings, validated custom controls and career stats, including backward-compatible per-class kills · `Profile`, `Career`
 - `game/src/render_blend.rs` 504 — presentation interpolation, including the eased camera position, with snap handling and bit-exact restoration before sim readers · `Blend`, `Pose`, `blend`, `fraction`, `lerp_angle`; `OPENBF_RENDER_BLEND=0` disables it; module header owns fields, thresholds and restore contract.
 - `game/src/hud_feed.rs` 435 — BF2 HUD art loading and per-frame `ui::hud_tree` / `ui::hud_draw` → `render::hud` wiring, including weapon model/icon fallbacks · `HudView`; module/API docs own BF1 row keys and material-alpha rules.
 - `game/src/minimap.rs` 772 — map/class minimap configuration and per-frame battle/spawn-map feeds, including command walkers; mission-resolved still feeds and asset-free caller regressions for captures/goldens · `MapStatic`, `ClassIcon`, `bounds_of`, `still`, `spawn_still`; module/API docs and `analysis/re-hud-map.md` §8.
@@ -441,6 +441,7 @@ copy); unfinished packed builds keep dev mode on by default (`OPENBF_DEV=0` disa
   `walkabout_stats` (found by name by gates.py / goldens.sh) and `texture_tier` / `capture_display_ps2` (they set the
   process-wide texture tier).
 - `game/tests/suite/bug_checks.rs` — BUGX synthetic corpse targeting, station-service control, hit-chevron fade through respawn and death-region-under-water spawn flow; Suicide menu and dispenser soldier paths remain uncovered.
+- `game/tests/suite/career_class_kills.rs` — UNLK2 real Utapau officer/Wookiee kills, respawn/class switching, catch-up ticks, autosave/reload and victory accounting; synthetic same-tick dead-shooter credit.
 - GPU referees: `render/tests/suite/` (one binary, card WEARY), run only by `scripts/gpu_tests.sh` (then `scripts/goldens.sh --check`).
 - Goldens: `engine/goldens/maps/`, `engine/goldens/units/` and the HUD / shell / spawn PNGs beside them; referees
   `game/tests/golden_gallery.rs` and the other `golden_*.rs`; drawn by `game/src/gallery.rs`.

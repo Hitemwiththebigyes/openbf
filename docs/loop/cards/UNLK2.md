@@ -4,14 +4,14 @@ title: The career counter (OURS): the profile counts the player's career kills p
 milestone: M3
 value: 3
 phase: build
-status: blocked
+status: done
 deps:
-files: engine/crates/game/src/profile.rs
-declares:
-needs: Restore class RONs, baked maps/missions and full-CI font/graphics prerequisites listed in lead_tmp/unlk2_cloud/preflight.json
+files: engine/crates/game/src/profile.rs,engine/crates/game/src/walk.rs,engine/crates/game/src/main/windowed.rs,engine/crates/game/tests/suite/main.rs,engine/crates/game/tests/suite/career_class_kills.rs,engine/CRATES.md
+declares: ci=+3
+needs:
 effort:
-branch:
-resume: 2026-10-24 prerequisite checkpoint; no implementation. Read lead_tmp/unlk2_cloud/next_prompt.md and source_checkpoint.md; implement shared per-tick class attribution and save/load acceptance after restoring runtime inputs. Original Acceptance retained.
+branch: codex/unlk2-class-career
+resume: 2026-10-27 implementation, acceptance and architecture review complete; local main integration authorized by the user. Historical cloud checkpoint files are absent; runtime inputs are present locally. Workspace checks and native size/map limitations are recorded below.
 created: 2026-10-21
 public_issue: https://github.com/sprucey149/openbf/issues/19
 ---
@@ -21,3 +21,18 @@ The maintainer (INBOX 2026-10-21 17:50 item 4b). One number per class, per class
 ## Acceptance
 - A test: kills as a class in a headless match raise that class's count, and the count survives a profile save / load;
   an old profile without the field loads with zeros.
+
+## Implementation (2026-10-27)
+- The user authorized proceeding with the issue's stated scope in this session. #13/#14 implementation is already integrated by PR #21 and 202b57e; Settings, bindings and controls UI are unchanged.
+- `Career::class_kills` is a defaulted RON map keyed by the roster's existing lowercase authored class name, independent of a battle's team/class indices. An absent entry means zero. All roster soldier classes accumulate counts, so recording requires no new unlock classification, alias rules or thresholds.
+- `WalkSim::step_tick` attributes the increase in the player's existing kill total after spawn/class input and combat have run. Same-life dead shooters remain eligible. The accounting is outside `core::Sim` and its hash. `flush_class_kills` drains each pending batch once; windowed play saves new batches after advancing a frame. `WalkSim::record_battle` drains any remainder and passes aggregate statistics into `Profile::record_round` at completion/abandonment. Profile storage has no dependency on the battle runtime; windowed play and headless tests share the same accounting methods.
+- Real inputs: `engine/missions/bf2_uta1_con.ron`, `engine/assets_baked/bf2_uta1`, the merged BF2 common data, and `engine/assets_baked/classes/{bf2_all,bf2_imp,bf2_ingame}.ron`. The test builds the real mission rosters, collision, navigation, posts and ground rules, then uses controlled idle enemy riflemen and authored player weapons. It shortens the final enemy ticket pool to one to bound conquest completion; targets do not respawn. No assets are committed.
+- `cargo test -p game --test suite career_class_kills -- --nocapture`: passed 2 tests. The real match earns officer +2 and Wookiee +1, with one pending officer kill carried across respawn/class selection; three-tick frames, a mid-match disk save/reload, repeated draining/saving and actual victory retain exactly those counts and aggregate +3. The synthetic regression covers a player dying before their bolt's kill in the same tick.
+- Legacy-profile and disk round-trip coverage live in `profile.rs`. The real-map test reports SKIP if Utapau is absent; its passing local run loaded the real data and printed the +2/+1/victory evidence.
+
+## Validation (2026-10-27, Windows)
+- `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings` and `cargo build --workspace`: passed.
+- `cargo test --workspace --lib --bins --tests --example arena`: reached the game integration suite with 225 passed, 1 ignored and 1 failed. The sole failure was the unchanged Mygeeto position-table timing check (0.363 s against 0.300 s); its `/proc` thread CPU probe is unavailable on Windows, so it falls back to wall time under concurrent load. Its exact isolated rerun passed. The game library tests, including legacy-profile defaults and disk persistence, passed before this suite.
+- The remaining game texture-tier/walkabout-statistics/arena targets and input, manifest, mungefs, net, pak, render and ui targets passed. Render's 40 GPU integration checks and the walkabout GPU comparison retained their default ignored status; no ignored visual/golden checks were forced. `cargo test --workspace --doc` passed (all crates report zero doctests).
+- `git diff --check`: passed. The native Python body of `scripts/size_report.sh --check-map --strict` was run without changing its rules; it fails because Windows backslash paths do not match the helper's slash-based map/waivers, and five pre-existing referenced paths are absent (split recipe, gates file and golden paths). After architecture cleanup, changed source sizes are windowed 1,999, walk 1,265 and profile 403 lines; the touched map rows were updated. This is a validation-tool limitation, not a passing size/map gate.
+- Final source review kept one class-attribution path, one pending-counter drain and one shared battle-accounting path. The attribution helper uses early returns; profile serialization no longer depends on `WalkSim`. After cleanup, all-target workspace clippy passed, the game library reported 428 passed / 2 ignored, and both career integration regressions passed again. No code comments were added. The user authorized integration into local main and a rebuild of the packed executable in `dist/`.

@@ -456,6 +456,7 @@ pub fn faction_row(faction: &str) -> usize {
 
 pub struct WalkSim {
     pub sim: Sim,
+    pending_class_kills: std::collections::BTreeMap<String, u32>,
     /// The local player's unit — player SLOT 0 (`Sim::players[0]`).
     pub player: UnitHandle,
     /// Pending menu input, retained across render frames with no sim tick.
@@ -607,6 +608,7 @@ impl WalkSim {
         Self {
             sim,
             player,
+            pending_class_kills: Default::default(),
             respawn_requested: false,
             camera_blockers: CameraBlockers::default(),
             vehicle_geometry: Vec::new(),
@@ -912,6 +914,7 @@ impl WalkSim {
     /// One fixed tick (also the headless/replay entry — no accumulator).
     /// `pads` is indexed by player slot; slot 0 is [`WalkSim::player`].
     pub fn step_tick(&mut self, pads: &[PadState]) {
+        let kills_before = self.sim.units[self.player.index as usize].kills;
         if std::mem::take(&mut self.respawn_requested) {
             let mut requested = pads.to_vec();
             if requested.is_empty() {
@@ -929,6 +932,7 @@ impl WalkSim {
         if let Some(Some(h)) = self.sim.players.first() {
             self.player = *h;
         }
+        self.track_class_kills(kills_before);
         self.follow_backdrop();
         // The camera's zoom follows the player's (`re-zoom.md` §5): S and
         // the FOV ease toward their targets, and rest exactly once there.
@@ -958,6 +962,45 @@ impl WalkSim {
             v.orders(&self.sim, self.player);
             v.calls(&self.sim, &self.teams);
         }
+    }
+
+    fn track_class_kills(&mut self, kills_before: u32) {
+        let Some(me) = self.sim.units.get(self.player.index as usize).filter(|u| {
+            u.gen == self.player.gen && u.spec.player_slot == Some(0) && u.kills > kills_before
+        }) else {
+            return;
+        };
+        let Some(class) = self
+            .teams
+            .get(usize::from(me.team))
+            .and_then(|team| team.classes.get(usize::from(me.spec.class)))
+        else {
+            return;
+        };
+        let count = self
+            .pending_class_kills
+            .entry(class.name.clone())
+            .or_default();
+        *count = count.saturating_add(me.kills - kills_before);
+    }
+
+    pub fn flush_class_kills(&mut self, profile: &mut crate::profile::Profile) -> bool {
+        let changed = !self.pending_class_kills.is_empty();
+        for (class, kills) in std::mem::take(&mut self.pending_class_kills) {
+            let count = profile.career.class_kills.entry(class).or_default();
+            *count = count.saturating_add(kills);
+        }
+        changed
+    }
+
+    pub fn record_battle(&mut self, profile: &mut crate::profile::Profile) {
+        self.flush_class_kills(profile);
+        let me = &self.sim.units[self.player.index as usize];
+        let won = self
+            .sim
+            .outcome
+            .map(|winner| winner == me.team || winner == core::sim::OUTCOME_DRAW);
+        profile.record_round(won, me.kills, me.deaths, me.weapon.shots_fired, 0);
     }
 
     pub fn camera(&self) -> Camera {
