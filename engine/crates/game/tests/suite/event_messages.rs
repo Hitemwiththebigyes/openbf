@@ -201,6 +201,56 @@ fn every_showcase_class_has_the_discs_name() {
     assert_eq!(texts.class_name("nosuchside"), None);
 }
 
+#[test]
+fn both_games_default_class_equipment_has_localized_names() {
+    if !has_text() || !assets().join("common_bf1/locl/english.ron").is_file() {
+        return;
+    }
+    for game in ["bf1", "bf2"] {
+        let texts = game::event_feed::Texts::load(&assets(), game);
+        let db = game::roster::load_classdb(
+            &assets().join("classes"),
+            game,
+            &["all", "imp", "rep", "cis"],
+        )
+        .unwrap();
+        let mut count = 0;
+        for (_, _, names) in game::roster::DEFAULT_CLASSES
+            .iter()
+            .filter(|(g, _, _)| *g == game)
+        {
+            for name in *names {
+                let class = game::roster::ClassRoster::build(&db, name, 1, None).unwrap();
+                for weapon in std::iter::once(&class.weapon.name)
+                    .chain(class.held.iter().map(|h| &h.weapon.name))
+                {
+                    let label = texts
+                        .weapon_name(weapon)
+                        .unwrap_or_else(|| panic!("{game} {name}: {weapon} has no display name"));
+                    assert!(!label.contains('_'), "{weapon}: {label}");
+                    count += 1;
+                }
+            }
+        }
+        println!("{game}: {count} equipment names resolved");
+    }
+    let bf1 = game::event_feed::Texts::load(&assets(), "bf1");
+    let bf2 = game::event_feed::Texts::load(&assets(), "bf2");
+    assert_eq!(
+        bf1.weapon_name("imp_weap_inf_sniperrifle").as_deref(),
+        Some("Sniper Rifle")
+    );
+    assert_eq!(
+        bf2.weapon_name("imp_weap_inf_sniper_rifle").as_deref(),
+        Some("Sniper Rifle")
+    );
+    assert_eq!(
+        bf1.weapon_name("all_weap_inf_remote_charge_dispenser")
+            .as_deref(),
+        Some("Time Bomb")
+    );
+}
+
 /// Card SPSEL on a baked map (shares this suite's battle helper): BF2 Hoth's
 /// player dies, an available D-pad direction takes the post the PS2's rule
 /// gives from the post nearest his body, the pick has an index in the post
