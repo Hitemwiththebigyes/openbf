@@ -9,11 +9,10 @@
 //! how far the feet's ground speed is from his with the plain clock and
 //! with the PS2's rate.
 
-use super::{aim, move_rate, ActionKind, AnimInput, Animator, Body, Move, Rig};
+use super::{aim, move_rate, wrap, ActionKind, AnimInput, Animator, Body, Move, Rig};
 use crate::skin::{Clip, Pose, Skeleton};
 use glam::{Quat, Vec3};
 use std::collections::BTreeMap;
-use std::f32::consts::{PI, TAU};
 
 #[derive(Debug, Default, Clone, Copy)]
 struct SetRow {
@@ -160,9 +159,7 @@ impl Census {
             }
         }
         let r = a.roll();
-        let off = ((a.travel() - a.twist() + PI).rem_euclid(TAU) - PI)
-            .to_degrees()
-            .abs();
+        let off = wrap(a.travel() - a.twist()).to_degrees().abs();
         if r.updates > 0 {
             let row = &mut self.rolls[RollRow::of(a.travel())];
             row.updates += 1;

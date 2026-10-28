@@ -177,6 +177,7 @@ fn input(speed: f32) -> AnimInput {
         stance: Stance::Stand,
         vel: glam::Vec2::new(0.0, speed),
         yaw: 0.0,
+        mouse_aim: false,
         max_speed: 7.0,
         root_scale: 1.0,
         dead: false,
@@ -1139,6 +1140,7 @@ fn standing_he_turns_on_the_spot() {
         j.yaw = 0.75;
         l.a.step(&l.rig, &l.clips, &l.skel, &j, STEP);
         assert_eq!(l.a.body(), Some(Body::Feet(0, Move::TurnLeft)));
+        assert!((l.a.twist() + j.yaw).abs() < 1e-5);
     }
 }
 
@@ -1460,3 +1462,5 @@ fn a_prone_change_plays_its_transition_through_the_lock() {
     assert_eq!(Special::ProneDown(true).name(), "crouch_getdown_prone");
     assert_eq!(Special::ProneUp(false).name(), "prone_getup_stand");
 }
+
+mod legs;

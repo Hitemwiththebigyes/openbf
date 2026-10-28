@@ -681,3 +681,22 @@ checks of both body layers' original blend weights and soft/hard landing interru
 was obtained; keyboard injection into the isolated PCSX2 comparison did not trigger a jump.
 Re-checked 2026-10-25 against our own BF1 ELF bytes and decomp (capstone, re_check.py, the special-name table
 `PTR_DAT_00517af0`): every cited address, branch and constant matches; the wording above carries the corrections.
+
+## 11. Fast mouse turns and waist protection (2026-10-28) [O] UNAUDITED
+
+The maintainer confirmed the firing spin is fixed but reported excessive body twist during fast mouse turns. Snapshot: dist/openbf_data/playtest/last.json, BF2 Coruscant, seed 121, tick 408, build/checkout 14b87cb30671+dirty, compiled 2026-10-28 17:45:05 UTC. Human #0 imp_inf_rifleman at (77.1,15.0,-10.9) fires 44 rifle shots while stationary and repeatedly reverses mouse yaw. This is the preceding fix's build.
+
+### Original behavior
+
+- [V] BF2 FUN_00280158, current corpus lines 202187-202190, uses yaw limits ±0.62831855 (36 degrees). Lines 202245-202269 subtract leg twist at animator+0x20cc BEFORE clamping, add it back, and smooth toward that target by min(1, 4.5 dt). Line 202288 subtracts twist for the bone rotation. This bounds the TARGET relative to the legs; smoothing means it is not an unconditional final-pose clamp under discontinuous input.
+- [V] BF2 ELF 0x2802e0-0x2802f4 builds 0xbf20d97c / 0x3f20d97c. At 0x280438-0x28045c and 0x280480-0x2804c8, lwc1 from +0x20cc, sub.s, min.s, add.s and smoothing stores confirm the order. Its sole direct caller is FUN_0027caf0, current line 200685.
+- [V] BF1 differs: FUN_0022bdf0, current lines 142831-142832 and 142910-142916, clamps and smooths yaw in the soldier's frame; line 142941 subsequently subtracts leg twist. ELF 0x22c0e8-0x22c118 confirms +0x8c is subtracted from +0x20b0 before division by eight. Both calls are in FUN_0022aa10, current lines 142378 and 142654. BF1 must not be described as having BF2's leg-relative target clamp.
+- [V] The original turn thresholds also start moving the feet early. Raw tables BF1 0x517ab0 / BF2 0x5fdd20: right 22.5/22.5/27 degrees; left magnitude BF1 40.5/67.5/27, BF2 40.5/40.5/27. These trigger turns; they are not hard pose bounds.
+
+Self-checks: re_check.py fn b1 142831 142911 142941; fn b2 202189 202246 202269 202288; callers b1 FUN_0022bdf0; callers b2 FUN_00280158; word b1 0x517ab0 8 --f32; word b2 0x5fdd20 8 --f32; tools/eedis.py bf2 0x2802d8 0x280510; tools/eedis.py bf1 0x22c0d0 0x22c140. Both twin functions and driver calls were read. Their local limit variables are initialized here and can be replaced by seat virtuals before clamping. No global-absence claim or new live PS2 comparison.
+
+### Port adaptation
+
+The port clamps aim before subtracting animated leg twist, allowing a near-180-degree spine residual while the feet catch up. Mouse angles arrive instantly; imposing the original input rate limit would change mouse aiming. For stationary MOUSE_AIM soldiers, wrap the leg offset by the shortest angle and bound it relative to eased aim using the existing 0.6283-radian limit, before choosing a turn amount and after advancing it. Excess rotation goes into the hips immediately. Torso compensation still keeps the weapon on the aim line.
+
+This hard hip catch-up on both games is an explicit mouse presentation adaptation using BF2's bound, not either original's exact algorithm. Controller/bot animation, movement clips, special states and simulation are unchanged by the guard. Regression before: 3.131593-radian waist twist on the first frame. After: bounded waist and settling for both games, stand/crouch, 30/60/144 fps, near-half-turns, multi-revolution yaw, reversals and sustained fire. No interactive post-fix visual comparison.
