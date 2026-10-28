@@ -143,6 +143,32 @@ impl Sim {
                 gathered.push((Victim::Station(i as u16), s.sphere_centre, s.sphere_radius));
             }
         }
+        let mine_damage: Vec<_> = self
+            .mines
+            .iter()
+            .enumerate()
+            .filter_map(|(i, m)| {
+                if !crate::perception::los_seat(
+                    self,
+                    pos,
+                    m.flight.pos,
+                    crate::collision::HullFilter::Static,
+                    [source_instance, None],
+                ) {
+                    return None;
+                }
+                let f = blast_falloff(
+                    m.flight.pos.distance(pos),
+                    crate::mine::RADIUS,
+                    e.damage_inner,
+                    e.damage_outer,
+                );
+                Some((i, self.mine_damage(m, e.damage * f, &e.scales, team)))
+            })
+            .collect();
+        for (i, damage) in mine_damage {
+            self.mines[i].health -= damage;
+        }
         let attacker_is_player = attacker
             .and_then(|a| self.units.get(a.index as usize).filter(|u| u.gen == a.gen))
             .is_some_and(|u| u.is_player);

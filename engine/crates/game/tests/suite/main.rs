@@ -53,3 +53,4 @@ mod weather_ps2;
 
 mod bug_checks;
 mod knock_camera;
+mod placed_explosives;

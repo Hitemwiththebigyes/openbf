@@ -14,7 +14,7 @@ fn setup(bf2: bool) -> (Sim, UnitHandle, usize) {
         thrown: Some(Thrown {
             shot_elevate: 0.0,
             hide_on_fire: true,
-            hand: None,
+            hand: bf2.then_some(Dispenser::BF2_HAND),
         }),
         dispenser: Some(Dispenser {
             item: items(bf2)[usize::from(DUAL)].clone(),
@@ -81,6 +81,30 @@ fn five_presses_spend_five_packs_and_replace_only_the_owners_oldest() {
         );
         let oldest_life = 30.0 - (720 - drops[1]) as f32 * DT;
         assert!(s.pickups.iter().all(|p| p.life >= oldest_life - 0.01));
+    }
+}
+
+#[test]
+fn bf2_packs_leave_the_hand_in_the_soldiers_frame_and_bf1_keeps_its_origin() {
+    for bf2 in [false, true] {
+        for (yaw, forward) in [
+            (0.0, Vec3::NEG_Z),
+            (std::f32::consts::FRAC_PI_2, Vec3::NEG_X),
+            (std::f32::consts::PI, Vec3::Z),
+        ] {
+            let (mut s, h, weapon) = setup(bf2);
+            let u = &mut s.units[h.index as usize];
+            u.soldier.pos = Vec3::new(7.0, 3.0, -4.0);
+            u.soldier.yaw = yaw;
+            u.soldier.pitch = 0.8;
+            let expected = if bf2 {
+                u.soldier.pos + Vec3::Y * Dispenser::BF2_HAND.0 + forward * Dispenser::BF2_HAND.1
+            } else {
+                u.muzzle()
+            };
+            assert!(s.dispense_pickup(h.index as usize, weapon, 1.0));
+            assert!((s.pickups[0].pos - expected).length() < 1e-6);
+        }
     }
 }
 

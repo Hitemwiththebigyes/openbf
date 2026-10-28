@@ -41,7 +41,8 @@ impl Sim {
             let w = &self.units[i].held[k as usize];
             let c = &self.weapon_classes[w.class];
             w.state.state == FireState::Firing
-                || ((sec || w.state.fire_cmd != 0) && (infinite || !w.state.out_of_ammo(c)))
+                || ((sec || w.state.fire_cmd != 0)
+                    && (infinite || !w.state.out_of_ammo(c) || self.has_remote_items(i, w.class)))
         });
         self.units[i].active_channel = u8::from(ch1_has_it);
         let held0 = pri && !ch1_has_it;
@@ -72,8 +73,10 @@ impl Sim {
             if self.tick_repair_weapon(i, Some(k), Some(k) == cur1 && held1, blocked, dt) {
                 continue;
             }
+            let held = Some(k) == cur1 && held1;
+            let remote = self.remote_input(i, Some(k), held, blocked);
             let input = FireInput {
-                held: Some(k) == cur1 && held1,
+                held: held && !remote,
                 blocked,
                 infinite_ammo: infinite,
                 ai_dispersion: None,
@@ -186,6 +189,10 @@ impl Sim {
             let stage = self.weapon_classes[class].stage_index(class, usize::from(spec.stage));
             if self.weapon_classes[stage].ability.is_some() {
                 self.fire_ability(i, stage);
+                continue;
+            }
+            if self.weapon_classes[stage].mine.is_some() {
+                self.place_mine(i, stage, spec.charge);
                 continue;
             }
             if self.weapon_classes[stage].dispenser.is_some() {
@@ -309,13 +316,7 @@ impl Sim {
             _ => aim,
         };
         // BF1: the weapon's fire point; BF2: the hand, in the soldier's frame.
-        let origin = match thrown.and_then(|t| t.hand) {
-            Some((up, fwd)) => {
-                let (sy, cy) = crate::fmath::sin_cos(u.soldier.yaw);
-                u.soldier.pos + Vec3::Y * up + Vec3::new(-sy, 0.0, -cy) * fwd
-            }
-            None => u.muzzle(),
-        };
+        let origin = u.launch_origin(thrown.and_then(|t| t.hand));
         let owner = self.handle(i);
         let g = Sticky::new(
             origin,
@@ -472,7 +473,7 @@ impl Sim {
     /// ([`sticky::PUSH_OFF`]), or half the way to a surface it would meet
     /// first. Ours (issue #37): the underside of a step's lip, 2.5 cm over
     /// the floor, pushed it 4.5 cm down through that floor.
-    fn push_off_room(&self, point: Vec3, n: Vec3) -> f32 {
+    pub(super) fn push_off_room(&self, point: Vec3, n: Vec3) -> f32 {
         let start = point + n * sticky::PUSH_ROOM_START;
         let len = sticky::PUSH_OFF - sticky::PUSH_ROOM_START;
         let mut t = len;

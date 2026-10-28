@@ -133,6 +133,33 @@ fn pack_dispensers_use_the_original_drop_action_for_every_faction() {
                         !matches!(a.action(), Some((ActionKind::Throw(1 | 2), _))),
                         "{game} {class_name}: grenade throw selected at {tick}"
                     );
+                    if game == "bf2" {
+                        for event in &w.sim.events {
+                            if let Event::Throw { unit, origin, .. } = event {
+                                if unit.index as usize != p {
+                                    continue;
+                                }
+                                let asset = &vis.assets[vis.per_class[0][0].body.unwrap()].asset;
+                                let bone = asset.skeleton.index_of("bone_l_hand").unwrap();
+                                let pose = a.pose(&asset.skeleton);
+                                let hand = (super::super::model_of(&w.sim.units[p].soldier)
+                                    * asset.skeleton.palette(&pose.locals())[bone]
+                                    * asset.skeleton.global_bind[bone])
+                                    .transform_point3(Vec3::ZERO);
+                                let item = &pack.dispenser.as_ref().unwrap().item;
+                                let local =
+                                    glam::Quat::from_rotation_y(-w.sim.units[p].soldier.yaw)
+                                        * (hand - *origin)
+                                        - item.centre;
+                                let gap = (local.abs() - item.half).max(Vec3::ZERO).length();
+                                assert!(gap < 0.08, "{class_name} moving {moving}: pack {origin:?}, hand {hand:?}, gap {gap}");
+                                assert!(
+                                    (tick as f32 * core::TICK_DT - pack.initial_salvo_delay).abs()
+                                        <= core::TICK_DT
+                                );
+                            }
+                        }
+                    }
                     releases += w.sim.events.iter().filter(|e| matches!(e, Event::Throw { unit, weapon_class, .. } if unit.index as usize == p && *weapon_class as usize == dispenser)).count();
                 }
                 assert_eq!(releases, 1, "{game} {class_name}");

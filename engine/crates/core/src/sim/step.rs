@@ -737,6 +737,8 @@ impl Sim {
                     self.nav_stats.blast_holds += 1;
                 }
             }
+            let remote = self.remote_input(i, None, fire_held, blocked);
+            fire_held &= !remote;
             if self.tick_repair_weapon(i, None, fire_held, blocked, dt) {
                 continue;
             }
@@ -856,6 +858,7 @@ impl Sim {
 
         // 5b. The thrown grenades (GREN).
         self.tick_stickies(dt);
+        self.tick_mines(dt);
 
         // 5c. The pickups (PWUP): flight, life, the touch.
         self.tick_buffs(dt);

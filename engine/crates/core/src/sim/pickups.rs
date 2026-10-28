@@ -296,8 +296,8 @@ impl Sim {
             .unwrap() as u8;
         let u = &self.units[i];
         let (aim, _, _) = u.aim_frame();
-        let speed = (d.strength[0] + (d.strength[1] - d.strength[0]) * charge) * d.velocity;
-        let pos = u.muzzle();
+        let speed = d.speed(charge);
+        let pos = u.launch_origin(self.weapon_classes[weapon].thrown.and_then(|t| t.hand));
         self.spawn_pickup(
             class,
             pos,

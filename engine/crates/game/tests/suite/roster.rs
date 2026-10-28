@@ -2188,7 +2188,7 @@ fn every_class_kit_is_the_discs_or_explained() {
                         "launched"
                     } else if h.weapon.repair.is_some() {
                         "repair"
-                    } else if h.weapon.dispenser.is_some() {
+                    } else if h.weapon.dispenser.is_some() || h.weapon.mine.is_some() {
                         "dispenser"
                     } else if h.weapon.ability.is_some() {
                         "ability"

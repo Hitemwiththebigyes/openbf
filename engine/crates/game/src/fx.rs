@@ -844,6 +844,21 @@ impl Fx {
                         });
                     }
                 }
+                Event::MineBlast {
+                    pos,
+                    weapon_class,
+                    cause,
+                } => {
+                    let look = sim
+                        .weapon_classes
+                        .get(*weapon_class as usize)
+                        .and_then(|w| w.mine.as_ref())
+                        .and_then(|d| d.item.explosion(*cause))
+                        .map(|e| &e.look);
+                    if let Some(look) = look {
+                        self.explode(look, *pos, sim.water_under(*pos));
+                    }
+                }
                 // A thrown grenade's fuse ran out (GREN): its explosion
                 // class's effect where it lay.
                 Event::StickyBlast { pos, weapon_class } => {

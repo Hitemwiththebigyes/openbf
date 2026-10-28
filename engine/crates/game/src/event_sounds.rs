@@ -77,6 +77,26 @@ pub fn each(walk: &WalkSim, ears: Vec3, mut play: impl FnMut(&str, Vec3)) {
                     play(n, *pos);
                 }
             }
+            Event::MineTick { pos, weapon_class } => {
+                if let Some(sound) = walk.sim.weapon_classes[*weapon_class as usize]
+                    .mine
+                    .as_ref()
+                    .and_then(|d| d.item.tick_sound.as_deref())
+                {
+                    play(sound, *pos);
+                }
+            }
+            Event::MineBlast {
+                pos,
+                weapon_class,
+                cause,
+            } => {
+                let e = walk.sim.weapon_classes[*weapon_class as usize]
+                    .mine
+                    .as_ref()
+                    .and_then(|d| d.item.explosion(*cause));
+                boom(e.map(|e| &e.look), *pos, &mut play);
+            }
             Event::StickyBlast { pos, weapon_class } => {
                 let sticky = &walk.sim.weapon_classes[*weapon_class as usize]
                     .ordnance
@@ -188,7 +208,16 @@ pub fn each(walk: &WalkSim, ears: Vec3, mut play: impl FnMut(&str, Vec3)) {
                 let sticky = &walk.sim.weapon_classes[*weapon_class as usize]
                     .ordnance
                     .sticky;
-                if let Some(n) = sticky.as_ref().and_then(|s| s.bounce_sound.as_ref()) {
+                if let Some(n) = sticky
+                    .as_ref()
+                    .and_then(|s| s.bounce_sound.as_ref())
+                    .or_else(|| {
+                        walk.sim.weapon_classes[*weapon_class as usize]
+                            .mine
+                            .as_ref()
+                            .and_then(|d| d.item.contact_sound.as_ref())
+                    })
+                {
                     play(n, *pos);
                 }
             }

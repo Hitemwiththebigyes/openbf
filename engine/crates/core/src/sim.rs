@@ -41,6 +41,7 @@ mod doors;
 mod guns;
 mod input;
 mod look;
+mod mines;
 mod ordnance;
 mod pickups;
 mod repair;

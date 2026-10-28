@@ -249,7 +249,7 @@ pub(super) fn choose<'a>(cands: impl Iterator<Item = Cand<'a>>, ask: &Ask) -> Op
         // reloads where it stands instead of walking on for the four seconds.
         let reloads = ask.bf2 && c.busy && ask.vehicle.is_none();
         if c.class.repair.is_some()
-            || c.class.dispenser.is_some()
+            || c.class.dispenses()
             || c.class.ability.is_some()
             || c.empty
             || (grenade && ask.barred)

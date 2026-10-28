@@ -30,7 +30,9 @@ impl SoldierVisuals {
             .weapon_classes
             .iter()
             .map(|w| {
-                w.ordnance.sticky.as_ref()?;
+                if w.ordnance.sticky.is_none() && w.mine.is_none() {
+                    return None;
+                }
                 let name = w.ordnance.geometry.as_deref()?;
                 Some(*models.entry(name).or_insert_with(|| {
                     let index = vis.weapons.len();
@@ -720,6 +722,22 @@ impl SoldierVisuals {
             if u.mount.is_some() {
                 continue;
             }
+            let active = u.active_weapon();
+            let class = &walk.sim.weapon_classes[active.0];
+            if class.mine.is_some() && class.offhand_weapon {
+                let hand = super::in_hand(&walk.sim.weapon_classes, active);
+                if !hand.hidden {
+                    if let (Some(bone), Some(weapon)) = (
+                        sa.asset.skeleton.index_of("bone_l_hand"),
+                        self.weapon_for(u.team, u.spec.class, hand.slot),
+                    ) {
+                        weapon.part_draws(
+                            model * palette[bone] * sa.asset.skeleton.global_bind[bone],
+                            &mut out,
+                        );
+                    }
+                }
+            }
             let hand = drawn_weapon(u, &walk.sim.weapon_classes);
             if hand.hidden {
                 continue;
@@ -741,6 +759,20 @@ impl SoldierVisuals {
                 continue;
             };
             model.part_draws(Mat4::from_translation(g.pos), &mut out);
+        }
+        for m in &walk.sim.mines {
+            if let Some(model) = self
+                .grenades
+                .get(m.flight.weapon_class)
+                .copied()
+                .flatten()
+                .and_then(|i| self.weapons.get(i))
+            {
+                model.part_draws(
+                    Mat4::from_rotation_translation(m.rotation, m.flight.pos),
+                    &mut out,
+                );
+            }
         }
         out
     }

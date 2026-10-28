@@ -15,6 +15,8 @@
 //! What is PROVISIONAL here is labelled at its definition: the DEFAULT class
 //! lists, the `label` rule, and `jet` having no physics behind it.
 
+mod mines;
+
 use crate::classdb::{ClassDb, WeaponSlot};
 use crate::mission::MissionDef;
 use anyhow::{anyhow, Context, Result};
@@ -467,7 +469,13 @@ pub fn weapon_geometry(db: &ClassDb, soldier: &str) -> Option<String> {
 /// active weapon at `hp_weapons`, `analysis/re-muzzle-flash.md` §5;
 /// `re-grenades.md` §2.3 item 4). `None` = drawn as nothing.
 pub fn weapon_model(db: &ClassDb, weapon: &str) -> Option<String> {
-    db.prop(weapon, "GeometryName").map(|g| g.trim().to_owned())
+    let mine = db
+        .prop(weapon, "OrdnanceName")
+        .filter(|n| db.engine_base(n.trim()) == Some("mine"));
+    db.prop(weapon, "GeometryName")
+        .or_else(|| mine.and_then(|_| db.prop(weapon, "OffhandGeometryName")))
+        .or_else(|| mine.and_then(|n| db.prop(n.trim(), "GeometryName")))
+        .map(|g| g.trim().to_owned())
 }
 
 /// A soldier class's skins (card USKN, `analysis/re-soldier-skeleton-skins.md`
@@ -678,13 +686,31 @@ fn charge_points(db: &ClassDb, ord_name: &str, ord: &mut OrdnanceClass) {
 /// `NextCharge`), from its replayed keys `props` (base first, file order).
 fn weapon_stage(db: &ClassDb, weapon: &str, props: &[(u32, &str)]) -> Result<WeaponClass> {
     let wsrc = ListSrc { props };
-    if db.engine_base(weapon) == Some("dispenser") {
+    if matches!(db.engine_base(weapon), Some("dispenser" | "detonator")) {
         let name = WeaponClass::ordnance_name(&wsrc)
             .with_context(|| format!("{weapon}: no OrdnanceName"))?;
+        if db.engine_base(name.trim()) == Some("mine") {
+            let mut item = mines::mine_class(db, name.trim());
+            item.remote = db.engine_base(weapon) == Some("detonator");
+            let mut w = WeaponClass::from_props(weapon, &wsrc, OrdnanceClass::default());
+            w.ordnance.geometry = item.geometry.clone();
+            w.mine = Some(core::weapon::Dispenser::new(
+                &mut w,
+                &wsrc,
+                db.is_bf2(),
+                item,
+            ));
+            return Ok(w);
+        }
         let item = item_class_from_db(db, &name)
             .with_context(|| format!("{weapon}: {name} is not a pickup"))?;
         let mut w = WeaponClass::from_props(weapon, &wsrc, OrdnanceClass::default());
-        core::weapon::Dispenser::apply(&mut w, &wsrc, db.is_bf2(), item);
+        w.dispenser = Some(core::weapon::Dispenser::new(
+            &mut w,
+            &wsrc,
+            db.is_bf2(),
+            item,
+        ));
         return Ok(w);
     }
     if db.engine_base(weapon) == Some("repair") {
@@ -890,9 +916,7 @@ pub fn slot_kind(db: &ClassDb, weapon: &str, channel: u8) -> SlotKind {
     match (base.as_str(), ord.as_str()) {
         ("repair", _) => SlotKind::Repair,
         ("grenade", "sticky") if channel == 1 => SlotKind::Thrown,
-        ("dispenser" | "detonator", "mine") => {
-            SlotKind::NotBuilt("mines, time bombs, detpacks (issue #43)")
-        }
+        ("dispenser" | "detonator", "mine") => SlotKind::Dispenser,
         ("remote", _) => SlotKind::NotBuilt("remote droids (issue #44)"),
         ("dispenser", "portableturret") => {
             SlotKind::NotBuilt("the portable auto-turret (issue #45)")

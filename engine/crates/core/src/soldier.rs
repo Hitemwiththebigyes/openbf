@@ -63,6 +63,7 @@ pub const CONTROL_SPEED: [[f32; 3]; 8] = [
 /// game layer overrides from baked classes.ron via ClassDb).
 #[derive(Debug, Clone, Copy)]
 pub struct SoldierConstants {
+    pub immune_to_mines: bool,
     pub max_speed: f32,
     pub max_strafe_speed: f32,
     pub max_turn_speed: f32,
@@ -112,6 +113,7 @@ pub struct SoldierConstants {
 impl Default for SoldierConstants {
     fn default() -> Self {
         Self {
+            immune_to_mines: false,
             max_speed: 9.0,
             max_strafe_speed: 7.0,
             max_turn_speed: 2.0,
@@ -157,6 +159,7 @@ impl SoldierConstants {
                 .parse::<f32>()
                 .ok()
         };
+        c.immune_to_mines = f("ImmuneToMines").is_some_and(|v| v != 0.0);
         let set = |key: &str, slot: &mut f32| {
             if let Some(v) = f(key) {
                 *slot = v;

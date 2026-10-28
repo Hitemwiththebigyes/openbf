@@ -249,6 +249,7 @@ pub struct WeaponClass {
     pub offhand_weapon: bool,
     pub repair: Option<Repair>,
     pub dispenser: Option<Dispenser>,
+    pub mine: Option<Dispenser<crate::mine::MineClass>>,
     pub ability: Option<Ability>,
 }
 
@@ -394,6 +395,7 @@ impl Default for WeaponClass {
             offhand_weapon: false,
             repair: None,
             dispenser: None,
+            mine: None,
             ability: None,
         }
     }
@@ -560,6 +562,7 @@ impl WeaponClass {
             offhand_weapon: false,
             repair: None,
             dispenser: None,
+            mine: None,
             ability: None,
             flash: Some(crate::flash::MuzzleFlashLook {
                 radius: 0.6,
@@ -647,6 +650,10 @@ impl WeaponClass {
             }),
             ..Self::bf1_rifle()
         }
+    }
+
+    pub fn dispenses(&self) -> bool {
+        self.dispenser.is_some() || self.mine.is_some()
     }
 
     /// Name of the ordnance class this weapon fires (`OrdnanceName` /
@@ -1014,6 +1021,7 @@ pub struct WeaponState {
     /// Per-weapon fire command (soldier-written): >0 held counter, −1 on the
     /// release edge, 0 idle.
     pub fire_cmd: i32,
+    pub remote_press: u8,
     /// Human players get the −SpreadThreshold free-shot buffer; AI floor 0
     /// (both less the port's tight hold, `spread_floor`).
     pub human: bool,
@@ -1061,6 +1069,7 @@ impl WeaponState {
             heat: 0.0,
             overheated: false,
             fire_cmd: 0,
+            remote_press: 0,
             human,
             ai_dispersion: None,
             active: true,
@@ -1431,6 +1440,10 @@ impl WeaponState {
         eat(&self.clip.to_le_bytes());
         eat(&self.spare.to_le_bytes());
         eat(&self.fire_cmd.to_le_bytes());
+        if self.remote_press > 0 {
+            eat(b"REMOTE");
+            eat(&[self.remote_press]);
+        }
         eat(&[self.state as u8, self.overheated as u8, self.human as u8]);
         if self.tilt_index != 0 {
             eat(b"tilt");

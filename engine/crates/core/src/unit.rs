@@ -396,6 +396,16 @@ impl Unit {
         self.soldier.pos + Vec3::Y * muzzle_height(self.soldier.stance)
     }
 
+    pub fn launch_origin(&self, hand: Option<(f32, f32)>) -> Vec3 {
+        match hand {
+            Some((up, forward)) => {
+                let (sy, cy) = fmath::sin_cos(self.soldier.yaw);
+                self.soldier.pos + Vec3::Y * up + Vec3::new(-sy, 0.0, -cy) * forward
+            }
+            None => self.muzzle(),
+        }
+    }
+
     /// The acquisition's bounds (`re-aim-assist.md` §3.6): the box centre
     /// and half its diagonal. The box's 4 mm horizontal offset is dropped,
     /// so the centre is straight above the feet.
@@ -693,7 +703,7 @@ pub enum HitZone {
 }
 
 /// First `t >= 0` where the ray meets the sphere (0 when it starts inside).
-fn ray_sphere(o: Vec3, d: Vec3, c: Vec3, r: f32) -> Option<f32> {
+pub(crate) fn ray_sphere(o: Vec3, d: Vec3, c: Vec3, r: f32) -> Option<f32> {
     let m = o - c;
     let b = m.dot(d);
     let cc = m.length_squared() - r * r;

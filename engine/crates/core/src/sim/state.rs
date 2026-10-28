@@ -87,6 +87,15 @@ impl Cheats {
 /// audio, traces and Tier-4 artifacts).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Event {
+    MineBlast {
+        pos: Vec3,
+        weapon_class: u32,
+        cause: crate::mine::Detonation,
+    },
+    MineTick {
+        pos: Vec3,
+        weapon_class: u32,
+    },
     Ability {
         unit: UnitHandle,
         weapon_class: u32,
@@ -571,6 +580,8 @@ pub struct Sim {
     /// The thrown grenades in flight or lying armed (card GREN,
     /// [`crate::sticky`]), in throw order. HASHED when there is one.
     pub stickies: Vec<crate::sticky::Sticky>,
+    pub mines: Vec<crate::mine::Mine>,
+    pub next_mine_id: u64,
     /// The `powerupitem` classes (card PWUP, `sim/pickups.rs`). SETUP data
     /// like `weapon_classes`, NOT hashed.
     pub item_classes: Vec<super::pickups::ItemClass>,
@@ -932,6 +943,8 @@ impl Sim {
             hull_parts: Vec::new(),
             bolts: Vec::new(),
             stickies: Vec::new(),
+            mines: Vec::new(),
+            next_mine_id: 0,
             item_classes: Vec::new(),
             item_pool: super::pickups::ITEM_POOL_DEFAULT,
             pickups: Vec::new(),
@@ -1300,6 +1313,14 @@ impl Sim {
             eat(&(self.bolts.len() as u64).to_le_bytes());
             for b in &self.bolts {
                 b.hash_into(&mut eat);
+            }
+        }
+        if self.next_mine_id > 0 {
+            eat(b"MINES");
+            eat(&self.next_mine_id.to_le_bytes());
+            eat(&(self.mines.len() as u64).to_le_bytes());
+            for mine in &self.mines {
+                mine.hash_into(&mut eat);
             }
         }
         for g in &self.stickies {

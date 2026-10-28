@@ -34,7 +34,7 @@ impl SoldierVisuals {
             let (wc, _, state) = u.active_weapon();
             let class = &walk.sim.weapon_classes[wc];
             let free = u.alive && u.mount.is_none();
-            let released = class.dispenser.is_some() && walk.sim.events.iter().any(|e| {
+            let released = class.dispenses() && walk.sim.events.iter().any(|e| {
                 matches!(e,
                     core::sim::Event::Throw { unit, weapon_class, .. }
                     if unit.index as usize == i && unit.gen == u.gen && *weapon_class as usize == wc
@@ -44,7 +44,7 @@ impl SoldierVisuals {
                 (free && class.thrown.is_some() && (state.state == FireState::Firing || released))
                     .then_some(wc);
             if throwing.is_some() && throwing != v.throwing {
-                v.pending_throw = Some(if class.dispenser.is_some() {
+                v.pending_throw = Some(if class.dispenses() {
                     0
                 } else {
                     throw_variant(self.bf2, state.charge)
