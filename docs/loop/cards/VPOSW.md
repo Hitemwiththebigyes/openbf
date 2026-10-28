@@ -2,7 +2,7 @@
 id: VPOSW
 title: A walker's posed nodes are drawn over its walk skin: the AT-ST's head (cube5) with its chin and ear guns, the AT-AT's head and cannons, BF2's one-man AT-ST aimer_y / aimer_x, the AT-TE's guns and main cannon, the spider walker's turrets - each aimer / turret node of the walker's sections as the PS2's node table holds it (analysis/re-vehicle-pose.md 6)
 milestone: M2
-value: 4
+value: 5
 phase: build
 status: todo
 deps: VPOSE
@@ -85,3 +85,9 @@ the spider walker's turrets (BF1 YAV2). Census: `lead_tmp/vpose/nodecensus_<g>.t
   extended: the AT-ST's `cube5` and the AT-TE's guns fit within 1e-3 on every row of the stored states).
 - Then: a test from those RAM rows (the port's posed node = the PS2's table entry within 0.01 deg); mutation: the walk
   clip's head alone fails; pictures: an AT-ST aiming sideways, PS2 beside the port.
+## Playtest 2026-10-28 (the maintainer)
+BF2 GEO1, the Republic AT-TE (vehicle 12, `rep_walk_atte`): "the geonosis clone cp vehicle is rendering incorrectly". The maintainer's
+screenshot (local, `engine/artifacts/lead_tmp/playtest_20261028/geo1_atte_cannon.png`): the main mass-driver cannon floats
+on its own up and to the left, clear of the walker's back; the gunner sits on an empty mount. Black box of the F9 (09:24,
+build a43f94e5+dirty, seed 49): the AT-TE at (13.6, -63.4, 226.7), hp 10589 of 40000. Raise this card's value: the player
+sees it at every Republic command walker.

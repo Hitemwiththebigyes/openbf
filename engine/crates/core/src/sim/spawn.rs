@@ -9,7 +9,8 @@
 //! stands on ([`Sim::spawn_ground`] — a post's node inside a solid body on
 //! top of it, [`Sim::resolve_spawn_seats`], card LLEG); and the headless
 //! referees' [`Sim::vacate_player_slot`]; the human's spawn screens (card
-//! SSELA: [`SpawnStage`], [`SideChoice`], [`Sim::open_spawn_screens`]).
+//! SSELA: [`SpawnStage`], [`SideChoice`], [`Sim::open_spawn_screens`]); the
+//! live class change at a friendly post (issue #28, `spawn/class_change.rs`).
 //! Runtime methods live in `spawn/runtime.rs`; spawn and class regressions
 //! live in `spawn/tests.rs`, with screen regressions in `spawn/tests/screens.rs`.
 
@@ -29,8 +30,28 @@ pub enum SpawnStage {
     Side = 0,
     Map = 2,
     Class = 3,
+    /// Issue #28: the class screen opened by a LIVE soldier at a friendly
+    /// post (the PS2's state 4, `FUN_00397f00`, `analysis/re-class-change.md`).
+    /// The soldier stays on the field; its pad drives the screen.
+    Alive = 4,
     #[default]
     Accepted = 5,
+}
+
+/// Issue #28: a class change opens only while the soldier faces the post
+/// this much: the cosine of the angle between his facing and the line to
+/// the post must exceed it (BF2 `FUN_001f8548`, `B2:109226`;
+/// `analysis/re-class-change.md` §2).
+pub const CLASS_CHANGE_FACING: f32 = 0.15;
+
+/// Issue #28: what one class a slot played this life had in its weapons when
+/// the slot swapped away from it (the maintainer's rule: a class played again this
+/// life comes back with exactly this ammo; a death forgets it). Each entry
+/// is (class weapon slot, rounds in the clip, spare rounds).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ClassAmmo {
+    pub class: u8,
+    pub rounds: Vec<(u8, u32, u32)>,
 }
 
 /// The side screen's rows in the PS2's order (`ifs_sideselect`,
@@ -240,6 +261,7 @@ pub fn walker_point(pos: Vec3, rot: glam::Quat, (local, angle): (Vec3, f32)) -> 
     (pos + rot * local, crate::fmath::atan2(fwd.x, fwd.z) + angle)
 }
 
+mod class_change;
 mod runtime;
 
 #[cfg(test)]

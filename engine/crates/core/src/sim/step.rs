@@ -131,6 +131,11 @@ impl Sim {
         // 0a. The spawn screen's CLASS choice, before the respawn loop below
         //     can act on it.
         self.spawn_select(pads);
+        // 0a'. Issue #28: a live human's use press at a friendly post opens
+        //      the class screen; while it is up his soldier gets no pad.
+        self.class_change_open(pads);
+        let screen_pads = self.class_screen_pads(pads);
+        let pads = screen_pads.as_deref().unwrap_or(pads);
 
         // 0. Respawns (respawn timer expired, then the team's spawn wave for
         //    a bot - a human skips it, card SSELA; AI additionally capped by the alive-AI cap: BF2 FUN_0034cea8

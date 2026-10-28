@@ -20,3 +20,9 @@ The maintainer (INBOX 2026-10-21 17:50 item 4b). The kill numbers and whether of
 
 ## Acceptance
 - Tests at 0, 24, 25, 99 and 100 kills for an 8- and a 12-point class; a picture of the class select line.
+
+## The maintainer 2026-10-28 (stats screens review)
+Permanent unlocks are a named deviation he wants as **awards**: unlocking a locked class for good is something the
+player earns and sees on the end-of-round screens, not only a silent counter. Shape still to agree with him: (a) an
+award line ("Jet Trooper unlocked") on the stats pages when the 100th kill lands, or (b) the round's awards
+themselves (Killing Spree, Tank Buster ...) counting toward the unlock. Ask before building.

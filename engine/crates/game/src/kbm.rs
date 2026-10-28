@@ -124,7 +124,9 @@ impl Bindings {
                 (Key(K::ControlLeft), Bind::bits(b::ROLL_STANCE)),
                 (Key(K::ShiftLeft), Bind::bits(b::SPRINT)),
                 (Key(K::KeyR), Bind::bits(b::RELOAD)),
-                (Key(K::KeyE), Bind::bits(b::ACTION)),
+                // The pad's Triangle: use, and the class screens' back
+                // (issue #28: it opens and closes the class change at a post).
+                (Key(K::KeyE), Bind::bits(b::ACTION | b::SPAWN_BACK)),
                 (
                     Key(K::KeyQ),
                     Bind::bits(b::SWITCH_WEAPON | b::SPAWN_CLASS_NEXT),

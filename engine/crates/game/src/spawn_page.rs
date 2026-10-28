@@ -16,11 +16,13 @@ pub fn page(
 ) -> Option<ui::spawn_draw::SpawnPage> {
     use core::sim::{ClassRefusal, SideChoice, SpawnStage};
     use ui::spawn_draw::SpawnPage;
-    if !walk.sim.spawn_screens {
+    let stage = walk.sim.spawn_stage.get(slot).copied().unwrap_or_default();
+    // Issue #28: the live class screen shows with or without the screens.
+    if !walk.sim.spawn_screens && stage != SpawnStage::Alive {
         return None;
     }
     let me = &walk.sim.units[walk.player.index as usize];
-    match walk.sim.spawn_stage.get(slot).copied().unwrap_or_default() {
+    match stage {
         SpawnStage::Side => {
             let [a, b] = feed.team_names();
             Some(SpawnPage::Side {
@@ -52,7 +54,7 @@ pub fn page(
                 ),
             ],
         }),
-        SpawnStage::Class => {
+        SpawnStage::Class | SpawnStage::Alive => {
             let team = me.team.min(1);
             let t = &walk.teams[usize::from(team)];
             let pick = walk

@@ -11,6 +11,7 @@ mod ambience_ps2;
 mod announcer_ps2;
 mod battle_replay;
 mod career_class_kills;
+mod class_change_maps;
 mod class_dbs;
 mod collision;
 mod event_messages;

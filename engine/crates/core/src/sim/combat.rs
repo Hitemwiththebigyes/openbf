@@ -409,6 +409,7 @@ impl Sim {
             self.drop_item(h, None);
         }
         self.battle.on_death(victim_team as usize, victim_is_player);
+        self.class_change_life_ended(h);
         // Phase D: the squad rules for a death, both of them.
         crate::squad::on_unit_died(self, h);
         self.unseat_unit(h);
@@ -503,6 +504,7 @@ impl Sim {
         v.spawn_slot = Some(slot);
         self.drop_item(h, Some(cause));
         self.battle.on_death(team as usize, is_player);
+        self.class_change_life_ended(h);
         crate::squad::on_unit_died(self, h);
         self.unseat_unit(h);
         self.events.push(Event::EnvDeath { unit: h, cause });

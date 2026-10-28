@@ -421,3 +421,57 @@ fn real_match_class_switching_autosaves_and_profile_reload_keep_each_kill_once()
     assert_eq!(saved_twice, profile);
     println!("bf2_uta1: officer +2, respawn, Wookiee +1, victory; shots +{}, hits +{}, captures +{}; repeated tick/save and disk reload preserve counts", stats.shots, stats.hits, stats.captures);
 }
+
+/// Issue #28: put the player inside a friendly post he can change class at,
+/// facing it.
+fn at_friendly_post(walk: &mut WalkSim) {
+    let i = walk.player.index as usize;
+    let team = walk.sim.units[i].team;
+    for (ci, cp) in walk.sim.cps.clone().iter().enumerate() {
+        if !cp.spawnable_by(team) {
+            continue;
+        }
+        for off in [Vec3::Z, Vec3::X, Vec3::NEG_Z, Vec3::NEG_X] {
+            for r in [2.0, 3.0, 1.0] {
+                let mut at = cp.def.pos + off * r;
+                at.y = walk.sim.ground_under(at, false);
+                let to = cp.def.pos - at;
+                let u = &mut walk.sim.units[i];
+                u.soldier.pos = at;
+                u.soldier.yaw = (-to.x).atan2(-to.z);
+                u.soldier.pitch = to.y.atan2(to.with_y(0.0).length());
+                if walk.sim.class_change_post(i) == Some(ci) {
+                    return;
+                }
+            }
+        }
+    }
+    panic!("no friendly post to change class at");
+}
+
+#[test]
+fn kills_after_a_class_change_at_a_post_count_for_the_new_class() {
+    let Some(mut walk) = utapau_match() else {
+        return;
+    };
+    let mut profile = Profile::default();
+    let mut feed = EventFeed::default();
+    choose_class(&mut walk, &mut feed, "all_inf_officer");
+    at_friendly_post(&mut walk);
+    tap(&mut walk, &mut feed, buttons::ACTION | buttons::SPAWN_BACK);
+    assert_eq!(walk.sim.spawn_stage[0], SpawnStage::Alive);
+    while walk.sim.spawn_choice[0] != 0 {
+        tap(&mut walk, &mut feed, buttons::SPAWN_CLASS_NEXT);
+        while walk.sim.class_carousel[0].slide > 0 {
+            step(&mut walk, &mut feed, PadState::default());
+        }
+    }
+    tap(&mut walk, &mut feed, buttons::SPAWN_ACCEPT);
+    assert_eq!(walk.sim.spawn_stage[0], SpawnStage::Accepted);
+    assert_eq!(walk.sim.unit(walk.player).unwrap().spec.class, 0);
+    shoot_enemy(&mut walk, &mut feed);
+    assert!(walk.flush_class_kills(&mut profile));
+    let rifleman = walk.teams[0].classes[0].name.clone();
+    assert_eq!(profile.career.class_kills.get(&rifleman), Some(&1));
+    assert_eq!(profile.career.class_kills.get("all_inf_officer"), None);
+}

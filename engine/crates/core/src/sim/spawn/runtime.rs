@@ -659,6 +659,7 @@ impl Sim {
         debug_assert!(t.invariant_holds());
         self.events.push(Event::Despawn { unit: h });
         self.unseat_unit(h);
+        self.class_change_life_ended(h);
         // Phase D: the orders this slot gave go with it (`on_unit_died` reads
         // the still-set `spec.player_slot`), so clear before freeing the slot.
         crate::squad::on_unit_died(self, h);
@@ -692,6 +693,7 @@ impl Sim {
         self.spawn_stage.resize(n, SpawnStage::Accepted);
         self.side_choice.resize(n, SideChoice::Team1);
         self.class_carousel.resize(n, Carousel::default());
+        self.class_ammo.resize(n, Vec::new());
     }
 
     /// Card SSELA: put human slot `slot` behind the spawn screens - the game
@@ -719,6 +721,7 @@ impl Sim {
         t.alive_players = t.alive_players.saturating_sub(1);
         self.events.push(Event::Despawn { unit: h });
         self.unseat_unit(h);
+        self.class_change_life_ended(h);
         crate::squad::on_unit_died(self, h);
         self.spawn_screens = true;
         self.sync_slot_tables();
@@ -955,7 +958,8 @@ impl Sim {
             | buttons::SPAWN_POST_LEFT
             | buttons::SPAWN_POST_RIGHT;
         const SCREEN: u32 = buttons::SPAWN_ACCEPT | buttons::SPAWN_BACK;
-        let mask = if self.spawn_screens {
+        // Issue #28: a live slot's class screen reads the screen bits too.
+        let mask = if self.spawn_screens || self.spawn_stage.contains(&SpawnStage::Alive) {
             CLASS | POST | SCREEN
         } else {
             CLASS | POST
@@ -965,14 +969,17 @@ impl Sim {
             let bits = held & mask;
             let rose = bits & !self.prev_spawn_bits[s];
             self.prev_spawn_bits[s] = bits;
-            let carousel = self.spawn_screens && self.spawn_stage[s] == SpawnStage::Class;
+            let alive_screen = self.spawn_stage[s] == SpawnStage::Alive;
+            let carousel =
+                alive_screen || (self.spawn_screens && self.spawn_stage[s] == SpawnStage::Class);
             if rose == 0 && !carousel {
                 continue;
             }
             let unit = self.players[s].and_then(|h| self.units.get(h.index as usize));
             match unit {
-                // Alive: the spawn screen is not up, so the bits do nothing.
-                Some(u) if u.alive => continue,
+                // Alive: no spawn screen is up, so the bits do nothing -
+                // unless the slot opened the class screen at a post (#28).
+                Some(u) if u.alive && !alive_screen => continue,
                 _ => {}
             }
             let team = unit.map_or(0, |u| u.team);
@@ -985,7 +992,7 @@ impl Sim {
                     continue;
                 }
             }
-            if self.spawn_screens {
+            if self.spawn_screens || alive_screen {
                 self.spawn_screen_input(s, team, body, bits, rose, held);
                 continue;
             }
@@ -1087,6 +1094,11 @@ impl Sim {
             SpawnStage::Class if back => self.spawn_stage[s] = SpawnStage::Map,
             // The carousel steps in `class_carousel_step`, every tick.
             SpawnStage::Class => {}
+            // Issue #28, the PS2's state 4: X accepts as on the class screen
+            // (`B2:393063-393132`), Triangle goes back to play (`B2:393175`).
+            SpawnStage::Alive if accept => self.class_change_accept(s, team, held),
+            SpawnStage::Alive if back => self.class_change_close(s, held),
+            SpawnStage::Alive => {}
             SpawnStage::Accepted => {}
         }
     }

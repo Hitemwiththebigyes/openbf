@@ -1165,4 +1165,5 @@ fn the_post_choice_is_hashed_and_replays() {
     assert_eq!((a.1.x / 100.0).round(), 2.0, "spawned at post 2: {:?}", a.1);
 }
 
+mod class_change;
 mod screens;

@@ -542,6 +542,11 @@ pub struct Sim {
     /// slot's event feed before each tick (the feed scores the points); not
     /// hashed, like the pads. Missing = 0.
     pub spawn_points: Vec<i32>,
+    /// Issue #28: per player slot, the ammo of each class it swapped away
+    /// from this life ([`super::spawn::ClassAmmo`]); cleared when the slot's
+    /// unit dies. Parallel to `players`; hashed only while some slot holds
+    /// one, so a sim with no class change keeps its hash.
+    pub class_ammo: Vec<Vec<super::spawn::ClassAmmo>>,
     /// How many AI this team has EVER spawned — the cursor `ai_class` walks
     /// the class table with. Hashed (it decides the next AI's class).
     pub ai_spawned: [u32; 2],
@@ -932,6 +937,7 @@ impl Sim {
             side_choice: Vec::new(),
             class_carousel: Vec::new(),
             spawn_points: Vec::new(),
+            class_ammo: Vec::new(),
             ai_spawned: [0, 0],
             units: Vec::new(),
             vehicles: Vec::new(),
@@ -1415,6 +1421,23 @@ impl Sim {
             eat(&(self.class_carousel.len() as u32).to_le_bytes());
             for c in &self.class_carousel {
                 eat(&[u8::from(c.armed), c.slide]);
+            }
+        }
+        // Issue #28's ammo memory: NOTHING while no slot remembers a class.
+        if self.class_ammo.iter().any(|m| !m.is_empty()) {
+            eat(b"CLSCH");
+            eat(&(self.class_ammo.len() as u32).to_le_bytes());
+            for m in &self.class_ammo {
+                eat(&(m.len() as u32).to_le_bytes());
+                for c in m {
+                    eat(&[c.class]);
+                    eat(&(c.rounds.len() as u32).to_le_bytes());
+                    for (slot, clip, spare) in &c.rounds {
+                        eat(&[*slot]);
+                        eat(&clip.to_le_bytes());
+                        eat(&spare.to_le_bytes());
+                    }
+                }
             }
         }
         // The AI fill cursor: which class the next AI of each team takes.

@@ -548,11 +548,14 @@ pub(super) fn spawn_model(
     feed: &game::event_feed::EventFeed,
 ) -> Option<ui::spawn::SpawnModel> {
     let me = &walk.sim.units[walk.player.index as usize];
-    if me.alive || walk.sim.outcome.is_some() {
+    let slot = me.spec.player_slot.map_or(0, usize::from);
+    // Issue #28: a live player has a spawn screen only while the class
+    // screen he opened at a friendly post is up.
+    let alive_screen = walk.sim.spawn_stage.get(slot) == Some(&core::sim::SpawnStage::Alive);
+    if (me.alive && !alive_screen) || walk.sim.outcome.is_some() {
         return None;
     }
     let b = &walk.sim.battle;
-    let slot = me.spec.player_slot.map_or(0, usize::from);
     let list = walk.sim.player_spawn_posts(me.team);
     let selected = walk
         .sim
@@ -596,7 +599,7 @@ pub(super) fn spawn_model(
         (secs > 0.0).then_some(secs)
     };
     // The sim's spawn screen for this slot (card SSELA), when it runs them.
-    let screen = walk.sim.spawn_screens.then(|| {
+    let screen = (walk.sim.spawn_screens || alive_screen).then(|| {
         use core::sim::{SideChoice, SpawnStage};
         match walk.sim.spawn_stage.get(slot).copied().unwrap_or_default() {
             SpawnStage::Side => ui::spawn::SpawnScreen::Side {
@@ -612,7 +615,7 @@ pub(super) fn spawn_model(
                 },
             },
             SpawnStage::Map => ui::spawn::SpawnScreen::Map,
-            SpawnStage::Class => ui::spawn::SpawnScreen::Class,
+            SpawnStage::Class | SpawnStage::Alive => ui::spawn::SpawnScreen::Class,
             SpawnStage::Accepted => ui::spawn::SpawnScreen::Waiting,
         }
     });

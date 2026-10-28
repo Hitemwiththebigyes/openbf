@@ -62,7 +62,9 @@ pub mod buttons {
     /// the slot is not on the field and `Sim::spawn_screens` is on.
     pub const SPAWN_ACCEPT: u32 = 1 << 20;
     /// The spawn screens' back (the PS2's Triangle): class -> spawn map;
-    /// nothing on the spawn map (offline) or on the side screen.
+    /// nothing on the spawn map (offline) or on the side screen. On the class
+    /// screen a live soldier opened at a friendly post (issue #28, opened by
+    /// `ACTION`), back to play.
     pub const SPAWN_BACK: u32 = 1 << 21;
     /// One-tick command from the confirmed pause-menu Respawn action (BUGX).
     /// Recorded/replayed with the other pad bits; no physical button maps to it.

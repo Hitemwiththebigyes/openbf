@@ -20,7 +20,8 @@
 //! The spawn screens' accept and back (card SSELA, `SPAWN_ACCEPT` /
 //! `SPAWN_BACK`) are the PS2's X and Triangle (re-spawn-flow §1): Cross and
 //! Triangle carry them beside JUMP and ACTION; the sim reads them only from a
-//! slot that is not on the field.
+//! slot that is not on the field, or whose live soldier opened the class
+//! screen at a friendly post with ACTION (issue #28).
 //!
 //! The D-PAD is the squad commands' (Phase D, card SQACK) and, while the
 //! player is dead, the spawn map's post push (card SPSEL, `SPAWN_POST_*`): the
