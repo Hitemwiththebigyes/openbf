@@ -7,7 +7,7 @@
 //! horizontal heading (the PS2 spawns a bolt impact that way, re-fx §7); frames are written as
 //! `<out_prefix>_<ms>.png` at each time (s; default every 1/30 s over 0.3 s). The scene as `pose_render`
 //! draws it (conquest layer, no soldier, no HUD); the map's two sides' effect layers are those of the
-//! mission's default teams — this loads only the map and common layers.
+//! mission's default teams — this loads only the map and common layers, and `FX_SIDES=cis,rep` those sides'.
 use anyhow::{anyhow, Result};
 use game::assets::load_scene;
 use game::fx::emitter::Frame;
@@ -62,7 +62,10 @@ fn main() -> Result<()> {
     let at = Vec3::new(x, hf.height_at(x, z), z);
     println!("spawn at {at}");
     let assets = map.parent().unwrap_or(Path::new("."));
-    let mut fx = Fx::load(assets, map, &scene.manifest.source_game, &[]);
+    // `FX_SIDES=cis,rep`: those sides' effect layers too (a weapon's effect).
+    let sides = std::env::var("FX_SIDES").unwrap_or_default();
+    let sides: Vec<&str> = sides.split(',').filter(|x| !x.is_empty()).collect();
+    let mut fx = Fx::load(assets, map, &scene.manifest.source_game, &sides);
     if !fx.spawn(&args[2], Frame::at(at)) {
         return Err(anyhow!("no layer holds effect {}", args[2]));
     }
