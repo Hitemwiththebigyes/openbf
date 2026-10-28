@@ -707,7 +707,10 @@ const GS_MAX: f32 = 255.0 / 128.0;
 @fragment
 fn fs_water(in: VsOut) -> @location(0) vec4<f32> {
     far_cull(in);
-    let uv = in.uv + material.scroll.xy * globals.time;
+    // The ocean's foam layer takes its own tiling (`uv_scale`, 1 on every
+    // other water draw): the PS2's foam texture matrix scales by `FoamTile`
+    // and shares the base's scroll offset (`analysis/re-water.md` §3d).
+    let uv = in.uv * material.scroll.zw + material.scroll.xy * globals.time;
     let texel = textureSample(t_color, s_color, uv);
     let v = normalize(globals.camera_pos - globals.water_eye_shift - in.world_pos);
     let f = pow(1.0 - max(v.y, 0.0), 3.0);

@@ -535,6 +535,15 @@ pub struct ManifestWaterConfig {
     pub patch_divisions: Option<[f32; 2]>,
     #[serde(default)]
     pub lod_decimation: Option<f32>,
+    /// Metres of world per repeat of the FOAM layer, `cell / FoamTile`: the
+    /// PS2 builds the foam's texture matrix from `FoamTile` as authored,
+    /// without the base's `× INFO5` (B1 `FUN_0048b280` 551026-551035, B2
+    /// 708397-708398; `analysis/re-water.md` §3d). Both KAM1s: 160 / 5 =
+    /// 32 m against the base's 40. `None` when the map authors no
+    /// `FoamTile`; absent in pre-2026-10-28 bakes.
+    /// Appended last (the wire-format rule, `manifest::tests`).
+    #[serde(default)]
+    pub foam_metres_per_repeat: Option<[f32; 2]>,
 }
 
 // --- lighting, fog and sky (baked by `bake::lighting`) ----------------------

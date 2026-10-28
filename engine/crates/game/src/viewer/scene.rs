@@ -658,7 +658,7 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
         let look = water_look(&scene.manifest.source_game, &scene.manifest.lighting, info);
         let ocean = info.config.as_ref().is_some_and(|c| c.ocean);
         let far = if ocean { look.far } else { cull.and(look.far) };
-        let mut handle = |name: Option<&str>| -> Result<Option<TextureHandle>> {
+        let mut handle = |name: Option<&str>, uv_scale| -> Result<Option<TextureHandle>> {
             let Some(t) = name.and_then(|n| scene.textures.get(&n.to_ascii_lowercase())) else {
                 return Ok(None);
             };
@@ -667,10 +667,10 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
                 t,
                 name.unwrap_or("water"),
                 info.uv_velocity,
-                [1.0, 1.0],
+                uv_scale,
             )?))
         };
-        let tex = handle(info.texture.as_deref())?;
+        let tex = handle(info.texture.as_deref(), [1.0, 1.0])?;
         // The ocean's foam layer: a SECOND draw of the same surface with the
         // map's `FoamTexture`, blended over the opaque base by its sheet's
         // alpha × its vertex alpha (`analysis/re-water.md` §3 cit. 5 [V],
@@ -697,7 +697,7 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
                     .and_then(|n| scene.textures.get(&n.to_ascii_lowercase()))
                     .is_some_and(texture_has_alpha)
                 {
-                    true => handle(name)?,
+                    true => handle(name, foam_uv_scale(info.config.as_ref()))?,
                     false => None,
                 }
             }
@@ -1520,4 +1520,15 @@ pub(crate) fn star_field(m: &manifest::Manifest) -> Option<render::StarField> {
         color_saturation: st.color_saturation,
         enable_bottom: st.enable_bottom && m.source_game == "bf2",
     })
+}
+
+/// The ocean foam layer's UV scale over the water mesh, whose UVs repeat
+/// every `metres_per_repeat`: the base's repeat over the foam's own
+/// (`ManifestWaterConfig::foam_metres_per_repeat`; both KAM1s 40 / 32 =
+/// 1.25). 1 when either is missing (a pre-2026-10-28 bake).
+pub(crate) fn foam_uv_scale(cfg: Option<&manifest::ManifestWaterConfig>) -> [f32; 2] {
+    match cfg.and_then(|c| Some((c.metres_per_repeat?, c.foam_metres_per_repeat?))) {
+        Some((base, foam)) => [base[0] / foam[0], base[1] / foam[1]],
+        None => [1.0, 1.0],
+    }
 }

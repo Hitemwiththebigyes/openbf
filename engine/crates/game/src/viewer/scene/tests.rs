@@ -312,3 +312,21 @@ fn the_v_wrap_rule_over_the_shipped_dome_segments() {
     assert_eq!(sky_wrap_v(-0.2501, 1.0), Repeat);
     assert_eq!(sky_wrap_v(0.0, 1.2501), Repeat);
 }
+
+/// The ocean foam's UV scale is the base repeat over the foam's (both KAM1s
+/// 40 / 32 = 1.25), 1 on a bake without the foam field.
+#[test]
+fn foam_uv_scale_is_base_over_foam_repeat() {
+    let c = manifest::ManifestWaterConfig {
+        metres_per_repeat: Some([40.0, 40.0]),
+        foam_metres_per_repeat: Some([32.0, 32.0]),
+        ..Default::default()
+    };
+    assert_eq!(super::foam_uv_scale(Some(&c)), [1.25, 1.25]);
+    let old = manifest::ManifestWaterConfig {
+        foam_metres_per_repeat: None,
+        ..c.clone()
+    };
+    assert_eq!(super::foam_uv_scale(Some(&old)), [1.0, 1.0]);
+    assert_eq!(super::foam_uv_scale(None), [1.0, 1.0]);
+}

@@ -132,10 +132,10 @@
 //!   foam, not a build-up the PS2's player never saw either (its first
 //!   frames pass under the load screen). The count is ours.
 //! - **The foam layer's UVs and scroll.** The disc authors `FoamTile(5,5)`
-//!   against the base's `Tile(4,4)` (§5); the bake does not carry it
-//!   (`manifest::ManifestWaterConfig`), so the foam copy keeps the base's
-//!   UVs and the viewer scrolls it by the base's `Velocity`. Where the
-//!   disc's foam texture matrix comes from is unread.
+//!   against the base's `Tile(4,4)` (§5) and builds the foam's texture
+//!   matrix from it unscaled, with the base's scroll offset (§3d): the foam
+//!   copy shares the base's mesh UVs and scroll, and its sheet's `uv_scale`
+//!   (`viewer::scene::foam_uv_scale`, 40 / 32 m) gives it its own tiling.
 //! - **The ocean's vertex RGB** is `DAT_0069c420..422` halved on the disc
 //!   (§3a (c)); what writes those bytes is unread, so both layers keep white
 //!   and `viewer::water_look`'s tint does the colouring.
