@@ -24,8 +24,13 @@
 
 /// BF2 conquest bleed constants (ObjectiveConquest.lua via re-tickets-spawn.md).
 pub const BF2_BLEED_TICKETS_PER_SEC: f32 = 1.0 / 3.0;
-/// Seconds a team may hold zero CPs before losing outright (defeatTimerSeconds).
+/// Seconds a team may hold zero CPs before losing outright (defeatTimerSeconds):
+/// the "Victory In" / "Defeat In" countdown (issue #33, `analysis/re-round-end.md` §1.1).
 pub const BF2_DOMINATION_DEFEAT_SECS: f32 = 20.0;
+/// After the countdown's 0 the objective completes and `dittyTimer` (1.0 s)
+/// calls `MissionVictory` (`objective.luac` main.f9; re-round-end.md §1.1):
+/// the round ends 21 s after one team took every post.
+pub const BF2_DOMINATION_DITTY_SECS: f32 = 1.0;
 
 /// One team's reinforcement pool + live census.
 #[derive(Debug, Clone, Copy)]

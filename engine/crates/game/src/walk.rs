@@ -531,6 +531,11 @@ pub struct WalkSim {
     /// the mission's camera shots, cut on each screen change, until the
     /// player's first spawn. `None` = the battle's own view.
     pub backdrop: Option<crate::spawn_backdrop::Backdrop>,
+    /// The mission's camera shots, for the end of the round's view.
+    pub end_shots: Vec<crate::spawn_backdrop::CameraShot>,
+    /// The end of the round once it is decided (issue #33,
+    /// [`crate::round_end`]): its camera shot, banner and stats screens.
+    pub round_end: Option<crate::round_end::RoundEnd>,
     /// The drawn frame's blend between the last two ticks (card RINT;
     /// presentation only - the sim never reads it): [`WalkSim::advance_with`]
     /// keeps the pose each tick starts from.
@@ -632,6 +637,8 @@ impl WalkSim {
             post_keys: Vec::new(),
             minimap: None,
             backdrop: None,
+            end_shots: Vec::new(),
+            round_end: None,
             teams,
             blend: crate::render_blend::Blend::default(),
             accum: 0.0,
@@ -1019,6 +1026,13 @@ impl WalkSim {
     }
 
     pub fn camera(&self) -> Camera {
+        // The end of the round stands on its camera shot (BF1, issue #33).
+        if let Some(shot) = self.round_end.as_ref().and_then(|r| r.shot) {
+            return Camera {
+                fov_y: self.fov_y(),
+                ..shot.camera()
+            };
+        }
         if let Some(b) = &self.backdrop {
             return b.camera();
         }
@@ -1068,6 +1082,37 @@ impl WalkSim {
             Some(from) if me.zoom.is_none() => Some(ease_camera_place(from, to, core::TICK_DT)),
             _ => Some(to),
         }
+    }
+
+    /// The end of the round, one frame (issue #33): it starts the first time
+    /// the round is decided - the viewer's result, a shot drawn from the
+    /// mission's (seeded by the round's tick), the banner for `music_secs` -
+    /// and steps with this frame's accept / back presses. True once it is
+    /// left (back to the shell).
+    pub fn follow_round_end(
+        &mut self,
+        dt: f32,
+        accept: bool,
+        back: bool,
+        music_secs: Option<f32>,
+    ) -> bool {
+        let Some(winner) = self.sim.outcome else {
+            return false;
+        };
+        let r = self.round_end.get_or_insert_with(|| {
+            use crate::round_end::{Result, RoundEnd};
+            let me = self.sim.units[self.player.index as usize].team;
+            let result = if winner == core::sim::OUTCOME_DRAW {
+                Result::Draw
+            } else if winner == me {
+                Result::Victory
+            } else {
+                Result::Defeat
+            };
+            RoundEnd::start(result, &self.end_shots, self.sim.tick as u32, music_secs)
+        });
+        r.step(dt, accept, back);
+        r.done()
     }
 
     /// The level start's backdrop follows slot 0's spawn screen and ends

@@ -165,6 +165,8 @@ fn hud_model(dead: bool) -> ui::hud::HudModel {
         dead,
         respawn_in: None,
         outcome: None,
+        countdown: None,
+        round_end: None,
         time_left: None,
         messages: vec![],
         stats: None,

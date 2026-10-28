@@ -309,8 +309,9 @@ pub fn apply_bleed(battle: &mut Battle, cps: &[CommandPost]) -> [f32; 2] {
 }
 
 /// Domination: the team owning EVERY post (none neutral) for
-/// `BF2_DOMINATION_DEFEAT_SECS` wins. `state` = (dominating team, seconds).
-/// Returns the loser when the timer expires.
+/// `BF2_DOMINATION_DEFEAT_SECS` wins, the round ending
+/// `BF2_DOMINATION_DITTY_SECS` after the countdown's 0. `state` = (dominating
+/// team, seconds). Returns the loser then.
 pub fn tick_domination(
     cps: &[CommandPost],
     state: &mut Option<(u8, f32)>,
@@ -329,7 +330,8 @@ pub fn tick_domination(
                 _ => dt,
             };
             *state = Some((t, secs));
-            (secs >= BF2_DOMINATION_DEFEAT_SECS).then_some(if t == 0 { 1 } else { 0 })
+            (secs >= BF2_DOMINATION_DEFEAT_SECS + crate::battle::BF2_DOMINATION_DITTY_SECS)
+                .then_some(if t == 0 { 1 } else { 0 })
         }
     }
 }
@@ -591,7 +593,8 @@ mod tests {
             t += DT;
         }
         assert_eq!(loser, Some(1));
-        assert!((t - 20.0).abs() < 0.05, "{t}");
+        // The 20 s countdown, then BF2's 1 s step (issue #33).
+        assert!((t - 21.0).abs() < 0.05, "{t}");
         cps[1].owner = None;
         assert_eq!(tick_domination(&cps, &mut st, DT, 2), None);
         assert_eq!(st, None);

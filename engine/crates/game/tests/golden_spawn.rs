@@ -30,6 +30,8 @@ fn hud() -> ui::hud::HudModel {
         dead: false,
         respawn_in: None,
         outcome: None,
+        countdown: None,
+        round_end: None,
         time_left: None,
         messages: vec![ui::hud::HudMessage {
             text: "DX 178 killed Player 1".into(),
