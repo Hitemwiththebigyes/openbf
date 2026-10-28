@@ -433,7 +433,8 @@ impl Sim {
                 continue;
             }
             let p = unit_pads[ph.index as usize];
-            if let Some(m) = self.magnet[slot].filter(|_| !p.mouse_aim()) {
+            let flying = self.controlled_droid(ph).is_some();
+            if let Some(m) = self.magnet[slot].filter(|_| !p.mouse_aim() && !flying) {
                 unit_pads[ph.index as usize] = self.apply_assist(slot, ph, m, &p, dt);
             }
             let steering = p.mouse_aim()

@@ -356,12 +356,22 @@ impl Sim {
             self.reticle_pick[slot] = None;
             return;
         };
-        let c = &self.weapon_classes[p.weapon_class];
+        // A player flying a remote droid aims with it: the pick (the
+        // reticle's colour) is the droid's, from its muzzle along its aim
+        // with its blaster's ranges; it pulls no magnet, so the idle body
+        // is never turned.
+        let droid = self
+            .controlled_droid(ph)
+            .map(|d| (d.muzzle(), d.aim_frame().0, d.weapon_class));
+        let c = &self.weapon_classes[droid.map_or(p.weapon_class, |d| d.2)];
         let (er, lor, angle) = (c.extreme_range, c.lock_on_range, c.lock_on_angle);
         let (team_bits, kind_bits) = (c.target_team, c.target_kind);
         // The cone is centred on the reticle's ray (`re-aim-assist.md`
         // §10.5), not on the view's centre.
-        let (pos, dir) = p.aim_ray(self.ground_rules, self.views());
+        let (pos, dir) = match droid {
+            Some((muzzle, aim, _)) => (muzzle, aim),
+            None => p.aim_ray(self.ground_rules, self.views()),
+        };
         let own = p.mount.map(|m| m.vehicle);
         let own_building = own.and_then(|h| self.vehicle(h)).and_then(|v| v.instance);
         let rel = |c: &Candidate| -> i8 {
@@ -418,7 +428,9 @@ impl Sim {
                 if valid && !pass {
                     continue;
                 }
-                if (u.ctr - mid).abs().cmpgt(Vec3::splat(er + u.r)).any() || p.in_aim_box(u.ctr) {
+                if (u.ctr - mid).abs().cmpgt(Vec3::splat(er + u.r)).any()
+                    || (droid.is_none() && p.in_aim_box(u.ctr))
+                {
                     continue;
                 }
                 let s = cone_score(u.r, angle, er, pos, dir, u.ctr);
@@ -430,7 +442,11 @@ impl Sim {
             }
         }
         let pick = target.and_then(|t| self.aim_candidate(t).map(|u| (t, rel(&u))));
-        self.magnet[slot] = if valid { target } else { None };
+        self.magnet[slot] = if valid && droid.is_none() {
+            target
+        } else {
+            None
+        };
         self.reticle_pick[slot] = pick;
     }
 

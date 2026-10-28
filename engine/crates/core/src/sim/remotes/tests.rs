@@ -1,6 +1,7 @@
 use super::*;
 use crate::remote::tests::{Props, BF1_DROID, BF2_DROID};
 use crate::remote::{Destruct, DroidClass, RemoteWeapon, Salvo};
+use crate::sim::input::AimTarget;
 use crate::sim::tests::flat_ground;
 use crate::unit::{SlotSpec, UnitSpec};
 use crate::weapon::{Dispenser, ExplosionClass, WeaponClass, DEG};
@@ -334,4 +335,37 @@ fn the_look_preview_is_the_turn_the_next_tick_takes() {
         let d = &sim.droids[droid];
         assert_eq!((d.yaw, d.pitch), (yaw, pitch));
     }
+}
+
+/// The reticle's pick while flying is the droid's: an enemy before the
+/// droid is picked as an enemy (red), a team mate as a friend, nothing
+/// when it looks away, whatever the idle body faces; the droid pulls no
+/// aim-assist magnet.
+#[test]
+fn the_reticle_picks_what_the_droid_looks_at() {
+    let (mut sim, owner, _) = setup(false);
+    launch(&mut sim);
+    sim.units[owner.index as usize].soldier.yaw = std::f32::consts::PI;
+    let aim_at = |sim: &mut Sim, yaw: f32| {
+        let d = &mut sim.droids[0];
+        d.pos = Vec3::new(0.0, 1.75, 0.0);
+        d.vel = Vec3::ZERO;
+        d.yaw = yaw;
+        d.pitch = crate::fmath::atan2(1.1 - 1.75, 10.0);
+        press(sim, 0);
+    };
+    let enemy = sim
+        .spawn(&UnitSpec::trooper(1, Vec3::new(0.0, 0.0, -10.0)))
+        .unwrap();
+    aim_at(&mut sim, 0.0);
+    assert_eq!(sim.reticle_pick[0], Some((AimTarget::Unit(enemy), -1)));
+    assert_eq!(sim.magnet[0], None, "no magnet while flying");
+    aim_at(&mut sim, std::f32::consts::FRAC_PI_2);
+    assert_eq!(sim.reticle_pick[0], None, "looking away: white");
+    sim.units[enemy.index as usize].alive = false;
+    let friend = sim
+        .spawn(&UnitSpec::trooper(0, Vec3::new(0.0, 0.0, -10.0)))
+        .unwrap();
+    aim_at(&mut sim, 0.0);
+    assert_eq!(sim.reticle_pick[0], Some((AimTarget::Unit(friend), 1)));
 }
