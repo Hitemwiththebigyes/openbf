@@ -1033,6 +1033,11 @@ impl App {
         self.walk = None;
         self.music_voice = None;
         self.gpu = None;
+        // The map's sky and look stay in the renderer otherwise, and the
+        // shell's frames draw them behind the movie.
+        if let Some(r) = self.renderer.as_mut() {
+            r.clear_scene();
+        }
         self.hud_view = None;
         self.paused = false;
         self.kbm.release_keys();

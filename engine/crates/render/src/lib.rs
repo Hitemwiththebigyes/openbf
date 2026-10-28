@@ -404,6 +404,25 @@ pub fn advance_clocks(time: f32, water_time: f64, dt: f32) -> (f32, f64) {
     ((time + dt) % TIME_WRAP, water_time + f64::from(dt))
 }
 
+impl Renderer {
+    /// Drop the map's look: everything drawn without a draw command (the
+    /// sky, stars, grass, leaves, lights, effects, filter) and its lighting.
+    /// A frame after this is the clear colour plus its draws, as before any
+    /// map was loaded (the shell after a battle).
+    pub fn clear_scene(&mut self) {
+        self.set_sky(Vec::new());
+        self.set_stars(None, 0);
+        self.set_grass(Vec::new(), Vec::new());
+        self.set_leaves(Vec::new(), Vec::new(), None);
+        self.set_point_lights(Vec::new());
+        self.set_bolts(Vec::new());
+        self.set_particles(Vec::new());
+        self.set_terrain_lights(Default::default());
+        self.set_frame_filter(None);
+        self.lighting = Lighting::default();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
