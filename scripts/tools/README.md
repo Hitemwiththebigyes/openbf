@@ -7,6 +7,9 @@ repository root. The reverse-engineering tools locate the PS2 executables relati
 | tool | what it does | usage |
 |---|---|---|
 | `mix.py` | renders the event sounds of a playtest black-box snapshot (or a SOUND_LOG csv) to a WAV and reports overloads; needs numpy, and ffmpeg for Ogg takes | `python3 scripts/tools/mix.py <snapshot.json> engine/assets_baked --wav out.wav` |
+| `charge_survey.py` | every weapon / ordnance class with charge keys or `NextCharge` stages, from the baked classes (`analysis/re-weapon-charge.md`) | `python3 -I scripts/tools/charge_survey.py table` |
+| `charge_keys_decomp.py` | the charge keys' reads in the Ghidra listings, by enclosing function | `python3 -I scripts/tools/charge_keys_decomp.py analysis/SWBFRONT.ELF-decomp.c analysis/SWBFRNT2.ELF-decomp.c` |
+| `charge_keys_elf.py` | the charge keys as ELF data words and lui/ori builds | `python3 -I scripts/tools/charge_keys_elf.py extracted/bf1/SWBFRONT.ELF extracted/bf2/SWBFRNT2.ELF` |
 | `elfrd.py` | prints 32-bit words (hex and float) of an ELF at a virtual address | `python3 scripts/tools/elfrd.py extracted/bf1/SWBFRONT.ELF 534b10 8` |
 | `refs.py` | every `jal` / `j` instruction and data word that references an address | `python3 scripts/tools/refs.py b1 22c7f0` |
 | `eedis.py` | small R5900 disassembler, VU0 macro ops with their field masks | `python3 scripts/tools/eedis.py bf1 22ad3c 22ad80` |

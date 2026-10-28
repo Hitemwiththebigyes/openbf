@@ -228,8 +228,14 @@ pub fn load_classdb(classes_dir: &Path, game: &str, factions: &[&str]) -> Result
             classes_dir.display()
         ));
     }
-    if game == "bf1" && factions.contains(&"cis") {
-        db.sbd_weapons = Some(Box::new(load_classdb(classes_dir, "bf2", &["cis"])?));
+    // A BF1 side whose class takes a BF2 class's weapons loads BF2's side too.
+    let donors: Vec<&str> = WEAPON_DONORS
+        .iter()
+        .filter_map(|d| d.class.split('_').next())
+        .filter(|side| factions.contains(side))
+        .collect();
+    if game == "bf1" && !donors.is_empty() {
+        db.donor_weapons = Some(Box::new(load_classdb(classes_dir, "bf2", &donors)?));
     }
     Ok(db)
 }
@@ -570,11 +576,60 @@ pub fn weapon_hud(db: &ClassDb, weapon: &str) -> crate::walk::WeaponHud {
     }
 }
 
-/// Build a weapon class (+ its ordnance) from the db.
+/// A weapon's keys as one charge stage sees them (issue #29): the chain's,
+/// base first, cut at the stage's end; the last of a key wins.
+struct ListSrc<'a> {
+    props: &'a [(u32, &'a str)],
+}
+
+impl PropSource for ListSrc<'_> {
+    fn prop(&self, key: &str) -> Option<&str> {
+        self.prop_hash(crate::classdb::fnv1a_lowercase(key))
+    }
+    fn prop_hash(&self, hash: u32) -> Option<&str> {
+        self.props.iter().rev().find(|p| p.0 == hash).map(|p| p.1)
+    }
+}
+
+/// `NextCharge`, the shot-offset count and an offset pair's keys.
+const NEXT_CHARGE: u32 = 0x8316_f444;
+const TILT_COUNT: u32 = 0xa4df_afc0;
+const TILT: u32 = 0xa412_0aa8;
+
+/// Build a weapon class (+ its ordnance) from the db, with its charge
+/// stages (issue #29, `analysis/re-weapon-charge.md` §1): a `NextCharge` in
+/// the weapon's keys clones the class as it stands, and every key after it
+/// goes to the clone; the stage's threshold is the `NextCharge` value.
 pub fn weapon_from_db(db: &ClassDb, weapon: &str) -> Result<WeaponClass> {
     db.get(weapon)
         .with_context(|| format!("weapon class {weapon} not in class db"))?;
-    let wsrc = ClassSrc { db, class: weapon };
+    let props = chain_props(db, weapon);
+    let cuts: Vec<usize> = props
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| p.0 == NEXT_CHARGE)
+        .map(|(i, _)| i)
+        .collect();
+    let mut w = weapon_stage(
+        db,
+        weapon,
+        &props[..cuts.first().copied().unwrap_or(props.len())],
+    )?;
+    for (k, &at) in cuts.iter().enumerate() {
+        let end = cuts.get(k + 1).copied().unwrap_or(props.len());
+        w.stages.push(core::weapon::ChargeStage {
+            threshold: props[at].1.trim().parse().unwrap_or(1.0),
+            class: Box::new(weapon_stage(db, weapon, &props[..end])?),
+            index: usize::MAX,
+        });
+    }
+    Ok(w)
+}
+
+/// One charge stage of a weapon (the root: every key before the first
+/// `NextCharge`), from its replayed keys `props` (base first, file order).
+fn weapon_stage(db: &ClassDb, weapon: &str, props: &[(u32, &str)]) -> Result<WeaponClass> {
+    let wsrc = ListSrc { props };
     if db.engine_base(weapon) == Some("repair") {
         let mut w = WeaponClass::from_props(weapon, &wsrc, OrdnanceClass::default());
         w.repair = Some(core::weapon::Repair::from_props(&wsrc));
@@ -586,6 +641,15 @@ pub fn weapon_from_db(db: &ClassDb, weapon: &str) -> Result<WeaponClass> {
         WeaponClass::ordnance_name(&wsrc).with_context(|| format!("{weapon}: no OrdnanceName"))?;
     db.get(&ord_name)
         .with_context(|| format!("ordnance class {ord_name} not in class db"))?;
+    if db
+        .resolve(&ord_name)
+        .and_then(|o| db.engine_base(o))
+        .is_some_and(|b| b.eq_ignore_ascii_case("sticky"))
+    {
+        // A charged mortar round (issue #29): launched as the grenades are.
+        let ord = sticky_ordnance(db, db.resolve(&ord_name).unwrap_or(&ord_name));
+        return Ok(WeaponClass::from_props(weapon, &wsrc, ord));
+    }
     let mut ord = OrdnanceClass::from_props(&ClassSrc {
         db,
         class: &ord_name,
@@ -597,12 +661,27 @@ pub fn weapon_from_db(db: &ClassDb, weapon: &str) -> Result<WeaponClass> {
         .engine_base(&ord_name)
         .map_or(OrdKind::Other, OrdKind::from_base);
     let mut w = WeaponClass::from_props(weapon, &wsrc, ord);
-    let tilt_count = db
-        .prop_hash(weapon, 0xa4df_afc0)
-        .and_then(|v| v.parse::<usize>().ok())
+    // The offsets: the count key starts a stage's table and its pairs follow
+    // (the bowcaster authors one per stage, re-blaster-damage.md §3.3); a
+    // stage that authors none after its count keeps the copied pairs.
+    let last_count = props.iter().rposition(|p| p.0 == TILT_COUNT);
+    let tilt_count = last_count
+        .and_then(|i| props[i].1.trim().parse::<usize>().ok())
         .unwrap_or(0);
-    w.shot_tilts = db
-        .props_all_hash(weapon, 0xa412_0aa8)
+    let pairs = |from: usize| {
+        props[from..]
+            .iter()
+            .filter(|p| p.0 == TILT)
+            .map(|p| p.1)
+            .collect::<Vec<_>>()
+    };
+    let after = last_count.map_or_else(Vec::new, &pairs);
+    let tilts = if after.len() >= tilt_count {
+        after
+    } else {
+        pairs(0)
+    };
+    w.shot_tilts = tilts
         .into_iter()
         .take(tilt_count)
         .filter_map(|v| {
@@ -618,6 +697,32 @@ pub fn weapon_from_db(db: &ClassDb, weapon: &str) -> Result<WeaponClass> {
         .is_some_and(|b| !NO_FLASH_BASES.iter().any(|n| b.eq_ignore_ascii_case(n)))
         .then(|| flash_look(db, weapon));
     Ok(w)
+}
+
+/// A `sticky` ordnance class (a grenade's or a charged mortar round's): the
+/// shell's defaults (`LifeSpan` 3.0, `Velocity` 35.0, §4.1) where the
+/// bolt's would apply, the sticky's own keys replayed in file order, and its
+/// `ExplosionExpire` class.
+fn sticky_ordnance(db: &ClassDb, ord_name: &str) -> OrdnanceClass {
+    let osrc = ClassSrc {
+        db,
+        class: ord_name,
+    };
+    let mut ord = OrdnanceClass::from_props(&osrc);
+    if db.prop(ord_name, "Velocity").is_none() {
+        ord.velocity = 35.0;
+    }
+    if db.prop(ord_name, "LifeSpan").is_none() {
+        ord.life_span = 3.0;
+    }
+    ord.impact = impact_look(db, ord_name);
+    let mut sticky = core::sticky::StickyClass::replay(chain_props(db, ord_name), db.is_bf2());
+    sticky.explosion = db
+        .prop(ord_name, "ExplosionExpire")
+        .and_then(|e| explosion_class(db, e));
+    ord.sticky = Some(sticky);
+    ord.kind = OrdKind::Lobbed;
+    ord
 }
 
 /// A thrown weapon (card GREN, `analysis/re-grenades.md` §3, §4): a
@@ -646,25 +751,8 @@ pub fn thrown_weapon_from_db(db: &ClassDb, weapon: &str) -> Result<Option<Weapon
     if !is(ord_name, "sticky") {
         return Ok(None);
     }
-    let osrc = ClassSrc {
-        db,
-        class: ord_name,
-    };
-    let mut ord = OrdnanceClass::from_props(&osrc);
-    if db.prop(ord_name, "Velocity").is_none() {
-        ord.velocity = 35.0;
-    }
-    if db.prop(ord_name, "LifeSpan").is_none() {
-        ord.life_span = 3.0;
-    }
-    ord.impact = impact_look(db, ord_name);
+    let ord = sticky_ordnance(db, ord_name);
     let bf2 = db.is_bf2();
-    let mut sticky = core::sticky::StickyClass::replay(chain_props(db, ord_name), bf2);
-    sticky.explosion = db
-        .prop(ord_name, "ExplosionExpire")
-        .and_then(|e| explosion_class(db, e));
-    ord.sticky = Some(sticky);
-    ord.kind = OrdKind::Lobbed;
     let mut w = WeaponClass::from_props(weapon, &wsrc, ord);
     Thrown::apply(&mut w, &wsrc, bf2);
     if !bf2 && Thrown::BF1_THROWS_AS_BF2 {
@@ -673,25 +761,89 @@ pub fn thrown_weapon_from_db(db: &ClassDb, weapon: &str) -> Result<Option<Weapon
     Ok(Some(w))
 }
 
+/// A BF1 class that carries a BF2 class's weapons (one gameplay from the
+/// better game, issue #27 / PR #38): BF1's `class` fields `donor`'s weapon
+/// slots, ammunition and all, out of BF2's class data; every `twins` pair is
+/// (the BF2 weapon, the BF1 weapon whose sounds and animation bank it takes
+/// on a BF1 map). Add a row here for another class; no other code names one.
+pub struct WeaponDonor {
+    pub class: &'static str,
+    pub donor: &'static str,
+    pub twins: &'static [(&'static str, &'static str)],
+}
+
+pub const WEAPON_DONORS: &[WeaponDonor] = &[WeaponDonor {
+    class: "cis_inf_battledroid",
+    donor: "cis_inf_rifleman",
+    twins: &[("cis_weap_inf_wrist_trishot", "cis_weap_inf_wrist_shrapnel")],
+}];
+
+/// How a weapon slot's item works in the port, read from its class data
+/// (issue #42): the weapon's engine base and its ordnance's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SlotKind {
+    /// A `grenade` weapon whose ordnance is a `sticky`: thrown (card GREN).
+    Thrown,
+    /// A `repair` weapon (the fusion cutter).
+    Repair,
+    /// Fired by the soldier's weapon: a `cannon` or `launcher`, whatever its
+    /// channel, and the mortar launchers (a `grenade` weapon on channel 0):
+    /// each charge stage's round flies as its ordnance does, a `sticky` one
+    /// launched (BF1's smuggler's, a mortar's held round; issue #29).
+    Fired,
+    /// An item the port does not build yet; the slot is left out (the
+    /// reason's issue).
+    NotBuilt(&'static str),
+}
+
+/// [`SlotKind`] of `weapon` (resolved) in a slot of `channel`.
+pub fn slot_kind(db: &ClassDb, weapon: &str, channel: u8) -> SlotKind {
+    if db
+        .prop_f32(weapon, "MedalsTypeToUnlock")
+        .is_some_and(|m| m != -1.0)
+    {
+        return SlotKind::NotBuilt("an award weapon, unlocked by a medal (no medals yet)");
+    }
+    let base = db.engine_base(weapon).unwrap_or("").to_ascii_lowercase();
+    let ord = db
+        .prop(weapon, "OrdnanceName")
+        .and_then(|o| db.resolve(o.trim()))
+        .and_then(|o| db.engine_base(o))
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    match (base.as_str(), ord.as_str()) {
+        ("repair", _) => SlotKind::Repair,
+        ("grenade", "sticky") if channel == 1 => SlotKind::Thrown,
+        ("dispenser" | "detonator", "mine") => {
+            SlotKind::NotBuilt("mines, time bombs, detpacks (issue #43)")
+        }
+        ("remote", _) => SlotKind::NotBuilt("remote droids (issue #44)"),
+        ("dispenser", "portableturret") => {
+            SlotKind::NotBuilt("the portable auto-turret (issue #45)")
+        }
+        ("dispenser", "powerupitem") => SlotKind::NotBuilt("pack dispensers (issue #46)"),
+        ("cannon", "emitterordnance") if channel == 1 => {
+            SlotKind::NotBuilt("officer and hero abilities (issue #47)")
+        }
+        ("invisibility", _) => SlotKind::NotBuilt("the cloak (issue #48)"),
+        ("melee" | "meleethrow" | "areaeffectweapon", _) => {
+            SlotKind::NotBuilt("sabres and force powers (the hero work)")
+        }
+        ("cannon" | "launcher" | "grenade", _) => SlotKind::Fired,
+        _ => SlotKind::NotBuilt("an item type with no rule"),
+    }
+}
+
 pub fn held_slots(db: &ClassDb, soldier: &str, primary: u8) -> Vec<HeldSlot> {
     db.weapon_slots(soldier)
         .into_iter()
         .filter(|s| s.slot != primary)
         .filter_map(|s| {
             let name = db.resolve(&s.weapon)?.to_owned();
-            if db
-                .prop_f32(&name, "MedalsTypeToUnlock")
-                .is_some_and(|m| m != -1.0)
-            {
-                return None;
-            }
-            let weapon = if s.channel == 1
-                && db.engine_base(&name) != Some("repair")
-                && name != "cis_weap_inf_wrist_rocket"
-            {
-                thrown_weapon_from_db(db, &name).ok()??
-            } else {
-                weapon_from_db(db, &name).ok()?
+            let weapon = match slot_kind(db, &name, s.channel) {
+                SlotKind::Thrown => thrown_weapon_from_db(db, &name).ok()??,
+                SlotKind::Repair | SlotKind::Fired => weapon_from_db(db, &name).ok()?,
+                SlotKind::NotBuilt(_) => return None,
             };
             Some(HeldSlot {
                 slot: s.slot,
@@ -1120,13 +1272,14 @@ impl ClassRoster {
             ));
         }
         let src = ClassSrc { db, class };
-        let (weapon_db, weapon_owner) = if class == "cis_inf_battledroid" {
-            db.sbd_weapons
-                .as_deref()
-                .map_or((db, class), |canonical| (canonical, "cis_inf_rifleman"))
-        } else {
-            (db, class)
+        let donor = WEAPON_DONORS
+            .iter()
+            .find(|d| d.class.eq_ignore_ascii_case(class));
+        let (weapon_db, weapon_owner) = match (donor, db.donor_weapons.as_deref()) {
+            (Some(d), Some(bf2)) => (bf2, d.donor),
+            _ => (db, class),
         };
+        let twins = donor.map_or(&[][..], |d| d.twins);
         let slots = weapon_db.weapon_slots(weapon_owner);
         let primary = primary_slot(&slots).with_context(|| format!("{class}: no WeaponName"))?;
         let (weapon_name, total_clips, weapon_slot) = (
@@ -1140,11 +1293,10 @@ impl ClassRoster {
             for selected in
                 std::iter::once(&mut weapon).chain(held.iter_mut().map(|s| &mut s.weapon))
             {
-                let name = if selected.name == "cis_weap_inf_wrist_trishot" {
-                    "cis_weap_inf_wrist_shrapnel"
-                } else {
-                    &selected.name
-                };
+                let name = twins
+                    .iter()
+                    .find(|(bf2, _)| *bf2 == selected.name)
+                    .map_or(selected.name.as_str(), |(_, bf1)| *bf1);
                 let native = weapon_from_db(db, name)?;
                 selected.fire_sound = native.fire_sound;
                 selected.fire_loop_sound = native.fire_loop_sound;
@@ -1172,8 +1324,8 @@ impl ClassRoster {
         let mut anim = class_anim(db, class, &db.weapon_slots(class));
         if weapon_owner != class {
             for (weapon, _) in &mut anim.banks {
-                if weapon == "cis_weap_inf_wrist_shrapnel" {
-                    *weapon = "cis_weap_inf_wrist_trishot".into();
+                if let Some((bf2, _)) = twins.iter().find(|(_, bf1)| weapon == bf1) {
+                    *weapon = (*bf2).into();
                 }
             }
         }
@@ -1272,8 +1424,15 @@ impl ClassRoster {
         let mut index = |w: &WeaponClass| match names.iter().find(|(n, _)| *n == w.name) {
             Some((_, i)) => *i,
             None => {
-                let i = sim.add_weapon_class(w.clone());
-                names.push((w.name.clone(), i));
+                // Its charge stages first: each its own class, carried by
+                // the rounds it fires (issue #29).
+                let mut w = w.clone();
+                for st in &mut w.stages {
+                    st.index = sim.add_weapon_class((*st.class).clone());
+                }
+                let name = w.name.clone();
+                let i = sim.add_weapon_class(w);
+                names.push((name, i));
                 i
             }
         };

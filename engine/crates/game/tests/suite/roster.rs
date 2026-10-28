@@ -1608,11 +1608,16 @@ fn fielded_classes_hold_their_sidearm_and_grenades() {
                 );
                 for h in &c.held {
                     assert_ne!(h.slot, c.weapon_slot);
+                    // Thrown exactly when the data says so (issue #42).
+                    let db = game::roster::load_classdb(&dir, game, &f).unwrap();
+                    let kdb = match db.donor_classdb() {
+                        Some(d) if db.resolve(&h.weapon.name).is_none() => d,
+                        _ => &db,
+                    };
+                    let kind = game::roster::slot_kind(kdb, &h.weapon.name, h.channel);
                     assert_eq!(
-                        h.channel == 1
-                            && h.weapon.repair.is_none()
-                            && h.weapon.name != "cis_weap_inf_wrist_rocket",
-                        h.weapon.ordnance.sticky.is_some(),
+                        kind == game::roster::SlotKind::Thrown,
+                        h.weapon.thrown.is_some(),
                         "{}",
                         c.class
                     );
@@ -2103,5 +2108,179 @@ fn only_the_bulldogs_push_spares_the_living() {
     ] {
         let (push, spares) = blast(w);
         assert!(push > 0.0 && !spares, "{w}: push {push}, spares {spares}");
+    }
+}
+
+/// Issue #42: every soldier class on both discs, slot by slot, against the
+/// disc's own class data (baked here from the SIDE LVLs): the weapon, its
+/// channel and its clips, what kind of item it is (`roster::slot_kind`, from
+/// the weapon's and its ordnance's engine bases) and what the port fields.
+/// A slot is fielded with the disc's channel and clips (a `WEAPON_DONORS`
+/// class: its donor's), thrown exactly when it is a grenade with a sticky,
+/// or left out with its reason; a class that cannot be fielded says why.
+/// The table is held to `tests/data/class_kits.txt` (`CLASS_KITS_BLESS=1`
+/// rewrites it), so any change to a class's kit is a diff to explain.
+#[test]
+fn every_class_kit_is_the_discs_or_explained() {
+    use game::roster::{slot_kind, SlotKind, WEAPON_DONORS};
+    use std::fmt::Write as _;
+    let Some(dir) = classes_dir() else { return };
+    let mut out = String::new();
+    let mut counts = [0usize; 4];
+    let bf2 = load_classdb_all(&dir, "bf2");
+    for game in ["bf1", "bf2"] {
+        let db = load_classdb_all(&dir, game);
+        let mut names: Vec<String> = db
+            .names()
+            .filter(|n| game::roster::is_soldier_chain(&db, n))
+            .map(str::to_owned)
+            .collect();
+        names.sort();
+        names.dedup();
+        for c in &names {
+            let built = ClassRoster::build(&db, c, 1, None);
+            let donor = WEAPON_DONORS.iter().find(|d| d.class == c);
+            let line = match (&built, donor) {
+                (Err(e), _) => format!(
+                    "{game} {c}: NOT FIELDED ({})",
+                    e.to_string().lines().next().unwrap_or("")
+                ),
+                (Ok(_), Some(d)) => format!(
+                    "{game} {c}: takes BF2 {}'s weapons (WEAPON_DONORS)",
+                    d.donor
+                ),
+                (Ok(_), None) => format!("{game} {c}"),
+            };
+            writeln!(out, "{line}").unwrap();
+            let Ok(r) = &built else { continue };
+            // The donor's slots come out of BF2's data; the rows are its.
+            let slots = r.slots.clone();
+            let kdb = if donor.is_some() { &bf2 } else { &db };
+            for s in &slots {
+                let w = s.weapon.to_ascii_lowercase();
+                let disc = format!("{}:{} x{:?} ch{}", s.slot + 1, w, s.ammo, s.channel);
+                let kind = kdb.resolve(&w).map(|n| slot_kind(kdb, n, s.channel));
+                let got = if r.weapon_slot == s.slot {
+                    assert_eq!(r.total_clips, s.ammo.unwrap_or(0), "{game} {c} {disc}");
+                    counts[0] += 1;
+                    format!("primary x{}", r.total_clips)
+                } else if let Some(h) = r.held.iter().find(|h| h.slot == s.slot) {
+                    assert_eq!(h.channel, s.channel, "{game} {c} {disc}");
+                    assert_eq!(h.clips, s.ammo.unwrap_or(0), "{game} {c} {disc}");
+                    let thrown = h.weapon.ordnance.sticky.is_some() && h.weapon.thrown.is_some();
+                    if let Some(k) = kind {
+                        assert_eq!(thrown, k == SlotKind::Thrown, "{game} {c} {disc}: {k:?}");
+                        assert_eq!(
+                            h.weapon.repair.is_some(),
+                            k == SlotKind::Repair,
+                            "{game} {c} {disc}"
+                        );
+                    }
+                    counts[1] += 1;
+                    let how = if thrown {
+                        "thrown"
+                    } else if h.weapon.ordnance.sticky.is_some() {
+                        "launched"
+                    } else if h.weapon.repair.is_some() {
+                        "repair"
+                    } else {
+                        "fired"
+                    };
+                    format!("{how} x{}", h.clips)
+                } else {
+                    counts[2] += 1;
+                    match kind {
+                        Some(SlotKind::NotBuilt(why)) => format!("left out: {why}"),
+                        k => panic!("{game} {c} {disc}: left out with no reason ({k:?})"),
+                    }
+                };
+                writeln!(out, "    {disc} -> {got}").unwrap();
+            }
+            counts[3] += 1;
+        }
+    }
+    println!("{out}");
+    println!(
+        "classes {} | slots: primary {}, held {}, left out {}",
+        counts[3], counts[0], counts[1], counts[2]
+    );
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/class_kits.txt");
+    if std::env::var_os("CLASS_KITS_BLESS").is_some() {
+        std::fs::write(path, &out).unwrap();
+        return;
+    }
+    let want = std::fs::read_to_string(path)
+        .expect("tests/data/class_kits.txt (CLASS_KITS_BLESS=1 writes it)");
+    let diff: Vec<String> = want
+        .lines()
+        .zip(out.lines())
+        .filter(|(a, b)| a != b)
+        .take(20)
+        .map(|(a, b)| format!("- {a}\n+ {b}"))
+        .collect();
+    assert!(
+        diff.is_empty() && want.lines().count() == out.lines().count(),
+        "class kits moved (CLASS_KITS_BLESS=1 after explaining them):\n{}",
+        diff.join("\n")
+    );
+}
+
+/// Issue #29 (and #42's bowcaster): the charge stages out of both discs'
+/// class data (`analysis/re-weapon-charge.md` survey). BF1's bowcaster steps
+/// from one bolt to fans of 3, 5 and 7 (0.8 degree steps); BF2's from a
+/// 7-bolt fan (0.7 degree steps) to one 600 m/s, 300 damage bolt. Both
+/// mortars fire a shell on a tap and a sticky past 0.9 of the charge.
+#[test]
+fn charge_stages_are_the_discs() {
+    let Some(dir) = classes_dir() else { return };
+    let yaws = |w: &core::weapon::WeaponClass| -> Vec<i32> {
+        w.shot_tilts
+            .iter()
+            .map(|t| (t.1 / core::weapon::DEG * 10.0).round() as i32)
+            .collect()
+    };
+    let bf1 = load_classdb_all(&dir, "bf1");
+    let bow = game::roster::weapon_from_db(&bf1, "all_weap_inf_bowcaster").unwrap();
+    let th: Vec<f32> = bow.stages.iter().map(|s| s.threshold).collect();
+    assert_eq!(th, [0.15, 0.35, 0.65, 0.95]);
+    let shots: Vec<u32> = (0..5).map(|k| bow.stage(k).shots_per_salvo).collect();
+    assert_eq!(shots, [1, 1, 3, 5, 7]);
+    assert_eq!(yaws(bow.stage(2)), [0, -8, 8]);
+    assert_eq!(yaws(bow.stage(4)), [0, -8, 8, -16, 16, -24, 24]);
+    assert_eq!(
+        (bow.stage_for(0.1), bow.stage_for(0.5), bow.stage_for(1.0)),
+        (0, 2, 4)
+    );
+    let bf2 = load_classdb_all(&dir, "bf2");
+    let bow = game::roster::weapon_from_db(&bf2, "all_weap_inf_bowcaster").unwrap();
+    assert_eq!(bow.stages.len(), 1);
+    assert_eq!(
+        (bow.shots_per_salvo, yaws(&bow)),
+        (7, vec![0, -7, 7, -14, 14, -21, 21])
+    );
+    let heavy = bow.stage(1);
+    assert_eq!(heavy.shots_per_salvo, 1);
+    assert_eq!(
+        (heavy.ordnance.velocity, heavy.ordnance.max_damage),
+        (600.0, 300.0)
+    );
+    for (db, w) in [
+        (&bf1, "imp_weap_inf_mortar_launcher"),
+        (&bf2, "cis_weap_inf_mortar_launcher"),
+    ] {
+        let m = game::roster::weapon_from_db(db, w).unwrap();
+        assert_eq!(
+            m.stages.iter().map(|s| s.threshold).collect::<Vec<_>>(),
+            [0.9],
+            "{w}"
+        );
+        assert!(
+            m.ordnance.sticky.is_none() && m.ordnance.kind == core::weapon::OrdKind::Shell,
+            "{w}: a tap's shell"
+        );
+        assert!(
+            m.stage(1).ordnance.sticky.is_some(),
+            "{w}: the held round is a sticky"
+        );
     }
 }

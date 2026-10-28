@@ -140,6 +140,14 @@ impl Sim {
         // line of sight.
         self.units[i].last_shot_tick = self.tick;
         for spec in shots {
+            // A charge stage's round is its own class's (issue #29): its
+            // ordnance flies and strikes; a sticky one (a mortar's held
+            // round, BF1's smuggler's mortar) is launched.
+            let stage = self.weapon_classes[class].stage_index(class, usize::from(spec.stage));
+            if self.weapon_classes[stage].ordnance.sticky.is_some() {
+                self.launch(i, stage);
+                continue;
+            }
             let dir = shot_direction(
                 &mut self.lcg,
                 fwd,
@@ -149,7 +157,11 @@ impl Sim {
                 spec.yaw_spread,
                 spec.tilt,
             );
-            let wc = &self.weapon_classes[class];
+            let wc = &self.weapon_classes[stage];
+            let who = Shooter {
+                weapon_class: stage,
+                ..who
+            };
             let bolt = Bolt::fire(
                 origin,
                 dir,
@@ -163,7 +175,7 @@ impl Sim {
             );
             self.events.push(Event::Shot {
                 unit,
-                weapon_class: class as u32,
+                weapon_class: stage as u32,
                 origin,
                 dir,
             });
@@ -1345,5 +1357,49 @@ mod tests {
         let u = s.unit(p).unwrap();
         assert!(u.held.is_empty() && u.cur1.is_none() && u.active_channel == 0);
         assert!(s.stickies.is_empty());
+    }
+
+    /// Issue #29: a charge weapon fires the stage its trigger reached. A tap
+    /// fires the root's round; held past the stage's threshold (charge =
+    /// pressed / MaxPressedTime), the stage's own class, which its round
+    /// carries.
+    #[test]
+    fn a_held_charge_fires_its_stage_class() {
+        use crate::weapon::{ChargeStage, WeaponClass};
+        for (hold, want_stage) in [(2u32, false), (40, true)] {
+            let mut s = Sim::empty(5);
+            let mut root = WeaponClass::bf1_rifle();
+            root.max_pressed_time = 1.0;
+            let mut heavy = root.clone();
+            heavy.ordnance.velocity = 600.0;
+            let stage = s.add_weapon_class(heavy.clone());
+            root.stages = vec![ChargeStage {
+                threshold: 0.5,
+                class: Box::new(heavy),
+                index: stage,
+            }];
+            let wc = s.add_weapon_class(root);
+            let me = s
+                .spawn(&UnitSpec {
+                    weapon_class: wc,
+                    ..UnitSpec::player_in_slot(0, 0, Vec3::ZERO)
+                })
+                .unwrap();
+            let _ = me;
+            let mut fired = Vec::new();
+            for t in 0..hold + 10 {
+                s.step(&[pad(if t < hold { buttons::FIRE } else { 0 })]);
+                fired.extend(s.events.iter().filter_map(|e| match e {
+                    Event::Shot { weapon_class, .. } => Some(*weapon_class as usize),
+                    _ => None,
+                }));
+            }
+            assert_eq!(fired.len(), 1, "hold {hold}: one shot on release");
+            assert_eq!(fired[0], if want_stage { stage } else { wc }, "hold {hold}");
+            let speed = s.bolts.first().map(|b| b.vel.length());
+            if want_stage {
+                assert!(speed.is_none_or(|v| (v - 600.0).abs() < 1.0), "{speed:?}");
+            }
+        }
     }
 }

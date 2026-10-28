@@ -68,7 +68,7 @@ pub struct WeaponSlot {
 /// drop, not a silent merge — use [`ClassDb::get_kind`] to assert the kind.
 #[derive(Default)]
 pub struct ClassDb {
-    pub(crate) sbd_weapons: Option<Box<ClassDb>>,
+    pub(crate) donor_weapons: Option<Box<ClassDb>>,
     classes: HashMap<String, ClassDef>,
     /// A `bf2_*` class file was loaded: the db is a BF2 disc's.
     bf2: bool,
@@ -126,6 +126,12 @@ impl ClassDb {
     /// The db was loaded from a BF2 disc's class files (`bf2_*.ron`) — the
     /// game whose engine rules its classes take where the two differ (the
     /// muzzle flash's model, `core::flash`).
+    /// BF2's class data a BF1 side loads for its `roster::WEAPON_DONORS`
+    /// classes, if any.
+    pub fn donor_classdb(&self) -> Option<&ClassDb> {
+        self.donor_weapons.as_deref()
+    }
+
     pub fn is_bf2(&self) -> bool {
         self.bf2
     }
