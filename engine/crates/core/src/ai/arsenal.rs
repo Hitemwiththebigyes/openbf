@@ -250,6 +250,7 @@ pub(super) fn choose<'a>(cands: impl Iterator<Item = Cand<'a>>, ask: &Ask) -> Op
         let reloads = ask.bf2 && c.busy && ask.vehicle.is_none();
         if c.class.repair.is_some()
             || c.class.dispenser.is_some()
+            || c.class.ability.is_some()
             || c.empty
             || (grenade && ask.barred)
             || reloads

@@ -1,0 +1,54 @@
+use crate::sim::{buttons, Sim};
+use crate::unit::{Controller, UnitHandle};
+use crate::weapon::FireState;
+
+const SUPPORT_THREAT_RANGE: f32 = 30.0;
+
+pub(crate) fn input(sim: &Sim, owner: UnitHandle) -> Option<u32> {
+    let u = sim.unit(owner)?;
+    if u.controller != Controller::Ai || u.mount.is_some() {
+        return None;
+    }
+    if let Some(k) = u.cur1 {
+        let w = &u.held[usize::from(k)];
+        if w.state.state == FireState::Firing {
+            return sim.weapon_classes[w.class].ability.as_ref().map(|_| 0);
+        }
+    }
+    let selected = u.held.iter().enumerate().find_map(|(k, w)| {
+        let wc = &sim.weapon_classes[w.class];
+        let ability = wc.ability.as_ref()?;
+        if w.channel != 1 || w.state.reloading() || w.state.clip < wc.ammo_per_shot {
+            return None;
+        }
+        let useful = sim
+            .ability_targets(owner.index as usize, ability)
+            .any(|target| {
+                let other = &sim.units[target];
+                (ability.poison.0 > 0.0 && other.buffs.poison.0 <= 0.0)
+                    || (ability.regeneration.0 > 0.0
+                        && other.health.cur < other.health.max
+                        && other.buffs.regeneration.0 <= 0.0)
+                    || ((ability.offense.0 > 0.0 && other.buffs.offense.0 <= 0.0
+                        || ability.defense.0 > 0.0 && other.buffs.defense.0 <= 0.0)
+                        && sim.alive_units().any(|(_, enemy)| {
+                            enemy.team != u.team
+                                && enemy.soldier.pos.distance_squared(other.soldier.pos)
+                                    <= SUPPORT_THREAT_RANGE * SUPPORT_THREAT_RANGE
+                                && crate::perception::los(sim, other.muzzle(), enemy.muzzle())
+                        }))
+            });
+        useful.then_some(k)
+    })?;
+    Some(if u.cur1 == Some(selected as u8) {
+        if u.held[selected].state.fire_cmd == 0 {
+            buttons::SECONDARY_FIRE
+        } else {
+            0
+        }
+    } else if u.switch_held & 2 == 0 {
+        buttons::SWITCH_SECONDARY
+    } else {
+        0
+    })
+}

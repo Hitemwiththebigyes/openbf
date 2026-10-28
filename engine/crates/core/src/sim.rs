@@ -32,8 +32,10 @@
 //! owns dropped items; `trace` writes the optional observational state stream; `stations` runs health/ammo droids. Public types are
 //! re-exported here; shared test fixtures stay in this facade.
 
+mod abilities;
 mod blast;
 mod bounds;
+mod buffs;
 mod combat;
 mod doors;
 mod guns;
@@ -55,11 +57,12 @@ pub use blast::{soldier_blast_sphere, BLAST_GATHER_MAX};
 pub use bounds::{
     Level, ReturnPath, BOUND_DROP, KILL_FLOOR_DROP, LEVEL_HUBS, LEVEL_RISE, UNDER_MAP_SPEED,
 };
+pub use buffs::Buffs;
 pub use guns::SeatLook;
 pub use input::{buttons, AimTarget, InputLog, PadState, LOOK_UNIT};
 pub use look::{LookPreview, MOUSE_STEER};
 pub use pickups::{
-    Buffs, DropTable, ItemClass, Pickup, BODY_AHEAD, BODY_RADIUS, DROP_HEIGHT, DROP_SIDE_SPEED,
+    DropTable, ItemClass, Pickup, BODY_AHEAD, BODY_RADIUS, DROP_HEIGHT, DROP_SIDE_SPEED,
     ITEM_GRAVITY, ITEM_POOL_DEFAULT, LIFE_END, MAX_DROPS, TAKE_AGE,
 };
 pub use round::scale_reinforcements;

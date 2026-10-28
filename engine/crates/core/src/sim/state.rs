@@ -87,6 +87,11 @@ impl Cheats {
 /// audio, traces and Tier-4 artifacts).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Event {
+    Ability {
+        unit: UnitHandle,
+        weapon_class: u32,
+        pos: Vec3,
+    },
     Repair {
         unit: UnitHandle,
         weapon_class: u32,

@@ -36,6 +36,7 @@
 //!
 //! Visual only — driven by sim events, never feeding back into the sim.
 
+mod abilities;
 mod children;
 pub mod draw;
 pub mod emitter;
@@ -336,6 +337,7 @@ pub struct LiveEffect {
     unit: Option<(UnitHandle, Gain)>,
     round: Option<trail::Round>,
     repair: Option<(UnitHandle, usize)>,
+    buff: Option<(UnitHandle, usize)>,
     float: Option<f32>,
 }
 
@@ -344,9 +346,19 @@ enum Gain {
     Health,
     Ammo,
     Energy,
+    Activation,
 }
 
 impl LiveEffect {
+    fn follow_unit(&mut self, unit: &core::unit::Unit) {
+        let delta = unit.soldier.pos - self.frame.pos;
+        for instance in &mut self.instances {
+            instance.translate(delta);
+        }
+        self.frame.pos = unit.soldier.pos;
+        self.frame.vel = unit.soldier.vel;
+    }
+
     pub fn new(def: Arc<EffectDef>, frame: Frame, rng: &mut Lcg) -> LiveEffect {
         let era = def.era;
         let instances = def
@@ -364,6 +376,7 @@ impl LiveEffect {
             unit: None,
             round: None,
             repair: None,
+            buff: None,
             float: None,
         };
         fx.advance(0.0);
@@ -535,10 +548,14 @@ impl Fx {
 
     /// Start the effect `name` at `frame`; false when no layer holds it.
     pub fn spawn(&mut self, name: &str, frame: Frame) -> bool {
+        self.spawn_hash(crate::classdb::fnv1a_lowercase(name), frame)
+    }
+
+    fn spawn_hash(&mut self, hash: u32, frame: Frame) -> bool {
         let Some(lib) = &self.library else {
             return false;
         };
-        let Some(def) = lib.get(name) else {
+        let Some(def) = lib.effects.get(&hash) else {
             return false;
         };
         let rng = self.rng.get_or_insert(Lcg(0x0bf2_5eed));
@@ -741,12 +758,7 @@ impl Fx {
         for e in &mut self.live {
             if let Some((h, _)) = e.unit {
                 if let Some(u) = sim.unit(h) {
-                    let delta = u.soldier.pos - e.frame.pos;
-                    for instance in &mut e.instances {
-                        instance.translate(delta);
-                    }
-                    e.frame.pos = u.soldier.pos;
-                    e.frame.vel = u.soldier.vel;
+                    e.follow_unit(u);
                 } else {
                     e.stop();
                     e.unit = None;
@@ -764,6 +776,7 @@ impl Fx {
         }
         self.follow_rounds(sim);
         self.follow_repairs(sim);
+        self.follow_buffs(sim);
         let baked = self.has_effects();
         for e in &sim.events {
             match e {

@@ -180,6 +180,14 @@ fn append_events(csv: &mut String, tick: usize, events: &[core::sim::Event]) {
     use core::sim::Event;
     for e in events {
         let line = match e {
+            Event::Ability {
+                unit,
+                weapon_class,
+                pos,
+            } => format!(
+                "{tick},ability,{},{weapon_class},{:.2}:{:.2}:{:.2}\n",
+                unit.index, pos.x, pos.y, pos.z
+            ),
             Event::Repair {
                 unit,
                 amount,

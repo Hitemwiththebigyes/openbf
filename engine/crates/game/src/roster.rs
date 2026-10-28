@@ -606,6 +606,12 @@ pub fn weapon_from_db(db: &ClassDb, weapon: &str) -> Result<WeaponClass> {
         .engine_base(&ord_name)
         .map_or(OrdKind::Other, OrdKind::from_base);
     let mut w = WeaponClass::from_props(weapon, &wsrc, ord);
+    if db.is_bf2() && db.engine_base(&ord_name) == Some("emitterordnance") {
+        w.ability = core::weapon::Ability::from_props(&ClassSrc {
+            db,
+            class: &ord_name,
+        });
+    }
     let tilt_count = db
         .prop_hash(weapon, 0xa4df_afc0)
         .and_then(|v| v.parse::<usize>().ok())
@@ -624,7 +630,9 @@ pub fn weapon_from_db(db: &ClassDb, weapon: &str) -> Result<WeaponClass> {
         .collect();
     w.flash = db
         .engine_base(weapon)
-        .is_some_and(|b| !NO_FLASH_BASES.iter().any(|n| b.eq_ignore_ascii_case(n)))
+        .is_some_and(|b| {
+            w.ability.is_none() && !NO_FLASH_BASES.iter().any(|n| b.eq_ignore_ascii_case(n))
+        })
         .then(|| flash_look(db, weapon));
     Ok(w)
 }
@@ -683,6 +691,7 @@ pub fn thrown_weapon_from_db(db: &ClassDb, weapon: &str) -> Result<Option<Weapon
 }
 
 pub fn held_slots(db: &ClassDb, soldier: &str, primary: u8) -> Vec<HeldSlot> {
+    let officer = db.is_bf2() && soldier.contains("officer");
     db.weapon_slots(soldier)
         .into_iter()
         .filter(|s| s.slot != primary)
@@ -694,14 +703,24 @@ pub fn held_slots(db: &ClassDb, soldier: &str, primary: u8) -> Vec<HeldSlot> {
             {
                 return None;
             }
-            let weapon = if s.channel == 1
-                && !matches!(db.engine_base(&name), Some("repair" | "dispenser"))
-                && name != "cis_weap_inf_wrist_rocket"
+            let base = db.engine_base(&name);
+            let weapon = if s.channel == 0
+                || matches!(base, Some("repair" | "dispenser"))
+                || name == "cis_weap_inf_wrist_rocket"
             {
-                thrown_weapon_from_db(db, &name).ok()??
-            } else {
                 weapon_from_db(db, &name).ok()?
+            } else if base == Some("grenade") {
+                thrown_weapon_from_db(db, &name).ok()??
+            } else if officer {
+                weapon_from_db(db, &name)
+                    .ok()
+                    .filter(|w| w.ability.is_some())?
+            } else {
+                return None;
             };
+            if weapon.ability.is_some() && !officer {
+                return None;
+            }
             Some(HeldSlot {
                 slot: s.slot,
                 channel: s.channel,

@@ -143,6 +143,11 @@ pub fn each(walk: &WalkSim, ears: Vec3, mut play: impl FnMut(&str, Vec3)) {
                 origin,
                 ..
             }
+            | Event::Ability {
+                weapon_class,
+                pos: origin,
+                ..
+            }
             | Event::Repair {
                 weapon_class,
                 pos: origin,

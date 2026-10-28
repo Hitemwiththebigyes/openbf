@@ -79,9 +79,11 @@ fn pair(src: &dyn PropSource, key: &str) -> Option<[f32; 2]> {
     Some([a, b])
 }
 
+mod ability;
 mod dispenser;
 mod ordnance;
 mod repair;
+pub use ability::Ability;
 pub use dispenser::Dispenser;
 pub use ordnance::{
     blast_falloff, DamageDesc, ExplosionClass, Falloff, Health, HealthType, OrdKind, OrdnanceClass,
@@ -228,6 +230,7 @@ pub struct WeaponClass {
     pub offhand_weapon: bool,
     pub repair: Option<Repair>,
     pub dispenser: Option<Dispenser>,
+    pub ability: Option<Ability>,
 }
 
 /// What the `grenade` weapon class adds (`analysis/re-grenades.md` §3.1; B1
@@ -371,6 +374,7 @@ impl Default for WeaponClass {
             offhand_weapon: false,
             repair: None,
             dispenser: None,
+            ability: None,
         }
     }
 }
@@ -500,6 +504,7 @@ impl WeaponClass {
             offhand_weapon: false,
             repair: None,
             dispenser: None,
+            ability: None,
             flash: Some(crate::flash::MuzzleFlashLook {
                 radius: 0.6,
                 length: 0.025,

@@ -118,7 +118,11 @@ impl Sim {
         }
         let u = &self.units[i];
         let class = held_slot.map_or(u.weapon_class, |k| u.held[k].class);
-        if self.weapon_classes[class].dispenser.is_some() {
+        if self.weapon_classes[class].ability.is_some() {
+            for _ in shots {
+                self.fire_ability(i, class);
+            }
+        } else if self.weapon_classes[class].dispenser.is_some() {
             self.dispense_shots(i, held_slot, class, shots);
         } else if self.weapon_classes[class].ordnance.sticky.is_some() {
             for _ in shots {

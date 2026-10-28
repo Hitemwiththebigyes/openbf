@@ -418,10 +418,6 @@ impl Sim {
 
     /// Step 5c: every item's flight and life, then the pickups.
     pub(super) fn tick_pickups(&mut self, dt: f32) {
-        // The buffs run down whether or not an item is on the field (§5.5).
-        for u in &mut self.units {
-            u.buffs.tick(dt);
-        }
         if self.pickups.is_empty() {
             return;
         }
@@ -493,12 +489,7 @@ impl Sim {
             // A buff item is always taken (§5.5); the timer and its number
             // are replaced only by a longer timer.
             let buff = c.offense.0 > 0.0 || c.defense.0 > 0.0;
-            if c.offense.0 > u.buffs.offense.0 {
-                u.buffs.offense = c.offense;
-            }
-            if c.defense.0 > u.buffs.defense.0 {
-                u.buffs.defense = c.defense;
-            }
+            u.buffs.apply_multipliers(c.offense, c.defense);
             if health || ammo || energy || buff {
                 let unit = UnitHandle {
                     index: ui as u32,
@@ -516,68 +507,6 @@ impl Sim {
             }
         }
         false
-    }
-}
-
-/// BF2's timed buffs on a unit (§5.5): each a timer (s) and its multiplier.
-/// HASHED while one runs.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Buffs {
-    /// Damage dealt x the multiplier while the timer runs.
-    pub offense: (f32, f32),
-    /// Damage taken x the multiplier while the timer runs.
-    pub defense: (f32, f32),
-}
-
-impl Default for Buffs {
-    fn default() -> Self {
-        Buffs {
-            offense: (0.0, 1.0),
-            defense: (0.0, 1.0),
-        }
-    }
-}
-
-impl Buffs {
-    fn tick(&mut self, dt: f32) {
-        for b in [&mut self.offense, &mut self.defense] {
-            if b.0 > 0.0 {
-                b.0 = (b.0 - dt).max(0.0);
-            }
-        }
-    }
-
-    pub fn active(&self) -> bool {
-        self.offense.0 > 0.0 || self.defense.0 > 0.0
-    }
-
-    /// The factor on damage this unit deals.
-    pub fn dealt(&self) -> f32 {
-        if self.offense.0 > 0.0 {
-            self.offense.1
-        } else {
-            1.0
-        }
-    }
-
-    /// The factor on damage this unit takes.
-    pub fn taken(&self) -> f32 {
-        if self.defense.0 > 0.0 {
-            self.defense.1
-        } else {
-            1.0
-        }
-    }
-
-    pub fn hash_into(&self, eat: &mut impl FnMut(&[u8])) {
-        for v in [
-            self.offense.0,
-            self.offense.1,
-            self.defense.0,
-            self.defense.1,
-        ] {
-            eat(&v.to_bits().to_le_bytes());
-        }
     }
 }
 

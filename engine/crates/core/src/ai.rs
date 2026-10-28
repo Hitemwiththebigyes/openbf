@@ -75,6 +75,7 @@
 //! and throwing are implemented by `arsenal` / `gunner_foot`. In the
 //! endgame (`HOLD_ENDGAME`) no Tactician position or sniper spot is taken.
 
+mod abilities;
 mod arsenal;
 mod avoid;
 mod behave;
@@ -96,6 +97,7 @@ pub mod tactic;
 pub mod team;
 pub mod walker_drive;
 
+pub(crate) use abilities::input as ability_input;
 pub use arsenal::vehicle_bonus;
 pub use avoid::ROUND_MAX;
 pub use behave::think;

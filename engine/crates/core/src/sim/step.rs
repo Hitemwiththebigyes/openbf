@@ -857,6 +857,7 @@ impl Sim {
         self.tick_stickies(dt);
 
         // 5c. The pickups (PWUP): flight, life, the touch.
+        self.tick_buffs(dt);
         self.tick_pickups(dt);
 
         // 5c'. The health / ammo droids (PWST): each station's clock and pass.
