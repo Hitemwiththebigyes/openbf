@@ -349,3 +349,27 @@ with its own parser and confirmed every reading below (`wf/results.json` N8).
 - The port (§7 "today"): every statement holds on main 2a94ed5, and every fielded throwing class has its clip baked
   (N9, rerun by the auditor: BF1 37 class / weapon rows; BF2 45 of 65 throwing classes baked, all with the pair; the
   other 20 - two heroes and 18 `_default_` bases - have no sets and are fielded on no mission).
+
+## 11. Pack dispenser correction, 2026-10-28 [O] UNAUDITED
+
+The maintainer reported that dropping a health/ammo pack plays the grenade throw. Snapshot read first:
+`dist/openbf_data/playtest/last.json`, schema 8, build and checkout `2ddaaba2e0eb`, BF1 GEO1, seed 104,
+human #0; weapon table entry 13 is `rep_weap_inf_powerup_dispenser`. The snapshot contains no animation poses,
+so the clip mismatch is established by the renderer and the executable references, rather than measured from it.
+
+BF1 dispenser fire entry `FUN_0028d5d8` computes launch strength but does not replace the normal `FireAnim + 1`
+action with a strength variant. This differs from grenade entry `FUN_0028eb30`, which chooses actions 2/3.
+BF2 dispenser instance vtable word `0x628cd8` points to fire entry `0x335478`: the instructions through
+`0x33554c` set the hidden/start bits and calculate strength, without the grenade entry `0x337678`'s
+strength-to-action selection. Both dispensers therefore retain their default fire action 1. See this note
+sections 1/2 and `re-soldier-anim-layers.md` sections 4/7 for the animator mapping: BF1 uses the grenade bank's
+plain `grenade_stand_shoot`; BF2's offhand flag keeps the primary set and uses `shoot_secondary`, not
+`shoot_secondary2`. BF1 action 1 also arms the normal shot alert; the overhand action 3 does not.
+
+The port incorrectly passed the dispenser's full launch strength to the grenade variant selector, selecting
+BF1 `shoot3` or BF2 `shoot_secondary2`. It also missed the action altogether when BF1's zero-delay dispenser
+finished firing in the same tick. The correction selects the plain action for pickup dispensers and observes
+their successful release event for that instant-release case. Grenades keep their strength-based selection.
+The regression loads all eight faction dispenser definitions and their soldier clips, standing and moving,
+and checks the exact drop clip, first-frame action, one release and return to the primary weapon. The existing
+real-grenade regression remains in place. No fresh live PCSX2 measurement was performed.

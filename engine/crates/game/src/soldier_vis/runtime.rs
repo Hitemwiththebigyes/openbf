@@ -618,6 +618,10 @@ impl SoldierVisuals {
             }
         };
         let s = &u.soldier;
+        let pending_throw = v.pending_throw.take();
+        let drop_shot = rig.game == crate::animator::Game::Bf1
+            && pending_throw == Some(0)
+            && class.is_some_and(|c| c.dispenser.is_some());
         let input = AnimInput {
             stance: s.stance,
             vel: crate::animator::body_vel(s.vel, s.yaw),
@@ -627,10 +631,11 @@ impl SoldierVisuals {
             dead: !u.alive,
             hard_lock: s.look_frozen(),
             set,
-            fired: u.mount.is_none()
-                && v.throwing.is_none()
-                && (v.repair_shot.take() == Some(wc) || fired.contains(&(i as u32))),
-            throw: v.pending_throw.take(),
+            fired: drop_shot
+                || (u.mount.is_none()
+                    && v.throwing.is_none()
+                    && (v.repair_shot.take() == Some(wc) || fired.contains(&(i as u32)))),
+            throw: pending_throw.filter(|_| !drop_shot),
             throw_windup: v.throw_windup,
             reloading: weapon.reloading(),
             reload_time: class.map_or(0.0, |c| c.reload_time),

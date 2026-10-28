@@ -326,9 +326,9 @@ Flow: disc → `mungefs` → `bake` → `engine/assets_baked/` (schema `manifest
 - `game/src/animator/jump.rs` 98 — BF1's timed jump poses, landing selection and interruption, and fade back to locomotion · `Jump`; `analysis/re-soldier-anim-layers.md` §9.
 - `game/src/skin.rs` 307 — skeleton + pose → joint palette · `Skeleton`, `Pose`
 - `game/src/soldier_vis.rs` 665 — shared soldier/weapon asset types, draw plans, rider/seat helpers and muzzle geometry; preserves the `soldier_vis` API · `SoldierVisuals`, `DrawPlan`, `WeaponAsset`, `FlashModel`, `weapon_in_hand`, `seat_now`, `rider_now`, `fire_point`.
-- `game/src/soldier_vis/runtime.rs` 907 — `SoldierVisuals` asset loading, animation updates, spawn-screen stills and body/weapon/flash draw submission · `for_walk`, `load`, `load_cpu`, `update_with`, `still_draws`, `step_hover_nines`.
-- `game/src/soldier_vis/grenade.rs` 52 — grenade ordnance model selection and placement during the throw animation.
-- `game/src/soldier_vis/grenade/tests.rs` 156 — synthetic throw-model selection, transform and lifetime regressions.
+- `game/src/soldier_vis/runtime.rs` 912 — `SoldierVisuals` asset loading, animation updates, spawn-screen stills and body/weapon/flash draw submission · `for_walk`, `load`, `load_cpu`, `update_with`, `still_draws`, `step_hover_nines`.
+- `game/src/soldier_vis/grenade.rs` 63 — grenade strength variants and pack drop-action selection, including instant-release dispensers.
+- `game/src/soldier_vis/grenade/tests.rs` 291 — real grenade and eight-faction pack drop-animation regressions, standing and moving.
 - `game/src/soldier_vis/tests.rs` 676 — the eight existing soldier visualization tests; retains `soldier_vis::tests` paths.
 - `game/src/squad_vis.rs` 237 — the squad-order marker, a dev-mode overlay (off in normal play) · `squad_draws`, `markers_on`
 - `game/src/event_feed.rs` 1467 — per-viewer HUD event/statistic messages, battle-long shot/hit/capture totals, localized names and spawn texts, field/driver squad-order state, reticle target readout and hit-direction edges · `EventFeed`, `battle_stats`, `Texts`, `points`, `order_arm`, `ambush_edge`, `POST_LINES`; module header and `analysis/re-event-messages.md`; post lines are the port's rule.
