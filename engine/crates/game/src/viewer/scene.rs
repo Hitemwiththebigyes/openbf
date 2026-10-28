@@ -9,7 +9,7 @@
 
 use super::camera::instance_matrix;
 use super::look::{
-    apply_lighting, clear_color, far_cull, far_cull_from, lod_bands, lod_enabled, lowres_enabled,
+    apply_lighting, clear_color, far_cull, far_cull_from, lod_bands, lod_mode, lowres_enabled,
     lowres_range, speckle_enabled, speckle_frames, speckle_look, water_look,
 };
 use super::upload::{
@@ -805,7 +805,8 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
         .as_ref()
         .map_or(&[][..], |f| &f.path_props[..]);
     let mut placed: Vec<PlacedModel<'_>> = Vec::new();
-    let bands = lod_enabled()
+    let mode = lod_mode();
+    let bands = (mode != super::look::LodMode::Off)
         .then(|| lod_bands(&scene.manifest.lighting))
         .flatten();
     for (ii, inst) in scene
@@ -823,8 +824,8 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
         // Card LOD (`analysis/re-lod.md` §4, §7 [O]): on a map with a far
         // scene the PS2 draws a geometry that has a LOWD as its model to the
         // near scene's end and as its LOWD past the far scene's reach; the
-        // two draws below share one dithered threshold per pixel between
-        // `NearSceneRange[1]` and `[2]` ([`render::LodSwitch`]). The PS2
+        // two draws below switch whole at one distance ([`render::LodSwitch`],
+        // `LodBands::at`). The PS2
         // culls the LOWD at `FarSceneRange` by the OBJECT's sphere; the port
         // gives it the map's model cull like every other draw (per fragment,
         // off by default), since a per-fragment cut at `FarSceneRange` drops
@@ -833,7 +834,20 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
         // `NearSceneRange[2]`; the port keeps it, a named deviation (draw
         // distance, re-lod §7.2). Path props are world instances of their
         // class (re-foliage §9) and take the same rule.
-        let lowd = bands.and_then(|b| Some((scene.resolve_lowd(&inst.class)?, b)));
+        let matrix = instance_matrix(inst.rotation, inst.translation);
+        // The switch's sphere: the model's, shared by both sides so the
+        // instance switches whole.
+        let lowd = bands.and_then(|b| {
+            let (anchor, radius) = crate::point_light::model_sphere(&scene.meshes[model], matrix)
+                .map_or((Vec3::from(inst.translation), 0.0), |s| {
+                    (s.centre, s.radius)
+                });
+            let reach = super::leaf::attach_reach(&scene.manifest, &inst.class);
+            Some((
+                scene.resolve_lowd(&inst.class)?,
+                b.sides(mode, reach, anchor, radius),
+            ))
+        });
         // PWST: a droid turns whole, its rig's nodes by its own animation.
         let class = world.then(|| scene.resolve_class(&inst.class)).flatten();
         let station = class
@@ -867,7 +881,7 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
             color: None,
             fade: None,
             near: None,
-            lod: lowd.map(|(_, b)| b.sides().0),
+            lod: lowd.map(|(_, s)| s.0),
         });
         if let Some(model) = wreck_models.get(&ii).filter(|_| station.is_some()) {
             placed.push(PlacedModel {
@@ -882,7 +896,7 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
                 lod: None,
             });
         }
-        if let Some((lowd, b)) = lowd {
+        if let Some((lowd, sides)) = lowd {
             placed.push(PlacedModel {
                 model: lowd,
                 matrix: instance_matrix(inst.rotation, inst.translation),
@@ -892,17 +906,15 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
                 color: None,
                 fade: None,
                 near: None,
-                lod: Some(b.sides().1),
+                lod: Some(sides.1),
             });
-            continue;
         }
         // The far scene's LOWD extension (card UTAS, `analysis/re-far-lowd.md`
-        // §0/§6 [O]): what a geometry's LOWD draws beyond its LOD0 — BF2
-        // UTA1's far sinkhole wall — with the fragments nearer than
-        // `NearSceneRange[1]` discarded. The switch above draws the whole
-        // LOWD past the near scene and so covers it wherever it applies;
-        // this is left for a geometry the switch does not take (it is off,
-        // `OPENBF_LOD=0`, or its mesh did not load).
+        // §0/§6 [O]): the LOWD triangles its LOD0 lacks — BF2 UTA1's far
+        // sinkhole and canyon walls — with the fragments nearer than
+        // `NearSceneRange[1]` discarded. It goes with the MODEL: drawn
+        // whenever the model is (the switch's model side), and dropped once
+        // the whole LOWD, which holds those triangles, takes over.
         let reach = scene.manifest.lighting.near_scene_range.map(|r| r[1]);
         if let (true, Some(far), Some(near)) = (world, scene.resolve_far(&inst.class), reach) {
             placed.push(PlacedModel {
@@ -914,7 +926,7 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
                 color: None,
                 fade: None,
                 near: Some(near),
-                lod: None,
+                lod: lowd.map(|(_, s)| s.0),
             });
         }
     }

@@ -285,8 +285,7 @@ impl Renderer {
         // byte-identical with it on — that, not the unit tests, is the proof
         // it removes nothing visible. The same box drops a draw whose
         // distance bands discard every fragment it could make
-        // (`draw::all_discarded`, card LODP: the far switch's model past the
-        // switch, its LOWD wholly nearer).
+        // (`draw::all_discarded`, card LODP).
         let mut culled = 0u32;
         let eye = camera.position;
         let visible = |d: &DrawCmd, f: &frustum::Frustum, meshes: &[GpuMesh]| -> bool {
@@ -298,11 +297,15 @@ impl Renderer {
             let (cull, cull_near) = crate::draw::instance_cull(d);
             f.intersects_aabb(lo, hi) && !crate::draw::all_discarded(cull, cull_near, near, far)
         };
+        // The far scene's switch (card LOD) drops the side of a geometry
+        // not drawn from this eye, with or without culling: its model and
+        // LOWD must never both draw.
+        let switched = |d: &DrawCmd| d.lod.is_none_or(|l| l.drawn(eye));
         let keep: Vec<bool> = if self.cull {
             draws
                 .iter()
                 .map(|d| {
-                    let v = visible(d, &frustum, &self.meshes);
+                    let v = switched(d) && visible(d, &frustum, &self.meshes);
                     if !v {
                         culled += 1;
                     }
@@ -310,7 +313,7 @@ impl Renderer {
                 })
                 .collect()
         } else {
-            vec![true; draws.len()]
+            draws.iter().map(switched).collect()
         };
 
         let mut order: Vec<usize> = (0..draws.len())
@@ -1306,8 +1309,9 @@ mod tests {
         let (m, t) = (MeshHandle(0), TextureHandle(0));
         let side = |side| {
             Some(crate::LodSwitch {
-                fade_begin: 60.0,
-                fade_end: 90.0,
+                at: 90.0,
+                anchor: glam::Vec3::ZERO,
+                radius: 1.0,
                 side,
             })
         };

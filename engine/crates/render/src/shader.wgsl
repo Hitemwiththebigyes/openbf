@@ -330,10 +330,9 @@ fn fs_main(raw: VsOut) -> @location(0) vec4<f32> {
 // extension (card UTAS) takes the same edge at `NearSceneRange[1]`, the far
 // scene's reach. NO_CULL_NEAR is 0, so the test is a no-op for every other draw.
 // Each edge is a band [lo, hi] (`render::draw::instance_cull`), read at ONE
-// dithered point per pixel: a plain cull is a band of width 0, and the far
-// scene's model / LOWD switch (card LOD, `render::LodSwitch`) gives the model
-// a far band and its LOWD the same near band, so the pixel's one threshold
-// keeps exactly one of the two. `render::fragment_kept` is this test in Rust.
+// dithered point per pixel; every draw's band has width 0 today (the far
+// scene's model / LOWD switch picks a whole draw on the CPU,
+// `render::LodSwitch`). `render::fragment_kept` is this test in Rust.
 fn far_cull(in: VsOut) {
     let u = bayer4(in.clip_pos.xy);
     if in.view_dist > mix(in.cull.x, in.cull.y, u)

@@ -233,45 +233,48 @@ pub enum LodSide {
 }
 
 /// The far scene's model / LOWD switch (card LOD, `analysis/re-lod.md` §4,
-/// §7 [O]): on a map with a far scene the PS2 draws a geometry that has a
-/// `LOWD` as its model in the near scene, which ends at `NearSceneRange[2]`
-/// (`fade_end`), and as its LOWD in the far scene, composited per pixel
-/// through a depth ramp from `NearSceneRange[1]` (`fade_begin`). The port has
-/// one depth buffer, so the two draws share ONE threshold per pixel,
-/// `t = mix(fade_begin, fade_end, u)` with `u` the 4×4 ordered dither: the
-/// model keeps the fragments nearer than `t`, the LOWD those past it, and the
-/// two never overlap. The dither stands for the ramp (the PS2 blends it, on
-/// its Z-buffer's high byte rather than in metres) — a stated deviation, as
-/// [`Fade`]'s. The LOWD's own far end is the draw's [`DrawCmd::cull`] (the
-/// game gives it the map's model cull: the PS2 culls it at `FarSceneRange`
-/// by the object's sphere, not per fragment).
+/// §7 [O]): a geometry that has a `LOWD` is two draws, its model and its
+/// LOWD, and the WHOLE instance switches at once: the model while the
+/// nearest point of its bounding sphere (`anchor`, `radius`) is nearer the
+/// eye than `at`, the LOWD once all of it is past — [`LodSwitch::drawn`],
+/// decided per draw by the frame, so the two never overlap and never mix. The
+/// nearest point, not the centre: many LOWD-bearing geometries are whole map
+/// sections (BF2 MUS1's `mus1_bldg_world_1`, r 260 m; 37 on UTA1), whose
+/// centre is far while the part beside the player is near. The game picks
+/// `at` (`game::viewer::look::LodBands`).
+///
+/// Removed deviation (2026-10-27): the switch was a per-pixel ordered-dither
+/// band over `NearSceneRange[1]..[2]`, standing for the PS2's depth-ramp
+/// composite of its near and far buffers. Where a model and its LOWD differ
+/// (BF2 MUS1's lava wall) the band showed both, interleaved, as a grid of
+/// dots; the PS2's blend shows neither.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LodSwitch {
-    pub fade_begin: f32,
-    pub fade_end: f32,
+    pub at: f32,
+    pub anchor: glam::Vec3,
+    pub radius: f32,
     pub side: LodSide,
 }
 
+impl LodSwitch {
+    /// Is this side of the switch drawn from `eye`?
+    pub fn drawn(&self, eye: glam::Vec3) -> bool {
+        let near = self.anchor.distance(eye) - self.radius < self.at;
+        match self.side {
+            LodSide::Model => near,
+            LodSide::Lowd => !near,
+        }
+    }
+}
+
 /// A draw's cull bands as the shader reads them, `(cull, cull_near)`, each
-/// `[lo, hi]` metres (`mesh::Instance`): a plain cull is a band of width 0,
-/// and a [`LodSwitch`] puts its band on the model's far edge (never past the
-/// draw's own cull) or on the LOWD's near edge.
+/// `[lo, hi]` metres (`mesh::Instance`): a band of width 0 at the draw's own
+/// edges. A [`LodSwitch`] cuts no fragment; the frame drops the side not
+/// drawn.
 pub(crate) fn instance_cull(d: &DrawCmd) -> ([f32; 2], [f32; 2]) {
     let far = d.cull.unwrap_or(crate::mesh::NO_CULL);
     let near = d.cull_near.unwrap_or(crate::mesh::NO_CULL_NEAR);
-    match d.lod {
-        Some(LodSwitch {
-            fade_begin,
-            fade_end,
-            side: LodSide::Model,
-        }) => ([fade_begin.min(far), fade_end.min(far)], [near, near]),
-        Some(LodSwitch {
-            fade_begin,
-            fade_end,
-            side: LodSide::Lowd,
-        }) => ([far, far], [fade_begin.max(near), fade_end.max(near)]),
-        None => ([far, far], [near, near]),
-    }
+    ([far, far], [near, near])
 }
 
 /// The shader's `far_cull` distance test (`shader.wgsl`), for the tests: is
@@ -287,13 +290,8 @@ pub fn fragment_kept(cull: [f32; 2], cull_near: [f32; 2], dist: f32, u: f32) -> 
 /// the frame drops such a draw before it is submitted. A fragment's
 /// `view_dist` is interpolated between its vertices' distances, so it stays
 /// inside the range of its world box's ([`crate::frustum::distance_range`]).
-/// This is what keeps the far scene's model / LOWD switch at the cost of one
-/// draw per instance: without it every LOWD-bearing instance rasterised both
-/// sides at every distance (BF2 KAM1: 549 model draws past the switch and
-/// the LOWDs of everything near, models 8.0 -> 12.1 ms on an Intel iGPU at
-/// 2880x1920). It is also the PS2's own pick: its far scene takes an object
-/// only when its sphere reaches past `NearSceneRange[1]`, and its near scene
-/// ends at `NearSceneRange[2]` (`analysis/re-lod.md` §0.2, §4.1).
+/// It drops every draw wholly past its cull (card LODP), so a far model is
+/// not rasterised only to be discarded.
 pub fn all_discarded(cull: [f32; 2], cull_near: [f32; 2], near: f32, far: f32) -> bool {
     near > cull[0].max(cull[1]) || far < cull_near[0].min(cull_near[1])
 }
@@ -507,6 +505,7 @@ impl SkinnedDrawCmd {
 mod lod_tests {
     use super::*;
     use crate::mesh::{NO_CULL, NO_CULL_NEAR};
+    use glam::Vec3;
 
     fn cmd(cull: Option<f32>, lod: Option<LodSwitch>) -> DrawCmd {
         DrawCmd::flat(MeshHandle::default(), [1.0; 4], Mat4::IDENTITY)
@@ -514,17 +513,13 @@ mod lod_tests {
             .with_lod(lod)
     }
 
-    fn switch(side: LodSide) -> Option<LodSwitch> {
-        Some(LodSwitch {
-            fade_begin: 100.0,
-            fade_end: 130.0,
+    fn switch(side: LodSide) -> LodSwitch {
+        LodSwitch {
+            at: 130.0,
+            anchor: Vec3::new(0.0, 0.0, -50.0),
+            radius: 20.0,
             side,
-        })
-    }
-
-    /// The 16 values of the shader's 4×4 dither (`bayer4`).
-    fn dithers() -> impl Iterator<Item = f32> {
-        (0..16).map(|v| (v as f32 + 0.5) / 16.0)
+        }
     }
 
     #[test]
@@ -539,57 +534,38 @@ mod lod_tests {
         );
     }
 
-    /// Card LOD's pick, per fragment: the model nearer than the pixel's
-    /// threshold, the LOWD past it, the threshold inside [b, c], exactly one
-    /// of the two at every distance and dither, nothing past the LOWD's cull.
+    /// The switch cuts no fragment: both sides keep only their own edges.
     #[test]
-    fn model_nearer_than_the_threshold_lowd_past_it() {
-        let (mc, mn) = instance_cull(&cmd(None, switch(LodSide::Model)));
-        let (lc, ln) = instance_cull(&cmd(Some(1000.0), switch(LodSide::Lowd)));
-        assert_eq!((mc, mn), ([100.0, 130.0], [NO_CULL_NEAR; 2]));
-        assert_eq!((lc, ln), ([1000.0; 2], [100.0, 130.0]));
-        for u in dithers() {
-            let mut switched = None;
-            for d in (0..1200).map(|m| m as f32 + 0.25) {
-                let model = fragment_kept(mc, mn, d, u);
-                let lowd = fragment_kept(lc, ln, d, u);
-                if d < 1000.0 {
-                    assert!(model != lowd, "exactly one side at {d} m, u {u}");
-                } else {
-                    assert!(!model && !lowd, "nothing past FarSceneRange at {d} m");
-                }
-                if lowd && switched.is_none() {
-                    switched = Some(d);
-                }
-                assert!(!(model && switched.is_some()), "no model past the switch");
-            }
-            let t = switched.expect("the LOWD takes over");
-            assert!((100.0..=131.0).contains(&t), "threshold {t} inside [b, c]");
+    fn a_switch_adds_no_band() {
+        for side in [LodSide::Model, LodSide::Lowd] {
+            assert_eq!(
+                instance_cull(&cmd(Some(500.0), Some(switch(side)))),
+                instance_cull(&cmd(Some(500.0), None))
+            );
         }
-        // Across the dither the band is a crossfade, not one edge.
-        let at = |u| fragment_kept(mc, mn, 115.0, u);
-        assert!(dithers().any(at) && !dithers().all(at));
     }
 
-    /// The model never draws past its own cull, whatever the band.
+    /// The whole instance switches by its sphere's nearest point: exactly
+    /// one side drawn at every eye position, the model while any of the
+    /// sphere is nearer than `at`, the LOWD once all of it is past.
     #[test]
-    fn the_models_cull_bounds_its_band() {
-        let (c, _) = instance_cull(&cmd(Some(110.0), switch(LodSide::Model)));
-        assert_eq!(c, [100.0, 110.0]);
-        let (c, _) = instance_cull(&cmd(Some(50.0), switch(LodSide::Model)));
-        assert_eq!(c, [50.0, 50.0]);
+    fn exactly_one_side_by_the_anchors_distance() {
+        let (m, l) = (switch(LodSide::Model), switch(LodSide::Lowd));
+        for d in (0..400).map(|k| k as f32 * 0.5) {
+            let eye = m.anchor + Vec3::new(d, 0.0, 0.0);
+            assert_ne!(m.drawn(eye), l.drawn(eye), "one side at {d} m");
+            assert_eq!(m.drawn(eye), d < 150.0, "the model to {d} m");
+        }
     }
 
     /// Card LODP: a draw is dropped only when no fragment of its distance
-    /// range survives at any dither value, and the switch's two sides drop
-    /// where the PS2's own pick leaves them out.
+    /// range survives.
     #[test]
     fn a_draw_is_dropped_only_when_every_fragment_is_discarded() {
-        let model = instance_cull(&cmd(None, switch(LodSide::Model)));
-        let lowd = instance_cull(&cmd(Some(1000.0), switch(LodSide::Lowd)));
         let plain = instance_cull(&cmd(None, None));
         let culled = instance_cull(&cmd(Some(500.0), None));
-        for (c, n) in [model, lowd, plain, culled] {
+        let dithers = || (0..16).map(|v| (v as f32 + 0.5) / 16.0);
+        for (c, n) in [plain, culled] {
             for near in (0..60).map(|m| m as f32 * 20.0) {
                 for len in [0.0, 1.0, 10.0, 29.0, 31.0, 200.0, 2000.0] {
                     let far = near + len;
@@ -602,20 +578,8 @@ mod lod_tests {
                 }
             }
         }
-        let (c, n) = model;
-        assert!(all_discarded(c, n, 131.0, 400.0), "a model wholly past c");
-        assert!(
-            !all_discarded(c, n, 120.0, 400.0),
-            "a model reaching into the band"
-        );
-        assert!(!all_discarded(c, n, 0.0, 2000.0), "a model around the eye");
-        let (c, n) = lowd;
-        assert!(
-            all_discarded(c, n, 0.0, 99.0),
-            "a LOWD wholly nearer than b"
-        );
-        assert!(!all_discarded(c, n, 0.0, 101.0), "a LOWD reaching past b");
-        assert!(all_discarded(c, n, 1001.0, 1200.0), "a LOWD past its cull");
+        let (c, n) = culled;
+        assert!(all_discarded(c, n, 501.0, 600.0), "wholly past its cull");
         let (c, n) = plain;
         assert!(!all_discarded(c, n, 0.0, 0.0) && !all_discarded(c, n, 1e6, 2e6));
     }
