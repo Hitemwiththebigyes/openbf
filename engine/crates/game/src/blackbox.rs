@@ -63,8 +63,9 @@ pub use rotating::PREVIOUS;
 /// OBST2): a unit's behaviour and its going-round commitment. 5 (card
 /// CPBAR): a post's units inside per team and its two times. 6 (card HITCH):
 /// the frame record (`hitches`). 7: the human's mouse look (`mx`, `my`)
-/// and the mouse-aim bit. An older file still reads.
-pub const SCHEMA: u32 = 7;
+/// and the mouse-aim bit. 8: the human's shots and every hit he deals or
+/// takes (`shot`, `hit`, the event's `v`). An older file still reads.
+pub const SCHEMA: u32 = 8;
 /// Ticks between two unit frames (0.5 s).
 pub const UNIT_PERIOD: u64 = core::TICK_HZ as u64 / 2;
 /// Ticks between two world frames (2 s).
@@ -325,6 +326,13 @@ pub enum Ev {
     Voice,
     /// Unit a's no-progress run reached 3 s; b the body in its way (-1 none).
     Stuck,
+    /// The human (unit a) fired weapon class c (`names.weapons`); one row per
+    /// round leaving the weapon (schema 8).
+    Shot,
+    /// Unit a hit unit b, one of them the human; c a's weapon in hand; `v`
+    /// = [damage, b's health after it, the round's age in s: 0 for a
+    /// blast] (schema 8).
+    Hit,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -337,6 +345,9 @@ pub struct EventRow {
     pub pos: [f32; 3],
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub text: String,
+    /// The row's numbers (a hit's damage, health after and age).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub v: Vec<f32>,
 }
 
 /// A one-shot the mixer was handed (card SNDB). `name` / `take` index
@@ -765,8 +776,46 @@ impl Ring {
                 .map_or([0.0; 3], |u| r2v(u.soldier.pos.to_array()))
         };
         let tick = sim.tick;
+        let human = |h: core::unit::UnitHandle| {
+            sim.units.get(h.index as usize).is_some_and(|u| u.is_player)
+        };
+        let weapon = |h: core::unit::UnitHandle| {
+            sim.units
+                .get(h.index as usize)
+                .map_or(-1, |u| u.weapon_class as i32)
+        };
         for ev in &sim.events {
+            let mut v = Vec::new();
             let (kind, a, b, c, pos) = match *ev {
+                Event::Shot {
+                    unit,
+                    weapon_class,
+                    origin,
+                    ..
+                } if human(unit) => (
+                    Ev::Shot,
+                    unit.index as i32,
+                    -1,
+                    weapon_class as i32,
+                    r2v(origin.to_array()),
+                ),
+                Event::Hit {
+                    shooter,
+                    victim,
+                    damage,
+                    age,
+                    health_left,
+                    ..
+                } if human(shooter) || human(victim) => {
+                    v = vec![r2(damage), r2(health_left), (age * 1e3).round() / 1e3];
+                    (
+                        Ev::Hit,
+                        shooter.index as i32,
+                        victim.index as i32,
+                        weapon(shooter),
+                        at(victim),
+                    )
+                }
                 Event::Kill { shooter, victim } => (
                     Ev::Kill,
                     shooter.index as i32,
@@ -834,6 +883,7 @@ impl Ring {
                 c,
                 pos,
                 text: String::new(),
+                v,
             });
         }
     }
@@ -933,6 +983,7 @@ impl Ring {
                         c: -1,
                         pos: p.pos,
                         text: String::new(),
+                        v: Vec::new(),
                     },
                 );
             }
@@ -1141,7 +1192,7 @@ impl Ring {
             ("frames", "every alive unit every 0.5 s, oldest first; keys below"),
             ("human", "the player: every 0.5 s, then every tick for the last 5 s; lx/ly/rx/ry sticks -32767..32767; buttons bits 1 fire 2 jump 4 roll/stance 8 sprint 16 zoom 32 reload 64 action 128 switch 256 secondary fire 512-4096 squad follow / hold / at ease / move out 8192 / 16384 spawn class next / prev 32768 switch secondary 65536-524288 spawn post up / down / left / right 1048576 spawn accept 2097152 spawn back 4194304 pause-menu respawn 8388608 mouse aim (aim assist off); mx/my the mouse look the tick took, 1/65536 rad (mx + turns right, my + looks up), 0 = none or a controller"),
             ("world", "every 2 s: tickets, bleed/s, alive, posts (owner -1 neutral, cap charge and cap_team its team, neutral the neutralise charge, inside the counting units per team, times CaptureTime / NeutralizeTime), vehicles (kind 0 hover 1 walker 2 flyer 3 turret; riders by seat), doors (0 shut..1 open)"),
-            ("events", "kill: a killer b victim c the killer's weapon in hand (a seat gun's or a thrown grenade's kill reads as it); death_region/fall/rider_death/blast/kill_floor/under_map/lost/recycle: a unit; spawn/despawn: a unit; captured/neutralized/saved: a post b team; vehicle_lost: a vehicle b killer c class; order: a slot b kind c bots; voice: text; stuck: a unit b body (a no-progress run reached 3 s)"),
+            ("events", "kill: a killer b victim c the killer's weapon in hand (a seat gun's or a thrown grenade's kill reads as it); death_region/fall/rider_death/blast/kill_floor/under_map/lost/recycle: a unit; spawn/despawn: a unit; captured/neutralized/saved: a post b team; vehicle_lost: a vehicle b killer c class; order: a slot b kind c bots; voice: text; stuck: a unit b body (a no-progress run reached 3 s); shot: the human a fired weapon c; hit: a hit b (one of them the human), c a's weapon in hand, v = damage, b's health after, the round's age (0 = a blast)"),
             ("trails", "each unit's last 10 s of positions at 4 Hz, oldest first, ending at its own tick: header.trail_tick for a unit alive then, earlier for one that died (its slot not yet respawned); gen is that life's generation"),
             ("header", "build_commit / build_dirty: the commit the BINARY was built from (the code that ran); commit / dirty: the checkout's HEAD when the battle started; build_time: the executable's mtime, s since the epoch"),
             ("sounds", "every one-shot the mixer was handed in the last 60 s, oldest first: tick, name (names.sounds: the property), take (names.takes: the file under the baked root), gain (linear, the level by distance included), ears (what each ear got [left, right]: the gain x the bus, a 3-D sound split by the PS2's per-ear law, card MIXH), pitch (playback rate), dist (m from the listener, 0 = a 2-D line), voices (one-shots still sounding by their length + engine loops), secs (the take's length at that pitch). Not in it: the engine loops themselves and the music"),
@@ -1527,6 +1578,7 @@ impl BlackBox {
             c: -1,
             pos: [0.0; 3],
             text: line.to_owned(),
+            v: Vec::new(),
         });
     }
 
@@ -1729,6 +1781,68 @@ mod tests {
         ring.unit_frame(&w.sim, 4);
         ids.push(ids[0]);
         assert_eq!(stuck(&ring), ids, "a new stall gets its own event");
+    }
+
+    /// Schema 8 (the maintainer 2026-10-27, the wrist rocket's damage and its double
+    /// shot could not be told from a snapshot): the human's shots and every
+    /// hit he deals or takes are rows with their numbers; bots' own shots and
+    /// hits on each other are not.
+    #[test]
+    fn the_humans_shots_and_hits_are_rows() {
+        use core::sim::Event;
+        let mut w = walk();
+        let me = w.player;
+        let bot = |w: &mut WalkSim, x: f32| {
+            w.sim
+                .spawn(&core::unit::UnitSpec::trooper(
+                    1,
+                    glam::Vec3::new(x, 0.0, -5.0),
+                ))
+                .expect("spawn")
+        };
+        let (b1, b2) = (bot(&mut w, 0.0), bot(&mut w, 2.0));
+        let hit = |shooter, victim, damage, age| Event::Hit {
+            shooter,
+            victim,
+            damage,
+            age,
+            health_left: 290.0,
+            dir: glam::Vec3::Z,
+        };
+        let shot = |unit| Event::Shot {
+            unit,
+            weapon_class: 0,
+            origin: glam::Vec3::ZERO,
+            dir: glam::Vec3::Z,
+        };
+        w.sim.events = vec![
+            shot(me),
+            shot(b1),
+            hit(me, b1, 110.0, 0.03),
+            hit(me, b1, 250.0, 0.0),
+            hit(b2, me, 20.0, 0.1),
+            hit(b2, b1, 20.0, 0.1),
+        ];
+        let mut ring = Ring::new(meta(), Names::default(), Vec::new());
+        ring.events_of(&w.sim);
+        let rows: Vec<_> = ring
+            .events
+            .iter()
+            .map(|e| (e.kind, e.a, e.b, e.v.clone()))
+            .collect();
+        let (m, x1, x2) = (me.index as i32, b1.index as i32, b2.index as i32);
+        assert_eq!(
+            rows,
+            vec![
+                (Ev::Shot, m, -1, vec![]),
+                (Ev::Hit, m, x1, vec![110.0, 290.0, 0.03]),
+                (Ev::Hit, m, x1, vec![250.0, 290.0, 0.0]),
+                (Ev::Hit, x2, m, vec![20.0, 290.0, 0.1]),
+            ]
+        );
+        // A row without numbers writes no `v`.
+        let json = serde_json::to_string(&ring.events[0]).unwrap();
+        assert!(!json.contains("\"v\""), "{json}");
     }
 
     /// Dev mode off, or `OPENBF_BLACKBOX=0` in it: no recorder — no ring, no

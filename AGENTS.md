@@ -59,6 +59,9 @@ windowed renderer cannot read its frame back, so the picture is the maintainer's
   its take, and render what he heard with `python3 scripts/tools/mix.py <snapshot> engine/assets_baked
   --wav out.wav` (peak against full scale; no pan, engine loops or music in it). The rows need a sound device: a
   headless round and `scripts/tools/win_run.sh`'s default (no device) write none.
+- **When the maintainer reports damage or firing that feels wrong** ("it only took half his health", "I fired two at once"): read
+  the event rows (`--events`). Since schema 8 they carry each of his shots (`#n fired <weapon>`) and every hit he deals
+  or takes: the damage, the victim's health after it, and direct (with the round's flight time) or blast.
 - **Use it yourself** when chasing a bot or sim bug: a headless run writes the same file — `BLACKBOX_AT=<tick>` or
   `BLACKBOX_ON=lost|recycle|stuck[:<ticks>]` on `round_to_outcome` writes
   `engine/artifacts/playtest/headless/<map>_s<seed>.json` (`BLACKBOX_DIR` moves it; never the maintainer's own `last.json`).
