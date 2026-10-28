@@ -1276,6 +1276,7 @@ mod tests {
                 render_type: RenderType::Absent,
                 spec_power: 0,
                 spec_color: 0,
+                uv_anim: [0, 0],
                 textures: vec![(0, tex.to_owned())],
                 bone: None,
                 group: None,

@@ -872,6 +872,20 @@ impl Fx {
                         self.explode(&x.look, *pos, sim.water_under(*pos));
                     }
                 }
+                Event::TurretGone {
+                    pos,
+                    weapon_class,
+                    end,
+                } => {
+                    let e = sim
+                        .weapon_classes
+                        .get(*weapon_class as usize)
+                        .and_then(|w| w.turret.as_ref())
+                        .and_then(|d| d.item.end_explosion(*end));
+                    if let Some(e) = e {
+                        self.explode(&e.look, *pos, sim.water_under(*pos));
+                    }
+                }
                 // A thrown grenade's fuse ran out (GREN): its explosion
                 // class's effect where it lay.
                 Event::StickyBlast { pos, weapon_class } => {

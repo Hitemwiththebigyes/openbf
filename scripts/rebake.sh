@@ -191,6 +191,7 @@ if want side; then
   # `*_weap_inf_thermaldetonator` naming `com_weap_inf_grenadethermal`.
   "$BAKE" weapon  "$A1"              com_weap_inf_torpedo,com_weap_inf_grenadethermal,com_weap_inf_grenadethermal_ord,com_weap_inf_landmine,com_weap_inf_landmine_placed,com_weap_inf_seismic_mine "$OUT/side_bf1"
   "$BAKE" weapon  "$B2/INGAME.LVL"   com_weap_inf_torpedo,com_weap_inf_grenadethermal,com_weap_inf_grenadethermal_ord,com_weap_inf_landmine,com_weap_inf_landmine_placed,com_weap_inf_seismic_mine,com_weap_inf_detpack "$OUT/side_bf2"
+  "$BAKE" weapon  "$B2/INGAME.LVL,$B2/SIDE/REP.LVL" com_weap_inf_dropturret "$OUT/side_bf2"
   # Every vehicle class of the four sides (card VBAKE): models (every LOD),
   # destruction chunks, collision, textures -> side_<game>/vehicles/<side>/.
   for s in all cis imp rep; do

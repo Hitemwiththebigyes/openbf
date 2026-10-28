@@ -718,6 +718,7 @@ mod tests {
             submeshes: Vec::new(),
             spec: Vec::new(),
             light: Vec::new(),
+            scroll: Vec::new(),
             sphere: None,
         });
         let setup = BattleSetup {

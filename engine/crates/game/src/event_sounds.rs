@@ -122,6 +122,19 @@ pub fn each(walk: &WalkSim, ears: Vec3, mut play: impl FnMut(&str, Vec3)) {
                     }
                 }
             }
+            Event::TurretGone {
+                pos,
+                weapon_class,
+                end,
+            } => {
+                let e = walk.sim.weapon_classes[*weapon_class as usize]
+                    .turret
+                    .as_ref()
+                    .and_then(|d| d.item.end_explosion(*end));
+                if let Some(e) = e {
+                    boom(Some(&e.look), *pos, &mut play);
+                }
+            }
             Event::StickyBlast { pos, weapon_class } => {
                 let sticky = &walk.sim.weapon_classes[*weapon_class as usize]
                     .ordnance

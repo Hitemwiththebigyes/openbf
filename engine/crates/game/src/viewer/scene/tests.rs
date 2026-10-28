@@ -151,6 +151,7 @@ fn grid_mesh(n: usize) -> CpuMesh {
         submeshes: vec![(0, 0, "hoth_main_1".into(), render::DrawLayer::Opaque, 0)],
         spec: Vec::new(),
         light: Vec::new(),
+        scroll: Vec::new(),
         sphere: None,
     }
 }

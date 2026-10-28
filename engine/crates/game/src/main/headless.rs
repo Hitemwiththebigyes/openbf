@@ -206,6 +206,14 @@ fn append_events(csv: &mut String, tick: usize, events: &[core::sim::Event]) {
                 "{tick},droid_gone,{weapon_class},{end:?},{:.2}:{:.2}:{:.2}\n",
                 pos.x, pos.y, pos.z
             ),
+            Event::TurretGone {
+                pos,
+                weapon_class,
+                end,
+            } => format!(
+                "{tick},turret_gone,{weapon_class},{end:?},{:.2}:{:.2}:{:.2}\n",
+                pos.x, pos.y, pos.z
+            ),
             Event::Ability {
                 unit,
                 weapon_class,
@@ -226,6 +234,7 @@ fn append_events(csv: &mut String, tick: usize, events: &[core::sim::Event]) {
                     core::projectile::Target::Station(i) => format!("s{i}"),
                     core::projectile::Target::Mine(i) => format!("m{i}"),
                     core::projectile::Target::Droid(i) => format!("d{i}"),
+                    core::projectile::Target::Turret(i) => format!("t{i}"),
                 };
                 format!("{tick},repair,{},{target},{amount}\n", unit.index)
             }

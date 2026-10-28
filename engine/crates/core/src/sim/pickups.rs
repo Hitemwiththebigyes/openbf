@@ -294,15 +294,12 @@ impl Sim {
             .iter()
             .position(|c| c.name == d.item.name)
             .unwrap() as u8;
-        let u = &self.units[i];
-        let (aim, _, _) = u.aim_frame();
-        let speed = d.speed(charge);
-        let pos = u.launch_origin(self.weapon_classes[weapon].thrown.and_then(|t| t.hand));
+        let (pos, vel) = self.throw_from(i, weapon, d.speed(charge));
         self.spawn_pickup(
             class,
             pos,
-            aim * speed + u.soldier.vel,
-            u.soldier.yaw,
+            vel,
+            self.units[i].soldier.yaw,
             Some((owner, weapon)),
         )
     }

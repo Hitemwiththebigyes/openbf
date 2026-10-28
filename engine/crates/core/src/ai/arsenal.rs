@@ -422,7 +422,7 @@ pub(super) fn is_group(rules: GroundRules, own: u32, foes: u32) -> bool {
 /// of his side within [`GROUP_RADIUS`] of him, himself counted, and those of
 /// any other side there. One count for the grenade ([`is_group`]) and for a
 /// heavy weapon ([`is_crowd`]).
-fn group_counts(sim: &Sim, e: &Unit) -> (u32, u32) {
+pub(super) fn group_counts(sim: &Sim, e: &Unit) -> (u32, u32) {
     let (mut own, mut foes) = (0, 0);
     for (_, o) in sim.alive_units() {
         if o.mount.is_some()

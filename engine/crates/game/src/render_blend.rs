@@ -60,9 +60,9 @@ pub struct VehiclePose {
     pub aim: (f32, f32),
 }
 
-/// One remote droid's drawn pose, matched across ticks by its id.
+/// One remote droid's or auto-turret's drawn pose, matched across ticks by its id.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct DroidPose {
+pub struct ItemPose {
     pub id: u64,
     pub pos: Vec3,
     pub yaw: f32,
@@ -75,7 +75,8 @@ pub struct DroidPose {
 pub struct Pose {
     pub units: Vec<UnitPose>,
     pub vehicles: Vec<VehiclePose>,
-    pub droids: Vec<DroidPose>,
+    pub droids: Vec<ItemPose>,
+    pub turrets: Vec<ItemPose>,
     pub zoom_s: f32,
     pub zoom_fov_mix: f32,
     pub cam_place: Option<(f32, Vec3)>,
@@ -112,13 +113,21 @@ impl Pose {
                 aim: (v.walker.aim_yaw, v.walker.aim_pitch),
             }));
         self.droids.clear();
-        self.droids
-            .extend(walk.sim.droids.iter().map(|d| DroidPose {
-                id: d.id,
-                pos: d.pos,
-                yaw: d.yaw,
-                pitch: d.pitch,
-                up: d.up,
+        self.droids.extend(walk.sim.droids.iter().map(|d| ItemPose {
+            id: d.id,
+            pos: d.pos,
+            yaw: d.yaw,
+            pitch: d.pitch,
+            up: d.up,
+        }));
+        self.turrets.clear();
+        self.turrets
+            .extend(walk.sim.turrets.iter().map(|t| ItemPose {
+                id: t.id,
+                pos: t.pos,
+                yaw: t.yaw,
+                pitch: t.pitch,
+                up: t.up,
             }));
         self.zoom_s = walk.zoom_s;
         self.zoom_fov_mix = walk.zoom_fov_mix;
@@ -147,9 +156,29 @@ impl Pose {
                 (d.pos, d.yaw, d.pitch, d.up) = (p.pos, p.yaw, p.pitch, p.up);
             }
         }
+        for (t, p) in walk.sim.turrets.iter_mut().zip(&self.turrets) {
+            if t.id == p.id {
+                (t.pos, t.yaw, t.pitch, t.up) = (p.pos, p.yaw, p.pitch, p.up);
+            }
+        }
         walk.zoom_s = self.zoom_s;
         walk.zoom_fov_mix = self.zoom_fov_mix;
         walk.cam_place = self.cam_place;
+    }
+}
+
+fn blend_items(prev: &[ItemPose], out: &mut [ItemPose], t: f32) {
+    for o in out.iter_mut() {
+        let Some(p) = prev.iter().find(|p| p.id == o.id) else {
+            continue;
+        };
+        if p.pos.distance_squared(o.pos) > UNIT_SNAP_M * UNIT_SNAP_M {
+            continue;
+        }
+        o.pos = mix3(p.pos, o.pos, t);
+        o.yaw = lerp_angle(p.yaw, o.yaw, t);
+        o.pitch = mix(p.pitch, o.pitch, t);
+        o.up = mix3(p.up, o.up, t).normalize_or(o.up);
     }
 }
 
@@ -216,18 +245,8 @@ pub fn blend(prev: &Pose, cur: &Pose, t: f32) -> Pose {
         }
         o.aim = lerp_look(p.aim, o.aim, t);
     }
-    for o in out.droids.iter_mut() {
-        let Some(p) = prev.droids.iter().find(|p| p.id == o.id) else {
-            continue;
-        };
-        if p.pos.distance_squared(o.pos) > UNIT_SNAP_M * UNIT_SNAP_M {
-            continue;
-        }
-        o.pos = mix3(p.pos, o.pos, t);
-        o.yaw = lerp_angle(p.yaw, o.yaw, t);
-        o.pitch = mix(p.pitch, o.pitch, t);
-        o.up = mix3(p.up, o.up, t).normalize_or(o.up);
-    }
+    blend_items(&prev.droids, &mut out.droids, t);
+    blend_items(&prev.turrets, &mut out.turrets, t);
     out.zoom_s = mix(prev.zoom_s, cur.zoom_s, t);
     out.zoom_fov_mix = mix(prev.zoom_fov_mix, cur.zoom_fov_mix, t);
     if let (Some(p), Some(c)) = (prev.cam_place, cur.cam_place) {
@@ -377,6 +396,17 @@ mod tests {
         &mut w.sim.units[i].soldier
     }
 
+    struct NoProps;
+
+    impl core::weapon::PropSource for NoProps {
+        fn prop(&self, _: &str) -> Option<&str> {
+            None
+        }
+        fn prop_hash(&self, _: u32) -> Option<&str> {
+            None
+        }
+    }
+
     /// Half a tick on, a unit is drawn at the midpoint of its two ticks and
     /// turned halfway (the short way across +-pi); the tick's own pose comes
     /// back bit for bit.
@@ -412,15 +442,6 @@ mod tests {
 
     #[test]
     fn a_droid_is_drawn_between_its_ticks_and_turned_by_the_preview() {
-        struct NoProps;
-        impl core::weapon::PropSource for NoProps {
-            fn prop(&self, _: &str) -> Option<&str> {
-                None
-            }
-            fn prop_hash(&self, _: u32) -> Option<&str> {
-                None
-            }
-        }
         let mut w = walk();
         let droid = core::remote::DroidClass::from_props(&NoProps, false);
         let remote = core::remote::RemoteWeapon::new(
@@ -467,6 +488,44 @@ mod tests {
         assert_eq!(
             (d.pos, d.yaw, d.pitch),
             (Vec3::new(1.0, 2.0, -1.0), 0.7, 0.2)
+        );
+    }
+
+    #[test]
+    fn a_turret_is_drawn_between_its_ticks() {
+        let mut w = walk();
+        let class =
+            core::autoturret::TurretClass::new(&NoProps, core::weapon::WeaponClass::bf1_rifle());
+        let t = core::autoturret::Turret::new(
+            3,
+            w.player,
+            0,
+            0,
+            &class,
+            Vec3::new(0.0, 2.0, 0.0),
+            Vec3::ZERO,
+            0.5,
+        );
+        w.sim.turrets.push(t);
+        let mut b = Blend {
+            on: true,
+            ..Default::default()
+        };
+        b.before_tick(&w);
+        let t = &mut w.sim.turrets[0];
+        let from = t.pos;
+        t.pos += Vec3::new(1.0, -1.0, 0.0);
+        t.yaw = 0.7;
+        t.pitch = 0.2;
+        assert!(b.apply(&mut w, 0.5));
+        let t = &w.sim.turrets[0];
+        assert!(t.pos.abs_diff_eq(from + Vec3::new(0.5, -0.5, 0.0), 1e-6));
+        assert!((t.yaw - 0.6).abs() < 1e-6 && (t.pitch - 0.1).abs() < 1e-6);
+        b.restore(&mut w);
+        let t = &w.sim.turrets[0];
+        assert_eq!(
+            (t.pos, t.yaw, t.pitch),
+            (from + Vec3::new(1.0, -1.0, 0.0), 0.7, 0.2)
         );
     }
 

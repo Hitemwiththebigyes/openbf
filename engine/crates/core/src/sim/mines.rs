@@ -5,7 +5,9 @@
 use super::{Event, Sim};
 use crate::collision::{ray_terrain_ps2, HullFilter, Layers};
 use crate::mine::{Detonation, Mine};
+use crate::projectile::Target;
 use crate::sticky::{Anchor, Surface};
+use crate::unit::UnitHandle;
 use glam::Vec3;
 
 fn square(v: f32) -> f32 {
@@ -23,7 +25,23 @@ fn clamp_axis(y: f32, lo: f32, hi: f32) -> f32 {
     }
 }
 
+pub(super) fn oldest_beyond<T>(items: &[T], max: u32, own: impl Fn(&T) -> bool) -> Option<usize> {
+    if max == 0 {
+        return None;
+    }
+    let mut owned = items.iter().enumerate().filter(|(_, t)| own(t));
+    let first = owned.next()?.0;
+    (owned.count() + 1 >= max as usize).then_some(first)
+}
+
 impl Sim {
+    pub(super) fn throw_from(&self, i: usize, weapon: usize, speed: f32) -> (Vec3, Vec3) {
+        let u = &self.units[i];
+        let (aim, _, _) = u.aim_frame();
+        let pos = u.launch_origin(self.weapon_classes[weapon].thrown.and_then(|t| t.hand));
+        (pos, aim * speed + u.soldier.vel)
+    }
+
     pub(super) fn has_remote_items(&self, i: usize, weapon: usize) -> bool {
         if self.weapon_classes[weapon].remote.is_some() {
             return self.droid_of(self.handle(i), weapon).is_some();
@@ -90,36 +108,19 @@ impl Sim {
     pub(super) fn place_mine(&mut self, i: usize, weapon: usize, charge: f32) {
         let d = self.weapon_classes[weapon].mine.as_ref().unwrap().clone();
         let owner = self.handle(i);
-        if d.max_items > 0 {
-            let owned: Vec<_> = self
-                .mines
-                .iter()
-                .enumerate()
-                .filter(|(_, m)| m.flight.owner == owner && m.flight.weapon_class == weapon)
-                .map(|(k, _)| k)
-                .collect();
-            if owned.len() >= d.max_items as usize {
-                let old = self.mines.remove(owned[0]);
-                self.mine_blast(&old, Detonation::Destroyed);
-            }
+        if let Some(k) = oldest_beyond(&self.mines, d.max_items, |m| {
+            m.flight.owner == owner && m.flight.weapon_class == weapon
+        }) {
+            let old = self.mines.remove(k);
+            self.mine_blast(&old, Detonation::Destroyed);
         }
+        let (pos, vel) = self.throw_from(i, weapon, d.speed(charge));
         let u = &self.units[i];
-        let (aim, _, _) = u.aim_frame();
-        let speed = d.speed(charge);
-        let pos = u.launch_origin(self.weapon_classes[weapon].thrown.and_then(|t| t.hand));
         self.next_mine_id = self
             .next_mine_id
             .checked_add(1)
             .expect("mine identity exhausted");
-        let mut mine = Mine::new(
-            self.next_mine_id,
-            pos,
-            aim * speed + u.soldier.vel,
-            &d.item,
-            owner,
-            u.team,
-            weapon,
-        );
+        let mut mine = Mine::new(self.next_mine_id, pos, vel, &d.item, owner, u.team, weapon);
         mine.rotation = crate::vehicle::hover::quat_y(u.soldier.yaw);
         self.mines.push(mine);
         self.events.push(Event::Throw {
@@ -140,12 +141,53 @@ impl Sim {
             .mine
             .as_ref()
             .and_then(|d| d.item.health_type);
-        let ff = if team == Some(m.flight.team) {
+        self.item_damage(damage, scales, health_type, m.flight.team, team)
+    }
+
+    pub(super) fn item_damage(
+        &self,
+        damage: f32,
+        scales: &[f32; 7],
+        health_type: Option<crate::weapon::HealthType>,
+        own_team: u8,
+        team: Option<u8>,
+    ) -> f32 {
+        let ff = if team == Some(own_team) {
             self.friendly_fire_scale
         } else {
             1.0
         };
         (damage * health_type.map_or(1.0, |h| scales[h as usize]) * ff).max(0.0)
+    }
+
+    pub(super) fn damage_item(
+        &mut self,
+        target: Target,
+        damage: f32,
+        scales: &[f32; 7],
+        team: Option<u8>,
+    ) {
+        match target {
+            Target::Mine(id) => {
+                if let Some(k) = self.mines.iter().position(|m| m.id == id) {
+                    self.mines[k].health -= self.mine_damage(&self.mines[k], damage, scales, team);
+                }
+            }
+            Target::Droid(id) => {
+                if let Some(k) = self.droids.iter().position(|d| d.id == id) {
+                    self.droids[k].health -=
+                        self.droid_damage(&self.droids[k], damage, scales, team);
+                }
+            }
+            Target::Turret(id) => {
+                if let Some(k) = self.turrets.iter().position(|t| t.id == id) {
+                    let t = &self.turrets[k];
+                    let ht = self.turret_class(t).map(|c| c.health_type);
+                    self.turrets[k].health -= self.item_damage(damage, scales, ht, t.team, team);
+                }
+            }
+            Target::Unit(_) | Target::Vehicle(_) | Target::Station(_) => {}
+        }
     }
 
     fn mine_blast(&mut self, mine: &Mine, cause: Detonation) {
@@ -211,9 +253,7 @@ impl Sim {
             }
             if m.flight.moving {
                 let prev = m.flight.pos;
-                m.flight.vel.y += c.gravity * dt * 0.5;
-                m.flight.pos += m.flight.vel * dt;
-                m.flight.vel.y += c.gravity * dt * 0.5;
+                crate::mine::fall(&mut m.flight.pos, &mut m.flight.vel, c.gravity, dt);
                 let step = m.flight.pos - prev;
                 let len = step.length();
                 if len > 0.0 {
@@ -242,9 +282,8 @@ impl Sim {
                                 });
                             m.anchor(normal, anchor, hull.map(|(_, _, rot)| rot));
                         } else {
-                            let vt = m.flight.vel - normal * vn;
-                            let f = (-vn * c.friction * (c.rebound + 1.0) / vt.length()).min(1.0);
-                            m.flight.vel = vt * (1.0 - f) - normal * (vn * c.rebound);
+                            m.flight.vel =
+                                crate::mine::rebound(m.flight.vel, normal, c.friction, c.rebound);
                             m.flight.pos =
                                 point + normal * self.push_off_room(point, normal).min(0.01);
                         }
@@ -284,13 +323,7 @@ impl Sim {
                     }
                 }
                 for (_, v) in self.alive_vehicles() {
-                    let (centre, radius) = self
-                        .blast_setup
-                        .get(v.class as usize)
-                        .and_then(|b| b.as_ref())
-                        .map_or((v.pos, 0.0), |b| {
-                            (v.pos + v.rot * b.sphere_centre, b.sphere_radius)
-                        });
+                    let (centre, radius) = self.vehicle_sphere(v);
                     let d = centre - m.flight.pos;
                     if v.team == Some(m.flight.team) {
                         friend |= c.friend_radius > 0.0
@@ -328,6 +361,23 @@ impl Sim {
             .mine
             .as_ref()?
             .item;
+        let hulls = if c.bf2 {
+            HullFilter::All
+        } else {
+            HullFilter::Static
+        };
+        let units = c.bf2.then_some((m.flight.owner, m.age <= 0.5));
+        self.sweep_item(from, dir, len, hulls, units)
+    }
+
+    pub(super) fn sweep_item(
+        &self,
+        from: Vec3,
+        dir: Vec3,
+        len: f32,
+        hulls: HullFilter,
+        units: Option<(UnitHandle, bool)>,
+    ) -> Option<(Vec3, Vec3, Surface)> {
         let mut best = None;
         if let Some(hf) = &self.heightfield {
             if let Some(f) = ray_terrain_ps2(hf, &self.collision.cutters, from, from + dir * len) {
@@ -345,17 +395,10 @@ impl Sim {
                 best = Some((t, normal, surface));
             }
         };
-        if let Some(h) = self.collision.ray_with(
-            from,
-            dir,
-            len,
-            Layers::ORDNANCE,
-            if c.bf2 {
-                HullFilter::All
-            } else {
-                HullFilter::Static
-            },
-        ) {
+        if let Some(h) = self
+            .collision
+            .ray_with(from, dir, len, Layers::ORDNANCE, hulls)
+        {
             nearer(
                 h.t,
                 h.normal,
@@ -365,9 +408,9 @@ impl Sim {
                 }),
             );
         }
-        if c.bf2 {
+        if let Some((owner, fresh)) = units {
             for (handle, u) in self.alive_units() {
-                if u.mount.is_some() || (handle == m.flight.owner && m.age <= 0.5) {
+                if u.mount.is_some() || (handle == owner && fresh) {
                     continue;
                 }
                 let cap = u.capsule();

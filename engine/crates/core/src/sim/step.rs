@@ -872,6 +872,7 @@ impl Sim {
         self.tick_stickies(dt);
         self.tick_mines(dt);
         self.tick_droids(dt, &droid_pads);
+        self.tick_turrets(dt);
 
         // 5c. The pickups (PWUP): flight, life, the touch.
         self.tick_buffs(dt);

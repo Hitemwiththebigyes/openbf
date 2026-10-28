@@ -44,6 +44,7 @@ pub enum Target {
     Station(u16),
     Mine(u64),
     Droid(u64),
+    Turret(u64),
 }
 
 #[derive(Clone, Debug)]
@@ -138,6 +139,10 @@ impl Bolt {
             }
             Hit::Target(Target::Droid(id)) => {
                 eat(&[8]);
+                eat(&id.to_le_bytes());
+            }
+            Hit::Target(Target::Turret(id)) => {
+                eat(&[9]);
                 eat(&id.to_le_bytes());
             }
         }

@@ -17,6 +17,7 @@
 
 mod mines;
 mod remotes;
+mod turrets;
 
 use crate::classdb::{ClassDb, WeaponSlot};
 use crate::mission::MissionDef;
@@ -716,6 +717,9 @@ fn weapon_stage(db: &ClassDb, weapon: &str, props: &[(u32, &str)]) -> Result<Wea
     if matches!(db.engine_base(weapon), Some("dispenser" | "detonator")) {
         let name = WeaponClass::ordnance_name(&wsrc)
             .with_context(|| format!("{weapon}: no OrdnanceName"))?;
+        if db.engine_base(name.trim()) == Some("portableturret") {
+            return turrets::turret_weapon(db, weapon, name.trim(), &wsrc);
+        }
         if db.engine_base(name.trim()) == Some("mine") {
             let mut item = mines::mine_class(db, name.trim());
             item.remote = db.engine_base(weapon) == Some("detonator");
@@ -929,9 +933,7 @@ pub fn slot_kind(db: &ClassDb, weapon: &str, channel: u8) -> SlotKind {
         ("dispenser" | "detonator", "mine") => SlotKind::Dispenser,
         ("remote", "droid") => SlotKind::Remote,
         ("remote", _) => SlotKind::NotBuilt("the guided rocket, a remote-flown flyer"),
-        ("dispenser", "portableturret") => {
-            SlotKind::NotBuilt("the portable auto-turret (issue #45)")
-        }
+        ("dispenser", "portableturret") => SlotKind::Dispenser,
         ("dispenser", "powerupitem") => SlotKind::Dispenser,
         ("cannon", "emitterordnance") if channel == 1 => {
             let ability = db.prop(weapon, "OrdnanceName").and_then(|name| {

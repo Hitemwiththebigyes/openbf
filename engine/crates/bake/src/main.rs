@@ -298,7 +298,7 @@ fn main() -> Result<()> {
                  \x20 bake tex-dump   <file.lvl>   <outdir>       every tex_ to PNG (mip 0)\n\
                  \x20 bake pc-tex     <file.lvl|-> <outdir>       PC-format textures to KTX2\n\
                  \x20 bake soldier    <side.lvl> <model[,model]> <outdir> [anim.lvl] [pc.lvl]\n\
-                 \x20 bake weapon     <side.lvl> <model[,model]> <outdir> [pc.lvl]\n\
+                 \x20 bake weapon     <side.lvl[,lvl]> <model[,model]> <outdir> [pc.lvl]\n\
                  \x20 bake vehicle    <side.lvl> <outdir> [pc.lvl]     every vehicle class: models, chunks, collision\n\
                  \x20 bake effects    <side.lvl> <outdir> bf1|bf2   fx__ particle effects + their textures/models\n\
                  \nscripts/rebake.sh runs all of these over the extracted discs."

@@ -53,6 +53,7 @@ mod state;
 mod stations;
 mod step;
 pub mod trace;
+mod turrets;
 mod vehicles;
 
 pub use blast::{soldier_blast_sphere, BLAST_GATHER_MAX};

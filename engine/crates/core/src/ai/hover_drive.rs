@@ -179,7 +179,7 @@ fn unit(v: Vec3) -> Vec3 {
 }
 
 /// u = clamp(t · k, ±1) by sign, then u·|u| (0x2a47c0-0x2a4830).
-fn shaped(t: f32, k: f32) -> f32 {
+pub(crate) fn shaped(t: f32, k: f32) -> f32 {
     let u = if t < 0.0 {
         (t * k).max(-1.0)
     } else if t > 0.0 {

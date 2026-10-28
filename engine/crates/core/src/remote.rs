@@ -11,6 +11,24 @@ pub const PROBE: f32 = 10.0;
 pub const BOT_RECALL: f32 = 10.0;
 pub const BOT_RANGE: f32 = 40.0;
 
+pub fn look_frame(yaw: f32, pitch: f32) -> (Vec3, Vec3, Vec3) {
+    let (sy, cy) = crate::fmath::sin_cos(yaw);
+    let (sp, cp) = crate::fmath::sin_cos(pitch);
+    let fwd = Vec3::new(-sy * cp, sp, -cy * cp);
+    let right = Vec3::new(cy, 0.0, -sy);
+    let up = right.cross(fwd).normalize();
+    (fwd, right, up)
+}
+
+pub fn tilted(up: Vec3, yaw: f32) -> Quat {
+    let tilt = if up.y < -0.999999 {
+        Quat::from_xyzw(1.0, 0.0, 0.0, 0.0)
+    } else {
+        Quat::from_xyzw(up.z, 0.0, -up.x, 1.0 + up.y).normalize()
+    };
+    tilt * crate::vehicle::hover::quat_y(yaw)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DroidEnd {
     Destroyed,
@@ -61,7 +79,7 @@ fn vec3(src: &dyn PropSource, key: &str) -> Option<Vec3> {
     (v.len() == 3).then(|| Vec3::new(v[0], v[1], v[2]))
 }
 
-fn name(src: &dyn PropSource, key: &str) -> Option<String> {
+pub(crate) fn name(src: &dyn PropSource, key: &str) -> Option<String> {
     src.prop(key).map(|s| s.trim().to_owned())
 }
 
@@ -289,12 +307,7 @@ impl Droid {
     }
 
     pub fn aim_frame(&self) -> (Vec3, Vec3, Vec3) {
-        let (sy, cy) = crate::fmath::sin_cos(self.yaw);
-        let (sp, cp) = crate::fmath::sin_cos(self.pitch);
-        let fwd = Vec3::new(-sy * cp, sp, -cy * cp);
-        let right = Vec3::new(cy, 0.0, -sy);
-        let up = right.cross(fwd).normalize();
-        (fwd, right, up)
+        look_frame(self.yaw, self.pitch)
     }
 
     pub fn mouse_turned(&self, c: &DroidClass, look: (f32, f32), scale: f32) -> (f32, f32) {
@@ -309,13 +322,7 @@ impl Droid {
     }
 
     pub fn rotation(&self) -> Quat {
-        let up = self.up;
-        let tilt = if up.y < -0.999999 {
-            Quat::from_xyzw(1.0, 0.0, 0.0, 0.0)
-        } else {
-            Quat::from_xyzw(up.z, 0.0, -up.x, 1.0 + up.y).normalize()
-        };
-        tilt * crate::vehicle::hover::quat_y(self.yaw)
+        tilted(self.up, self.yaw)
     }
 
     pub fn alive(&self) -> bool {

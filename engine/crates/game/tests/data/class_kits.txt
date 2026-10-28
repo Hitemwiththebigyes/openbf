@@ -252,7 +252,7 @@ bf2 all_inf_default_sniper
     1:all_weap_inf_sniper_rifle xSome(7) ch0 -> primary x7
     2:all_weap_inf_pistol xSome(0) ch0 -> fired x0
     3:all_weap_inf_thermaldetonator xSome(2) ch1 -> thrown x2
-    4:all_weap_inf_autoturret_dispenser xSome(1) ch1 -> left out: the portable auto-turret (issue #45)
+    4:all_weap_inf_autoturret_dispenser xSome(1) ch1 -> auto-turret x1
     5:all_weap_award_sniper_rifle xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
     6:all_weap_award_pistol xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 all_inf_default_wookiee
@@ -377,28 +377,28 @@ bf2 all_inf_sniper
     1:all_weap_inf_sniper_rifle xSome(7) ch0 -> primary x7
     2:all_weap_inf_pistol xSome(0) ch0 -> fired x0
     3:all_weap_inf_thermaldetonator xSome(2) ch1 -> thrown x2
-    4:all_weap_inf_autoturret_dispenser xSome(1) ch1 -> left out: the portable auto-turret (issue #45)
+    4:all_weap_inf_autoturret_dispenser xSome(1) ch1 -> auto-turret x1
     5:all_weap_award_sniper_rifle xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
     6:all_weap_award_pistol xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 all_inf_sniper_fleet
     1:all_weap_inf_sniper_rifle xSome(7) ch0 -> primary x7
     2:all_weap_inf_pistol xSome(0) ch0 -> fired x0
     3:all_weap_inf_thermaldetonator xSome(2) ch1 -> thrown x2
-    4:all_weap_inf_autoturret_dispenser xSome(1) ch1 -> left out: the portable auto-turret (issue #45)
+    4:all_weap_inf_autoturret_dispenser xSome(1) ch1 -> auto-turret x1
     5:all_weap_award_sniper_rifle xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
     6:all_weap_award_pistol xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 all_inf_sniper_jungle
     1:all_weap_inf_sniper_rifle xSome(7) ch0 -> primary x7
     2:all_weap_inf_pistol xSome(0) ch0 -> fired x0
     3:all_weap_inf_thermaldetonator xSome(2) ch1 -> thrown x2
-    4:all_weap_inf_autoturret_dispenser xSome(1) ch1 -> left out: the portable auto-turret (issue #45)
+    4:all_weap_inf_autoturret_dispenser xSome(1) ch1 -> auto-turret x1
     5:all_weap_award_sniper_rifle xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
     6:all_weap_award_pistol xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 all_inf_sniper_snow
     1:all_weap_inf_sniper_rifle xSome(7) ch0 -> primary x7
     2:all_weap_inf_pistol xSome(0) ch0 -> fired x0
     3:all_weap_inf_thermaldetonator xSome(2) ch1 -> thrown x2
-    4:all_weap_inf_autoturret_dispenser xSome(1) ch1 -> left out: the portable auto-turret (issue #45)
+    4:all_weap_inf_autoturret_dispenser xSome(1) ch1 -> auto-turret x1
     5:all_weap_award_sniper_rifle xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
     6:all_weap_award_pistol xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 all_inf_wookiee
@@ -457,7 +457,7 @@ bf2 cis_inf_default_sniper
     1:cis_weap_inf_sniper_rifle xSome(7) ch0 -> primary x7
     2:cis_weap_inf_pistol xSome(0) ch0 -> fired x0
     3:cis_weap_inf_thermaldetonator xSome(2) ch1 -> thrown x2
-    4:cis_weap_inf_autoturret_dispenser xSome(1) ch1 -> left out: the portable auto-turret (issue #45)
+    4:cis_weap_inf_autoturret_dispenser xSome(1) ch1 -> auto-turret x1
     5:cis_weap_award_sniper_rifle xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
     6:cis_weap_award_pistol xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 cis_inf_engineer
@@ -502,7 +502,7 @@ bf2 cis_inf_sniper
     1:cis_weap_inf_sniper_rifle xSome(7) ch0 -> primary x7
     2:cis_weap_inf_pistol xSome(0) ch0 -> fired x0
     3:cis_weap_inf_thermaldetonator xSome(2) ch1 -> thrown x2
-    4:cis_weap_inf_autoturret_dispenser xSome(1) ch1 -> left out: the portable auto-turret (issue #45)
+    4:cis_weap_inf_autoturret_dispenser xSome(1) ch1 -> auto-turret x1
     5:cis_weap_award_sniper_rifle xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
     6:cis_weap_award_pistol xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 com_hero_default: NOT FIELDED (com_hero_default: no WeaponName)
@@ -569,7 +569,7 @@ bf2 imp_inf_default_sniper
     1:imp_weap_inf_sniper_rifle xSome(7) ch0 -> primary x7
     2:imp_weap_inf_pistol xSome(0) ch0 -> fired x0
     3:imp_weap_inf_thermaldetonator xSome(2) ch1 -> thrown x2
-    4:imp_weap_inf_autoturret_dispenser xSome(1) ch1 -> left out: the portable auto-turret (issue #45)
+    4:imp_weap_inf_autoturret_dispenser xSome(1) ch1 -> auto-turret x1
     5:imp_weap_award_sniper_rifle xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
     6:imp_weap_award_pistol xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 imp_inf_engineer
@@ -650,14 +650,14 @@ bf2 imp_inf_sniper
     1:imp_weap_inf_sniper_rifle xSome(7) ch0 -> primary x7
     2:imp_weap_inf_pistol xSome(0) ch0 -> fired x0
     3:imp_weap_inf_thermaldetonator xSome(2) ch1 -> thrown x2
-    4:imp_weap_inf_autoturret_dispenser xSome(1) ch1 -> left out: the portable auto-turret (issue #45)
+    4:imp_weap_inf_autoturret_dispenser xSome(1) ch1 -> auto-turret x1
     5:imp_weap_award_sniper_rifle xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
     6:imp_weap_award_pistol xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 imp_inf_sniper_snow
     1:imp_weap_inf_sniper_rifle xSome(7) ch0 -> primary x7
     2:imp_weap_inf_pistol xSome(0) ch0 -> fired x0
     3:imp_weap_inf_thermaldetonator xSome(2) ch1 -> thrown x2
-    4:imp_weap_inf_autoturret_dispenser xSome(1) ch1 -> left out: the portable auto-turret (issue #45)
+    4:imp_weap_inf_autoturret_dispenser xSome(1) ch1 -> auto-turret x1
     5:imp_weap_award_sniper_rifle xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
     6:imp_weap_award_pistol xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 rep_hero_aalya: NOT FIELDED (rep_weap_lightsaber_aalya: no OrdnanceName)
@@ -713,7 +713,7 @@ bf2 rep_inf_default_sniper
     1:rep_weap_inf_sniper_rifle xSome(7) ch0 -> primary x7
     2:rep_weap_inf_pistol xSome(0) ch0 -> fired x0
     3:rep_weap_inf_thermaldetonator xSome(2) ch1 -> thrown x2
-    4:rep_weap_inf_autoturret_dispenser xSome(1) ch1 -> left out: the portable auto-turret (issue #45)
+    4:rep_weap_inf_autoturret_dispenser xSome(1) ch1 -> auto-turret x1
     5:rep_weap_award_sniper_rifle xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
     6:rep_weap_award_pistol xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 rep_inf_ep2_engineer
@@ -776,7 +776,7 @@ bf2 rep_inf_ep2_sniper
     1:rep_weap_inf_sniper_rifle xSome(7) ch0 -> primary x7
     2:rep_weap_inf_pistol xSome(0) ch0 -> fired x0
     3:rep_weap_inf_thermaldetonator xSome(2) ch1 -> thrown x2
-    4:rep_weap_inf_autoturret_dispenser xSome(1) ch1 -> left out: the portable auto-turret (issue #45)
+    4:rep_weap_inf_autoturret_dispenser xSome(1) ch1 -> auto-turret x1
     5:rep_weap_award_sniper_rifle xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
     6:rep_weap_award_pistol xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 rep_inf_ep3_engineer
@@ -823,13 +823,13 @@ bf2 rep_inf_ep3_sniper
     1:rep_weap_inf_sniper_rifle xSome(7) ch0 -> primary x7
     2:rep_weap_inf_pistol xSome(0) ch0 -> fired x0
     3:rep_weap_inf_thermaldetonator xSome(2) ch1 -> thrown x2
-    4:rep_weap_inf_autoturret_dispenser xSome(1) ch1 -> left out: the portable auto-turret (issue #45)
+    4:rep_weap_inf_autoturret_dispenser xSome(1) ch1 -> auto-turret x1
     5:rep_weap_award_sniper_rifle xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
     6:rep_weap_award_pistol xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 rep_inf_ep3_sniper_felucia
     1:rep_weap_inf_sniper_rifle xSome(7) ch0 -> primary x7
     2:rep_weap_inf_pistol xSome(0) ch0 -> fired x0
     3:rep_weap_inf_thermaldetonator xSome(2) ch1 -> thrown x2
-    4:rep_weap_inf_autoturret_dispenser xSome(1) ch1 -> left out: the portable auto-turret (issue #45)
+    4:rep_weap_inf_autoturret_dispenser xSome(1) ch1 -> auto-turret x1
     5:rep_weap_award_sniper_rifle xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
     6:rep_weap_award_pistol xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)

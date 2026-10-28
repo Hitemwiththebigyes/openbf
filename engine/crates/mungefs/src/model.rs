@@ -110,6 +110,7 @@ pub struct Segment {
     ///   carries neither.
     pub spec_power: u32,
     pub spec_color: u32,
+    pub uv_anim: [u8; 2],
     /// Texture names by slot (TNAM chunks).
     pub textures: Vec<(u32, String)>,
     /// Hard-skin bone name (BNAM), if present.
@@ -235,6 +236,10 @@ fn parse_segment(segm: &Chunk<'_>, vbox: &Aabb) -> Result<Segment, UcfbError> {
             }
         })
         .unwrap_or((0, 0));
+    let uv_anim = segm
+        .child(b"MTRL")
+        .filter(|_| bf2_material)
+        .map_or([0, 0], |c| [c.payload[16], c.payload[17]]);
     // RTYP: BF1 a NUL-terminated string, BF2 a u32. Discriminated on the
     // first byte being printable ASCII — the same test the census's
     // `mtrl_census.py` makes, and exact on both discs (BF1's six names all
@@ -385,6 +390,7 @@ fn parse_segment(segm: &Chunk<'_>, vbox: &Aabb) -> Result<Segment, UcfbError> {
         render_type,
         spec_power,
         spec_color,
+        uv_anim,
         index_count,
         textures,
         bone,
@@ -509,6 +515,20 @@ mod tests {
         // A 4-byte BF1 MTRL carries neither.
         let s = one_segment(&0x31u32.to_le_bytes(), b"Specmap\0");
         assert_eq!((s.spec_power, s.spec_color), (0, 0));
+    }
+
+    #[test]
+    fn a_bf2_scroll_word_scrolls_by_its_two_bytes() {
+        let mut band = vec![0u8; 25];
+        band[0..4].copy_from_slice(&0x0101_0010u32.to_le_bytes());
+        band[16..18].copy_from_slice(&[200, 255]);
+        let s = one_segment(&band, &3u32.to_le_bytes());
+        assert_eq!(s.uv_anim, [200, 255]);
+        assert_eq!(s.uv_scroll(), Some([-200.0 / 255.0, -1.0]));
+        band[0..4].copy_from_slice(&0x0001_0010u32.to_le_bytes());
+        assert_eq!(one_segment(&band, &3u32.to_le_bytes()).uv_scroll(), None);
+        let bf1 = one_segment(&0x0100_0410u32.to_le_bytes(), b"Scroll\0");
+        assert_eq!((bf1.uv_anim, bf1.uv_scroll()), ([0, 0], None));
     }
 
     /// RTYP's two on-disc encodings, pinned as raw bytes: BF1 writes a
@@ -674,6 +694,11 @@ impl Segment {
     pub fn vertex_bone(&self, v: usize) -> Option<usize> {
         let slot = usize::from(self.bind.get(v)?[0] >> 2);
         self.bmap.get(slot).map(|&b| usize::from(b))
+    }
+
+    pub fn uv_scroll(&self) -> Option<[f32; 2]> {
+        (self.bf2_material && self.material_flags & 0x0100_0000 != 0 && self.uv_anim != [0, 0])
+            .then(|| self.uv_anim.map(|b| -f32::from(b) / 255.0))
     }
 }
 

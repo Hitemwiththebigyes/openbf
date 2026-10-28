@@ -105,6 +105,11 @@ pub enum Event {
         weapon_class: u32,
         end: crate::remote::DroidEnd,
     },
+    TurretGone {
+        pos: Vec3,
+        weapon_class: u32,
+        end: crate::autoturret::TurretEnd,
+    },
     Ability {
         unit: UnitHandle,
         weapon_class: u32,
@@ -599,6 +604,8 @@ pub struct Sim {
     pub droids: Vec<crate::remote::Droid>,
     pub next_droid_id: u64,
     pub strikes: Vec<crate::remote::StrikeRun>,
+    pub turrets: Vec<crate::autoturret::Turret>,
+    pub next_turret_id: u64,
     /// The `powerupitem` classes (card PWUP, `sim/pickups.rs`). SETUP data
     /// like `weapon_classes`, NOT hashed.
     pub item_classes: Vec<super::pickups::ItemClass>,
@@ -965,6 +972,8 @@ impl Sim {
             next_mine_id: 0,
             droids: Vec::new(),
             next_droid_id: 0,
+            turrets: Vec::new(),
+            next_turret_id: 0,
             strikes: Vec::new(),
             item_classes: Vec::new(),
             item_pool: super::pickups::ITEM_POOL_DEFAULT,
@@ -1049,6 +1058,9 @@ impl Sim {
             if let Some(s) = r.destruct.as_ref().and_then(|d| d.salvo.as_ref()) {
                 r.shell_index = self.add_weapon_class((*s.shell).clone());
             }
+        }
+        if let Some(t) = wc.turret.as_mut() {
+            t.item.gun_index = self.add_weapon_class((*t.item.gun).clone());
         }
         self.weapon_classes.push(wc);
         self.weapon_classes.len() - 1
@@ -1360,6 +1372,14 @@ impl Sim {
             eat(&(self.strikes.len() as u64).to_le_bytes());
             for r in &self.strikes {
                 r.hash_into(&mut eat);
+            }
+        }
+        if self.next_turret_id > 0 {
+            eat(b"TURRETS");
+            eat(&self.next_turret_id.to_le_bytes());
+            eat(&(self.turrets.len() as u64).to_le_bytes());
+            for t in &self.turrets {
+                t.hash_into(&mut eat);
             }
         }
         for g in &self.stickies {

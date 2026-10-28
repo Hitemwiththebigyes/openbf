@@ -182,12 +182,21 @@ pub fn upload_texture_file(
     dir: &Path,
     name: &str,
 ) -> Result<Option<TextureHandle>> {
+    upload_texture_file_scrolling(r, dir, name, [0.0, 0.0])
+}
+
+pub fn upload_texture_file_scrolling(
+    r: &mut Renderer,
+    dir: &Path,
+    name: &str,
+    scroll: [f32; 2],
+) -> Result<Option<TextureHandle>> {
     if !pak::exists(dir.join(format!("{name}.ktx2"))) {
         return Ok(None);
     }
     let t0 = std::time::Instant::now();
     let t = crate::assets::load_texture(dir, name)?;
-    let h = upload_cpu_texture(r, &t, name)?;
+    let h = upload_cpu_texture_scrolling(r, &t, name, scroll, [1.0, 1.0])?;
     // The frame recorder's (card HITCH): a file loaded in a battle frame.
     let bytes = t.rgba.len() + t.extra_mips.iter().map(Vec::len).sum::<usize>();
     render::made::note(

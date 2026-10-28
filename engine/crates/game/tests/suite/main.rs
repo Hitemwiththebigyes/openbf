@@ -9,6 +9,7 @@
 mod all_maps_load;
 mod ambience_ps2;
 mod announcer_ps2;
+mod auto_turrets;
 mod battle_replay;
 mod career_class_kills;
 mod class_change_maps;

@@ -63,13 +63,10 @@ impl Sim {
         let Some(r) = self.weapon_classes[weapon].remote.clone() else {
             return;
         };
-        let u = &self.units[i];
         let owner = self.handle(i);
-        let (aim, _, _) = u.aim_frame();
-        let d = self.weapon_classes[weapon].thrown.and_then(|t| t.hand);
-        let pos = u.launch_origin(d);
-        let speed = r.launch_speed(charge);
-        let (team, yaw, human, vel) = (u.team, u.soldier.yaw, u.is_player, u.soldier.vel);
+        let (pos, vel) = self.throw_from(i, weapon, r.launch_speed(charge));
+        let u = &self.units[i];
+        let (team, yaw, human) = (u.team, u.soldier.yaw, u.is_player);
         self.next_droid_id = self
             .next_droid_id
             .checked_add(1)
@@ -81,7 +78,7 @@ impl Sim {
             weapon,
             &r,
             pos,
-            aim * speed + vel,
+            vel,
             yaw,
             human,
         );
@@ -253,7 +250,13 @@ impl Sim {
                 &mut shots,
             );
             if !shots.is_empty() {
-                self.droid_shots(&d, blaster, is_player, &shots);
+                let who = Shooter {
+                    owner: d.owner,
+                    team: d.team,
+                    weapon_class: blaster,
+                    is_player,
+                };
+                self.free_shots(who, d.muzzle(), d.aim_frame(), &shots);
             }
             if let Some(p) = routed {
                 d.prev_buttons = p.buttons;
@@ -326,21 +329,24 @@ impl Sim {
         }
     }
 
-    fn droid_shots(
+    pub fn is_item_gun(&self, weapon_class: usize) -> bool {
+        self.weapon_classes.iter().any(|w| {
+            w.remote
+                .as_ref()
+                .is_some_and(|r| r.blaster_index == weapon_class)
+                || w.turret
+                    .as_ref()
+                    .is_some_and(|t| t.item.gun_index == weapon_class)
+        })
+    }
+
+    pub(super) fn free_shots(
         &mut self,
-        d: &Droid,
-        blaster: usize,
-        is_player: bool,
+        who: Shooter,
+        origin: Vec3,
+        (fwd, right, up): (Vec3, Vec3, Vec3),
         shots: &[crate::weapon::ShotSpec],
     ) {
-        let (fwd, right, up) = d.aim_frame();
-        let origin = d.muzzle();
-        let who = Shooter {
-            owner: d.owner,
-            team: d.team,
-            weapon_class: blaster,
-            is_player,
-        };
         for spec in shots {
             let dir = shot_direction(
                 &mut self.lcg,
@@ -351,11 +357,13 @@ impl Sim {
                 spec.yaw_spread,
                 spec.tilt,
             );
-            let blend = self.weapon_classes[blaster].ordnance.charged(spec.charge);
+            let blend = self.weapon_classes[who.weapon_class]
+                .ordnance
+                .charged(spec.charge);
             let bolt = self.free_bolt(origin, dir, blend.velocity, blend.life_span, who);
             self.events.push(Event::Shot {
-                unit: d.owner,
-                weapon_class: blaster as u32,
+                unit: who.owner,
+                weapon_class: who.weapon_class as u32,
                 origin,
                 dir,
             });
@@ -453,12 +461,7 @@ impl Sim {
         let ht = self
             .droid_class(d)
             .map_or(crate::weapon::HealthType::Droid, |c| c.health_type);
-        let ff = if team == Some(d.team) {
-            self.friendly_fire_scale
-        } else {
-            1.0
-        };
-        (damage * scales[ht as usize] * ff).max(0.0)
+        self.item_damage(damage, scales, Some(ht), d.team, team)
     }
 }
 

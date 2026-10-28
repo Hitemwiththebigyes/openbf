@@ -661,6 +661,7 @@ pub struct Hud {
     /// Per font: each glyph's pen advance in texels (what a MultiLineText
     /// wraps its words by). Empty until [`Hud::set_fonts`].
     advances: HashMap<String, HashMap<u32, f32>>,
+    pub clock: f32,
 }
 
 fn num(n: &HudNode, i: usize) -> Option<f32> {
@@ -774,6 +775,7 @@ impl Hud {
             instant: None,
             stats: None,
             advances: HashMap::new(),
+            clock: 0.0,
         };
         for n in &layout.nodes {
             let lname = n.name.to_ascii_lowercase();
@@ -1220,6 +1222,7 @@ impl Hud {
     /// One frame of fades, colour easing and pulses (`re-hud.md` §2.1 [V]:
     /// `FUN_0039da30`).
     pub fn advance(&mut self, dt: f32) {
+        self.clock += dt;
         self.ambush.advance(dt);
         for e in &mut self.elems {
             e.fader.advance(dt);

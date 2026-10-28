@@ -90,6 +90,7 @@ pub struct HudPass {
     screen_bg: wgpu::BindGroup,
     texture_bgl: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
+    repeat_sampler: wgpu::Sampler,
     textures: Vec<wgpu::BindGroup>,
     /// The textures rewritten every frame ([`HudPass::add_stream_texture`]):
     /// the handle, the texture and its size.
@@ -237,6 +238,17 @@ impl HudPass {
                 ..Default::default()
             },
         );
+        let repeat_sampler = crate::made::sampler(
+            device,
+            &wgpu::SamplerDescriptor {
+                label: Some("hud repeat sampler"),
+                address_mode_u: wgpu::AddressMode::Repeat,
+                address_mode_v: wgpu::AddressMode::Repeat,
+                mag_filter: wgpu::FilterMode::Linear,
+                min_filter: wgpu::FilterMode::Linear,
+                ..Default::default()
+            },
+        );
         let white = texture_bind_group(device, queue, &texture_bgl, &sampler, &[255; 4], 1, 1)
             .expect("a 1x1 texture uploads");
         Self {
@@ -245,6 +257,7 @@ impl HudPass {
             screen_bg,
             texture_bgl,
             sampler,
+            repeat_sampler,
             textures: Vec::new(),
             streams: Vec::new(),
             white,
@@ -263,12 +276,17 @@ impl HudPass {
         rgba: &[u8],
         width: u32,
         height: u32,
+        repeat: bool,
     ) -> Option<HudTexture> {
         let bg = texture_bind_group(
             device,
             queue,
             &self.texture_bgl,
-            &self.sampler,
+            if repeat {
+                &self.repeat_sampler
+            } else {
+                &self.sampler
+            },
             rgba,
             width,
             height,

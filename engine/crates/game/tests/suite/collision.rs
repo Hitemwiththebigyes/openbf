@@ -27,6 +27,7 @@ fn mesh_quad() -> CpuMesh {
         submeshes: vec![],
         spec: Vec::new(),
         light: Vec::new(),
+        scroll: Vec::new(),
         sphere: None,
     }
 }

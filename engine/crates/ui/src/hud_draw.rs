@@ -44,6 +44,8 @@ pub(crate) fn mesh_frame() -> Mat4 {
 /// gloss there).
 pub const OPAQUE_SHEET: &str = "#opaque";
 
+pub const SCROLL_SHEET: &str = "#scroll";
+
 /// One mesh part: a texture and its triangles.
 #[derive(Debug, Clone, Default)]
 pub struct HudMeshPart {
@@ -56,6 +58,7 @@ pub struct HudMeshPart {
     /// 0x80 = 1); empty = white.
     pub colors: Vec<[f32; 4]>,
     pub indices: Vec<u32>,
+    pub scroll: [f32; 2],
 }
 
 #[derive(Debug, Clone, Default)]
@@ -655,6 +658,7 @@ impl Ctx<'_> {
         for (part, pts) in mesh.parts.iter().zip(&moved) {
             let first = self.out.indices.len() as u32;
             let base = self.out.verts.len() as u32;
+            let shift = part.scroll.map(|v| (v * self.hud.clock).fract());
             for (k, (p, uv)) in pts.iter().zip(&part.uvs).enumerate() {
                 let vc = part.colors.get(k).copied().unwrap_or([1.0; 4]);
                 let w = s.map(*p);
@@ -668,7 +672,7 @@ impl Ctx<'_> {
                 let depth = 1.0 - slice - near / DEPTH_SLICES;
                 self.out.verts.push(HudVertex {
                     pos: [w[0], w[1], depth.clamp(0.0, 1.0)],
-                    uv: *uv,
+                    uv: [uv[0] + shift[0], uv[1] + shift[1]],
                     color: [0, 1, 2, 3].map(|c| col[c] * vc[c]),
                 });
             }
@@ -917,6 +921,37 @@ mod tests {
         let mut hidden = bar_hud();
         hidden.elems[0].fader.state = 0;
         assert!(draw(&hidden, &HudArt::default(), size).verts.is_empty());
+    }
+
+    #[test]
+    fn a_scrolling_mesh_part_moves_its_uvs_with_the_clock() {
+        let mut hud = bar_hud();
+        let mut art = HudArt::default();
+        let part = HudMeshPart {
+            texture: format!("band{SCROLL_SHEET}"),
+            positions: vec![[0.0; 3]; 3],
+            uvs: vec![[0.25, 0.5]; 3],
+            indices: vec![0, 1, 2],
+            scroll: [-0.5, -1.0],
+            ..Default::default()
+        };
+        art.meshes.insert("m".into(), HudMesh { parts: vec![part] });
+        let screen = Screen {
+            origin: [0.0; 2],
+            scale: [1.0; 2],
+        };
+        let uv = |hud: &Hud| {
+            let mut ctx = Ctx {
+                hud,
+                art: &art,
+                out: HudFrame::default(),
+            };
+            ctx.mesh(0, "m", &Mat4::IDENTITY, &screen, [1.0; 4], false);
+            ctx.out.verts[0].uv
+        };
+        assert_eq!(uv(&hud), [0.25, 0.5]);
+        hud.advance(0.5);
+        assert_eq!(uv(&hud), [0.0, 0.0]);
     }
 
     #[test]

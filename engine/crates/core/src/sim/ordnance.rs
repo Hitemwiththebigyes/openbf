@@ -188,6 +188,10 @@ impl Sim {
                 self.launch_droid(i, stage, spec.charge);
                 continue;
             }
+            if self.weapon_classes[stage].turret.is_some() {
+                self.place_turret(i, stage, spec.charge);
+                continue;
+            }
             if self.weapon_classes[stage].ability.is_some() {
                 self.fire_ability(i, stage);
                 continue;

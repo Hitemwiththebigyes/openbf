@@ -82,7 +82,8 @@ fn load_mesh(path: &Path) -> Result<HudMesh> {
     let parts = cpu
         .submeshes
         .iter()
-        .map(|(start, count, material, layer, _)| {
+        .enumerate()
+        .map(|(k, (start, count, material, layer, _))| {
             // Re-index the part's own vertices: a weapon model is laid out
             // on the CPU every frame, so carry only what it draws.
             let mut remap: HashMap<u32, u32> = HashMap::new();
@@ -90,8 +91,13 @@ fn load_mesh(path: &Path) -> Result<HudMesh> {
             if !art && *layer == render::DrawLayer::Opaque {
                 texture.push_str(ui::hud_draw::OPAQUE_SHEET);
             }
+            let scroll = cpu.uv_scroll(k);
+            if scroll != [0.0; 2] {
+                texture.push_str(ui::hud_draw::SCROLL_SHEET);
+            }
             let mut part = HudMeshPart {
                 texture,
+                scroll,
                 ..Default::default()
             };
             for i in &cpu.indices[*start as usize..(*start + *count) as usize] {
@@ -397,11 +403,15 @@ impl HudView {
                     Some(t) => *t,
                     None => {
                         // The PS2's own pixels: the HUD's sheets have no PC tier.
-                        let (sheet, opaque) =
-                            match b.texture.strip_suffix(ui::hud_draw::OPAQUE_SHEET) {
+                        let (sheet, repeat) =
+                            match b.texture.strip_suffix(ui::hud_draw::SCROLL_SHEET) {
                                 Some(sheet) => (sheet, true),
                                 None => (b.texture.as_str(), false),
                             };
+                        let (sheet, opaque) = match sheet.strip_suffix(ui::hud_draw::OPAQUE_SHEET) {
+                            Some(sheet) => (sheet, true),
+                            None => (sheet, false),
+                        };
                         let t = self
                             .texture_dirs
                             .iter()
@@ -417,7 +427,7 @@ impl HudView {
                                         .iter_mut()
                                         .for_each(|p| p[3] = 255);
                                 }
-                                pass.add_texture(device, queue, &t.rgba, t.width, t.height)
+                                pass.add_texture(device, queue, &t.rgba, t.width, t.height, repeat)
                             });
                         if t.is_none() {
                             eprintln!("hud: no sheet {:?}; drawn untextured", b.texture);
