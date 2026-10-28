@@ -309,6 +309,11 @@ The cycle is the grenade's (fire entry `FUN_0028d5d8` 214555, update `FUN_0028d6
   stores its owner. With `MaxItems` the new item is appended.
 The BF1 mine dispenser: MinStrength 0.3, MaxStrength 0.4, Velocity not authored (10) -> 4 m/s forward, `MaxItems` 4.
 
+BF2 pack release differs from that BF1 fire-point path: class finalizer `FUN_00336e78` caches the offhand
+animation's left-hand translation at the authored release time, and `FUN_00335920` transforms the cached
+offset into the owner's frame. See `re-grenade-throw-anim.md` section 11.1 for the executable references,
+baked offset measurement, port approximation and release-pose regression [O] UNAUDITED.
+
 ### 5.2 The item base and the mine [V]
 
 - The item (B1 class `FUN_001f4408` 104222: `LifeSpan` FLT_MAX, `Rebound` 0.3, `Friction` 0.5; update

@@ -1616,7 +1616,10 @@ fn fielded_classes_hold_their_sidearm_and_grenades() {
                     };
                     let kind = game::roster::slot_kind(kdb, &h.weapon.name, h.channel);
                     assert_eq!(
-                        kind == game::roster::SlotKind::Thrown,
+                        matches!(
+                            kind,
+                            game::roster::SlotKind::Thrown | game::roster::SlotKind::Dispenser
+                        ),
                         h.weapon.thrown.is_some(),
                         "{}",
                         c.class
@@ -2122,7 +2125,7 @@ fn only_the_bulldogs_push_spares_the_living() {
 /// rewrites it), so any change to a class's kit is a diff to explain.
 #[test]
 fn every_class_kit_is_the_discs_or_explained() {
-    use game::roster::{slot_kind, SlotKind, WEAPON_DONORS};
+    use game::roster::{class_slot_kind, SlotKind, WEAPON_DONORS};
     use std::fmt::Write as _;
     let Some(dir) = classes_dir() else { return };
     let mut out = String::new();
@@ -2159,7 +2162,9 @@ fn every_class_kit_is_the_discs_or_explained() {
             for s in &slots {
                 let w = s.weapon.to_ascii_lowercase();
                 let disc = format!("{}:{} x{:?} ch{}", s.slot + 1, w, s.ammo, s.channel);
-                let kind = kdb.resolve(&w).map(|n| slot_kind(kdb, n, s.channel));
+                let kind = kdb
+                    .resolve(&w)
+                    .map(|n| class_slot_kind(kdb, c, n, s.channel));
                 let got = if r.weapon_slot == s.slot {
                     assert_eq!(r.total_clips, s.ammo.unwrap_or(0), "{game} {c} {disc}");
                     counts[0] += 1;
@@ -2183,6 +2188,10 @@ fn every_class_kit_is_the_discs_or_explained() {
                         "launched"
                     } else if h.weapon.repair.is_some() {
                         "repair"
+                    } else if h.weapon.dispenser.is_some() || h.weapon.mine.is_some() {
+                        "dispenser"
+                    } else if h.weapon.ability.is_some() {
+                        "ability"
                     } else {
                         "fired"
                     };

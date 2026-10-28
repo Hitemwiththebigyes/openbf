@@ -25,6 +25,7 @@ fn world(health: f32, ammo: u32) -> (Sim, UnitHandle) {
         .unwrap();
     s.add_item_class(ItemClass::basic("item", health, ammo));
     s.pickups.push(Pickup {
+        source: None,
         class: 0,
         pos: Vec3::new(0.0, 0.0, -5.0),
         vel: Vec3::ZERO,

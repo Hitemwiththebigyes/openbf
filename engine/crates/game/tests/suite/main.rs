@@ -21,6 +21,8 @@ mod load_scene;
 mod locate_ps2;
 mod music_ps2;
 mod nav_walls;
+mod officer_abilities;
+mod pack_dispenser;
 mod pickup_seek;
 mod resupply_feedback;
 mod roster;
@@ -51,3 +53,4 @@ mod weather_ps2;
 
 mod bug_checks;
 mod knock_camera;
+mod placed_explosives;

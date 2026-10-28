@@ -349,3 +349,59 @@ with its own parser and confirmed every reading below (`wf/results.json` N8).
 - The port (§7 "today"): every statement holds on main 2a94ed5, and every fielded throwing class has its clip baked
   (N9, rerun by the auditor: BF1 37 class / weapon rows; BF2 45 of 65 throwing classes baked, all with the pair; the
   other 20 - two heroes and 18 `_default_` bases - have no sets and are fielded on no mission).
+
+## 11. Pack dispenser correction, 2026-10-28 [O] UNAUDITED
+
+The maintainer reported that dropping a health/ammo pack plays the grenade throw. Snapshot read first:
+`dist/openbf_data/playtest/last.json`, schema 8, build and checkout `2ddaaba2e0eb`, BF1 GEO1, seed 104,
+human #0; weapon table entry 13 is `rep_weap_inf_powerup_dispenser`. The snapshot contains no animation poses,
+so the clip mismatch is established by the renderer and the executable references, rather than measured from it.
+
+BF1 dispenser fire entry `FUN_0028d5d8` computes launch strength but does not replace the normal `FireAnim + 1`
+action with a strength variant. This differs from grenade entry `FUN_0028eb30`, which chooses actions 2/3.
+BF2 dispenser instance vtable word `0x628cd8` points to fire entry `0x335478`: the instructions through
+`0x33554c` set the hidden/start bits and calculate strength, without the grenade entry `0x337678`'s
+strength-to-action selection. Both dispensers therefore retain their default fire action 1. See this note
+sections 1/2 and `re-soldier-anim-layers.md` sections 4/7 for the animator mapping: BF1 uses the grenade bank's
+plain `grenade_stand_shoot`; BF2's offhand flag keeps the primary set and uses `shoot_secondary`, not
+`shoot_secondary2`. BF1 action 1 also arms the normal shot alert; the overhand action 3 does not.
+
+The port incorrectly passed the dispenser's full launch strength to the grenade variant selector, selecting
+BF1 `shoot3` or BF2 `shoot_secondary2`. It also missed the action altogether when BF1's zero-delay dispenser
+finished firing in the same tick. The correction selects the plain action for pickup dispensers and observes
+their successful release event for that instant-release case. Grenades keep their strength-based selection.
+The regression loads all eight faction dispenser definitions and their soldier clips, standing and moving,
+and checks the exact drop clip, first-frame action, one release and return to the primary weapon. The existing
+real-grenade regression remains in place. No fresh live PCSX2 measurement was performed.
+
+### 11.1 BF2 pack release point, 2026-10-28 [O] UNAUDITED
+
+After the clip correction, the maintainer reported an early, head-height release on BF2. BF1 releases instantly
+with its different animation. The latest snapshot is still the BF1 GEO1 build `2ddaaba2e0eb` above, predating
+the clip correction `75be240`; it cannot establish the timing of the reported BF2 throw.
+
+[V] BF2 class finalizer `FUN_00336e78` (B2:316866-316970) samples the release animation at class+0x24c
+(`InitialSalvoDelay`, 0.5 s for these packs). Its offhand branch calls `FUN_00281858` with bone hash
+`0xb7ec1d31` (`bone_l_hand`) and stores the sampled translation at class+0x490. The other branch samples
+`0x2b960099` (`hp_weapons`) and applies the class+0x30 offset. The bone names reproduce with the animation
+CRC in `mungefs/src/anim.rs::crc32_lower`. A second sampled offset at +0x4a0 uses class+0x250 and a different
+action; its selection flags have not been fully resolved here.
+
+[V] Dispense `FUN_00335920` (B2:316104 onward) selects that cached offset, applies the owner's transform,
+and adds the class+0x270 offset. The soldier-class scale at +0x1220 also scales the sampled offset when it
+differs from 1. This is distinct from always spawning at the aimer's fire point. BF1 keeps the fire-point
+path described in `re-grenades.md` section 5.1.
+
+[D] Sampling the baked BF2 engineer's `human_rifle_stand_shoot_secondary_full` at frame 15 (0.5 s) gives
+left-hand translation (-0.031, 1.148, 0.721) m in model coordinates (+Z forward). The port previously spawned
+at feet + 1.425 m, with no forward offset: about 0.72 m behind this hand, and with the pack's upper edge near
+the head. `Dispenser::BF2_HAND` now supplies height 1.148 m and forward distance 0.721 m through the existing
+`Thrown.hand` representation. Like the grenade offset, it is centered laterally; the sampled 3 cm lateral
+component and per-soldier scale are not represented. Grenades and packs share `Unit::launch_origin`.
+
+[D] The regression steps the actual animator and dispenser for all four BF2 factions, standing and moving.
+At the release event the posed left hand is within 8 cm of the spawned pack's mesh bounds in every case.
+The event remains within one simulation tick of the authored 0.5 s delay. BF1's zero delay and fire-point
+origin are unchanged; a core regression also checks release origins under three soldier headings and a
+nonzero aim pitch. Logs: `engine/artifacts/lead_tmp/pack-release-pose.log` and `pack-release-alignment.log`.
+No fresh live PCSX2 measurement was performed; the maintainer's playtest of this uncommitted build is pending.

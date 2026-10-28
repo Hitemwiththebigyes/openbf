@@ -265,6 +265,7 @@ fn bugx_a_pickups_do_not_heal_or_resupply_a_corpse() {
         let lay = |w: &mut WalkSim| {
             let pos = w.sim.units[h.index as usize].soldier.pos;
             w.sim.pickups.push(core::sim::Pickup {
+                source: None,
                 class,
                 pos,
                 vel: Vec3::ZERO,

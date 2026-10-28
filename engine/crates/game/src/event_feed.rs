@@ -135,6 +135,15 @@ fn title_case(s: &str) -> String {
         .join(" ")
 }
 
+fn display_name(text: &str, bf1: bool) -> Option<String> {
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    match text.is_empty() {
+        true => None,
+        false if bf1 => Some(title_case(&text)),
+        false => Some(text),
+    }
+}
+
 impl Texts {
     /// The tables `bake locl` wrote under `assets_dir`, for a map of
     /// `source_game`. Missing tables fall back to the built-in lines.
@@ -201,17 +210,11 @@ impl Texts {
     /// as the PS2 printed it), else "Command Post" (the PS2's own fallback,
     /// §1 [V]).
     pub fn post_name(&self, key: &str) -> String {
-        let named = self
-            .map
+        self.map
             .as_ref()
             .and_then(|l| l.text(key))
-            .map(|t| t.split_whitespace().collect::<Vec<_>>().join(" "))
-            .filter(|t| !t.is_empty());
-        match named {
-            Some(n) if self.bf1_map => title_case(&n),
-            Some(n) => n,
-            None => self.line(COMMAND_POST),
-        }
+            .and_then(|t| display_name(t, self.bf1_map))
+            .unwrap_or_else(|| self.line(COMMAND_POST))
     }
 
     /// A soldier class's name as the spawn screen prints it (card SPSEL):
@@ -225,12 +228,16 @@ impl Texts {
         let (text, bf1) = [(&self.map, self.bf1_map), (&self.bf2, false)]
             .into_iter()
             .find_map(|(l, bf1)| Some((l.as_ref()?.get(hash)?, bf1)))?;
-        let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
-        match text.is_empty() {
-            true => None,
-            false if bf1 => Some(title_case(&text)),
-            false => Some(text),
-        }
+        display_name(text, bf1)
+    }
+
+    pub fn weapon_name(&self, class: &str) -> Option<String> {
+        let (side, rest) = class.split_once('_')?;
+        let (kind, rest) = rest.split_once('_')?;
+        let key = format!("weapons.{side}.{kind}.{rest}");
+        [(&self.map, self.bf1_map), (&self.bf2, false)]
+            .into_iter()
+            .find_map(|(table, bf1)| display_name(table.as_ref()?.text(&key)?, bf1))
     }
 
     /// The side's name lists, `<side>.firstnames.01` … and `.lastnames.01` …
@@ -459,17 +466,8 @@ impl EventFeed {
         self.texts.line((hash, fallback))
     }
 
-    /// A weapon class's name as the class select lists it: BF2 keys
-    /// `<side>_weap_<rest>` as `weapons.<side>.weap.<rest>` ("Blaster
-    /// Rifle"); `None` when the table has none.
     pub fn weapon_name(&self, class: &str) -> Option<String> {
-        let (side, rest) = class.split_once('_')?;
-        let (kind, rest) = rest.split_once('_')?;
-        let text = self
-            .texts
-            .bf2_text(&format!("weapons.{side}.{kind}.{rest}"))?;
-        let text = text.trim();
-        (!text.is_empty()).then(|| text.to_owned())
+        self.texts.weapon_name(class)
     }
 
     /// The two teams' names as the lines print them.

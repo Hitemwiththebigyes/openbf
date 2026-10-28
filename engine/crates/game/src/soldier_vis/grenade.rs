@@ -30,14 +30,25 @@ fn throw_variant(bf2: bool, strength: f32) -> u8 {
 impl SoldierVisuals {
     pub(super) fn note_throws(&mut self, walk: &WalkSim) {
         self.sync_units(walk);
-        for (v, u) in self.units.iter_mut().zip(&walk.sim.units) {
+        for (i, (v, u)) in self.units.iter_mut().zip(&walk.sim.units).enumerate() {
             let (wc, _, state) = u.active_weapon();
             let class = &walk.sim.weapon_classes[wc];
             let free = u.alive && u.mount.is_none();
+            let released = class.dispenses() && walk.sim.events.iter().any(|e| {
+                matches!(e,
+                    core::sim::Event::Throw { unit, weapon_class, .. }
+                    if unit.index as usize == i && unit.gen == u.gen && *weapon_class as usize == wc
+                )
+            });
             let throwing =
-                (free && class.thrown.is_some() && state.state == FireState::Firing).then_some(wc);
+                (free && class.thrown.is_some() && (state.state == FireState::Firing || released))
+                    .then_some(wc);
             if throwing.is_some() && throwing != v.throwing {
-                v.pending_throw = Some(throw_variant(self.bf2, state.charge));
+                v.pending_throw = Some(if class.dispenses() {
+                    0
+                } else {
+                    throw_variant(self.bf2, state.charge)
+                });
                 v.throw_windup = class.initial_salvo_delay;
             }
             v.throwing = throwing;

@@ -19,15 +19,15 @@ bf1 all_inf_pilot
     1:all_weap_inf_shotgun xSome(4) ch0 -> primary x4
     2:all_weap_inf_pistol xSome(0) ch0 -> fired x0
     3:all_weap_inf_fusioncutter xSome(1) ch1 -> repair x1
-    4:all_weap_inf_powerup_dispenser xSome(5) ch1 -> left out: pack dispensers (issue #46)
+    4:all_weap_inf_powerup_dispenser xSome(5) ch1 -> dispenser x5
 bf1 all_inf_smuggler
     1:all_weap_inf_bowcaster xSome(6) ch0 -> primary x6
     2:all_weap_inf_mortar_launcher xSome(3) ch0 -> launched x3
-    3:all_weap_inf_remote_charge_dispenser xSome(3) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    3:all_weap_inf_remote_charge_dispenser xSome(3) ch1 -> dispenser x3
 bf1 all_inf_smugglersnow
     1:all_weap_inf_bowcaster xSome(6) ch0 -> primary x6
     2:all_weap_inf_mortar_launcher xSome(3) ch0 -> launched x3
-    3:all_weap_inf_remote_charge_dispenser xSome(3) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    3:all_weap_inf_remote_charge_dispenser xSome(3) ch1 -> dispenser x3
 bf1 all_inf_soldier
     1:all_weap_inf_rifle xSome(6) ch0 -> primary x6
     2:all_weap_inf_pistol xSome(0) ch0 -> fired x0
@@ -57,17 +57,17 @@ bf1 all_inf_vanguard
     1:all_weap_inf_torpedo_launcher xSome(5) ch0 -> primary x5
     2:all_weap_inf_pistol xSome(4) ch0 -> fired x4
     3:all_weap_inf_thermaldetonator xSome(3) ch1 -> thrown x3
-    4:all_weap_inf_mine_dispenser xSome(4) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    4:all_weap_inf_mine_dispenser xSome(4) ch1 -> dispenser x4
 bf1 all_inf_vanguardjungle
     1:all_weap_inf_torpedo_launcher xSome(5) ch0 -> primary x5
     2:all_weap_inf_pistol xSome(4) ch0 -> fired x4
     3:all_weap_inf_thermaldetonator xSome(3) ch1 -> thrown x3
-    4:all_weap_inf_mine_dispenser xSome(4) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    4:all_weap_inf_mine_dispenser xSome(4) ch1 -> dispenser x4
 bf1 all_inf_vanguardsnow
     1:all_weap_inf_torpedo_launcher xSome(5) ch0 -> primary x5
     2:all_weap_inf_pistol xSome(4) ch0 -> fired x4
     3:all_weap_inf_thermaldetonator xSome(3) ch1 -> thrown x3
-    4:all_weap_inf_mine_dispenser xSome(4) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    4:all_weap_inf_mine_dispenser xSome(4) ch1 -> dispenser x4
 bf1 cis_inf_assassindroid
     1:cis_weap_inf_sniperrifle xSome(10) ch0 -> primary x10
     2:cis_weap_inf_pistol xSome(0) ch0 -> fired x0
@@ -77,7 +77,7 @@ bf1 cis_inf_assault
     1:cis_weap_inf_torpedo_launcher xSome(7) ch0 -> primary x7
     2:cis_weap_inf_pistol xSome(0) ch0 -> fired x0
     3:cis_weap_inf_thermaldetonator xSome(3) ch1 -> thrown x3
-    4:cis_weap_inf_mine_dispenser xSome(4) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    4:cis_weap_inf_mine_dispenser xSome(4) ch1 -> dispenser x4
 bf1 cis_inf_battledroid: takes BF2 cis_inf_rifleman's weapons (WEAPON_DONORS)
     1:cis_weap_inf_wrist_blaster xSome(5) ch0 -> primary x5
     2:cis_weap_inf_wrist_trishot xSome(0) ch0 -> fired x0
@@ -87,7 +87,7 @@ bf1 cis_inf_battledroid_av
     1:cis_weap_inf_torpedo_launcher xSome(7) ch0 -> primary x7
     2:cis_weap_inf_pistol xSome(0) ch0 -> fired x0
     3:cis_weap_inf_thermaldetonator xSome(3) ch1 -> thrown x3
-    4:cis_weap_inf_mine_dispenser xSome(4) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    4:cis_weap_inf_mine_dispenser xSome(4) ch1 -> dispenser x4
 bf1 cis_inf_battledroid_inf
     1:cis_weap_inf_rifle xSome(5) ch0 -> primary x5
     2:cis_weap_inf_pistol xSome(0) ch0 -> fired x0
@@ -97,7 +97,7 @@ bf1 cis_inf_battledroid_pilot
     1:cis_weap_inf_mortar_launcher xSome(3) ch0 -> primary x3
     2:cis_weap_inf_pistol xSome(0) ch0 -> fired x0
     3:cis_weap_inf_fusioncutter xSome(1) ch1 -> repair x1
-    4:cis_weap_inf_powerup_dispenser xSome(5) ch1 -> left out: pack dispensers (issue #46)
+    4:cis_weap_inf_powerup_dispenser xSome(5) ch1 -> dispenser x5
 bf1 cis_inf_battledroid_sniper
     1:cis_weap_inf_sniperrifle xSome(10) ch0 -> primary x10
     2:cis_weap_inf_pistol xSome(0) ch0 -> fired x0
@@ -108,7 +108,7 @@ bf1 cis_inf_pilotdroid
     1:cis_weap_inf_mortar_launcher xSome(3) ch0 -> primary x3
     2:cis_weap_inf_pistol xSome(0) ch0 -> fired x0
     3:cis_weap_inf_fusioncutter xSome(1) ch1 -> repair x1
-    4:cis_weap_inf_powerup_dispenser xSome(5) ch1 -> left out: pack dispensers (issue #46)
+    4:cis_weap_inf_powerup_dispenser xSome(5) ch1 -> dispenser x5
 bf1 imp_inf_dark_trooper
     1:imp_weap_inf_shotgun xSome(7) ch0 -> primary x7
     2:imp_weap_inf_pistol xSome(0) ch0 -> fired x0
@@ -122,17 +122,17 @@ bf1 imp_inf_pilotatat
     1:imp_weap_inf_mortar_launcher xSome(3) ch0 -> primary x3
     2:imp_weap_inf_pistol xSome(0) ch0 -> fired x0
     3:imp_weap_inf_fusioncutter xSome(1) ch1 -> repair x1
-    4:imp_weap_inf_powerup_dispenser xSome(5) ch1 -> left out: pack dispensers (issue #46)
+    4:imp_weap_inf_powerup_dispenser xSome(5) ch1 -> dispenser x5
 bf1 imp_inf_pilotatst
     1:imp_weap_inf_mortar_launcher xSome(3) ch0 -> primary x3
     2:imp_weap_inf_pistol xSome(0) ch0 -> fired x0
     3:imp_weap_inf_fusioncutter xSome(1) ch1 -> repair x1
-    4:imp_weap_inf_powerup_dispenser xSome(5) ch1 -> left out: pack dispensers (issue #46)
+    4:imp_weap_inf_powerup_dispenser xSome(5) ch1 -> dispenser x5
 bf1 imp_inf_pilottie
     1:imp_weap_inf_mortar_launcher xSome(3) ch0 -> primary x3
     2:imp_weap_inf_pistol xSome(0) ch0 -> fired x0
     3:imp_weap_inf_fusioncutter xSome(1) ch1 -> repair x1
-    4:imp_weap_inf_powerup_dispenser xSome(5) ch1 -> left out: pack dispensers (issue #46)
+    4:imp_weap_inf_powerup_dispenser xSome(5) ch1 -> dispenser x5
 bf1 imp_inf_scout_trooper
     1:imp_weap_inf_sniperrifle xSome(7) ch0 -> primary x7
     2:imp_weap_inf_pistol xSome(0) ch0 -> fired x0
@@ -147,12 +147,12 @@ bf1 imp_inf_shock_trooper
     1:imp_weap_inf_torpedo_launcher xSome(7) ch0 -> primary x7
     2:imp_weap_inf_pistol xSome(0) ch0 -> fired x0
     3:imp_weap_inf_thermaldetonator xSome(3) ch1 -> thrown x3
-    4:imp_weap_inf_mine_dispenser xSome(4) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    4:imp_weap_inf_mine_dispenser xSome(4) ch1 -> dispenser x4
 bf1 imp_inf_shock_troopersnow
     1:imp_weap_inf_torpedo_launcher xSome(7) ch0 -> primary x7
     2:imp_weap_inf_pistol xSome(0) ch0 -> fired x0
     3:imp_weap_inf_thermaldetonator xSome(3) ch1 -> thrown x3
-    4:imp_weap_inf_mine_dispenser xSome(4) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    4:imp_weap_inf_mine_dispenser xSome(4) ch1 -> dispenser x4
 bf1 imp_inf_storm_trooper
     1:imp_weap_inf_rifle xSome(5) ch0 -> primary x5
     2:imp_weap_inf_pistol xSome(0) ch0 -> fired x0
@@ -167,12 +167,12 @@ bf1 rep_inf_arc_trooper
     1:rep_weap_inf_torpedo_launcher xSome(4) ch0 -> primary x4
     2:rep_weap_inf_pistol xSome(0) ch0 -> fired x0
     3:rep_weap_inf_thermaldetonator xSome(3) ch1 -> thrown x3
-    4:rep_weap_inf_mine_dispenser xSome(4) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    4:rep_weap_inf_mine_dispenser xSome(4) ch1 -> dispenser x4
 bf1 rep_inf_clone_pilot
     1:rep_weap_inf_arccaster xSome(0) ch0 -> primary x0
     2:rep_weap_inf_pistol xSome(0) ch0 -> fired x0
     3:rep_weap_inf_fusioncutter xSome(1) ch1 -> repair x1
-    4:rep_weap_inf_powerup_dispenser xSome(5) ch1 -> left out: pack dispensers (issue #46)
+    4:rep_weap_inf_powerup_dispenser xSome(5) ch1 -> dispenser x5
 bf1 rep_inf_clone_sharpshooter
     1:rep_weap_inf_sniperrifle xSome(7) ch0 -> primary x7
     2:rep_weap_inf_pistol xSome(0) ch0 -> fired x0
@@ -191,22 +191,22 @@ bf1 rep_inf_macewindu: NOT FIELDED (rep_weap_lightsaber: no OrdnanceName)
 bf2 all_hero_chewbacca
     1:all_weap_inf_bowcaster xSome(6) ch0 -> primary x6
     2:all_weap_hero_rocket_launcher xSome(4) ch0 -> left out: remote droids (issue #44)
-    3:all_weap_inf_timebomb xSome(3) ch1 -> left out: mines, time bombs, detpacks (issue #43)
-    4:all_weap_inf_buff_damage xSome(1) ch1 -> left out: officer and hero abilities (issue #47)
+    3:all_weap_inf_timebomb xSome(3) ch1 -> dispenser x3
+    4:all_weap_inf_buff_damage xSome(1) ch1 -> left out: hero abilities (the hero work)
 bf2 all_hero_hansolo_storm
     1:all_weap_hero_hanpistol xSome(4) ch0 -> primary x4
     2:all_weap_inf_fusioncutter xSome(0) ch0 -> repair x0
-    3:all_weap_inf_buff_defense xSome(3) ch1 -> left out: officer and hero abilities (issue #47)
+    3:all_weap_inf_buff_defense xSome(3) ch1 -> left out: hero abilities (the hero work)
     4:all_weap_inf_fusioncutter xSome(0) ch1 -> repair x0
 bf2 all_hero_hansolo_tat
     1:all_weap_hero_hanpistol xSome(4) ch0 -> primary x4
     2:all_weap_inf_fusioncutter xSome(1) ch0 -> repair x1
-    3:all_weap_inf_detpack xSome(5) ch1 -> left out: mines, time bombs, detpacks (issue #43)
-    4:all_weap_inf_buff_defense xSome(1) ch1 -> left out: officer and hero abilities (issue #47)
+    3:all_weap_inf_detpack xSome(5) ch1 -> dispenser x5
+    4:all_weap_inf_buff_defense xSome(1) ch1 -> left out: hero abilities (the hero work)
 bf2 all_hero_leia
     1:all_weap_hero_targetpistol xSome(0) ch0 -> primary x0
     2:all_weap_inf_thermaldetonator xSome(3) ch1 -> thrown x3
-    3:all_weap_inf_buff_invuln xSome(1) ch1 -> left out: officer and hero abilities (issue #47)
+    3:all_weap_inf_buff_invuln xSome(1) ch1 -> left out: hero abilities (the hero work)
 bf2 all_hero_luke_jedi: NOT FIELDED (all_weap_lightsaber: no OrdnanceName)
 bf2 all_hero_luke_pilot: NOT FIELDED (all_weap_lightsaber_blue: no OrdnanceName)
 bf2 all_hero_luke_storm
@@ -217,8 +217,8 @@ bf2 all_inf_default: NOT FIELDED (all_inf_default: no WeaponName)
 bf2 all_inf_default_engineer
     1:all_weap_inf_shotgun xSome(6) ch0 -> primary x6
     2:all_weap_inf_fusioncutter xSome(0) ch0 -> repair x0
-    3:all_weap_inf_detpack xSome(3) ch1 -> left out: mines, time bombs, detpacks (issue #43)
-    4:all_weap_inf_powerup_dispenser xSome(5) ch1 -> left out: pack dispensers (issue #46)
+    3:all_weap_inf_detpack xSome(3) ch1 -> dispenser x3
+    4:all_weap_inf_powerup_dispenser xSome(5) ch1 -> dispenser x5
     5:all_weap_award_shotgun xSome(4) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 all_inf_default_marine
     1:all_weap_inf_rifle xSome(4) ch0 -> primary x4
@@ -228,12 +228,12 @@ bf2 all_inf_default_marine
 bf2 all_inf_default_officer
     1:all_weap_inf_incinerator xSome(10) ch0 -> primary x10
     2:all_weap_inf_invisibility xSome(0) ch0 -> left out: the cloak (issue #48)
-    3:all_weap_inf_buff_health xSome(1) ch1 -> left out: officer and hero abilities (issue #47)
-    4:all_weap_inf_timebomb xSome(3) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    3:all_weap_inf_buff_health xSome(1) ch1 -> ability x1
+    4:all_weap_inf_timebomb xSome(3) ch1 -> dispenser x3
 bf2 all_inf_default_pilot
     1:all_weap_inf_commando_pistol xSome(4) ch0 -> primary x4
     2:all_weap_inf_fusioncutter xNone ch0 -> repair x0
-    3:all_weap_inf_timebomb xSome(3) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    3:all_weap_inf_timebomb xSome(3) ch1 -> dispenser x3
     4:all_weap_award_pistol xSome(4) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 all_inf_default_rifleman
     1:all_weap_inf_rifle xSome(6) ch0 -> primary x6
@@ -245,7 +245,7 @@ bf2 all_inf_default_rocketeer
     1:all_weap_inf_rocket_launcher xSome(7) ch0 -> primary x7
     2:all_weap_inf_pistol xSome(4) ch0 -> fired x4
     3:all_weap_inf_thermaldetonator xSome(2) ch1 -> thrown x2
-    4:all_weap_inf_mine_dispenser xSome(4) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    4:all_weap_inf_mine_dispenser xSome(4) ch1 -> dispenser x4
     5:all_weap_award_pistol xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
     6:all_weap_award_rocket_launcher xSome(5) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 all_inf_default_sniper
@@ -263,26 +263,26 @@ bf2 all_inf_default_wookiee
 bf2 all_inf_engineer
     1:all_weap_inf_shotgun xSome(6) ch0 -> primary x6
     2:all_weap_inf_fusioncutter xSome(0) ch0 -> repair x0
-    3:all_weap_inf_detpack xSome(3) ch1 -> left out: mines, time bombs, detpacks (issue #43)
-    4:all_weap_inf_powerup_dispenser xSome(5) ch1 -> left out: pack dispensers (issue #46)
+    3:all_weap_inf_detpack xSome(3) ch1 -> dispenser x3
+    4:all_weap_inf_powerup_dispenser xSome(5) ch1 -> dispenser x5
     5:all_weap_award_shotgun xSome(4) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 all_inf_engineer_fleet
     1:all_weap_inf_shotgun xSome(6) ch0 -> primary x6
     2:all_weap_inf_fusioncutter xSome(0) ch0 -> repair x0
-    3:all_weap_inf_detpack xSome(3) ch1 -> left out: mines, time bombs, detpacks (issue #43)
-    4:all_weap_inf_powerup_dispenser xSome(5) ch1 -> left out: pack dispensers (issue #46)
+    3:all_weap_inf_detpack xSome(3) ch1 -> dispenser x3
+    4:all_weap_inf_powerup_dispenser xSome(5) ch1 -> dispenser x5
     5:all_weap_award_shotgun xSome(4) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 all_inf_engineer_jungle
     1:all_weap_inf_shotgun xSome(6) ch0 -> primary x6
     2:all_weap_inf_fusioncutter xSome(0) ch0 -> repair x0
-    3:all_weap_inf_detpack xSome(3) ch1 -> left out: mines, time bombs, detpacks (issue #43)
-    4:all_weap_inf_powerup_dispenser xSome(5) ch1 -> left out: pack dispensers (issue #46)
+    3:all_weap_inf_detpack xSome(3) ch1 -> dispenser x3
+    4:all_weap_inf_powerup_dispenser xSome(5) ch1 -> dispenser x5
     5:all_weap_award_shotgun xSome(4) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 all_inf_engineer_snow
     1:all_weap_inf_shotgun xSome(6) ch0 -> primary x6
     2:all_weap_inf_fusioncutter xSome(0) ch0 -> repair x0
-    3:all_weap_inf_detpack xSome(3) ch1 -> left out: mines, time bombs, detpacks (issue #43)
-    4:all_weap_inf_powerup_dispenser xSome(5) ch1 -> left out: pack dispensers (issue #46)
+    3:all_weap_inf_detpack xSome(3) ch1 -> dispenser x3
+    4:all_weap_inf_powerup_dispenser xSome(5) ch1 -> dispenser x5
     5:all_weap_award_shotgun xSome(4) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 all_inf_marine
     1:all_weap_inf_rifle xSome(4) ch0 -> primary x4
@@ -292,22 +292,22 @@ bf2 all_inf_marine
 bf2 all_inf_officer
     1:all_weap_inf_incinerator xSome(10) ch0 -> primary x10
     2:all_weap_inf_invisibility xSome(0) ch0 -> left out: the cloak (issue #48)
-    3:all_weap_inf_buff_health xSome(1) ch1 -> left out: officer and hero abilities (issue #47)
-    4:all_weap_inf_timebomb xSome(3) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    3:all_weap_inf_buff_health xSome(1) ch1 -> ability x1
+    4:all_weap_inf_timebomb xSome(3) ch1 -> dispenser x3
 bf2 all_inf_officer_jungle
     1:all_weap_inf_incinerator xSome(10) ch0 -> primary x10
     2:all_weap_inf_invisibility xSome(0) ch0 -> left out: the cloak (issue #48)
-    3:all_weap_inf_buff_health xSome(1) ch1 -> left out: officer and hero abilities (issue #47)
-    4:all_weap_inf_timebomb xSome(3) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    3:all_weap_inf_buff_health xSome(1) ch1 -> ability x1
+    4:all_weap_inf_timebomb xSome(3) ch1 -> dispenser x3
 bf2 all_inf_officer_snow
     1:all_weap_inf_incinerator xSome(10) ch0 -> primary x10
     2:all_weap_inf_invisibility xSome(0) ch0 -> left out: the cloak (issue #48)
-    3:all_weap_inf_buff_health xSome(1) ch1 -> left out: officer and hero abilities (issue #47)
-    4:all_weap_inf_timebomb xSome(3) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    3:all_weap_inf_buff_health xSome(1) ch1 -> ability x1
+    4:all_weap_inf_timebomb xSome(3) ch1 -> dispenser x3
 bf2 all_inf_pilot
     1:all_weap_inf_commando_pistol xSome(4) ch0 -> primary x4
     2:all_weap_inf_fusioncutter xNone ch0 -> repair x0
-    3:all_weap_inf_timebomb xSome(3) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    3:all_weap_inf_timebomb xSome(3) ch1 -> dispenser x3
     4:all_weap_award_pistol xSome(4) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 all_inf_rifleman
     1:all_weap_inf_rifle xSome(6) ch0 -> primary x6
@@ -349,28 +349,28 @@ bf2 all_inf_rocketeer
     1:all_weap_inf_rocket_launcher xSome(7) ch0 -> primary x7
     2:all_weap_inf_pistol xSome(4) ch0 -> fired x4
     3:all_weap_inf_thermaldetonator xSome(2) ch1 -> thrown x2
-    4:all_weap_inf_mine_dispenser xSome(4) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    4:all_weap_inf_mine_dispenser xSome(4) ch1 -> dispenser x4
     5:all_weap_award_pistol xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
     6:all_weap_award_rocket_launcher xSome(5) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 all_inf_rocketeer_fleet
     1:all_weap_inf_rocket_launcher xSome(7) ch0 -> primary x7
     2:all_weap_inf_pistol xSome(4) ch0 -> fired x4
     3:all_weap_inf_thermaldetonator xSome(2) ch1 -> thrown x2
-    4:all_weap_inf_mine_dispenser xSome(4) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    4:all_weap_inf_mine_dispenser xSome(4) ch1 -> dispenser x4
     5:all_weap_award_pistol xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
     6:all_weap_award_rocket_launcher xSome(5) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 all_inf_rocketeer_jungle
     1:all_weap_inf_rocket_launcher xSome(7) ch0 -> primary x7
     2:all_weap_inf_pistol xSome(4) ch0 -> fired x4
     3:all_weap_inf_thermaldetonator xSome(2) ch1 -> thrown x2
-    4:all_weap_inf_mine_dispenser xSome(4) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    4:all_weap_inf_mine_dispenser xSome(4) ch1 -> dispenser x4
     5:all_weap_award_pistol xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
     6:all_weap_award_rocket_launcher xSome(5) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 all_inf_rocketeer_snow
     1:all_weap_inf_rocket_launcher xSome(7) ch0 -> primary x7
     2:all_weap_inf_pistol xSome(4) ch0 -> fired x4
     3:all_weap_inf_thermaldetonator xSome(2) ch1 -> thrown x2
-    4:all_weap_inf_mine_dispenser xSome(4) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    4:all_weap_inf_mine_dispenser xSome(4) ch1 -> dispenser x4
     5:all_weap_award_pistol xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
     6:all_weap_award_rocket_launcher xSome(5) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 all_inf_sniper
@@ -418,13 +418,13 @@ bf2 cis_hero_jangofett
     1:cis_weap_hero_jangopistol xSome(8) ch0 -> primary x8
     2:cis_weap_hero_flamethrower xSome(3) ch0 -> fired x3
     3:cis_weap_inf_wrist_rocket_fett xSome(6) ch1 -> fired x6
-    4:cis_weap_inf_timebomb xSome(3) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    4:cis_weap_inf_timebomb xSome(3) ch1 -> dispenser x3
 bf2 cis_inf_default: NOT FIELDED (cis_inf_default: no WeaponName)
 bf2 cis_inf_default_engineer
     1:cis_weap_inf_shotgun xSome(8) ch0 -> primary x8
     2:cis_weap_inf_fusioncutter xSome(0) ch0 -> repair x0
-    3:cis_weap_inf_detpack xSome(3) ch1 -> left out: mines, time bombs, detpacks (issue #43)
-    4:cis_weap_inf_powerup_dispenser xSome(5) ch1 -> left out: pack dispensers (issue #46)
+    3:cis_weap_inf_detpack xSome(3) ch1 -> dispenser x3
+    4:cis_weap_inf_powerup_dispenser xSome(5) ch1 -> dispenser x5
     5:cis_weap_award_shotgun xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 cis_inf_default_marine
     1:cis_weap_inf_rifle xSome(4) ch0 -> primary x4
@@ -434,12 +434,12 @@ bf2 cis_inf_default_marine
 bf2 cis_inf_default_officer
     1:cis_weap_inf_bulldog xSome(5) ch0 -> primary x5
     2:cis_weap_inf_mortar_launcher xSome(3) ch0 -> fired x3
-    3:cis_weap_inf_debuff_poison xSome(1) ch1 -> left out: officer and hero abilities (issue #47)
+    3:cis_weap_inf_debuff_poison xSome(1) ch1 -> ability x1
     4:cis_weap_inf_remotedroid xSome(1) ch1 -> left out: remote droids (issue #44)
 bf2 cis_inf_default_pilot
     1:cis_weap_inf_commando_pistol xSome(0) ch0 -> primary x0
     2:cis_weap_inf_fusioncutter xSome(1) ch0 -> repair x1
-    3:cis_weap_inf_timebomb xSome(3) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    3:cis_weap_inf_timebomb xSome(3) ch1 -> dispenser x3
     4:cis_weap_award_pistol xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 cis_inf_default_rifleman
     1:cis_weap_inf_wrist_blaster xSome(5) ch0 -> primary x5
@@ -450,7 +450,7 @@ bf2 cis_inf_default_rocketeer
     1:cis_weap_inf_rocket_launcher xSome(7) ch0 -> primary x7
     2:cis_weap_inf_pistol xSome(0) ch0 -> fired x0
     3:cis_weap_inf_thermaldetonator xSome(2) ch1 -> thrown x2
-    4:cis_weap_inf_mine_dispenser xSome(4) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    4:cis_weap_inf_mine_dispenser xSome(4) ch1 -> dispenser x4
     5:cis_weap_award_pistol xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
     6:cis_weap_award_rocket_launcher xSome(4) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 cis_inf_default_sniper
@@ -463,8 +463,8 @@ bf2 cis_inf_default_sniper
 bf2 cis_inf_engineer
     1:cis_weap_inf_shotgun xSome(8) ch0 -> primary x8
     2:cis_weap_inf_fusioncutter xSome(0) ch0 -> repair x0
-    3:cis_weap_inf_detpack xSome(3) ch1 -> left out: mines, time bombs, detpacks (issue #43)
-    4:cis_weap_inf_powerup_dispenser xSome(5) ch1 -> left out: pack dispensers (issue #46)
+    3:cis_weap_inf_detpack xSome(3) ch1 -> dispenser x3
+    4:cis_weap_inf_powerup_dispenser xSome(5) ch1 -> dispenser x5
     5:cis_weap_award_shotgun xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 cis_inf_marine
     1:cis_weap_inf_rifle xSome(4) ch0 -> primary x4
@@ -474,17 +474,17 @@ bf2 cis_inf_marine
 bf2 cis_inf_officer
     1:cis_weap_inf_bulldog xSome(5) ch0 -> primary x5
     2:cis_weap_inf_mortar_launcher xSome(3) ch0 -> fired x3
-    3:cis_weap_inf_debuff_poison xSome(1) ch1 -> left out: officer and hero abilities (issue #47)
+    3:cis_weap_inf_debuff_poison xSome(1) ch1 -> ability x1
     4:cis_weap_inf_remotedroid xSome(1) ch1 -> left out: remote droids (issue #44)
 bf2 cis_inf_officer_hunt
     1:cis_weap_inf_bulldog xSome(5) ch0 -> primary x5
     2:cis_weap_inf_mortar_launcher xSome(3) ch0 -> fired x3
-    3:cis_weap_inf_debuff_poison xSome(1) ch1 -> left out: officer and hero abilities (issue #47)
+    3:cis_weap_inf_debuff_poison xSome(1) ch1 -> ability x1
     4:cis_weap_inf_remotedroid xSome(1) ch1 -> left out: remote droids (issue #44)
 bf2 cis_inf_pilot
     1:cis_weap_inf_commando_pistol xSome(0) ch0 -> primary x0
     2:cis_weap_inf_fusioncutter xSome(1) ch0 -> repair x1
-    3:cis_weap_inf_timebomb xSome(3) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    3:cis_weap_inf_timebomb xSome(3) ch1 -> dispenser x3
     4:cis_weap_award_pistol xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 cis_inf_rifleman
     1:cis_weap_inf_wrist_blaster xSome(5) ch0 -> primary x5
@@ -495,7 +495,7 @@ bf2 cis_inf_rocketeer
     1:cis_weap_inf_rocket_launcher xSome(7) ch0 -> primary x7
     2:cis_weap_inf_pistol xSome(0) ch0 -> fired x0
     3:cis_weap_inf_thermaldetonator xSome(2) ch1 -> thrown x2
-    4:cis_weap_inf_mine_dispenser xSome(4) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    4:cis_weap_inf_mine_dispenser xSome(4) ch1 -> dispenser x4
     5:cis_weap_award_pistol xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
     6:cis_weap_award_rocket_launcher xSome(4) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 cis_inf_sniper
@@ -512,7 +512,7 @@ bf2 imp_hero_bobafett
     1:imp_weap_hero_bobarifle xSome(4) ch0 -> primary x4
     2:imp_weap_hero_flamethrower xSome(3) ch0 -> fired x3
     3:imp_weap_inf_wrist_rocket xSome(5) ch1 -> fired x5
-    4:imp_weap_inf_detpack xSome(4) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    4:imp_weap_inf_detpack xSome(4) ch1 -> dispenser x4
 bf2 imp_hero_darthvader: NOT FIELDED (imp_weap_lightsaber: no OrdnanceName)
 bf2 imp_hero_emperor: NOT FIELDED (imp_weap_sidioussaber: no OrdnanceName)
 bf2 imp_inf_dark_trooper
@@ -534,8 +534,8 @@ bf2 imp_inf_default_dark_trooper
 bf2 imp_inf_default_engineer
     1:imp_weap_inf_shotgun xSome(8) ch0 -> primary x8
     2:imp_weap_inf_fusioncutter xSome(0) ch0 -> repair x0
-    3:imp_weap_inf_detpack xSome(3) ch1 -> left out: mines, time bombs, detpacks (issue #43)
-    4:imp_weap_inf_powerup_dispenser xSome(5) ch1 -> left out: pack dispensers (issue #46)
+    3:imp_weap_inf_detpack xSome(3) ch1 -> dispenser x3
+    4:imp_weap_inf_powerup_dispenser xSome(5) ch1 -> dispenser x5
     5:imp_weap_award_shotgun xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 imp_inf_default_marine
     1:imp_weap_inf_rifle xSome(4) ch0 -> primary x4
@@ -545,12 +545,12 @@ bf2 imp_inf_default_marine
 bf2 imp_inf_default_officer
     1:imp_weap_inf_sonic_blaster xSome(5) ch0 -> primary x5
     2:imp_weap_inf_mortar_launcher xSome(5) ch0 -> fired x5
-    3:imp_weap_inf_buff_damage xSome(1) ch1 -> left out: officer and hero abilities (issue #47)
+    3:imp_weap_inf_buff_damage xSome(1) ch1 -> ability x1
     4:imp_weap_inf_remotedroid xSome(1) ch1 -> left out: remote droids (issue #44)
 bf2 imp_inf_default_pilot
     1:imp_weap_inf_commando_pistol xSome(3) ch0 -> primary x3
     2:imp_weap_inf_fusioncutter xSome(0) ch0 -> repair x0
-    3:imp_weap_inf_timebomb xSome(3) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    3:imp_weap_inf_timebomb xSome(3) ch1 -> dispenser x3
     4:imp_weap_award_pistol xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 imp_inf_default_rifleman
     1:imp_weap_inf_rifle xSome(5) ch0 -> primary x5
@@ -562,7 +562,7 @@ bf2 imp_inf_default_rocketeer
     1:imp_weap_inf_rocket_launcher xSome(7) ch0 -> primary x7
     2:imp_weap_inf_pistol xSome(0) ch0 -> fired x0
     3:imp_weap_inf_thermaldetonator xSome(2) ch1 -> thrown x2
-    4:imp_weap_inf_mine_dispenser xSome(4) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    4:imp_weap_inf_mine_dispenser xSome(4) ch1 -> dispenser x4
     5:imp_weap_award_pistol xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
     6:imp_weap_award_rocket_launcher xSome(4) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 imp_inf_default_sniper
@@ -575,14 +575,14 @@ bf2 imp_inf_default_sniper
 bf2 imp_inf_engineer
     1:imp_weap_inf_shotgun xSome(8) ch0 -> primary x8
     2:imp_weap_inf_fusioncutter xSome(0) ch0 -> repair x0
-    3:imp_weap_inf_detpack xSome(3) ch1 -> left out: mines, time bombs, detpacks (issue #43)
-    4:imp_weap_inf_powerup_dispenser xSome(5) ch1 -> left out: pack dispensers (issue #46)
+    3:imp_weap_inf_detpack xSome(3) ch1 -> dispenser x3
+    4:imp_weap_inf_powerup_dispenser xSome(5) ch1 -> dispenser x5
     5:imp_weap_award_shotgun xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 imp_inf_engineer_snow
     1:imp_weap_inf_shotgun xSome(8) ch0 -> primary x8
     2:imp_weap_inf_fusioncutter xSome(0) ch0 -> repair x0
-    3:imp_weap_inf_detpack xSome(3) ch1 -> left out: mines, time bombs, detpacks (issue #43)
-    4:imp_weap_inf_powerup_dispenser xSome(5) ch1 -> left out: pack dispensers (issue #46)
+    3:imp_weap_inf_detpack xSome(3) ch1 -> dispenser x3
+    4:imp_weap_inf_powerup_dispenser xSome(5) ch1 -> dispenser x5
     5:imp_weap_award_shotgun xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 imp_inf_marine
     1:imp_weap_inf_rifle xSome(4) ch0 -> primary x4
@@ -592,27 +592,27 @@ bf2 imp_inf_marine
 bf2 imp_inf_officer
     1:imp_weap_inf_sonic_blaster xSome(5) ch0 -> primary x5
     2:imp_weap_inf_mortar_launcher xSome(5) ch0 -> fired x5
-    3:imp_weap_inf_buff_damage xSome(1) ch1 -> left out: officer and hero abilities (issue #47)
+    3:imp_weap_inf_buff_damage xSome(1) ch1 -> ability x1
     4:imp_weap_inf_remotedroid xSome(1) ch1 -> left out: remote droids (issue #44)
 bf2 imp_inf_officer_gray
     1:imp_weap_inf_sonic_blaster xSome(5) ch0 -> primary x5
     2:imp_weap_inf_mortar_launcher xSome(5) ch0 -> fired x5
-    3:imp_weap_inf_buff_damage xSome(1) ch1 -> left out: officer and hero abilities (issue #47)
+    3:imp_weap_inf_buff_damage xSome(1) ch1 -> ability x1
     4:imp_weap_inf_remotedroid xSome(1) ch1 -> left out: remote droids (issue #44)
 bf2 imp_inf_officer_hunt
     1:imp_weap_inf_sonic_blaster xSome(5) ch0 -> primary x5
     2:imp_weap_inf_mortar_launcher xSome(5) ch0 -> fired x5
-    3:imp_weap_inf_buff_damage xSome(1) ch1 -> left out: officer and hero abilities (issue #47)
+    3:imp_weap_inf_buff_damage xSome(1) ch1 -> ability x1
     4:imp_weap_inf_remotedroid xSome(1) ch1 -> left out: remote droids (issue #44)
 bf2 imp_inf_officer_snow
     1:imp_weap_inf_sonic_blaster xSome(5) ch0 -> primary x5
     2:imp_weap_inf_mortar_launcher xSome(5) ch0 -> fired x5
-    3:imp_weap_inf_buff_damage xSome(1) ch1 -> left out: officer and hero abilities (issue #47)
+    3:imp_weap_inf_buff_damage xSome(1) ch1 -> ability x1
     4:imp_weap_inf_remotedroid xSome(1) ch1 -> left out: remote droids (issue #44)
 bf2 imp_inf_pilot
     1:imp_weap_inf_commando_pistol xSome(3) ch0 -> primary x3
     2:imp_weap_inf_fusioncutter xSome(0) ch0 -> repair x0
-    3:imp_weap_inf_timebomb xSome(3) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    3:imp_weap_inf_timebomb xSome(3) ch1 -> dispenser x3
     4:imp_weap_award_pistol xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 imp_inf_rifleman
     1:imp_weap_inf_rifle xSome(5) ch0 -> primary x5
@@ -636,14 +636,14 @@ bf2 imp_inf_rocketeer
     1:imp_weap_inf_rocket_launcher xSome(7) ch0 -> primary x7
     2:imp_weap_inf_pistol xSome(0) ch0 -> fired x0
     3:imp_weap_inf_thermaldetonator xSome(2) ch1 -> thrown x2
-    4:imp_weap_inf_mine_dispenser xSome(4) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    4:imp_weap_inf_mine_dispenser xSome(4) ch1 -> dispenser x4
     5:imp_weap_award_pistol xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
     6:imp_weap_award_rocket_launcher xSome(4) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 imp_inf_rocketeer_snow
     1:imp_weap_inf_rocket_launcher xSome(7) ch0 -> primary x7
     2:imp_weap_inf_pistol xSome(0) ch0 -> fired x0
     3:imp_weap_inf_thermaldetonator xSome(2) ch1 -> thrown x2
-    4:imp_weap_inf_mine_dispenser xSome(4) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    4:imp_weap_inf_mine_dispenser xSome(4) ch1 -> dispenser x4
     5:imp_weap_award_pistol xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
     6:imp_weap_award_rocket_launcher xSome(4) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 imp_inf_sniper
@@ -672,8 +672,8 @@ bf2 rep_inf_default: NOT FIELDED (rep_inf_default: no WeaponName)
 bf2 rep_inf_default_engineer
     1:rep_weap_inf_shotgun xSome(8) ch0 -> primary x8
     2:rep_weap_inf_fusioncutter xSome(0) ch0 -> repair x0
-    3:rep_weap_inf_detpack xSome(3) ch1 -> left out: mines, time bombs, detpacks (issue #43)
-    4:rep_weap_inf_powerup_dispenser xSome(5) ch1 -> left out: pack dispensers (issue #46)
+    3:rep_weap_inf_detpack xSome(3) ch1 -> dispenser x3
+    4:rep_weap_inf_powerup_dispenser xSome(5) ch1 -> dispenser x5
     5:rep_weap_award_shotgun xSome(8) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 rep_inf_default_jettrooper
     1:rep_weap_inf_emp_launcher xSome(4) ch0 -> primary x4
@@ -688,13 +688,13 @@ bf2 rep_inf_default_marine
 bf2 rep_inf_default_officer
     1:rep_weap_inf_chaingun xSome(0) ch0 -> primary x0
     2:rep_weap_inf_pistol xSome(0) ch0 -> fired x0
-    3:rep_weap_inf_buff_defense xSome(1) ch1 -> left out: officer and hero abilities (issue #47)
+    3:rep_weap_inf_buff_defense xSome(1) ch1 -> ability x1
     4:rep_weap_inf_remotedroid xSome(1) ch1 -> left out: remote droids (issue #44)
     5:rep_weap_award_pistol xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 rep_inf_default_pilot
     1:rep_weap_inf_commando_pistol xSome(0) ch0 -> primary x0
     2:rep_weap_inf_fusioncutter xSome(1) ch0 -> repair x1
-    3:rep_weap_inf_timebomb xSome(3) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    3:rep_weap_inf_timebomb xSome(3) ch1 -> dispenser x3
     4:rep_weap_award_pistol xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 rep_inf_default_rifleman
     1:rep_weap_inf_rifle xSome(4) ch0 -> primary x4
@@ -706,7 +706,7 @@ bf2 rep_inf_default_rocketeer
     1:rep_weap_inf_rocket_launcher xSome(7) ch0 -> primary x7
     2:rep_weap_inf_pistol xSome(0) ch0 -> fired x0
     3:rep_weap_inf_thermaldetonator xSome(2) ch1 -> thrown x2
-    4:rep_weap_inf_mine_dispenser xSome(4) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    4:rep_weap_inf_mine_dispenser xSome(4) ch1 -> dispenser x4
     5:rep_weap_award_pistol xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
     6:rep_weap_award_rocket_launcher xSome(4) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 rep_inf_default_sniper
@@ -719,8 +719,8 @@ bf2 rep_inf_default_sniper
 bf2 rep_inf_ep2_engineer
     1:rep_weap_inf_shotgun xSome(8) ch0 -> primary x8
     2:rep_weap_inf_fusioncutter xSome(0) ch0 -> repair x0
-    3:rep_weap_inf_detpack xSome(3) ch1 -> left out: mines, time bombs, detpacks (issue #43)
-    4:rep_weap_inf_powerup_dispenser xSome(5) ch1 -> left out: pack dispensers (issue #46)
+    3:rep_weap_inf_detpack xSome(3) ch1 -> dispenser x3
+    4:rep_weap_inf_powerup_dispenser xSome(5) ch1 -> dispenser x5
     5:rep_weap_award_shotgun xSome(8) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 rep_inf_ep2_jettrooper
     1:rep_weap_inf_emp_launcher xSome(4) ch0 -> primary x4
@@ -750,7 +750,7 @@ bf2 rep_inf_ep2_marine
 bf2 rep_inf_ep2_pilot
     1:rep_weap_inf_commando_pistol xSome(0) ch0 -> primary x0
     2:rep_weap_inf_fusioncutter xSome(1) ch0 -> repair x1
-    3:rep_weap_inf_timebomb xSome(3) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    3:rep_weap_inf_timebomb xSome(3) ch1 -> dispenser x3
     4:rep_weap_award_pistol xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 rep_inf_ep2_rifleman
     1:rep_weap_inf_rifle xSome(4) ch0 -> primary x4
@@ -762,7 +762,7 @@ bf2 rep_inf_ep2_rocketeer
     1:rep_weap_inf_rocket_launcher xSome(7) ch0 -> primary x7
     2:rep_weap_inf_pistol xSome(0) ch0 -> fired x0
     3:rep_weap_inf_thermaldetonator xSome(2) ch1 -> thrown x2
-    4:rep_weap_inf_mine_dispenser xSome(4) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    4:rep_weap_inf_mine_dispenser xSome(4) ch1 -> dispenser x4
     5:rep_weap_award_pistol xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
     6:rep_weap_award_rocket_launcher xSome(4) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 rep_inf_ep2_rocketeer_chaingun
@@ -782,8 +782,8 @@ bf2 rep_inf_ep2_sniper
 bf2 rep_inf_ep3_engineer
     1:rep_weap_inf_shotgun xSome(8) ch0 -> primary x8
     2:rep_weap_inf_fusioncutter xSome(0) ch0 -> repair x0
-    3:rep_weap_inf_detpack xSome(3) ch1 -> left out: mines, time bombs, detpacks (issue #43)
-    4:rep_weap_inf_powerup_dispenser xSome(5) ch1 -> left out: pack dispensers (issue #46)
+    3:rep_weap_inf_detpack xSome(3) ch1 -> dispenser x3
+    4:rep_weap_inf_powerup_dispenser xSome(5) ch1 -> dispenser x5
     5:rep_weap_award_shotgun xSome(8) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 rep_inf_ep3_jettrooper
     1:rep_weap_inf_emp_launcher xSome(4) ch0 -> primary x4
@@ -798,13 +798,13 @@ bf2 rep_inf_ep3_marine
 bf2 rep_inf_ep3_officer
     1:rep_weap_inf_chaingun xSome(0) ch0 -> primary x0
     2:rep_weap_inf_pistol xSome(0) ch0 -> fired x0
-    3:rep_weap_inf_buff_defense xSome(1) ch1 -> left out: officer and hero abilities (issue #47)
+    3:rep_weap_inf_buff_defense xSome(1) ch1 -> ability x1
     4:rep_weap_inf_remotedroid xSome(1) ch1 -> left out: remote droids (issue #44)
     5:rep_weap_award_pistol xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 rep_inf_ep3_pilot
     1:rep_weap_inf_commando_pistol xSome(0) ch0 -> primary x0
     2:rep_weap_inf_fusioncutter xSome(1) ch0 -> repair x1
-    3:rep_weap_inf_timebomb xSome(3) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    3:rep_weap_inf_timebomb xSome(3) ch1 -> dispenser x3
     4:rep_weap_award_pistol xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 rep_inf_ep3_rifleman
     1:rep_weap_inf_rifle xSome(4) ch0 -> primary x4
@@ -816,7 +816,7 @@ bf2 rep_inf_ep3_rocketeer
     1:rep_weap_inf_rocket_launcher xSome(7) ch0 -> primary x7
     2:rep_weap_inf_pistol xSome(0) ch0 -> fired x0
     3:rep_weap_inf_thermaldetonator xSome(2) ch1 -> thrown x2
-    4:rep_weap_inf_mine_dispenser xSome(4) ch1 -> left out: mines, time bombs, detpacks (issue #43)
+    4:rep_weap_inf_mine_dispenser xSome(4) ch1 -> dispenser x4
     5:rep_weap_award_pistol xSome(6) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
     6:rep_weap_award_rocket_launcher xSome(4) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 rep_inf_ep3_sniper

@@ -41,7 +41,8 @@ impl Sim {
             let w = &self.units[i].held[k as usize];
             let c = &self.weapon_classes[w.class];
             w.state.state == FireState::Firing
-                || ((sec || w.state.fire_cmd != 0) && (infinite || !w.state.out_of_ammo(c)))
+                || ((sec || w.state.fire_cmd != 0)
+                    && (infinite || !w.state.out_of_ammo(c) || self.has_remote_items(i, w.class)))
         });
         self.units[i].active_channel = u8::from(ch1_has_it);
         let held0 = pri && !ch1_has_it;
@@ -72,8 +73,10 @@ impl Sim {
             if self.tick_repair_weapon(i, Some(k), Some(k) == cur1 && held1, blocked, dt) {
                 continue;
             }
+            let held = Some(k) == cur1 && held1;
+            let remote = self.remote_input(i, Some(k), held, blocked);
             let input = FireInput {
-                held: Some(k) == cur1 && held1,
+                held: held && !remote,
                 blocked,
                 infinite_ammo: infinite,
                 ai_dispersion: None,
@@ -107,13 +110,7 @@ impl Sim {
                     weapon_class: class as u32,
                 });
             }
-            if self.weapon_classes[class].ordnance.sticky.is_some() {
-                for _ in &shots {
-                    self.launch(i, class);
-                }
-            } else if !shots.is_empty() {
-                self.soldier_bolts(i, class, &shots);
-            }
+            self.soldier_shots(i, Some(k), &shots);
         }
         held0
     }
@@ -160,7 +157,12 @@ impl Sim {
         }
     }
 
-    pub(super) fn soldier_bolts(&mut self, i: usize, class: usize, shots: &[ShotSpec]) {
+    pub(super) fn soldier_shots(&mut self, i: usize, held_slot: Option<usize>, shots: &[ShotSpec]) {
+        if shots.is_empty() {
+            return;
+        }
+        let u = &self.units[i];
+        let class = held_slot.map_or(u.weapon_class, |k| u.held[k].class);
         let unit = self.handle(i);
         // A human's shot leaves the fire point toward what the reticle's
         // ray hits (card AIMA); a bot's leaves the chest along its aim
@@ -180,12 +182,24 @@ impl Sim {
         // Perception's hearing reads this (`perception::scan`): anyone
         // within HEAR_RADIUS of a shot knows a shooter is there, with no
         // line of sight.
-        self.units[i].last_shot_tick = self.tick;
         for spec in shots {
             // A charge stage's round is its own class's (issue #29): its
             // ordnance flies and strikes; a sticky one (a mortar's held
             // round, BF1's smuggler's mortar) is launched.
             let stage = self.weapon_classes[class].stage_index(class, usize::from(spec.stage));
+            if self.weapon_classes[stage].ability.is_some() {
+                self.fire_ability(i, stage);
+                continue;
+            }
+            if self.weapon_classes[stage].mine.is_some() {
+                self.place_mine(i, stage, spec.charge);
+                continue;
+            }
+            if self.weapon_classes[stage].dispenser.is_some() {
+                self.dispense_shots(i, held_slot, stage, std::slice::from_ref(spec));
+                continue;
+            }
+            self.units[i].last_shot_tick = self.tick;
             if self.weapon_classes[stage].ordnance.sticky.is_some() {
                 self.launch(i, stage);
                 continue;
@@ -302,13 +316,7 @@ impl Sim {
             _ => aim,
         };
         // BF1: the weapon's fire point; BF2: the hand, in the soldier's frame.
-        let origin = match thrown.and_then(|t| t.hand) {
-            Some((up, fwd)) => {
-                let (sy, cy) = crate::fmath::sin_cos(u.soldier.yaw);
-                u.soldier.pos + Vec3::Y * up + Vec3::new(-sy, 0.0, -cy) * fwd
-            }
-            None => u.muzzle(),
-        };
+        let origin = u.launch_origin(thrown.and_then(|t| t.hand));
         let owner = self.handle(i);
         let g = Sticky::new(
             origin,
@@ -465,7 +473,7 @@ impl Sim {
     /// ([`sticky::PUSH_OFF`]), or half the way to a surface it would meet
     /// first. Ours (issue #37): the underside of a step's lip, 2.5 cm over
     /// the floor, pushed it 4.5 cm down through that floor.
-    fn push_off_room(&self, point: Vec3, n: Vec3) -> f32 {
+    pub(super) fn push_off_room(&self, point: Vec3, n: Vec3) -> f32 {
         let start = point + n * sticky::PUSH_ROOM_START;
         let len = sticky::PUSH_OFF - sticky::PUSH_ROOM_START;
         let mut t = len;

@@ -262,10 +262,12 @@ fn in_hand(
         .get(class)
         .and_then(|c| c.thrown.as_ref())
         .is_some_and(|t| t.hide_on_fire);
+    let fired = state.state == core::weapon::FireState::Firing
+        && (classes.get(class).is_none_or(|c| c.mine.is_none()) || state.salvo_counter == 0);
     InHand {
         class,
         slot,
-        hidden: hides && (state.state == core::weapon::FireState::Firing || state.reloading()),
+        hidden: hides && (fired || state.reloading()),
     }
 }
 

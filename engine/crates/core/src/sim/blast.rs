@@ -9,7 +9,7 @@
 //! body is kicked, and the soldiers the class pushes are thrown
 //! ([`Sim::kick_and_push`]).
 
-use super::state::{Event, Sim};
+use super::state::Sim;
 use crate::soldier::Stance;
 use crate::unit::UnitHandle;
 use crate::vehicle::{VehicleHandle, VehicleKind};
@@ -142,6 +142,32 @@ impl Sim {
             if !s.destroyed && overlaps(s.sphere_centre, s.sphere_radius) {
                 gathered.push((Victim::Station(i as u16), s.sphere_centre, s.sphere_radius));
             }
+        }
+        let mine_damage: Vec<_> = self
+            .mines
+            .iter()
+            .enumerate()
+            .filter_map(|(i, m)| {
+                if !crate::perception::los_seat(
+                    self,
+                    pos,
+                    m.flight.pos,
+                    crate::collision::HullFilter::Static,
+                    [source_instance, None],
+                ) {
+                    return None;
+                }
+                let f = blast_falloff(
+                    m.flight.pos.distance(pos),
+                    crate::mine::RADIUS,
+                    e.damage_inner,
+                    e.damage_outer,
+                );
+                Some((i, self.mine_damage(m, e.damage * f, &e.scales, team)))
+            })
+            .collect();
+        for (i, damage) in mine_damage {
+            self.mines[i].health -= damage;
         }
         let attacker_is_player = attacker
             .and_then(|a| self.units.get(a.index as usize).filter(|u| u.gen == a.gen))
@@ -303,24 +329,10 @@ impl Sim {
             1.0
         };
         let mult = mult * self.buff_scale(attacker, h);
-        let (ff, now) = (self.friendly_fire_scale, self.tick);
+        let ff = self.friendly_fire_scale;
         let u = self.unit_mut(h).unwrap();
         let damage = u.health.take_damage(desc, f * mult, friendly, ff);
-        let (killed, health_left) = (!u.health.alive(), u.health.cur);
-        if let Some(a) = attacker {
-            u.last_hit = Some((a, now));
-            self.events.push(Event::Hit {
-                shooter: a,
-                victim: h,
-                damage,
-                age: 0.0,
-                health_left,
-                dir,
-            });
-        }
-        if killed {
-            self.unit_killed(h, attacker);
-        }
+        self.finish_unit_damage(h, attacker, damage, 0.0, dir);
     }
 }
 
@@ -328,7 +340,7 @@ impl Sim {
 mod tests {
     use super::*;
     use crate::sim::tests::flat_ground;
-    use crate::sim::DeathCause;
+    use crate::sim::{DeathCause, Event};
     use crate::unit::UnitSpec;
     use crate::vehicle::{BlastSetup, SeatKind, VehicleSpec};
     use crate::weapon::HealthType;

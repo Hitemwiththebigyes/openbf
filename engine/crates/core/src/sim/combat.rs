@@ -88,6 +88,16 @@ impl Sim {
                     };
                 }
             }
+            for m in self.mines.iter().filter(|m| m.health > 0.0) {
+                if let Some(t) =
+                    crate::unit::ray_sphere(from, dir, m.flight.pos, crate::mine::RADIUS)
+                        .filter(|&t| t <= reach)
+                {
+                    reach = t;
+                    hit = Some(Target::Mine(m.id));
+                    mult = 1.0;
+                }
+            }
             if let Some(filter) = b.hulls.hulls_only() {
                 if let Some(r) = world.ray_with(from, dir, reach, Layers::ORDNANCE, filter) {
                     if let Some(v) = r.owner.filter(|_| r.t < reach) {
@@ -146,7 +156,6 @@ impl Sim {
                 let invincible = victim_is_player
                     && (self.cheats.invincible || (friendly && !b.shooter_is_player));
                 let ff = self.friendly_fire_scale;
-                let now = self.tick;
                 // D12, the human damage layer: a BOT's bolt into a HUMAN
                 // enemy carries the tier's multiplier. OURS, PROVISIONAL —
                 // the PS2's only level-3 damage lever is `HitLocation`, the
@@ -169,12 +178,6 @@ impl Sim {
                 } else {
                     v.health.take_damage(&desc, mult, friendly, ff)
                 };
-                let killed = !v.health.alive();
-                let health_left = v.health.cur;
-                // Being hit records the shooter at any range (decision 2's
-                // hearing rule) — read by `perception::scan` on the victim's
-                // next think.
-                v.last_hit = Some((b.owner, now));
                 if self
                     .units
                     .get(b.owner.index as usize)
@@ -188,16 +191,13 @@ impl Sim {
                     self.nav_stats.friend_hits += 1;
                 }
                 self.push_impact(b, Surface::Soldier, None);
-                self.events.push(Event::Hit {
-                    shooter: b.owner,
-                    victim: h,
+                if self.finish_unit_damage(
+                    h,
+                    Some(b.owner),
                     damage,
-                    age: b.age,
-                    health_left,
-                    dir: b.vel.normalize_or_zero(),
-                });
-                if killed {
-                    self.unit_killed(h, Some(b.owner));
+                    b.age,
+                    b.vel.normalize_or_zero(),
+                ) {
                     // The direct hit's death kick along the shot (B1
                     // FUN_00200c30 -> FUN_00200f90, re-knockback §3).
                     let u = &mut self.units[h.index as usize];
@@ -235,6 +235,22 @@ impl Sim {
                     Some(b.team),
                     Some(b.vel.normalize_or_zero()),
                 );
+                self.bolt_explodes(b);
+            }
+            Hit::Target(Target::Mine(id)) => {
+                let desc = self.weapon_classes[b.weapon_class]
+                    .ordnance
+                    .damage_desc_charged(b.age, false, b.charge);
+                if let Some(k) = self.mines.iter().position(|m| m.id == id) {
+                    let damage =
+                        self.mine_damage(&self.mines[k], desc.damage, &desc.scales, Some(b.team));
+                    self.mines[k].health -= damage;
+                }
+                self.events.push(Event::BoltExpired {
+                    pos: b.end,
+                    struck: true,
+                });
+                self.push_impact(b, Surface::Vehicle, None);
                 self.bolt_explodes(b);
             }
             // A model wall ends the flight exactly as the terrain sheet does:
@@ -340,6 +356,33 @@ impl Sim {
             surface,
             vehicle,
         });
+    }
+
+    pub(super) fn finish_unit_damage(
+        &mut self,
+        victim: UnitHandle,
+        attacker: Option<UnitHandle>,
+        damage: f32,
+        age: f32,
+        dir: Vec3,
+    ) -> bool {
+        let u = &mut self.units[victim.index as usize];
+        let killed = !u.health.alive();
+        if let Some(shooter) = attacker {
+            u.last_hit = Some((shooter, self.tick));
+            self.events.push(Event::Hit {
+                shooter,
+                victim,
+                damage,
+                age,
+                health_left: u.health.cur,
+                dir,
+            });
+        }
+        if killed {
+            self.unit_killed(victim, attacker);
+        }
+        killed
     }
 
     /// The bookkeeping of a unit that damage killed (its health is already

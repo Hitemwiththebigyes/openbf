@@ -248,7 +248,13 @@ pub(super) fn choose<'a>(cands: impl Iterator<Item = Cand<'a>>, ask: &Ask) -> Op
         // is not passed over - the bot with the one weapon that hurts it
         // reloads where it stands instead of walking on for the four seconds.
         let reloads = ask.bf2 && c.busy && ask.vehicle.is_none();
-        if c.class.repair.is_some() || c.empty || (grenade && ask.barred) || reloads {
+        if c.class.repair.is_some()
+            || c.class.dispenses()
+            || c.class.ability.is_some()
+            || c.empty
+            || (grenade && ask.barred)
+            || reloads
+        {
             continue;
         }
         // Card HVYW: a heavy weapon in a crowd is taken as a forced grenade

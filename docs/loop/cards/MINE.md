@@ -4,14 +4,14 @@ title: Mines, time bombs and detpacks: the dispenser weapon (per-unit MaxItems),
 milestone: M3
 value: 3
 phase: build
-status: blocked
+status: parked
 deps: GREN
-files: engine/crates/core/src/weapon.rs,engine/crates/core/src/projectile.rs,engine/crates/core/src/sim/step.rs,engine/crates/core/src/sim/combat.rs,engine/crates/game/src/roster.rs
+files: engine/crates/core/src/mine.rs,engine/crates/core/src/weapon.rs,engine/crates/core/src/weapon/dispenser.rs,engine/crates/core/src/lib.rs,engine/crates/core/src/projectile.rs,engine/crates/core/src/soldier.rs,engine/crates/core/src/ai/arsenal.rs,engine/crates/core/src/sim.rs,engine/crates/core/src/sim/state.rs,engine/crates/core/src/sim/step.rs,engine/crates/core/src/sim/combat.rs,engine/crates/core/src/sim/blast.rs,engine/crates/core/src/sim/ordnance.rs,engine/crates/core/src/sim/mines.rs,engine/crates/core/src/sim/mines/tests.rs,engine/crates/core/src/sim/repair.rs,engine/crates/game/src/roster.rs,engine/crates/game/src/roster/mines.rs,engine/crates/game/src/soldier_vis.rs,engine/crates/game/src/soldier_vis/runtime.rs,engine/crates/game/src/soldier_vis/grenade.rs,engine/crates/game/src/fx.rs,engine/crates/game/src/event_sounds.rs,engine/crates/game/src/main/headless.rs,engine/crates/game/tests/suite/placed_explosives.rs,engine/crates/game/tests/suite/main.rs,engine/crates/game/tests/suite/roster.rs,engine/crates/game/tests/data/class_kits.txt,scripts/rebake.sh
 declares: sim
-needs: environment — restore baked classes/maps/missions and approved GPU gates; see reports/20261024_1243_card_MINE.md
+needs: review — local implementation and disc census available; fresh PCSX2 comparison and autoloop baseline gates remain outstanding
 effort:
-branch:
-resume: 2026-10-24 cloud preflight blocked: 22 exact inputs absent. Restore mine_cloud/preflight.json inputs; implement dispenser/mine with original Acceptance, census both games and run CI plus sim/sweep/arena gates. No source candidate or landing.
+branch: main
+resume: 2026-10-28 local implementation committed on main; see docs/loop/reports/20261028_MINE.md. Preserve existing dispenser/grenade edits. No upstream landing or new live PCSX2 capture.
 created: 2026-09-30
 ---
 ## Why
@@ -62,3 +62,7 @@ What the pickup RE learned about the THROWN pickups (this card's dispenser weapo
   (`thrown_weapon_from_db`); a dispenser / detonator slot is skipped there — that filter is where this card's weapons
   come in, and the HUD's second row and the R1 switch already follow whatever channel 1 holds.
 - 2026-10-06 planner: `engine/CRATES.md` taken out of `files:`. The picker refuses a card whose files overlap a card in progress, and 22 open cards listed the map, so any one of them held the other 21 (a chain card in progress held WADE and WTHR). The map's row for a new or moved source file is still owed in the same branch (`scripts/size_report.sh --check-map`); a rebase conflict in it is one line. Undo: add the path back.
+
+## Local implementation (2026-10-28)
+
+See [the implementation and original-game comparison report](../reports/20261028_MINE.md). The previously missing assets are present locally. All 53 carrying classes now retain their explosive equipment; the historical environment blocker is superseded by the review and comparison work described in the report.

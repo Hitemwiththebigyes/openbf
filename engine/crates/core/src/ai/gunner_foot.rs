@@ -140,6 +140,7 @@ pub(super) fn run(
         tier,
         skill,
     } = *tk;
+    let support = super::ability_input(sim, me);
     let dt = crate::TICK_DT;
     let (enemy, held, memory) = match *aim {
         AimRequest::Enemy(e, c) => (Some(e), Some(c), None),
@@ -147,7 +148,7 @@ pub(super) fn run(
         AimRequest::Travel(_) => (None, None, None),
     };
     // Card GRAI: what the think's weapon choice means this tick.
-    let armed = match enemy {
+    let armed = match enemy.filter(|_| support.is_none()) {
         Some(_) => arsenal::armed(sim, u, st),
         None => Armed::Hand,
     };
@@ -170,6 +171,7 @@ pub(super) fn run(
     let to = look_at - eye;
     let dist = to.length();
     if dist < 1e-3 {
+        support_input(st, pad, support);
         return None;
     }
     let dir = to / dist;
@@ -351,11 +353,23 @@ pub(super) fn run(
             None
         }
     };
+    support_input(st, pad, support);
     Some(GunReport {
         line,
         range,
         no_throw,
     })
+}
+
+fn support_input(st: &mut AiState, pad: &mut PadState, input: Option<u32>) {
+    if let Some(button) = input {
+        pad.buttons &= !(buttons::FIRE
+            | buttons::SECONDARY_FIRE
+            | buttons::SWITCH_WEAPON
+            | buttons::SWITCH_SECONDARY);
+        pad.buttons |= button;
+        st.charge_until = 0;
+    }
 }
 
 /// Shared charge-release policy (STCHG, re-ai-difficulty §4.4): draw once
