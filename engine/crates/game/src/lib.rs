@@ -34,6 +34,7 @@ mod repair_feedback;
 pub mod ride;
 pub mod roster;
 pub mod round_end;
+pub mod shell_ia;
 pub mod shell_movie;
 pub mod skin;
 pub mod soldier_vis;

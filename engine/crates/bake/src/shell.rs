@@ -1,6 +1,7 @@
 //! The BF2 PS2 shell's own assets (card BSHLA, `analysis/re-bf2-shell.md`
-//! §1, §4): SHELL.LVL's `logo`, the background movie's menu loops and the
-//! shell music, into `<out>/shell/` (schema: `manifest::shell`).
+//! §1, §4): SHELL.LVL's sheets ([`SHELL_TEXTURES`]: the `logo`, the Instant
+//! Action backdrop and mode icons), the background movie's menu loops and
+//! the shell music, into `<out>/shell/` (schema: `manifest::shell`).
 //!
 //! - **Movie**: `MOVIES/SHELL.MVS` is a `ucfb` whose index (from 0x20) is a
 //!   run of (key hash, value) word pairs; a `name` pair opens a segment's
@@ -29,8 +30,19 @@ use std::process::{Command, Stdio};
 /// The movie properties the menus play (§4): the title and main menu, the
 /// sub-menus.
 pub const MENU_MOVIES: [&str; 2] = ["shell_main", "shell_sub_left"];
-/// The shell's sheets (§3.4: the title and main menu's logo).
-pub const SHELL_TEXTURES: [&str; 1] = ["logo"];
+/// The shell's sheets: the title and main menu's logo (§3.4), the Instant
+/// Action backdrop and the five mode icons its lists draw
+/// (`analysis/re-bf2-menus.md` §1.1, §6, §8; `mode_icon_eli` is unused and
+/// `mode_icon_tdm` is not on the disc).
+pub const SHELL_TEXTURES: [&str; 7] = [
+    "logo",
+    "iface_instant_action",
+    "mode_icon_con",
+    "mode_icon_2ctf",
+    "mode_icon_ctf",
+    "mode_icon_hunt",
+    "mode_icon_ass",
+];
 /// The music the start screen sets (`ifs_start` main.f2, §2).
 pub const MUSIC: &str = "shell_soundtrack";
 /// ffmpeg's `-q:v` for the frames (`[ours]` PROVISIONAL: 2-5 is visually
@@ -323,7 +335,9 @@ mod tests {
             let f = pack.frame(k).unwrap();
             assert_eq!(&f[..2], &[0xff, 0xd8], "frame {k} is a JPEG");
         }
-        assert!(dir.join("textures/logo.ktx2").exists());
+        for t in SHELL_TEXTURES {
+            assert!(dir.join(format!("textures/{t}.ktx2")).exists(), "{t}");
+        }
         let streams = std::fs::read_to_string(dir.join("sounds/streams/streams.ron")).unwrap();
         assert!(
             streams.contains(&format!("name_hash: {}", fnv("shell_music"))),

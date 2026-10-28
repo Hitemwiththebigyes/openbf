@@ -148,6 +148,60 @@ fn bf2_shell_menu_accept_resolves_in_the_resident_core_bank() {
     assert_eq!(data.sample_rate(), 11_060);
 }
 
+/// The shell's library (`SoundLib::load_shell`) reaches the CORE.LVL clicks
+/// with the PS2's sample, pitch, gain and `shellfx` bus 0.4, and the music's
+/// four takes at `shellmusic` 0.6 (`analysis/re-bf2-menus.md` §4.2-§4.4).
+#[test]
+fn the_shell_menu_clicks_resolve_with_the_ps2_pitch_and_bus() {
+    use ui::shell_feel::MenuSound as S;
+    let root = root();
+    let shell = game::shell_movie::shell_dir(&root);
+    let Some(mut sl) = game::sounds::SoundLib::load_shell(&shell, &root) else {
+        eprintln!("SKIP: the BF2 shell sounds are not baked");
+        return;
+    };
+    if !sl.has("shell_select_change") {
+        eprintln!("SKIP: core_bf2 not baked");
+        return;
+    }
+    for (s, sample, pitch) in [
+        (S::Select, "b21a7dea", 1.5),
+        (S::Accept, "b75d27cd", 1.1),
+        (S::Exit, "ebaa708c", 0.8),
+        (S::Cancel, "1c2ecdee", 1.0),
+        (S::Error, "1c2ecdee", 1.0),
+        (S::Key, "c0d52579", 1.5),
+        (S::Backspace, "c0d52579", 1.0),
+    ] {
+        let starts = sl.play_2d(None, s.name());
+        let [st] = starts.as_slice() else {
+            panic!("{}: {starts:?}", s.name());
+        };
+        let file = st.path.file_stem().and_then(|f| f.to_str());
+        assert_eq!(file, Some(sample), "{}", s.name());
+        assert!(st.path.iter().any(|c| c == "core_bf2"), "{}", s.name());
+        assert_eq!(
+            (st.pitch, st.gain, st.bus),
+            (pitch, 1.0, 0.4),
+            "{}",
+            s.name()
+        );
+        assert!(st.flat, "{}: 2-D", s.name());
+    }
+    let (gain, takes) = sl
+        .stream_takes(ui::shell_ps2::MUSIC)
+        .expect("shell_soundtrack's takes");
+    assert_eq!(takes.len(), 4);
+    assert!((gain - 0.6).abs() < 1e-6, "gain 1 x shellmusic 0.6: {gain}");
+    let secs: Vec<f32> = takes.iter().map(audio::StreamTake::secs).collect();
+    println!("shell_soundtrack takes: {secs:?}");
+    // §4.4 lists 51.4, 51.4, 64.4, 56.6 s; the takes' own ADPCM lengths
+    // read up to 0.5 s shorter.
+    for (s, want) in secs.iter().zip([51.4, 51.4, 64.4, 56.6]) {
+        assert!((s - want).abs() < 0.6, "{secs:?}");
+    }
+}
+
 /// A BF1 map's library must not reach into BF2's speech, or the reverse.
 #[test]
 fn a_map_takes_its_own_disc_s_banks() {

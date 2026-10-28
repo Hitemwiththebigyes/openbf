@@ -7,6 +7,13 @@ pub const RAD_PER_COUNT: f64 = 0.0006;
 pub const SENSITIVITY_RANGE: (f32, f32) = ui::menu::MOUSE_SENSITIVITY_RANGE;
 pub const KEY_ESCAPE: u32 = 128;
 pub const KEY_ENTER: u32 = 256;
+/// `[ours]` Page Up / Page Down are the shell's L1 / R1 (the Instant Action
+/// lists' paging, Session Options' x10 steps).
+pub const KEY_PAGE_UP: u32 = 512;
+pub const KEY_PAGE_DOWN: u32 = 1024;
+/// The menu edge bits of L1 and R1.
+pub const MENU_L1: u32 = 128;
+pub const MENU_R1: u32 = 256;
 
 pub fn menu_key(code: KeyCode) -> u32 {
     match code {
@@ -17,6 +24,8 @@ pub fn menu_key(code: KeyCode) -> u32 {
         KeyCode::Enter | KeyCode::NumpadEnter => 16 | KEY_ENTER,
         KeyCode::Backspace => 32,
         KeyCode::Escape => KEY_ESCAPE,
+        KeyCode::PageUp => KEY_PAGE_UP,
+        KeyCode::PageDown => KEY_PAGE_DOWN,
         _ => 0,
     }
 }
@@ -28,6 +37,12 @@ pub fn menu_bits(keys: u32, shell: bool) -> u32 {
     }
     if shell && keys & KEY_ENTER != 0 {
         bits |= 64;
+    }
+    if keys & KEY_PAGE_UP != 0 {
+        bits |= MENU_L1;
+    }
+    if keys & KEY_PAGE_DOWN != 0 {
+        bits |= MENU_R1;
     }
     bits
 }

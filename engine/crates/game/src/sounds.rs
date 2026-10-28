@@ -613,9 +613,11 @@ pub fn mixer_pair(ears: (f32, f32)) -> (f32, f32) {
 /// 1.4 claims 10-12; the effects voice x 0.63 on BF2 is the RAM's
 /// `+0x44 = +0xf4 x bus +0x28`). The sliders are the ones every reference
 /// state holds (BF1 effects 10 voice 8, BF2 effects 7 voice 9 chatter 10):
-/// PROVISIONAL [H] as the factory defaults (FEEL_NOTES). A bus not listed
-/// (`root`, the music's) plays at 1.0. The `voiceover` duck of `main` is
-/// not here (card VODK).
+/// PROVISIONAL [H] as the factory defaults (FEEL_NOTES). The shell's two,
+/// `shellfx` 0.4 (the menu clicks) and `shellmusic` 0.6, are CORE.LVL's on
+/// both discs, parent root (`analysis/re-bf2-menus.md` §4.2, §4.4). A bus
+/// not listed (`root`, the battle music's) plays at 1.0. The `voiceover`
+/// duck of `main` is not here (card VODK).
 pub fn bus_table(game: &str) -> Vec<(u32, f32)> {
     let rows: &[(&str, f32)] = match game {
         "bf2" => &[
@@ -623,8 +625,16 @@ pub fn bus_table(game: &str) -> Vec<(u32, f32)> {
             ("battlechatter", 0.9),
             ("voiceover", 0.63),
             ("ambience", 0.378),
+            ("shellfx", 0.4),
+            ("shellmusic", 0.6),
         ],
-        _ => &[("soundfx", 1.0), ("voiceover", 0.64), ("ambience", 0.6)],
+        _ => &[
+            ("soundfx", 1.0),
+            ("voiceover", 0.64),
+            ("ambience", 0.6),
+            ("shellfx", 0.4),
+            ("shellmusic", 0.6),
+        ],
     };
     let mut t: Vec<(u32, f32)> = rows.iter().map(|(n, g)| (fnv1a_lowercase(n), *g)).collect();
     // The unnamed bus under `root`: 0.4 x the effects slider (1.4 claim 10).
@@ -790,6 +800,20 @@ impl SoundLib {
         })
     }
 
+    /// The BF2 shell's library (`common_bf2/shell`, its music and VO) with
+    /// the resident CORE.LVL bank of `core_bf2` behind it, where the menu
+    /// clicks are (`analysis/re-bf2-menus.md` §4.2-§4.3), and BF2's buses.
+    /// The shell dir has no manifest, so [`SoundLib::load`] finds no core.
+    pub fn load_shell(shell_dir: &Path, assets_dir: &Path) -> Option<SoundLib> {
+        let mut lib = SoundLib::load(shell_dir)?;
+        lib.core = Bank::load(&assets_dir.join("core_bf2").join("sounds"));
+        if lib.core.is_none() {
+            eprintln!("shell: no core_bf2 sound bank baked; the menus are silent");
+        }
+        lib.buses = bus_table("bf2");
+        Some(lib)
+    }
+
     /// The map bank's definition of a name: the first of the battle's
     /// sub-levels that defines it (the PS2 holds the one its mission loads,
     /// [`merge_props`]), else the whole LVL's.
@@ -901,9 +925,9 @@ impl SoundLib {
         })
     }
 
-    /// A streamed property's takes in its list order and its gain (the
-    /// shell's `shell_soundtrack`, card BSHLA); `None` when it names no
-    /// indexed stream.
+    /// A streamed property's takes in its list order and its gain x its
+    /// bus (the shell's `shell_soundtrack` on `shellmusic`, card BSHLA);
+    /// `None` when it names no indexed stream.
     pub fn stream_takes(&self, name: &str) -> Option<(f32, Vec<audio::StreamTake>)> {
         let (p, _) = self.find_named(name)?;
         let stream = p.stream?;
@@ -912,7 +936,7 @@ impl SoundLib {
             .iter()
             .filter_map(|(id, _)| self.music_takes.get(&(stream, *id)).cloned())
             .collect();
-        (!takes.is_empty()).then_some((p.gain, takes))
+        (!takes.is_empty()).then_some((p.gain * self.bus_of(&p), takes))
     }
 
     /// A `soundparameterized` record (a vehicle's `EngineSound`) by name

@@ -234,6 +234,18 @@ pub fn pick_index(missions: &[[String; 2]], armies: [&str; 2]) -> Option<(usize,
     (!missions.is_empty()).then_some((0, 0, false))
 }
 
+/// The faction pairs of `map`'s mission files for `mode` in `dir` (each era
+/// suffix); the Instant Action screen's runnable check (`ui::shell`).
+pub fn pairs(dir: &Path, map: &str, mode: &str) -> Vec<[String; 2]> {
+    ERA_SUFFIXES
+        .iter()
+        .map(|s| dir.join(format!("{map}_{mode}{s}.ron")))
+        .filter(|p| pak::is_file(p))
+        .filter_map(|p| MissionDef::load(&p).ok())
+        .map(|m| m.factions())
+        .collect()
+}
+
 /// [`pick_index`] over the mission files of `map` in `dir`. `None` when the
 /// map has no mission file for `mode`.
 pub fn pick(dir: &Path, map: &str, mode: &str, armies: [&str; 2]) -> Option<Pick> {

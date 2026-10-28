@@ -302,6 +302,22 @@ impl SoundLib {
         self.play_by_hash(audio, fnv1a_lowercase(name), pos, listener)
     }
 
+    /// A 2-D one-shot by name (a menu click): its pitch, gain, bus and
+    /// `PlayInterval` as any start; played when there is a mixer. Returns
+    /// what started.
+    pub fn play_2d(&mut self, audio: Option<&mut audio::Audio>, name: &str) -> Vec<Start> {
+        let mut starts = Vec::new();
+        self.start(fnv1a_lowercase(name), Vec3::ZERO, Vec3::ZERO, &mut starts);
+        if let Some(audio) = audio {
+            let ear = Listener {
+                pos: Vec3::ZERO,
+                yaw: 0.0,
+            };
+            self.mix(audio, &starts, &ear);
+        }
+        starts
+    }
+
     /// [`SoundLib::play`] for a property known by its hash (the foley
     /// table's slots, `crate::foley`).
     pub fn play_by_hash(

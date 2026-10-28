@@ -66,3 +66,77 @@ pub fn apply_menu_action(
         MenuAction::Quit | MenuAction::SetMouseSensitivity(_) | MenuAction::ToggleInvertY => {}
     }
 }
+
+/// The pause menu's click for one frame (menuref "In battle" and its sound
+/// table): Triangle resumes with the exit click, or in the Respawn popup
+/// cancels with the cancel click; Cross on No cancel, on any other row
+/// accept; a move select; a value step accept (as Game Options). `confirm`
+/// is whether the popup was up before the press. Start's accept on opening
+/// is the caller's.
+pub fn pause_sound(
+    confirm: bool,
+    input: ui::menu::MenuInput,
+    from: usize,
+    to: usize,
+    actions: &[ui::menu::MenuAction],
+) -> Option<ui::shell_feel::MenuSound> {
+    use ui::menu::MenuAction;
+    use ui::shell_feel::MenuSound;
+    if input.back {
+        return Some(if confirm {
+            MenuSound::Cancel
+        } else {
+            MenuSound::Exit
+        });
+    }
+    if actions.contains(&MenuAction::CancelRespawn) {
+        return Some(MenuSound::Cancel);
+    }
+    if !actions.is_empty() {
+        return Some(MenuSound::Accept);
+    }
+    (from != to).then_some(MenuSound::Select)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ui::menu::{MenuAction, MenuInput};
+    use ui::shell_feel::MenuSound;
+
+    /// menuref "In battle": move select, Triangle exit, the popup's No and
+    /// Triangle cancel, Cross accept; nothing when nothing happens.
+    #[test]
+    fn the_pause_menu_asks_for_the_ps2_clicks() {
+        let back = MenuInput {
+            back: true,
+            ..Default::default()
+        };
+        let cross = MenuInput {
+            confirm: true,
+            ..Default::default()
+        };
+        let down = MenuInput {
+            down: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            pause_sound(false, back, 0, 0, &[MenuAction::Resume]),
+            Some(MenuSound::Exit)
+        );
+        assert_eq!(
+            pause_sound(true, back, 0, 0, &[MenuAction::CancelRespawn]),
+            Some(MenuSound::Cancel)
+        );
+        assert_eq!(
+            pause_sound(true, cross, 0, 0, &[MenuAction::CancelRespawn]),
+            Some(MenuSound::Cancel)
+        );
+        assert_eq!(
+            pause_sound(false, cross, 2, 2, &[MenuAction::RequestRespawn]),
+            Some(MenuSound::Accept)
+        );
+        assert_eq!(pause_sound(false, down, 0, 1, &[]), Some(MenuSound::Select));
+        assert_eq!(pause_sound(false, cross, 3, 3, &[]), None);
+    }
+}

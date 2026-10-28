@@ -298,6 +298,20 @@ impl HudView {
         self.install_frame(frame);
     }
 
+    /// [`HudView::update_shell`] with the Instant Action screen `ia` over
+    /// the page (`ui::shell_ia`).
+    pub fn update_instant(
+        &mut self,
+        menus: &ui::shell_ps2::ShellMenus,
+        ia: &ui::shell::InstantAction,
+        movie: bool,
+        size: [u32; 2],
+    ) {
+        self.hud.instant = Some(Box::new(ia.clone()));
+        self.update_shell(menus, movie, size);
+        self.hud.instant = None;
+    }
+
     fn install_frame(&mut self, frame: ui::hud_draw::HudFrame) {
         self.verts.clear();
         self.verts.extend(frame.verts.iter().map(|v| HudVertex {

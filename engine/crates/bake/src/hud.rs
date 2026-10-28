@@ -41,8 +41,11 @@ const FONT_SOURCE: &str = "CORE.LVL";
 /// The sheets the spawn screens' shell widgets draw that no layout names
 /// (card SSELB, `analysis/re-bf2-shell.md` §1, §3.2, §3.4): the vertical
 /// button stack's eight 64x64 pieces and the help lines' pad icons, Cross
-/// (`btna`) and Triangle (`btnb`), all in COMMON.LVL.
-pub const SCREEN_SHEETS: [&str; 10] = [
+/// (`btna`) and Triangle (`btnb`), all in COMMON.LVL; then the Instant
+/// Action and Session Options widgets' (`analysis/re-bf2-menus.md` §8): the
+/// four era icons, the list focus box and scroll arrows, the options' info
+/// box and the flashy text's sweep square.
+pub const SCREEN_SHEETS: [&str; 18] = [
     "bf2_buttons_topleft",
     "bf2_buttons_title_center",
     "bf2_buttons_topright",
@@ -53,6 +56,14 @@ pub const SCREEN_SHEETS: [&str; 10] = [
     "bf2_buttons_botright",
     "btna",
     "btnb",
+    "all_icon",
+    "cis_icon",
+    "imp_icon",
+    "rep_icon",
+    "listbox_cursor",
+    "listbox_topbot_more",
+    "white_rect",
+    "cursor",
 ];
 
 fn node(n: &ConfigNode) -> HudNode {

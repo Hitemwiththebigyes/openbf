@@ -1,28 +1,55 @@
 //! The windowed shell's front screens (card BSHLA, `ui::shell_ps2`): the
 //! PS2's Press START, Main Menu, Singleplayer and Options over the shell
-//! movie, with the shell music; under them the Instant Action setup
-//! (`ui::shell`, until card BSHLB) and the settings page (`ui::menu` in its
-//! shell form). A child of `windowed` so it reaches the `App` state.
+//! movie, with the shell music; Instant Action and its Session Options
+//! (`ui::shell`, `ui::shell_ia`, `analysis/re-bf2-menus.md` §1-§2) and the
+//! settings page (`ui::menu` in its shell form). A child of `windowed` so it
+//! reaches the `App` state.
+//!
+//! The menus' clicks (`analysis/re-bf2-menus.md` §4.1) are asked for by
+//! `ui::shell_ps2` and, for the pages of the port's own, here; all of them go
+//! through `ShellMenus::cues` (the select click's 0.1 s limit) and play from
+//! the CORE.LVL bank (`SoundLib::load_shell`). `OPENBF_SHELL_SOUNDS=1` logs
+//! each start to stderr (a run without a sound device logs them too).
 
 use super::{App, Camera};
+use ui::shell_feel::MenuSound;
 
 /// The BF2 PS2 shell's front screens (card BSHLA, `ui::shell_ps2`): Press
 /// START, the Main Menu, Singleplayer and Options over the background
-/// movie, with the shell music; Instant Action opens the egui setup
-/// (`ui::shell`, until card BSHLB) and Game / Audio Options the settings
-/// page (`ui::menu` in its shell form).
+/// movie, with the shell music; Instant Action opens the PS2's screen
+/// (`ui::shell`) and Game / Audio Options the settings page (`ui::menu` in
+/// its shell form).
 pub(super) struct FrontShell {
     menus: ui::shell_ps2::ShellMenus,
     movie: Option<game::shell_movie::ShellMovie>,
     /// Built at the first frame with a renderer.
     view: Option<game::hud_feed::HudView>,
-    /// Instant Action's setup is up.
-    setup: bool,
+    /// The Instant Action screen: built at its first Enter, kept (with its
+    /// playlist and session options) for the process, as the PS2 keeps
+    /// `gPickedMapList` (§1.3).
+    ia: Option<ui::shell::InstantAction>,
+    /// It is up.
+    ia_open: bool,
     /// The settings page is up, at this cursor.
     settings: Option<usize>,
     controls: Option<Controls>,
     sounds: Option<game::sounds::SoundLib>,
     pub(super) music: Option<audio::MusicVoice>,
+    /// `shell_soundtrack`'s gain (x its bus) and takes, and which one plays
+    /// when (re-bf2-menus §4.4).
+    music_takes: Option<(f32, Vec<audio::StreamTake>)>,
+    playlist: ui::shell_feel::ShellPlaylist,
+    /// The random take picker's state (the shell is not the sim: seeded
+    /// from the clock, menuref §9.3.9).
+    music_rng: u64,
+    /// A held D-pad arm's repeat (menuref: 0.62 s, then every 0.167 s).
+    repeat: ui::shell_feel::HoldRepeat,
+    /// The music level was raised from off: the take of the moment again.
+    music_replay: bool,
+    /// A page of the port's own covered the screen last frame.
+    was_covered: bool,
+    /// `OPENBF_SHELL_SOUNDS=1`: log every click and take started.
+    log_sounds: bool,
 }
 
 struct Controls {
@@ -137,20 +164,127 @@ impl FrontShell {
         if movie.is_none() {
             eprintln!("shell: no movie baked (bake common); the menus draw over black");
         }
+        let sounds = game::sounds::SoundLib::load_shell(
+            &game::shell_movie::shell_dir(assets_dir),
+            assets_dir,
+        );
+        let music_takes = sounds
+            .as_ref()
+            .and_then(|sl| sl.stream_takes(ui::shell_ps2::MUSIC));
         FrontShell {
             menus: ui::shell_ps2::ShellMenus::new(&text),
             movie,
             view: None,
-            setup: false,
+            ia: None,
+            ia_open: false,
             settings: None,
             controls: None,
-            sounds: game::sounds::SoundLib::load(&game::shell_movie::shell_dir(assets_dir)),
+            sounds,
             music: None,
+            music_takes,
+            playlist: Default::default(),
+            music_rng: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0x9e37_79b9, |d| d.as_nanos() as u64)
+                | 1,
+            repeat: Default::default(),
+            music_replay: false,
+            was_covered: false,
+            log_sounds: std::env::var("OPENBF_SHELL_SOUNDS").is_ok_and(|v| v == "1"),
+        }
+    }
+
+    /// The shell is left for a battle: its music stops, and starts with a
+    /// new random take when the shell comes back.
+    pub(super) fn stop_music(&mut self) {
+        self.music = None;
+        self.playlist = Default::default();
+    }
+
+    /// Ask for a menu click (rate limited, `ShellMenus::cues`).
+    fn cue(&mut self, s: MenuSound) {
+        self.menus.cues.play(s);
+    }
+
+    /// Play the clicks asked for this frame, and keep the sound library's
+    /// clock (its `PlayInterval`s) on the shell's.
+    fn play_cues(&mut self, audio: Option<&mut audio::Audio>, dt: f32) {
+        let cues = self.menus.cues.take();
+        let Some(sl) = self.sounds.as_mut() else {
+            return;
+        };
+        sl.tick(dt, glam::Vec3::ZERO, &mut Vec::new());
+        let mut audio = audio;
+        for s in cues {
+            let starts = sl.play_2d(audio.as_deref_mut(), s.name());
+            if self.log_sounds {
+                let clock = self.menus.clock;
+                match starts.first() {
+                    Some(st) => eprintln!(
+                        "shell sound t={clock:.3} {} gain {:.3} bus {:.2} pitch {:.2} take {}",
+                        s.name(),
+                        st.gain,
+                        st.bus,
+                        st.pitch,
+                        st.path.display()
+                    ),
+                    None => eprintln!("shell sound t={clock:.3} {} refused", s.name()),
+                }
+            }
         }
     }
 }
 
+/// The music's random pick: xorshift64 over `state`.
+fn xorshift(state: &mut u64) -> u64 {
+    let mut x = *state;
+    x ^= x << 13;
+    x ^= x >> 7;
+    x ^= x << 17;
+    *state = x;
+    x
+}
+
+/// A settings page frame's click (re-bf2-menus §4.1 [V]): a cursor move
+/// clicks; Left / Right on a Game Options row plays accept, even at a clamp
+/// (`common_ifs_opt_general` main.f6 / f8 pc 113); the music row plays
+/// nothing but the music (`common_ifs_opt_sound`); Cross on a toggle
+/// accept. Back is the Options stack's exit click on its re-Enter.
+fn setting_sound(
+    model: &ui::menu::MenuModel,
+    input: ui::menu::MenuInput,
+    to: usize,
+) -> Option<MenuSound> {
+    use ui::menu::Row;
+    if input.back {
+        return None;
+    }
+    let rows = ui::menu::rows(model);
+    if to != model.cursor.min(rows.len().saturating_sub(1)) {
+        return Some(MenuSound::Select);
+    }
+    match rows.get(to)? {
+        Row::Music | Row::Resume => None,
+        Row::InvertY if input.confirm || input.left || input.right => Some(MenuSound::Accept),
+        _ if input.left || input.right => Some(MenuSound::Accept),
+        _ => None,
+    }
+}
+
 impl App {
+    /// Session Options were left (`push_prefs`): AI Difficulty is the
+    /// profile's tier, saved.
+    fn keep_session_prefs(&mut self, options: &ui::shell::SessionOptions) {
+        let now = self.profile.settings.difficulty;
+        if game::shell_ia::ps2_difficulty(now) == options.difficulty {
+            return;
+        }
+        self.profile.settings.difficulty = game::shell_ia::port_difficulty(options.difficulty);
+        if let Err(e) = self.profile.save() {
+            eprintln!("profile autosave failed: {e:#}");
+        }
+    }
+
     fn control_labels(&self) -> Vec<(String, String)> {
         let mut rows = vec![
             ("Back".into(), String::new()),
@@ -186,6 +320,9 @@ impl App {
         if let Some(controls) = front.controls.as_mut() {
             controls.cursor = row;
         }
+        if row != 0 {
+            front.cue(MenuSound::Accept);
+        }
         match row {
             0 => front.controls = None,
             1 => {
@@ -212,12 +349,19 @@ impl App {
         use game::kbm::Trigger;
         use winit::event::{ElementState, MouseScrollDelta, WindowEvent};
         use winit::keyboard::{KeyCode, PhysicalKey};
-        let Some(controls) = self.front.as_mut().and_then(|f| f.controls.as_mut()) else {
+        let Some(front) = self.front.as_mut() else {
+            return false;
+        };
+        let FrontShell {
+            controls, menus, ..
+        } = front;
+        let Some(controls) = controls.as_mut() else {
             return false;
         };
         let Some(row) = controls.capture else {
             return false;
         };
+        let cues = &mut menus.cues;
         if matches!(event, WindowEvent::Focused(false)) {
             controls.capture = None;
             controls.message = Some("Binding change cancelled on focus loss".into());
@@ -229,6 +373,7 @@ impl App {
             {
                 controls.capture = None;
                 controls.message = Some("Binding change cancelled".into());
+                cues.play(MenuSound::Cancel);
                 return true;
             }
             return false;
@@ -241,6 +386,7 @@ impl App {
                     PhysicalKey::Code(KeyCode::Escape) => {
                         controls.capture = None;
                         controls.message = Some("Binding change cancelled".into());
+                        cues.play(MenuSound::Cancel);
                         return true;
                     }
                     PhysicalKey::Code(code) => Some(Trigger::Key(code)),
@@ -279,8 +425,10 @@ impl App {
             if !bindings.remap(index, trigger) {
                 controls.message =
                     Some("Mouse wheel cannot hold movement; choose a key or mouse button".into());
+                cues.play(MenuSound::Error);
                 return true;
             }
+            cues.play(MenuSound::Accept);
             controls.message = Some(swapped.map_or_else(
                 || "Binding saved".into(),
                 |name| format!("Binding saved; swapped with {name}"),
@@ -298,15 +446,20 @@ impl App {
             )
     }
 
-    /// Shell frame: the PS2 front screens (card BSHLA) or, under them, the
-    /// Instant Action setup or the settings page; navigate, maybe start,
-    /// draw.
+    /// Shell frame: the PS2 front screens (card BSHLA), the Instant Action
+    /// screen or the settings page; navigate, maybe launch, draw.
     pub(super) fn redraw_shell(
         &mut self,
         event_loop: &winit::event_loop::ActiveEventLoop,
         dt: f32,
     ) {
-        let edges = self.menu_edges();
+        let mut edges = self.menu_edges();
+        let mut front = self
+            .front
+            .take()
+            .unwrap_or_else(|| FrontShell::new(&self.assets_dir));
+        // A held arm presses again (menuref: from 0.62 s, every 0.167 s).
+        edges |= front.repeat.step(self.prev_menu_buttons & 15, dt);
         let input = ui::menu::MenuInput {
             up: edges & 1 != 0,
             down: edges & 2 != 0,
@@ -316,10 +469,6 @@ impl App {
             back: edges & 32 != 0,
         };
         let start = edges & 64 != 0;
-        let mut front = self
-            .front
-            .take()
-            .unwrap_or_else(|| FrontShell::new(&self.assets_dir));
         if front.view.is_none() {
             if let Some(r) = &self.renderer {
                 front.view = game::hud_feed::HudView::for_renderer(&self.assets_dir, r)
@@ -329,16 +478,33 @@ impl App {
                     .ok();
             }
         }
-        let mut actions = Vec::new();
+        let mut launch = None;
         let mut quit = false;
         let mut settings_model = None;
         let mut controls_model = None;
-        if front.setup {
-            if input.back {
-                front.setup = false;
-            } else {
-                actions = ui::shell::navigate(&mut self.shell, input);
-                self.seed_shell_from_map();
+        let stack_frame = !front.ia_open && front.controls.is_none() && front.settings.is_none();
+        if !stack_frame {
+            front.menus.tick(dt);
+        }
+        if let Some(ia) = front.ia.as_mut().filter(|_| front.ia_open) {
+            let ia_input = ui::shell::IaInput {
+                menu: input,
+                l1: edges & game::kbm::MENU_L1 != 0,
+                r1: edges & game::kbm::MENU_R1 != 0,
+            };
+            match ia.step(ia_input, dt) {
+                Some(ui::shell::IaCommand::Back) => front.ia_open = false,
+                Some(ui::shell::IaCommand::Launch(rows)) => launch = Some((rows, ia.options)),
+                Some(ui::shell::IaCommand::Prefs) => {
+                    let options = ia.options;
+                    self.keep_session_prefs(&options);
+                }
+                None => {}
+            }
+            // The screen's own clicks (menuref sound table); Back to
+            // Singleplayer clicks as that stack's re-Enter (`uncover`).
+            for s in ia.take_clicks() {
+                front.menus.cues.play(s);
             }
         } else if let Some(controls) = front.controls.as_mut() {
             let count = CONTROL_COMMAND_ROWS
@@ -354,7 +520,11 @@ impl App {
                         controls.controller = Some(id);
                         controls.ready = false;
                     }
+                    let was = controls.capture;
                     let button = controls.capture_button(|b| input::is_down(&pad, b));
+                    if was.is_some() && controls.capture.is_none() {
+                        front.menus.cues.play(MenuSound::Cancel);
+                    }
                     if controller_row {
                         if let Some(button) = button {
                             let index = row - CONTROL_COMMAND_ROWS - keyboard_count;
@@ -367,6 +537,7 @@ impl App {
                                 .map(|(_, (_, bits))| action_name(*bits, (0, 0)));
                             bindings.remap(index, button);
                             controls.capture = None;
+                            front.menus.cues.play(MenuSound::Accept);
                             controls.message = Some(swapped.map_or_else(
                                 || "Binding saved".into(),
                                 |name| format!("Binding saved; swapped with {name}"),
@@ -378,14 +549,17 @@ impl App {
                 } else if controller_row {
                     controls.capture = None;
                     controls.message = Some("Controller disconnected; binding unchanged".into());
+                    front.menus.cues.play(MenuSound::Error);
                 }
             } else {
+                let from = controls.cursor;
                 if input.up {
                     controls.cursor = (controls.cursor + count - 1) % count;
                 }
                 if input.down {
                     controls.cursor = (controls.cursor + 1) % count;
                 }
+                front.menus.cues.list_move(from, controls.cursor);
                 if input.back {
                     controls.cursor = 0;
                 }
@@ -424,6 +598,9 @@ impl App {
                 ..Default::default()
             };
             let (cursor, acts) = ui::menu::navigate(&model, input);
+            if let Some(s) = setting_sound(&model, input, cursor) {
+                front.cue(s);
+            }
             front.settings = Some(cursor);
             for a in acts {
                 self.apply_shell_setting(&mut front, a);
@@ -433,7 +610,19 @@ impl App {
                 .map(|cursor| ui::menu::MenuModel { cursor, ..model });
         } else {
             match front.menus.step(input, start, dt) {
-                Some(ui::shell_ps2::ShellCommand::InstantAction) => front.setup = true,
+                Some(ui::shell_ps2::ShellCommand::InstantAction) => {
+                    match front.ia.as_mut() {
+                        Some(ia) => ia.enter(),
+                        None => {
+                            front.ia = Some(game::shell_ia::instant_action(
+                                &self.assets_dir,
+                                &self.missions_dir,
+                                self.profile.settings.difficulty,
+                            ))
+                        }
+                    }
+                    front.ia_open = true;
+                }
                 Some(ui::shell_ps2::ShellCommand::Settings) => front.settings = Some(0),
                 Some(ui::shell_ps2::ShellCommand::Controls) => {
                     front.controls = Some(Controls {
@@ -448,23 +637,51 @@ impl App {
                 None => {}
             }
         }
-        // The music (`ifs_start` sets `shell_soundtrack`, §2) at the
-        // profile's level; `[H]` its first take, looped.
-        if front.music.is_none() {
-            if let (Some(audio), Some(sl)) = (self.audio.as_mut(), front.sounds.as_ref()) {
-                let level = self.profile.settings.music_volume;
-                if let Some((gain, takes)) = sl
-                    .stream_takes(ui::shell_ps2::MUSIC)
-                    .filter(|_| level > 0.0)
-                {
+        // The music (`ifs_start` sets `shell_soundtrack`, §2): a random take
+        // each time with the shell's gap between them, at its gain x the
+        // `shellmusic` bus x the profile's level (re-bf2-menus §4.4, menuref
+        // §9.3.9).
+        let secs: Vec<f32> = front
+            .music_takes
+            .as_ref()
+            .map_or_else(Vec::new, |(_, takes)| {
+                takes.iter().map(audio::StreamTake::secs).collect()
+            });
+        let mut rng = front.music_rng;
+        let due = {
+            let mut pick = |n: usize| (xorshift(&mut rng) % n.max(1) as u64) as usize;
+            front.playlist.step(dt, &secs, &mut pick)
+        };
+        front.music_rng = rng;
+        if let Some((gain, takes)) = &front.music_takes {
+            let level = self.profile.settings.music_volume;
+            // A level raised from off: the take of the moment starts again.
+            let replay = std::mem::take(&mut front.music_replay);
+            let due = due.or_else(|| front.playlist.playing(&secs).filter(|_| replay));
+            if let (Some(k), Some(audio)) = (due, self.audio.as_mut()) {
+                front.music = None;
+                if level > 0.0 {
                     front.music = audio
-                        .play_stream(takes[0].clone(), game::sounds::level_db(gain * level), true)
+                        .play_stream(
+                            takes[k].clone(),
+                            game::sounds::level_db(gain * level),
+                            false,
+                        )
                         .map_err(|e| eprintln!("shell music: {e:#}"))
                         .ok();
                 }
             }
+            if let (Some(k), true) = (due, front.log_sounds) {
+                eprintln!(
+                    "shell music t={:.3} take {} of {} ({:.1} s) gain {gain:.3}",
+                    front.menus.clock,
+                    k + 1,
+                    takes.len(),
+                    secs[k]
+                );
+            }
         }
-        front.menus.covered = front.setup || front.settings.is_some() || front.controls.is_some();
+        front.menus.covered = front.ia_open || front.settings.is_some() || front.controls.is_some();
         let movie_name = front.menus.movie();
         let mut has_movie = false;
         if let Some(m) = front.movie.as_mut() {
@@ -476,8 +693,13 @@ impl App {
             }
             has_movie = m.shown;
         }
-        let model = self.shell.clone();
-        let mut clicked = Vec::new();
+        // The IA screen has its own backdrop and no movie (§1.1); Session
+        // Options keep `shell_sub_left`.
+        let ia = front
+            .ia
+            .as_ref()
+            .filter(|_| front.ia_open && front.settings.is_none() && front.controls.is_none());
+        let movie_shown = has_movie && ia.is_none_or(|ia| ia.page != ui::shell::Page::Missions);
         let mut control_clicked = None;
         let mut setting_clicked = Vec::new();
         if let (Some(r), Some(overlay), Some(window)) =
@@ -485,14 +707,13 @@ impl App {
         {
             let (w, h) = r.size();
             if let Some(v) = front.view.as_mut() {
-                v.update_shell(&front.menus, has_movie, [w, h]);
+                match ia {
+                    Some(ia) => v.update_instant(&front.menus, ia, movie_shown, [w, h]),
+                    None => v.update_shell(&front.menus, has_movie, [w, h]),
+                }
             }
             let warning = self.pad_warning.as_deref();
-            let setup = front.setup;
             let paint = overlay.begin(window, |ctx| {
-                if setup {
-                    clicked = ui::shell::draw_shell(ctx, &model);
-                }
                 if let Some(m) = &settings_model {
                     setting_clicked = ui::menu::draw_menu(ctx, m);
                 }
@@ -526,18 +747,26 @@ impl App {
             }
         }
         for action in setting_clicked {
+            // A pointer click sounds as its pad press (only toggles click).
+            if action == ui::menu::MenuAction::ToggleInvertY {
+                front.cue(MenuSound::Accept);
+            }
             self.apply_shell_setting(&mut front, action);
         }
+        // A page of the port's own closed: the screen under it is entered
+        // again (its exit click, its entrance).
+        let covered = front.ia_open || front.settings.is_some() || front.controls.is_some();
+        if front.was_covered && !covered {
+            front.menus.uncover();
+        }
+        front.was_covered = covered;
+        front.play_cues(self.audio.as_mut(), dt);
         self.front = Some(front);
-        actions.extend(clicked);
         if quit {
             event_loop.exit();
         }
-        for a in actions {
-            match a {
-                ui::shell::ShellAction::Start => self.begin_loading(),
-                ui::shell::ShellAction::Quit => event_loop.exit(),
-            }
+        if let Some((rows, options)) = launch {
+            self.start_playlist(rows, options);
         }
     }
 
@@ -560,8 +789,15 @@ impl App {
             }
             MenuAction::SetMusic(v) => {
                 s.music_volume = v.clamp(game::music::VOLUME_RANGE.0, game::music::VOLUME_RANGE.1);
-                // Restarted at the new level by the next frame (none at 0).
-                front.music = None;
+                // The take playing follows the level; off stops it.
+                let gain = front.music_takes.as_ref().map_or(1.0, |(g, _)| *g);
+                match front.music.as_mut() {
+                    Some(m) if s.music_volume > 0.0 => {
+                        m.set_volume(game::sounds::level_db(gain * s.music_volume), 0.05)
+                    }
+                    Some(_) => front.music = None,
+                    None => front.music_replay = s.music_volume > 0.0,
+                }
             }
             MenuAction::SetMouseSensitivity(v) => {
                 s.mouse_sensitivity = v.clamp(
@@ -590,6 +826,48 @@ mod tests {
             controller: None,
             message: None,
         }
+    }
+
+    /// re-bf2-menus §4.1: a settings move clicks; a value step plays accept
+    /// (even at a clamp); the music row and Back play nothing here.
+    #[test]
+    fn the_settings_page_asks_for_the_options_clicks() {
+        use ui::menu::{MenuInput, MenuModel, Row};
+        let model = MenuModel {
+            in_shell: Some("Game Options".into()),
+            ai_alive_cap: 2,
+            ..Default::default()
+        };
+        let rows = ui::menu::rows(&model);
+        let at = |row: Row| MenuModel {
+            cursor: rows.iter().position(|r| *r == row).unwrap(),
+            ..model.clone()
+        };
+        let sound = |m: &MenuModel, input: MenuInput| {
+            let (to, _) = ui::menu::navigate(m, input);
+            setting_sound(m, input, to)
+        };
+        let down = MenuInput {
+            down: true,
+            ..Default::default()
+        };
+        let left = MenuInput {
+            left: true,
+            ..Default::default()
+        };
+        let back = MenuInput {
+            back: true,
+            ..Default::default()
+        };
+        assert_eq!(sound(&model, down), Some(MenuSound::Select));
+        assert_eq!(
+            sound(&at(Row::AiCap), left),
+            Some(MenuSound::Accept),
+            "at its clamp"
+        );
+        assert_eq!(sound(&at(Row::Music), left), None);
+        assert_eq!(sound(&at(Row::Fov), back), None);
+        assert_eq!(sound(&at(Row::Fov), MenuInput::default()), None);
     }
 
     #[test]

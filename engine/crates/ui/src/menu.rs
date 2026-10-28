@@ -88,8 +88,14 @@ pub fn draw_controls(
                         .max_height(500.0)
                         .show(ui, |ui| {
                             for (i, (name, value)) in labels.iter().enumerate() {
-                                if row_label(ui, i == cursor, name.clone(), Some(value.clone()))
-                                    .clicked_by(egui::PointerButton::Primary)
+                                if row_label(
+                                    ui,
+                                    // The list cursor box is solid (menuref §9.1.9).
+                                    (i == cursor).then_some(1.0),
+                                    name.clone(),
+                                    Some(value.clone()),
+                                )
+                                .clicked_by(egui::PointerButton::Primary)
                                 {
                                     selected = Some(i);
                                 }
@@ -224,16 +230,17 @@ pub fn navigate(m: &MenuModel, input: MenuInput) -> (usize, Vec<MenuAction>) {
     (cursor, actions)
 }
 
+/// One row; `focus` is the focused row's cursor box alpha (0..1).
 fn row_label(
     ui: &mut egui::Ui,
-    selected: bool,
+    focus: Option<f32>,
     text: String,
     value: Option<String>,
 ) -> egui::Response {
-    let bg = if selected {
-        Color32::from_rgba_premultiplied(60, 90, 140, 200)
-    } else {
-        Color32::TRANSPARENT
+    let selected = focus.is_some();
+    let bg = match focus {
+        Some(a) => Color32::from_rgba_unmultiplied(76, 115, 178, (200.0 * a.clamp(0.0, 1.0)) as u8),
+        None => Color32::TRANSPARENT,
     };
     let mut label = None;
     let row = egui::Frame::new()
@@ -293,7 +300,7 @@ pub fn draw_menu(ctx: &egui::Context, m: &MenuModel) -> Vec<MenuAction> {
                     }
                     let rows = rows(m);
                     for (i, row) in rows.iter().enumerate() {
-                        let sel = i == m.cursor;
+                        let sel = (i == m.cursor).then_some(1.0);
                         let clicked = match row {
                             Row::Respawn => row_label(
                                 ui,
@@ -929,7 +936,7 @@ mod pointer_navigation_tests {
                     egui::CentralPanel::default().show(ctx, |ui| {
                         response = Some(row_label(
                             ui,
-                            true,
+                            Some(1.0),
                             "Invert mouse Y".into(),
                             Some("OFF".into()),
                         ));

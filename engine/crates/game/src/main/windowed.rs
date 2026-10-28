@@ -217,8 +217,8 @@ fn rain_splashes(
 
 /// PS2 BF2 pause-menu cheat words → openbf effects (analysis/re-cheat-codes.md
 /// §6). Every word toggles. The returned line is the confirmation shown in the
-/// HUD feed (the PS2 plays `shell_menu_accept`; that property is not in the
-/// extracted BF2 SOUND/SHELL.LVL — open).
+/// HUD feed (the PS2 plays `shell_menu_accept`, a CORE.LVL click:
+/// `analysis/re-bf2-menus.md` §4.2).
 fn apply_cheat_word(
     word: &str,
     walk: &mut WalkSim,
@@ -329,8 +329,15 @@ struct App {
     /// Direct launch target (--map); None = started in the shell.
     map: Option<PathBuf>,
     screen: Screen,
-    shell: ui::shell::ShellModel,
-    shell_last_map: usize,
+    /// The Instant Action playlist still to play after the battle in play
+    /// (`analysis/re-bf2-menus.md` §7: the PS2 plays the whole list in
+    /// order), the row in play and the session options it launched with.
+    playlist: std::collections::VecDeque<ui::shell::Launch>,
+    current: Option<ui::shell::Launch>,
+    session: ui::shell::SessionOptions,
+    /// The round ended and its end screens were left (the next playlist
+    /// row loads); a pause-menu Quit leaves it false and ends the list.
+    round_over: bool,
     assets_dir: PathBuf,
     missions_dir: PathBuf,
     loading: Option<Loading>,
@@ -562,8 +569,10 @@ impl App {
         Self {
             map: None,
             screen: Screen::Shell,
-            shell: ui::shell::ShellModel::default(),
-            shell_last_map: usize::MAX,
+            playlist: std::collections::VecDeque::new(),
+            current: None,
+            session: ui::shell::SessionOptions::default(),
+            round_over: false,
             loading: None,
             audio,
             sounds: None,
@@ -660,90 +669,44 @@ impl App {
             (fwd * ly + right * lx + glam::Vec3::Y * (up - down)) * (MOVE_SPEED * boost * dt);
     }
 
-    /// Populate the shell from the baked maps + profile.
+    /// Back to the shell's screens (the Instant Action screen keeps its
+    /// playlist and options in `FrontShell`).
     fn init_shell(&mut self) {
-        let maps = game::assets::discover_maps(&self.assets_dir);
-        self.shell = ui::shell::ShellModel {
-            maps: maps
-                .iter()
-                .map(|(n, g, _)| (n.clone(), g.clone()))
-                .collect(),
-            mode: "con".into(),
-            teams: [0, 1],
-            ai_per_team: 8,
-            base_tickets: [250, 250],
-            ticket_pct: 100,
-            time_limit: 0,
-            cursor: 0,
-            career_line: format!(
-                "{} — {} rounds, {} wins, {} kills / {} deaths",
-                self.profile.name,
-                self.profile.career.rounds,
-                self.profile.career.wins,
-                self.profile.career.kills,
-                self.profile.career.deaths
-            ),
-            mission_found: false,
-            ..Default::default()
-        };
-        if let Some(last) = &self.profile.settings.last_map {
-            if let Some(i) = maps.iter().position(|(n, _, _)| n == last) {
-                self.shell.map_idx = i;
-            }
-        }
         self.screen = Screen::Shell;
-        self.shell_last_map = usize::MAX;
-        self.seed_shell_from_map();
     }
 
-    /// When the selected map changes: defaults from its mission file (or the
-    /// source game's default matchup).
-    fn seed_shell_from_map(&mut self) {
-        if self.shell.map_idx == self.shell_last_map {
-            return;
-        }
-        self.shell_last_map = self.shell.map_idx;
-        let Some((name, game)) = self.shell.maps.get(self.shell.map_idx).cloned() else {
-            return;
-        };
-        let fidx = |f: &str| {
-            ui::shell::FACTIONS
-                .iter()
-                .position(|x| *x == f)
-                .unwrap_or(0)
-        };
-        let path = self
-            .missions_dir
-            .join(format!("{name}_{}.ron", self.shell.mode));
-        match game::mission::MissionDef::load(&path) {
-            Ok(m) => {
-                let f = m.factions();
-                self.shell.teams = [fidx(&f[0]), fidx(&f[1])];
-                self.shell.base_tickets = m.tickets();
-                self.shell.ai_per_team = m.initial_ai(1, false).min(32);
-                self.shell.mission_found = true;
-            }
-            Err(_) => {
-                let d = game::roster::default_factions(&game);
-                self.shell.teams = [fidx(d[0]), fidx(d[1])];
-                self.shell.base_tickets = [250, 250];
-                self.shell.ai_per_team = 8;
-                self.shell.mission_found = false;
-            }
-        }
+    /// LAUNCH: the playlist in order, the first row now (§1.4, §7).
+    fn start_playlist(&mut self, rows: Vec<ui::shell::Launch>, session: ui::shell::SessionOptions) {
+        self.session = session;
+        self.playlist = rows.into();
+        self.next_round();
     }
 
-    /// Shell → loading screen (BF1 sequence + beep), then the battle.
-    fn begin_loading(&mut self) {
+    /// The playlist's next row to the loading screen; `false` when none is
+    /// left.
+    fn next_round(&mut self) -> bool {
+        while let Some(row) = self.playlist.pop_front() {
+            if self.begin_loading(row) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Shell → loading screen (BF1 sequence + beep), then the battle of
+    /// `row`; `false` when its map is not baked.
+    fn begin_loading(&mut self, row: ui::shell::Launch) -> bool {
         // The shell music stops with the shell.
         if let Some(f) = self.front.as_mut() {
-            f.music = None;
+            f.stop_music();
         }
         let maps = game::assets::discover_maps(&self.assets_dir);
-        let Some((name, source_game, dir)) = maps.get(self.shell.map_idx).cloned() else {
-            eprintln!("no baked map selected");
-            return;
+        let Some((name, source_game, dir)) = maps.into_iter().find(|(k, ..)| *k == row.key) else {
+            eprintln!("playlist: {} is not baked; skipped", row.key);
+            return false;
         };
+        self.mode = row.mode.subst().to_owned();
+        self.current = Some(row);
         let mut textures = Vec::new();
         // A map's own screen, else the game's generic one (BF2 LOAD/COMMON.LVL
         // `loadscreen`, baked into common_bf2/load).
@@ -789,6 +752,7 @@ impl App {
             beep,
         });
         self.screen = Screen::Loading;
+        true
     }
 
     /// Loading frame: paint the current step; after the last step is shown,
@@ -927,8 +891,13 @@ impl App {
         // The mission whose pair was picked (Republic against CIS runs the
         // map's Clone Wars script), the player's army on its own team there;
         // a cross-era pair runs the map's default mission (card ERAM).
-        let armies = self.shell.teams.map(|t| ui::shell::FACTIONS[t]);
-        let pick = game::mission::pick(&self.missions_dir, &name, &self.shell.mode, armies);
+        // The playlist row's armies (its era, or `[ours]` a cross-era pair).
+        let row_armies = self.current.as_ref().map_or_else(
+            || ["all".to_owned(), "imp".to_owned()],
+            |r| r.armies.clone(),
+        );
+        let armies = [row_armies[0].as_str(), row_armies[1].as_str()];
+        let pick = game::mission::pick(&self.missions_dir, &name, &self.mode, armies);
         let player_team = pick.as_ref().map_or(0, |p| p.player_team);
         let mut teams = armies.map(str::to_string);
         if player_team == 1 {
@@ -948,24 +917,26 @@ impl App {
                 },
                 player_team + 1
             ),
-            None => println!("mission: none for {name} {}", self.shell.mode),
+            None => println!("mission: none for {name} {}", self.mode),
         }
         let mission = pick.map(|p| p.mission);
         let setup = BattleSetup {
             seed: 42u32.wrapping_add(self.profile.career.rounds),
-            // The shell round takes the PROFILE's tier (no CLI flag here).
+            // The shell round takes the PROFILE's tier (no CLI flag here);
+            // Session Options' AI Difficulty writes it.
             difficulty: self.profile.settings.difficulty,
             spawn: (0.0, 0.0),
             spawn_set: false,
             targets: false,
-            ai: Some(self.shell.ai_per_team),
+            // Session Options' Conquest AI Units Per Team (§2.3).
+            ai: Some(self.session.con_numbots.max(0) as u32),
             // The shell has its own alive-AI slider (MenuAction::SetAiCap).
             ai_cap: None,
             // The mission's counts (else 250) scaled by the shell's %.
             tickets: 250,
             tickets_set: false,
-            ticket_pct: self.shell.ticket_pct,
-            time_limit: self.shell.time_limit,
+            ticket_pct: self.session.con_mult.max(10) as u32,
+            time_limit: self.session.con_timer.max(0) as u32,
             cheats: core::sim::Cheats::default(),
             teams: Some(teams.clone()),
             classes_dir: self.assets_dir.join("classes"),
@@ -1049,7 +1020,8 @@ impl App {
     }
 
     /// Raw menu buttons this frame as edge bits: 1 up, 2 down, 4 left,
-    /// 8 right, 16 confirm (Cross), 32 back (Circle), 64 Start.
+    /// 8 right, 16 confirm (Cross), 32 back (Circle), 64 Start, 128 L1,
+    /// 256 R1.
     fn menu_edges(&mut self) -> u32 {
         let mut now = 0u32;
         if let Some(g) = &mut self.gilrs {
@@ -1071,6 +1043,8 @@ impl App {
                     (Button::South, 16),
                     (Button::East, 32),
                     (Button::Start, 64),
+                    (Button::LeftTrigger, game::kbm::MENU_L1),
+                    (Button::RightTrigger, game::kbm::MENU_R1),
                 ];
                 for (b, bit) in bits {
                     if pad.is_pressed(b) {
@@ -1318,8 +1292,10 @@ impl winit::application::ApplicationHandler for App {
                 if state == winit::event::ElementState::Pressed {
                     self.keys_held |= bit;
                     // The system's key repeat steps the arrows, never a
-                    // confirm or a back.
-                    if !repeat || bit < 16 {
+                    // confirm or a back; the shell repeats a held arrow at
+                    // the PS2's rate itself (`ui::shell_feel::HoldRepeat`).
+                    let shell = matches!(self.screen, Screen::Shell);
+                    if !repeat || (bit < 16 && !shell) {
                         self.keys_tapped |= bit;
                     }
                 } else {
@@ -1377,6 +1353,16 @@ impl winit::application::ApplicationHandler for App {
                     self.paused = !self.paused;
                     self.pause_menu.confirm = false;
                     self.pause_menu.cursor = 0;
+                    // Start opens the pause menu with the accept click
+                    // (menuref "In battle").
+                    if self.paused {
+                        if let Some(sl) = self.sounds.as_mut() {
+                            sl.play_2d(
+                                self.audio.as_mut(),
+                                ui::shell_feel::MenuSound::Accept.name(),
+                            );
+                        }
+                    }
                 }
                 self.sync_grab();
                 let camera = if self.walk.is_some() {
@@ -1448,6 +1434,16 @@ impl winit::application::ApplicationHandler for App {
                             back: edges & 32 != 0,
                         };
                         let (cursor, actions) = ui::menu::navigate(&model, input);
+                        let click = game::pause::pause_sound(
+                            model.respawn_confirm,
+                            input,
+                            model.cursor,
+                            cursor,
+                            &actions,
+                        );
+                        if let (Some(c), Some(sl)) = (click, self.sounds.as_mut()) {
+                            sl.play_2d(self.audio.as_mut(), c.name());
+                        }
                         // The PS2 matcher runs beside the menu on the same
                         // edges (the cursor wiggle while typing is authentic).
                         if let Some(word) = self.morse.feed(input) {
@@ -1699,6 +1695,7 @@ impl winit::application::ApplicationHandler for App {
                         && walk.follow_round_end(dt, edges & 16 != 0, edges & 32 != 0, None)
                     {
                         self.quit_clicked = true;
+                        self.round_over = true;
                     }
                     if walk.sim.outcome.is_some() && !self.outcome_reported {
                         self.outcome_reported = true;
@@ -1922,6 +1919,11 @@ impl winit::application::ApplicationHandler for App {
                         event_loop.exit();
                     } else {
                         self.leave_battle();
+                        // The round's end screens were left: the playlist's
+                        // next row (§7); a Quit from the pause menu ends it.
+                        if !std::mem::take(&mut self.round_over) || !self.next_round() {
+                            self.playlist.clear();
+                        }
                     }
                 }
                 if let Some(w) = &self.window {

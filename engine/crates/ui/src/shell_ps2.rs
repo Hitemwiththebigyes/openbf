@@ -23,8 +23,17 @@
 //! `+ 4` ([`crate::spawn_draw::ROW_PITCH`]); the stack's middle
 //! [`CENTRE_LIFT`] above its container's y (0.6 of the screen, + 10 on the
 //! main menu). Focus moves wrap last <-> first and skip disabled rows (§3.2,
-//! §3.3). Each row appears [`ROW_REVEAL`] s after the one above it
-//! (`flashy`, §3.2).
+//! §3.3).
+//!
+//! How it sounds and moves (`analysis/re-bf2-menus.md` §4.1, §5;
+//! [`crate::shell_feel`]): every stack move clicks (the stacks wrap), Cross
+//! on a row plays accept, Back plays the exit click of the screen it returns
+//! to, Start on the title accept. The focused row's bar and label pulse
+//! together ([`Pulse::BUTTON`], 0.734 s, one phase kept across moves); the
+//! others sit at alpha 0.6 with a grey 150 bar. Every page entry (forward
+//! or back) replays the flashy entrance: the title at once, row k
+//! [`ROW_REVEAL`] × k s later. Singleplayer is always entered on its first
+//! live row (the PS2's Training, menuref "Singleplayer").
 //!
 //! `[ours]` Hor+: the movie, the logo and centred stacks keep the 4:3 box at
 //! the window's centre (the movie pillarboxed, never stretched: §9.9), a
@@ -34,6 +43,7 @@
 use crate::hud_draw::{run_width, Ctx};
 use crate::hud_tree::HAlign;
 use crate::menu::MenuInput;
+use crate::shell_feel::{flashy, Cues, MenuSound, Pulse};
 use crate::spawn_draw::{
     BUTTON_FONT, LABEL_STRETCH, ROW_H, ROW_PITCH, SELECTED_TEXT, TITLE_TEXT, UNSELECTED_TEXT,
 };
@@ -59,8 +69,14 @@ pub const BAR_PAD: f32 = 134.2;
 /// A dimmed button's label grey (`ShowHideVerticalButtons` f7 pc 266-289
 /// [V]: 110 instead of 255).
 pub const DIMMED_GREY: f32 = 110.0;
-/// Seconds between one row's appearance and the next's (`flashy`, §3.2 [V]).
+/// An unfocused row's bar tint (`FUN_00381858` B2 380175-380178: 150 grey
+/// unless the text style is `selected`, re-bf2-menus §5 [V]).
+pub const UNFOCUSED_BAR: f32 = 150.0;
+/// Seconds between one row's flashy start and the next's (`button` main.f7
+/// pc 188, re-bf2-menus §5 [V]; menuref §9.4.5 [M]: ~0.1 s on the PS2).
 pub const ROW_REVEAL: f32 = 0.1;
+/// The flashy sweep's square (unbaked: drawn untextured until it is, §8).
+pub const CURSOR_SHEET: &str = "cursor";
 /// The logo: 512 × 256, centred, 38 units above the top of the safe area
 /// (22.4, §3.5): §3.4 [V] says "above the top edge", and the frames put it
 /// from the safe area's [M] (ink rows 36-147 px of 480 on
@@ -199,6 +215,11 @@ pub struct ShellMenus {
     /// A page of the port's own is up over the screen (the Instant Action
     /// setup, the settings): only the movie draws.
     pub covered: bool,
+    /// The clicks asked for, for the game to play.
+    pub cues: Cues,
+    /// The focused button's pulse (one phase, shared by every screen; a
+    /// list's cursor box does not pulse, menuref §9.1.9).
+    pub pulse: Pulse,
 }
 
 impl ShellMenus {
@@ -266,6 +287,8 @@ impl ShellMenus {
             on_page: 0.0,
             clock: 0.0,
             covered: false,
+            cues: Cues::default(),
+            pulse: Pulse::BUTTON,
         }
     }
 
@@ -290,14 +313,37 @@ impl ShellMenus {
     fn go(&mut self, page: Page) {
         self.page = page;
         self.on_page = 0.0;
+        // Back on Singleplayer the focus is its first row (Training on the
+        // PS2) whatever was left (menuref "Singleplayer", `ia_enter_back`).
+        if page == Page::Singleplayer {
+            self.singleplayer.focus = self.singleplayer.first();
+        }
+    }
+
+    /// The clocks only: a frame of `dt` while a page of the port's own
+    /// covers the screen (its pulses and click limit keep running).
+    pub fn tick(&mut self, dt: f32) {
+        self.clock += dt;
+        self.on_page += dt;
+        self.cues.tick(dt);
+        self.pulse.advance(dt);
+    }
+
+    /// The page over the screen closed: this screen is entered again, so it
+    /// plays its exit click and its entrance (template Enter main.f10 pc 48,
+    /// re-bf2-menus §4.1 [V]).
+    pub fn uncover(&mut self) {
+        self.go(self.page);
+        self.cues.play(MenuSound::Exit);
     }
 
     /// One frame: `dt` seconds, the menu edges and Start's.
     pub fn step(&mut self, input: MenuInput, start: bool, dt: f32) -> Option<ShellCommand> {
-        self.clock += dt;
-        self.on_page += dt;
+        self.tick(dt);
         if self.page == Page::Title {
             if start {
+                // `ifs_start` main.f8 pc 23 (re-bf2-menus §4.1 [V]).
+                self.cues.play(MenuSound::Accept);
                 self.go(Page::Main);
             } else if input.back {
                 return Some(ShellCommand::Quit);
@@ -310,20 +356,31 @@ impl ShellMenus {
             } else {
                 Page::Main
             };
+            // The screen underneath plays its exit click on re-Enter.
+            self.cues.play(MenuSound::Exit);
             self.go(to);
             return None;
         }
         let s = self.stack_mut()?;
+        // `FollowButtonLink` clicks whenever it finds a row; links wrap.
+        let mut moved = false;
         if input.up {
             s.focus = s.follow(-1);
+            moved = true;
         }
         if input.down {
             s.focus = s.follow(1);
+            moved = true;
+        }
+        let row = s.rows.get(s.focus).filter(|r| r.enabled).map(|r| r.id);
+        if moved && row.is_some() {
+            self.cues.play(MenuSound::Select);
         }
         if !input.confirm {
             return None;
         }
-        let row = s.rows.get(s.focus).filter(|r| r.enabled)?.id;
+        let row = row?;
+        self.cues.play(MenuSound::Accept);
         match row {
             RowId::Singleplayer => self.go(Page::Singleplayer),
             RowId::Options => self.go(Page::Options),
@@ -423,39 +480,88 @@ impl Ctx<'_> {
         } else {
             centre
         };
-        // `[ours]` the reveal counts the title as row 0.
-        let shown = |k: usize| m.on_page >= ROW_REVEAL * k as f32;
-        self.bar(&s, lay.title, crate::spawn_draw::TITLE_PIECES);
-        let mid = |r: [f32; 4]| ((r[0] + r[2]) * 0.5, r[1] + (ROW_H - lh) * 0.5);
-        self.label(
-            &s,
-            BUTTON_FONT,
-            &stack.title,
-            mid(lay.title),
-            HAlign::Center,
-            TITLE_TEXT,
-        );
+        let title = FlashyRow {
+            rect: lay.title,
+            pieces: crate::spawn_draw::TITLE_PIECES,
+            bar: ([255.0; 3], crate::spawn_draw::PIECE_ALPHA),
+            text: &stack.title,
+            style: TITLE_TEXT,
+        };
+        self.flashy_row(&s, &title, m.on_page, lh);
+        let pulse = m.pulse.alpha();
         for (k, (row, r)) in stack.rows.iter().zip(&lay.rows).enumerate() {
-            if !shown(k + 1) {
-                break;
-            }
-            self.bar(
-                &s,
-                *r,
-                crate::spawn_draw::item_pieces(k + 1 == stack.rows.len()),
-            );
-            let style = if !row.enabled {
-                ([DIMMED_GREY; 3], UNSELECTED_TEXT.1)
+            let grey = ([UNFOCUSED_BAR; 3], UNSELECTED_TEXT.1);
+            let (bar, style) = if !row.enabled {
+                (grey, ([DIMMED_GREY; 3], UNSELECTED_TEXT.1))
             } else if k == stack.focus {
-                SELECTED_TEXT
+                (([255.0; 3], pulse), (SELECTED_TEXT.0, pulse))
             } else {
-                UNSELECTED_TEXT
+                (grey, UNSELECTED_TEXT)
             };
-            self.label(&s, BUTTON_FONT, &row.label, mid(*r), HAlign::Center, style);
+            let row = FlashyRow {
+                rect: *r,
+                pieces: crate::spawn_draw::item_pieces(k + 1 == stack.rows.len()),
+                bar,
+                text: &row.label,
+                style,
+            };
+            let t = m.on_page - ROW_REVEAL * (k + 1) as f32;
+            self.flashy_row(&s, &row, t, lh);
         }
         self.help(size, false, "btnb", &m.back);
         self.help(size, true, "btna", &m.select);
     }
+
+    /// One stack row (or the title) `t` seconds into its flashy entrance
+    /// (re-bf2-menus §5 [V]): the bar's middle wipes out, a `cursor` square
+    /// sweeps across the text box, the text pops up about its centre line
+    /// and fades in.
+    fn flashy_row(&mut self, s: &crate::hud_draw::Screen, row: &FlashyRow<'_>, t: f32, lh: f32) {
+        let f = flashy(t);
+        let [x0, y0, x1, y1] = row.rect;
+        let Some(out) = f.bar else {
+            return;
+        };
+        let caps = 2.0 * (y1 - y0);
+        let right = x0 + caps + (x1 - x0 - caps).max(0.0) * out;
+        self.bar_tinted(s, [x0, y0, right, y1], row.pieces, row.bar);
+        let (cx, top) = ((x0 + x1) * 0.5, y0 + (ROW_H - lh) * 0.5);
+        if let Some(across) = f.square {
+            let w = self
+                .art
+                .fonts
+                .get(BUTTON_FONT)
+                .map_or(0.0, |font| run_width(font, row.text, LABEL_STRETCH, false));
+            let x = cx - w * 0.5 + w * across;
+            let rect = [x, top, x + lh, top + lh];
+            let full = [0.0, 0.0, 1.0, 1.0];
+            self.sheet(s, rect, full, CURSOR_SHEET, row.style.1);
+        }
+        if f.text_h <= 0.0 {
+            return;
+        }
+        let at = (cx, top + lh * (1.0 - f.text_h) * 0.5);
+        let style = (row.style.0, row.style.1 * f.text_a);
+        self.label_scaled(
+            s,
+            BUTTON_FONT,
+            row.text,
+            at,
+            HAlign::Center,
+            style,
+            f.text_h,
+        );
+    }
+}
+
+/// A row as [`Ctx::flashy_row`] draws it.
+struct FlashyRow<'a> {
+    rect: [f32; 4],
+    pieces: [&'static str; 3],
+    /// The bar's tint and alpha.
+    bar: ([f32; 3], f32),
+    text: &'a str,
+    style: ([f32; 3], f32),
 }
 
 #[cfg(test)]
@@ -513,10 +619,9 @@ mod tests {
         assert_eq!(m.page, Page::Main);
     }
 
-    /// The main menu as the HUD pass lays it out: the dimmed rows' labels
-    /// are drawn grey 110 (§3.3), every glyph of both of them.
-    #[test]
-    fn the_disabled_rows_are_drawn_dimmed() {
+    /// `m` as the HUD pass lays it out in a 640 x 480 window, with a font
+    /// of 10-unit glyphs.
+    fn frame(m: ShellMenus) -> crate::hud_draw::HudFrame {
         use crate::hud_draw::HudArt;
         use crate::hud_tree::Hud;
         use manifest::hud::{HudFont, HudGlyph, HudLayout};
@@ -544,11 +649,18 @@ mod tests {
             nodes: Vec::new(),
         };
         let mut hud = Hud::new(&empty, &empty);
+        hud.shell = Some((m, false));
+        crate::hud_draw::draw(&hud, &art, [640.0, 480.0])
+    }
+
+    /// The main menu as the HUD pass lays it out: the dimmed rows' labels
+    /// are drawn grey 110 (§3.3), every glyph of both of them.
+    #[test]
+    fn the_disabled_rows_are_drawn_dimmed() {
         let mut m = menus();
         m.step(MenuInput::default(), true, 5.0);
         m.step(MenuInput::default(), false, 5.0);
-        hud.shell = Some((m, false));
-        let f = crate::hud_draw::draw(&hud, &art, [640.0, 480.0]);
+        let f = frame(m);
         let grey = DIMMED_GREY / 255.0;
         let dimmed = f
             .verts
@@ -635,5 +747,136 @@ mod tests {
             (seen.0 - 0.4).abs() < 0.03 && (seen.1 - 1.0).abs() < 0.03,
             "{seen:?}"
         );
+    }
+
+    /// re-bf2-menus §4.1: Start on the title accepts; a stack move clicks
+    /// even through the wrap; Cross accepts; Back plays the exit click.
+    #[test]
+    fn the_stacks_ask_for_the_ps2_clicks() {
+        use crate::shell_feel::MenuSound as S;
+        let mut m = menus();
+        m.step(press(|i| i.confirm = true), false, 0.2);
+        assert!(m.cues.take().is_empty(), "Cross does nothing on the title");
+        m.step(MenuInput::default(), true, 0.2);
+        assert_eq!(m.cues.take(), [S::Accept]);
+        for _ in 0..3 {
+            m.step(press(|i| i.down = true), false, 0.2);
+        }
+        assert_eq!(m.cues.take(), [S::Select; 3], "every press, the wrap too");
+        m.step(press(|i| i.confirm = true), false, 0.2);
+        assert_eq!(m.page, Page::Options);
+        assert_eq!(m.cues.take(), [S::Accept]);
+        m.step(press(|i| i.back = true), false, 0.2);
+        assert_eq!(m.cues.take(), [S::Exit]);
+        // Presses faster than 0.1 s apart: one click.
+        m.step(press(|i| i.down = true), false, 0.02);
+        m.step(press(|i| i.down = true), false, 0.02);
+        assert_eq!(m.cues.take(), [S::Select]);
+        // Back from a page of the port's own: the stack's re-Enter.
+        m.on_page = 3.0;
+        m.uncover();
+        assert_eq!((m.cues.take(), m.on_page), (vec![S::Exit], 0.0));
+    }
+
+    /// re-bf2-menus §5: the pulse's phase runs on through a focus move, and
+    /// the focused row's label and bar share it; the others sit at 0.6 with
+    /// a grey 150 bar. It steps at 30 Hz (menuref §9.4.1).
+    #[test]
+    fn the_focused_row_pulses_and_keeps_its_phase_across_moves() {
+        let mut m = menus();
+        m.step(MenuInput::default(), true, 0.0);
+        m.step(MenuInput::default(), false, 0.15);
+        let before = m.pulse.alpha();
+        // 0.15 s = 4 whole updates of 2/30 from 0.5.
+        assert!((before - (0.5 + 4.0 * 2.0 / 30.0)).abs() < 1e-4, "{before}");
+        m.step(press(|i| i.down = true), false, 0.05);
+        assert!(
+            (m.pulse.alpha() - 0.9).abs() < 1e-4,
+            "not reset by the move"
+        );
+        m.on_page = 5.0;
+        let a = m.pulse.alpha();
+        let f = frame(m);
+        let [r, g, b] = SELECTED_TEXT.0.map(|c| c / 255.0);
+        let focused = |v: &&crate::hud_draw::HudVertex| {
+            (v.color[0] - r).abs() < 1e-4
+                && (v.color[1] - g).abs() < 1e-4
+                && (v.color[2] - b).abs() < 1e-4
+        };
+        let label: Vec<_> = f.verts.iter().filter(focused).collect();
+        assert_eq!(label.len(), 4 * "Options".len());
+        assert!(label.iter().all(|v| (v.color[3] - a).abs() < 1e-4));
+        let white_bar = f
+            .verts
+            .iter()
+            .filter(|v| v.color == [1.0, 1.0, 1.0, a])
+            .count();
+        assert_eq!(white_bar, 3 * 4, "the focused bar's three pieces");
+        let grey = UNFOCUSED_BAR / 255.0;
+        let grey_bars = f
+            .verts
+            .iter()
+            .filter(|v| v.color == [grey, grey, grey, 0.6])
+            .count();
+        assert_eq!(grey_bars, 3 * 3 * 4, "the other three rows' bars");
+    }
+
+    /// re-bf2-menus §5, menuref §9.4.5: on entering a page nothing of row 1
+    /// shows until its 0.1 s delay, then its bar wipes out before its text
+    /// appears.
+    #[test]
+    fn a_page_entry_replays_the_flashy_entrance() {
+        let mut m = menus();
+        m.step(MenuInput::default(), true, 0.0);
+        let bar_right = |m: &ShellMenus| {
+            let f = frame(m.clone());
+            f.verts
+                .iter()
+                .filter(|v| v.color[..3] == [1.0, 1.0, 1.0] && v.color[3] == m.pulse.alpha())
+                .map(|v| v.pos[0])
+                .fold(f32::MIN, f32::max)
+        };
+        m.on_page = 0.05;
+        assert_eq!(bar_right(&m), f32::MIN, "row 1 not started");
+        m.on_page = 0.1 + 0.05;
+        let half = bar_right(&m);
+        m.on_page = 0.1 + 0.1;
+        let full = bar_right(&m);
+        assert!(half > f32::MIN && half < full, "{half} {full}");
+        let text = |m: &ShellMenus| {
+            let [r, g, b] = SELECTED_TEXT.0.map(|c| c / 255.0);
+            frame(m.clone())
+                .verts
+                .iter()
+                .filter(|v| v.color[..3] == [r, g, b])
+                .count()
+        };
+        m.on_page = 0.1 + 0.15;
+        assert_eq!(text(&m), 0, "the square sweeps before the text");
+        m.on_page = 0.1 + 0.3;
+        assert_eq!(text(&m), 4 * "Singleplayer".len());
+    }
+
+    /// menuref "Singleplayer": coming back to Singleplayer (from Instant
+    /// Action, or from the Main Menu) focuses its first row, not the one
+    /// left.
+    #[test]
+    fn singleplayer_is_always_entered_on_its_first_row() {
+        let mut m = menus();
+        // As if Training were shown: the first row live.
+        m.singleplayer.rows[0].enabled = true;
+        m.step(MenuInput::default(), true, 0.1);
+        m.step(press(|i| i.confirm = true), false, 0.1);
+        assert_eq!(m.page, Page::Singleplayer);
+        assert_eq!(m.singleplayer.focus, 0);
+        m.singleplayer.focus = 2;
+        // Instant Action opens over it and closes: back on the first row.
+        m.uncover();
+        assert_eq!(m.singleplayer.focus, 0);
+        m.singleplayer.focus = 2;
+        m.step(press(|i| i.back = true), false, 0.1);
+        m.step(press(|i| i.confirm = true), false, 0.1);
+        assert_eq!(m.page, Page::Singleplayer);
+        assert_eq!(m.singleplayer.focus, 0);
     }
 }

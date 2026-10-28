@@ -1,48 +1,10 @@
-//! Tier-2 visual golden: the instant-action shell painted headless (no map)
-//! with a fixed ShellModel, diffed against goldens/shell.png.
+//! Tier-2 visual goldens of the BF2 PS2 shell painted by the HUD pass,
+//! headless: the front screens (card BSHLA) and the Instant Action screen
+//! with its Session Options (`ui::shell_ia`).
 //!   cargo test -p game --test golden_shell -- --ignored
 //!   UPDATE_GOLDENS=1 cargo test -p game --test golden_shell -- --ignored
 
 mod common;
-
-fn model() -> ui::shell::ShellModel {
-    ui::shell::ShellModel {
-        maps: vec![("tat1".into(), "bf1".into()), ("tat2".into(), "bf2".into())],
-        map_idx: 1,
-        mode: "con".into(),
-        teams: [2, 3],
-        ai_per_team: 16,
-        base_tickets: [150, 150],
-        ticket_pct: 100,
-        time_limit: 0,
-        // START BATTLE (queue TLO put the time-limit row above it).
-        cursor: 7,
-        career_line: "maintainer — 12 rounds, 7 wins, 240 kills / 96 deaths".into(),
-        mission_found: true,
-    }
-}
-
-#[test]
-#[ignore = "requires a GPU adapter"]
-fn shell_matches_golden() {
-    common::force_ps2_tier();
-    let mut r = render::Renderer::new_headless(1280, 720).expect("headless renderer");
-    let mut overlay = ui::overlay::EguiOverlay::headless(r.device(), render::HEADLESS_FORMAT);
-    let m = model();
-    let paint = overlay.begin_headless([1280, 720], 1.0, |ctx| {
-        ui::shell::draw_shell(ctx, &m);
-    });
-    r.render_with_overlay(
-        &render::Camera::default(),
-        &[],
-        [0.05, 0.06, 0.10, 1.0],
-        Some(&mut |dev, q, enc, view, size| overlay.paint(&paint, dev, q, enc, view, size)),
-    )
-    .expect("render");
-    let (rgba, w, h) = r.capture_rgba().expect("capture");
-
-    common::assert_golden(&common::goldens_dir().join("shell.png"), &rgba, w, h);
-}
 
 /// The BF2 PS2 shell's front screens (card BSHLA) as the HUD pass paints
 /// them: each over a fixed frame of its movie (`shell_main` segment 0 frame
@@ -120,6 +82,137 @@ fn ps2_front_screens_match_golden() {
             image::RgbaImage::from_raw(w, h, rgba)
                 .expect("frame")
                 .save(dir.join(format!("shell_{name}_640.png")))
+                .expect("write");
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// The Instant Action screen's states and Session Options' pages
+/// (`analysis/re-bf2-menus.md` §1-§2), each the PCSX2 reference frame's
+/// (`bshl/ref_frames/<name>.png`) counterpart where there is one.
+fn ia_screens() -> Vec<(&'static str, ui::shell::InstantAction)> {
+    use ui::shell::{Cmd, Era, IaInput, MapPick, Mode, ModePick, Page, Side, SidePick, State};
+    let assets = game::assets::baked_root();
+    // `engine/missions` (the bake may be a link elsewhere).
+    let missions = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../missions"));
+    let base = game::shell_ia::instant_action(&assets, &missions, Default::default());
+    let at = |ia: &ui::shell::InstantAction, label: &str| {
+        ia.maps.iter().position(|m| m.label == label).expect(label)
+    };
+    let cmd = |ia: &mut ui::shell::InstantAction, c: Cmd| {
+        ia.command = ui::shell::COMMANDS.iter().position(|x| *x == c).unwrap();
+    };
+    let mut out = Vec::new();
+    out.push(("ia_missionselect", base.clone()));
+    let mut m = base.clone();
+    m.state = State::Map;
+    out.push(("ia_planet_list", m.clone()));
+    let hoth = at(&m, "Hoth (bf2)");
+    m.map_list.at = hoth;
+    m.map_list.top = hoth + 1 - ui::shell::LIST_ROWS;
+    out.push(("ia_planet_hoth", m.clone()));
+    m.picked_map = MapPick::One(hoth);
+    m.state = State::Mode;
+    out.push(("ia_mode", m.clone()));
+    m.picked_mode = ModePick::One(Mode::Con);
+    m.state = State::Era;
+    out.push(("ia_era", m.clone()));
+    m.add(
+        MapPick::One(hoth),
+        ModePick::One(Mode::Con),
+        SidePick::One(Side::Era(Era::Gcw)),
+    );
+    m.state = State::Command;
+    cmd(&mut m, Cmd::Launch);
+    out.push(("ia_playlist_launch", m.clone()));
+    let mut p = m.clone();
+    cmd(&mut p, Cmd::Remove);
+    p.state = State::Playlist;
+    p.play_list.at = 1;
+    out.push(("ia_playlist", p));
+    let mut full = m.clone();
+    full.add(MapPick::All, ModePick::All, SidePick::AllEras);
+    full.add(MapPick::All, ModePick::All, SidePick::AllEras);
+    full.add(MapPick::All, ModePick::All, SidePick::AllEras);
+    out.push(("ia_full", full));
+    let mut o = m;
+    cmd(&mut o, Cmd::Options);
+    out.push(("ia_options_focus", o.clone()));
+    o.page = Page::Overview(0);
+    out.push(("session_options", o.clone()));
+    o.step(
+        IaInput {
+            menu: ui::menu::MenuInput {
+                confirm: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        0.0,
+    );
+    out.push(("options_global", o.clone()));
+    o.page = Page::Overview(2);
+    o.step(
+        IaInput {
+            menu: ui::menu::MenuInput {
+                confirm: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        0.0,
+    );
+    out.push(("options_conquest", o));
+    out
+}
+
+fn ia_screen(ia: &ui::shell::InstantAction, size: [u32; 2]) -> (Vec<u8>, u32, u32) {
+    use ui::shell_ps2::{Page, ShellMenus};
+    let assets = game::assets::baked_root();
+    let mut menus = ShellMenus::new(&|_, e| e.to_owned());
+    menus.page = Page::Singleplayer;
+    menus.covered = true;
+    let movie = ia.page != ui::shell::Page::Missions;
+    let mut r = render::Renderer::new_headless(size[0], size[1]).expect("headless renderer");
+    let mut view =
+        game::hud_feed::HudView::for_renderer(&assets, &r).expect("the BF2 HUD bake (bake common)");
+    if movie {
+        let shell = game::shell_movie::ShellMovie::load(&assets).expect("the shell bake");
+        let (rgba, w, h) = shell
+            .frame_now(ui::shell_ps2::MOVIE_SUB, 0, 150)
+            .expect("movie frame");
+        view.set_movie_frame(rgba, w, h);
+    }
+    view.update_instant(&menus, ia, movie, size);
+    r.render_with_overlay(
+        &render::Camera::default(),
+        &[],
+        [0.0, 0.0, 0.0, 1.0],
+        Some(&mut |dev, q, enc, target, size| view.paint(dev, q, enc, target, size)),
+    )
+    .expect("render");
+    r.capture_rgba().expect("capture")
+}
+
+/// `IA_OUT=<dir>`: also each at 640 x 480, the PS2 frames' size.
+#[test]
+#[ignore = "requires a GPU adapter + the BF2 common bake with the IA sheets"]
+fn ia_screens_match_golden() {
+    common::force_ps2_tier();
+    let out = std::env::var_os("IA_OUT").map(std::path::PathBuf::from);
+    let mut failures = Vec::new();
+    for (name, ia) in ia_screens() {
+        let (rgba, w, h) = ia_screen(&ia, [1280, 720]);
+        let golden = common::goldens_dir().join(format!("shell_{name}.png"));
+        if let Some(f) = common::check_golden(&golden, &rgba, w, h) {
+            failures.push(f);
+        }
+        if let Some(dir) = &out {
+            let (rgba, w, h) = ia_screen(&ia, [640, 480]);
+            image::RgbaImage::from_raw(w, h, rgba)
+                .expect("frame")
+                .save(dir.join(format!("{name}_640.png")))
                 .expect("write");
         }
     }

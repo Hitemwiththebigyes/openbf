@@ -196,6 +196,12 @@ impl Texts {
         self.bf2.as_ref()?.text(key)
     }
 
+    /// The map's game's table's text under `key` (BF1's own for a BF1
+    /// map); `None` without one.
+    pub fn map_text(&self, key: &str) -> Option<&str> {
+        self.map.as_ref()?.text(key)
+    }
+
     /// A team's name: `common.sides.<faction>.name` ("Rebels", "Empire").
     pub fn team_name(&self, faction: &str) -> String {
         self.bf2

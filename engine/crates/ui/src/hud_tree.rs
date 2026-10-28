@@ -653,6 +653,8 @@ pub struct Hud {
     /// The shell's page up this frame and whether its movie has a frame
     /// (`crate::shell_ps2`, card BSHLA); it draws alone.
     pub shell: Option<(crate::shell_ps2::ShellMenus, bool)>,
+    /// The Instant Action screen over the shell's page (`crate::shell_ia`).
+    pub instant: Option<Box<crate::shell::InstantAction>>,
     /// Per font: each glyph's pen advance in texels (what a MultiLineText
     /// wraps its words by). Empty until [`Hud::set_fonts`].
     advances: HashMap<String, HashMap<u32, f32>>,
@@ -766,6 +768,7 @@ impl Hud {
             ambush: Default::default(),
             spawn: None,
             shell: None,
+            instant: None,
             advances: HashMap::new(),
         };
         for n in &layout.nodes {

@@ -244,6 +244,18 @@ impl Ctx<'_> {
         texture: &str,
         alpha: f32,
     ) {
+        self.sheet_tinted(s, rect, uv, texture, ([255.0; 3], alpha));
+    }
+
+    /// [`Ctx::sheet`] tinted `rgb` (0..255).
+    pub(crate) fn sheet_tinted(
+        &mut self,
+        s: &Screen,
+        rect: [f32; 4],
+        uv: [f32; 4],
+        texture: &str,
+        (rgb, alpha): ([f32; 3], f32),
+    ) {
         self.quad(
             NONE,
             &Mat4::IDENTITY,
@@ -251,7 +263,7 @@ impl Ctx<'_> {
             &Quad {
                 rect,
                 uv,
-                color: color([255.0; 3], alpha),
+                color: color(rgb, alpha),
                 texture,
                 additive: false,
                 shadow: false,
@@ -268,7 +280,22 @@ impl Ctx<'_> {
         text: &str,
         at: (f32, f32),
         h_align: HAlign,
+        style: ([f32; 3], f32),
+    ) {
+        self.label_scaled(s, font, text, at, h_align, style, 1.0);
+    }
+
+    /// [`Ctx::label`] with the glyphs `ky` × their height down from `at`.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn label_scaled(
+        &mut self,
+        s: &Screen,
+        font: &str,
+        text: &str,
+        at: (f32, f32),
+        h_align: HAlign,
         (rgb, alpha): ([f32; 3], f32),
+        ky: f32,
     ) {
         let Some(font) = self.art.fonts.get(font) else {
             return;
@@ -288,7 +315,7 @@ impl Ctx<'_> {
                         MAP_FONT => MAP_STRETCH,
                         _ => SMALL_STRETCH,
                     },
-                    1.0,
+                    ky,
                 ],
                 color: color(rgb, alpha),
                 additive: false,
@@ -306,12 +333,23 @@ impl Ctx<'_> {
 
     /// A bar of three pieces: two square ends of the row's height, the
     /// centre stretched between them.
-    pub(crate) fn bar(&mut self, s: &Screen, [x0, y0, x1, y1]: [f32; 4], pieces: [&str; 3]) {
+    pub(crate) fn bar(&mut self, s: &Screen, rect: [f32; 4], pieces: [&str; 3]) {
+        self.bar_tinted(s, rect, pieces, ([255.0; 3], PIECE_ALPHA));
+    }
+
+    /// [`Ctx::bar`] tinted `rgb` at `alpha`.
+    pub(crate) fn bar_tinted(
+        &mut self,
+        s: &Screen,
+        [x0, y0, x1, y1]: [f32; 4],
+        pieces: [&str; 3],
+        tint: ([f32; 3], f32),
+    ) {
         let h = y1 - y0;
         let full = [0.0, 0.0, 1.0, 1.0];
-        self.sheet(s, [x0, y0, x0 + h, y1], full, pieces[0], PIECE_ALPHA);
-        self.sheet(s, [x0 + h, y0, x1 - h, y1], full, pieces[1], PIECE_ALPHA);
-        self.sheet(s, [x1 - h, y0, x1, y1], full, pieces[2], PIECE_ALPHA);
+        self.sheet_tinted(s, [x0, y0, x0 + h, y1], full, pieces[0], tint);
+        self.sheet_tinted(s, [x0 + h, y0, x1 - h, y1], full, pieces[1], tint);
+        self.sheet_tinted(s, [x1 - h, y0, x1, y1], full, pieces[2], tint);
     }
 
     /// `border_3_pieces` as nine parts: fixed corners, stretched edges.

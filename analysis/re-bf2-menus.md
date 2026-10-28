@@ -19,7 +19,9 @@ Sources, PS2 only:
 - the ELF decomp `analysis/SWBFRNT2.ELF-decomp.c` (cited `B2 <line>`) for the native parts: the flashy-text draw and
   its timing table, `ScriptCB_GetNetGameDefaults`, the mission-queue size.
 - the PCSX2 reference frames of card BSHL (`bshl/ref_frames/`, listed in its `index.md`); PCSX2 was NOT run for this
-  note (§9 lists what needs it).
+  note (§9 lists what needs it). A later PCSX2 walk with video and sound (2026-10-27/28,
+  `engine/artifacts/lead_tmp/menuref/README.md`, cited "menuref" with its clip / frame / sheet) answered §9 and
+  contradicted the note in places: those claims are corrected in place, tagged [M], and listed in §10.
 Scratch (not tracked): `engine/artifacts/lead_tmp/re/bf2menus/` (`sec/` the section drafts and `assemble.py`, `maps/` the
 BF1 listings and key lookups, `snd/` every sound call site `play2.tsv` and the resolved SHELL.LVL properties).
 Tags: [V] read, [D] derived, [H] hypothesis, [M] seen on a named reference frame. `[O]` = one Opus pass: a lead and
@@ -32,13 +34,13 @@ main.f5). No verifier round yet. Units: the PS2 shell's 512 x 448 screen (re-bf2
 | question | answer |
 |---|---|
 | Instant Action screen | `ifs_missionselect`: static backdrop `iface_instant_action`, no movie, no music change. Left window (Planet -> Mode -> Era, one at a time, 172.8 x 183 units, title bars "Planet" / "Mode" / "Era"), right window "Playlist" (same size), a square command stack LAUNCH / ADD / REMOVE / OPTIONS (`gamefont_tiny`) in the centre housing, a full-width info box (76 tall, blue text) along the bottom; lists in `gamefont_tiny`, 9 rows of 17 units (Era 4 rows of 38). Five states: command, map, mode, era, playlist. Cross walks Planet -> Mode -> Era and the Era pick adds the row and jumps to LAUNCH; Triangle walks back; L1 / R1 page; Square does nothing. Help bar: Triangle "Back", Cross "Select". Playlist starts as one row "Remove All"; LAUNCH is dimmed until a map is added; max 128 rows. [V][M] §1 |
-| Session Options | `ifs_instant_options_overview` (stack "Session Options", 305 wide, `shell_sub_left`): Global, Hero, Conquest, CTF, Hunt, Assault (Host hidden in SP; no Elimination). Each opens `ifs_instant_options`: a 391.7-wide window of 5 rows of 40 (`gamefont_small`) "Label: < value >", Left / Right +-1 step, L1 / R1 +-10 steps, a grey info box with the row's help line, help bar Back only. Values: AI Units 0..16 (or 25) default 16; AI Difficulty Normal <-> Elite; Reinforcements 10..500 % step 10 default 100; Conquest / CTF timer Off or 5..60 min step 5 default Off; CTF score 1..15 default 5; Hunt timer 5..60 default 5, score 10..1000 step 10 default 50; Assault score 50..1000 step 10 default 180; Hero rows (on/off, Points <-> Timer, value 1..120, Best / Worst / Random, respawn Always / 1..120 s / Never). [V][M] §2 |
+| Session Options | `ifs_instant_options_overview` (stack "Session Options", 305 wide, `shell_sub_left`): Global, Hero, Conquest, CTF, Hunt, Assault (Host hidden in SP; no Elimination). Each opens `ifs_instant_options`: a 391.7-wide window of 5 rows of 40 (`gamefont_small`) "Label: < value >", Left / Right +-1 step, L1 / R1 +-10 steps, a grey info box with the row's help line, help bar Back only. Values: AI Units 0..16 default 16 [M menuref `so_global`]; AI Difficulty Normal <-> Elite; Reinforcements 10..500 % step 10 default 100; Conquest / CTF timer Off or 5..60 min step 5 default Off; CTF score 1..15 default 5; Hunt timer 5..60 default 5, score 10..1000 step 10 default 50; Assault score 50..1000 step 10 default 180; Hero rows (Heroes default **Off**, the other rows hidden while Off; Points <-> Timer default Points, value 1..120 default 10, Best -> Worst -> Random default Best, respawn Always / 1..120 s / Never default 90 s [M menuref `so_hero`, `so_hero_ranges`]). [V][M] §2 |
 | The rest of the tree | Profile (Pick a Profile, keyboard 4 x 13, Select Difficulty, save popup), Main Menu, Singleplayer (Training, Space Overview, Rise of the Empire, Galactic Conquest, Instant Action), Multiplayer (PS2 network chain), Splitscreen, Options (Game Options 10 rows, Audio 5 sliders + Output Mode, Controls 5 modes + pad page, Online, View Trailer, Credits crawl, Career Stats) and the pause menu, each with its rows, values, setters and pad buttons. [V][M] §3 |
 | Sounds | All clicks live in **CORE.LVL's bank `global`** (bus `shellfx` gain 0.4): focus move `shell_select_change` (63 ms, pitch 1.5, at most one per 0.1 s), accept `shell_menu_accept` (428 ms), back = the screen you return to plays `shell_menu_exit`, refusal `shell_menu_error` (= `shell_menu_cancel`'s sample `ui_cancel`), popup No `shell_menu_cancel`, name keys `shell_keyboard_key/backspace`. List moves click only when the cursor moves (silent at the ends); stacks wrap and always click; no dimmed-press sound (focus never lands on one). Option values click `shell_select_change` even at a clamp; Game Options rows play accept; volume sliders play a voice / sfx audition line, not a click. No transition whoosh in BF2 (`shell_transition1..10` exist but no screen has a `movieIntro`). The samples are baked; nothing in the port plays them. [V] §4 |
-| The focus pulse | The focused button's whole row (bar + label) **pulses its alpha on a linear triangle 0.3 <-> 1.0 at 2.0 /s (0.35 s each way, 0.7 s cycle)**, continuously while focused, one global phase shared by all buttons and not reset on a move; colours step at once (focused label (138,160,244), bar white; others label 240 a 0.6, bar grey 150). In lists only the `listbox_cursor` box pulses, **0.5 <-> 1.0 at 1.0 /s (1.0 s cycle)**; row text is static. Every screen Enter plays a one-shot 0.5 s "flashy" entrance per text (bar wipe 0.1, sweep square 0.05 + 0.05, vertical pop 0.15, fade-in 0.15), menu rows staggered 0.1 s, list rows at random 0..0.5 s. [V][D] §5 |
+| The focus pulse | The focused button's whole row (bar + label) **pulses its alpha on a linear triangle 0.3 <-> 1.0 at 2.0 /s, stepped at the shell's 30 Hz: 11 updates each way, a 0.734 s (22-update) cycle** [M menuref `measure/main_idle_pulse.csv`], continuously while focused, one global phase shared by all buttons and not reset on a move; colours step at once (focused label (138,160,244), bar white; others label 240 a 0.6, bar grey 150). **A list's `listbox_cursor` box does not pulse** on the PS2 (static for 5 s beside a pulsing ADD, [M] menuref `measure/ia_list_pulse.csv`); row text is static. Every screen Enter plays a one-shot "flashy" entrance per text, measured at bar wipe ~0.07 s, square ~0.1 s, text pop ~0.07 s, fade ~0.07 s [M menuref `measure/flashy_sp_entrance_strip.png`] (the ELF table says 0.1 / 0.05 / 0.05 / 0.15 / 0.15), menu rows staggered 0.1 s, list rows at random 0..0.5 s. [V][D][M] §5 |
 | Map list | BF2: 24 maps + "All Maps", sorted by English name (Coruscant ... Yavin 4, six space maps among them), names / descriptions `mapname.name/description.<code>`, modes per map and era, eras Clone Wars / Galactic Civil War (+ "All Modes" / "All Eras" when more than one). No preview on the PS2 IA. BF1: 16 maps, conquest only, names `planets.<p>.mapname<n>` ("HOTH: ECHO BASE"), no description, preview clips `<CODE>fly`. Merged list of 40 + All Maps in §6 (sort case-folded; 8 codes exist in both games, so key by `<game>_<code>`). [V][M] §6 |
 | What the bake lacks | `iface_instant_action`, `mode_icon_*`, BF2 copies of the era icons, `listbox_cursor`, `listbox_topbot_more`, `white_rect`, `cursor`, `btnmisc*`, slider sheets; the 6 space maps and every non-conquest mission. Fonts, text (both games), button pieces, `btna/btnb`, `optionl/optionr`, `border_3_pieces`, the menu movies, the music and the click samples are baked; the clicks are not wired. §8 |
-| Open | the AI cap (16 or 25), the Hero defaults, the info-box font on Session Options, the music take order, and every timing above - all need a PCSX2 look (§9). |
+| Open | answered by the PCSX2 walk (§10): AI cap 16, Hero defaults, the info-box font (the rows' `gamefont_small`), the music (a random take each time), the timings. Still open: the column-change fade, the pulse's phase carry-over, BF1 (§9). |
 
 ## 1. The Instant Action screen (`ifs_missionselect`)
 
@@ -78,7 +80,7 @@ x is from the screen centre 256.
 | command stack | main pc 87; f34 pc 241-244 | `AddVerticalButtons(buttons, {yTop -130, HardWidthMax 80, font 'gamefont_tiny', bAllSquareButtons 1, buttons launch / add / remove / options})`: rows 15 + 6 = 21 tall every 25 [M: LAUNCH / ADD / REMOVE / OPTIONS centres at y 172 / 199 / 226 / 252 px = pitch 25.2 units], no title, square caps |
 | preview rect | f34 pc 245-256 | `movieX/Y/W/H` = 132, 188, 380, 310 on PS2 - **set but never used**: no movie name exists for this screen (§6) |
 | window skin | `ifelem_buttonwindow` main.f7 | 9-slice `border_3_pieces` with 16-unit corners (main.f0); title bar = `NewIFText` in `gMenuButtonFont` (`gamefont_large`), row 22 + 6 = 28 tall, 4 above the window, over `bf2_buttons_topleft / title_center / topright`, bar width = window width - 26, title text `gTitleTextColor` (246,235,20), `flashy=1, startdelay=0`, shifted +8 in x (pc 107-163) |
-| scroll arrows | `ifelem_listmanager` main.f0 pc 16-100 | non-PC: two `listbox_topbot_more` halves (x -32..2 and the mirrored 32..-1, 16 tall) 6 above the first row and below the last; shown when the list scrolls [M: the down arrow under KAMINO] |
+| scroll arrows | `ifelem_listmanager` main.f0 pc 16-100 | non-PC: two `listbox_topbot_more` halves (x -32..2 and the mirrored 32..-1, 16 tall) 6 above the first row and below the last; shown when the list scrolls [M: the down arrow under KAMINO]. Down moves the cursor to the 9th visible row, then **scrolls one row per press** (no margin); L1 / R1 move **8 rows** (0 -> 8 -> 16 -> 24) [M menuref `ia_list_scroll`, `ia_list_page`] |
 | focus box | listmanager main.f0 pc 137-154 | `listbox_cursor` 9-slice, list width x (row h + 10) = 167.8 x 27 |
 
 List rows (CreateFn, all `nocreatebackground=1`, `startdelay = random x 0.5`) [V]:
@@ -104,8 +106,8 @@ values, so the session options survive the round trip, §2.3).
 
 | state | visible windows (f12) | Up / Down | L1 / R1 | Cross (f27) | Triangle (f28) | info box (f9) |
 |---|---|---|---|---|---|---|
-| command | Planet (no cursor), Playlist (no cursor), stack focused | stack moves, skipping dimmed (f30 pc 13-20) | nothing (no list focused) | LAUNCH -> `fnLaunch`; ADD -> state map; REMOVE -> state playlist; OPTIONS -> push `ifs_instant_options_overview` (pc 34-66) | `ScriptCB_PopScreen()` -> Singleplayer (pc 30-33) | `ifs.missionselect.buttons.help.<tag>`: "Launch the current playlist." / "Add a map to the playlist." / "Remove a map from the playlist." / "Modify the session options." |
-| map | Planet (cursor), Playlist | list move (no wrap) | page up / down | -> state mode (pc 4-9) | -> command (pc 3-8) | `missionlist_GetLocalizedMapDescr` of the row: "<Planet>: <site>" + description [M: "CORUSCANT: JEDI TEMPLE / A sprawling planetary metropolis..."] |
+| command | Planet (no cursor), Playlist (no cursor), stack focused | stack moves, skipping dimmed (f30 pc 13-20) | nothing (no list focused) | LAUNCH -> `fnLaunch`; ADD -> state map; REMOVE -> state playlist, the cursor on its **last** row [M menuref `ia_remove`]; OPTIONS -> push `ifs_instant_options_overview` (pc 34-66) | `ScriptCB_PopScreen()` -> Singleplayer (pc 30-33) | `ifs.missionselect.buttons.help.<tag>`: "Launch the current playlist." / "Add a map to the playlist." / "Remove a map from the playlist." / "Modify the session options." |
+| map | Planet (cursor), Playlist | list move (no wrap) | page up / down (8 rows [M menuref `ia_list_page`]) | -> state mode (pc 4-9) | -> command (pc 3-8) | `missionlist_GetLocalizedMapDescr` of the row: "<Planet>: <site>" + description [M: "CORUSCANT: JEDI TEMPLE / A sprawling planetary metropolis..."] |
 | mode | Mode (cursor) replaces Planet, Playlist | list move | page | -> state era (pc 13-18) | -> map (pc 12-17) | the mode's `descstr` (`modename.description.<m>`) |
 | era | Era (cursor) replaces Mode, Playlist | list move | page | **adds** (`fnAddMap`) -> state command, focus LAUNCH (pc 22-33) | -> mode (pc 21-26) | the era's `showstr` only ("Galactic Civil War") [M `ia_era.png`]; pc 40-61 build "<map> <mode>" and discard it [V] |
 | playlist | Planet (no cursor), Playlist (cursor) | list move | page | on "Remove All": clear the list + `errorSound`; on a map: delete that row, `SelectedIdx = min(idx, n)`; then -> command, focus ADD if only "Remove All" is left, else LAUNCH (pc 70-119) | -> command (pc 38-42) | "" on "Remove All", else the entry's map name (pc 91-114) |
@@ -116,8 +118,10 @@ Changing column fades the four list windows 1 -> 0 / 0 -> 1 over `gShellAnimTime
 Command buttons' dim rule (f11) [V]: in states map / mode / era / playlist **all four** are `bDimmed`; in command,
 LAUNCH is dimmed while the playlist has fewer than 2 rows (only "Remove All") and the other three are live. REMOVE is
 live even with an empty playlist (Cross then enters the playlist on "Remove All"). `SetCurButton` keeps the last
-command focused while a list is focused (f11 pc 42-56), so that button keeps its focus pulse **and** the list cursor
-pulses too [D; `ia_planet_list.png` shows ADD blue while the Planet cursor is on CORUSCANT [M]]. First focus with an
+command focused while a list is focused (f11 pc 42-56), so that button keeps its focus pulse [D; `ia_planet_list.png`
+shows ADD blue while the Planet cursor is on CORUSCANT [M]]; the list cursor does **not** pulse beside it (only one
+pulse on screen: ADD at 0.734 s, the cursor box's edge pixels identical over 5 s) [M menuref §9.1.9,
+`measure/ia_list_pulse.csv`]. First focus with an
 empty playlist: the first non-dimmed = ADD [D][M `ia_missionselect.png`].
 
 Help bar (template + f10): bottom-left Triangle "Back", bottom-right Cross **"Select"** (`bAcceptIsSelect`; f10 sets
@@ -136,7 +140,8 @@ Help bar (template + f10): bottom-left Triangle "Back", bottom-right Cross **"Se
 - `fnLaunch` (f21): with 2 rows or more: drop row 1 ("Remove All"), `ScriptCB_SetMissionNames(gPickedMapList,
   bRandomOrder)`, `fnDone()` (pc 3-16) -> `ifs_instant_fnSelectDone` pushes `ifs_instant_side` when `SelectedMap`
   is set (`ifs_instant_top` main.f0) -> stops the movie, `ScriptCB_SetTeamNames`, `ScriptCB_EnterMission()`
-  (`ifs_instant_side` main.f0). With only "Remove All": `errorSound` (pc 18-20).
+  (`ifs_instant_side` main.f0). With only "Remove All": `errorSound` (pc 18-20) - unreachable by pad: LAUNCH is
+  dimmed and skipped while the playlist is empty [M menuref "Instant Action"].
 - `bRandomOrder` (play the list in order or shuffled) is toggled only by the Host group's "Map Playlist" row
   (`ifs_instant_options` main.f6 pc 321-325), which is hidden in single player: **SP Instant Action always plays in
   order** [D].
@@ -162,7 +167,9 @@ Help bar (template + f10): bottom-left Triangle "Back", bottom-right Cross **"Se
   left, `valign vcenter`, width - 20 (main.f1). [M: the frame's window 70..570 px wide = 400 units.]
 - Info box: container at the safe area's left, y 230 + 65/2 + 5 = 267.5 (screen 289.9); background `white_rect`
   grey (128,128,128) a 0.5 from x 4 to safeW - 8, 65 tall; text x 10, y 65/4 - 10, width safeW - 20, font
-  `r0.listboxfont` (never set on this screen -> nil: the engine default font [H]) (main.f22 pc 61-106). Text =
+  `r0.listboxfont` (never set on this screen -> nil) (main.f22 pc 61-106); the PS2 draws it in the rows' face and
+  size, `gamefont_small` (mixed case, white, lines 19.6 units apart), not `gamefont_tiny` [M menuref
+  `sheets/session_options.png`, §9.1.4]. Text =
   `ifs.mp.createopts.helptext.<tag>` of the focused row (main.f7).
 - Help bar: Back only (Accept hidden, main.f9 pc 34); the Square "Set Password" line is MP-only (pc 20-38).
 - Pad: Up/Down = list (main.f12/f13); Left / Right = -1 / +1 (f14 / f15), L1 / R1 = -10 / +10 (f16 / f17), each
@@ -177,23 +184,23 @@ Step = the Left/Right step; L1/R1 multiply it by 10. Clamp(v, lo, hi) (main.f5) 
 
 | group | tag | text (English) | field | step | range | default | what it changes |
 |---|---|---|---|---|---|---|---|
-| Global | numbots | "AI Units Per Team: < n >" | `iNumBots` | 1 | 0 .. `iMaxBots` | 16 [M] (`DAT_0066ca88`, runtime) | AI per team; a change also copies the value into con / ctf / eli / ass numbots (pc 12-29) |
+| Global | numbots | "AI Units Per Team: < n >" | `iNumBots` | 1 | 0 .. `iMaxBots` = **0 .. 16** [M menuref `so_global`] | 16 [M] (`DAT_0066ca88`, runtime) | AI per team; a change also copies the value into con / ctf / eli / ass numbots (pc 12-29) |
 | Global | aidifficulty | "AI Difficulty Level: < Normal >" | `iDifficulty` | toggle `5 - x` | 2 "Normal" <-> 3 "Elite" (1 "Easy" shows but cannot be reached) | profile's difficulty (profile+0x3c, `ScriptCB_GetNetGameDefaults` B2 44185-44198, clamp 1..3) [M Normal] | the bots' skill level (`analysis/re-ai-difficulty.md`) |
-| Hero | heroes_onoff | "Heroes: < On/Off >" | `bHeroesEnabled` | toggle | | engine [H] | heroes in the battle; Off hides the other hero rows (main.f8 pc 3-14) |
-| Hero | hero_unlock_1 | "Unlock Hero: < Points / Timer >" | `HeroPrefs.iHeroUnlock` | toggle 3 <-> 5 | only Points (3) and Timer (5) reachable; texts exist for 1-6 | `ScriptCB_GetNetHeroDefaults` [H] | the unlock rule |
-| Hero | hero_unlock_2 | "First to < n > points" / "< n > seconds" (by rule) | `iHeroUnlockVal` | 1 | 1 .. 120 | engine [H] | the unlock threshold |
-| Hero | hero_assign | "Assign To: < Best Player / Worst Player / Random Player >" | `iHeroPlayer` | 1 -> 4 -> 7 (Right), 7 -> 4 -> 1 (Left) | 1, 4, 7 | engine [H] | who gets the hero |
-| Hero | hero_respawn_val | "Timer: < Always / n seconds / Never >" | `iHeroRespawnVal` | 1 | 0 ("Always") .. 120 s, then -1 "Never" (121 wraps to -1) | engine [H] | hero respawn delay |
+| Hero | heroes_onoff | "Heroes: < On/Off >" | `bHeroesEnabled` | toggle | | **Off** [M menuref `so_hero`] | heroes in the battle; Off hides the other hero rows (main.f8 pc 3-14) |
+| Hero | hero_unlock_1 | "Unlock Hero: < Points / Timer >" | `HeroPrefs.iHeroUnlock` | toggle 3 <-> 5 | only Points (3) and Timer (5) reachable; texts exist for 1-6 | Points [M menuref `so_hero`] | the unlock rule |
+| Hero | hero_unlock_2 | "First to < n > points" / "< n > seconds" (by rule) | `iHeroUnlockVal` | 1 | 1 .. 120 | 10 [M menuref `so_hero_ranges`] | the unlock threshold |
+| Hero | hero_assign | "Assign To: < Best Player / Worst Player / Random Player >" | `iHeroPlayer` | 1 -> 4 -> 7 (Right), 7 -> 4 -> 1 (Left) | 1, 4, 7 (no wrap) | 1 Best [M menuref `so_hero_ranges`] | who gets the hero |
+| Hero | hero_respawn_val | "Timer: < Always / n seconds / Never >" | `iHeroRespawnVal` | 1 | 0 ("Always") .. 120 s, then -1 "Never" (121 wraps to -1); Left from Never -> 120 [M] | **90 s** [M menuref `so_hero_ranges`] | hero respawn delay |
 | (forced) | - | - | `iHeroTeam` | - | - | set to 3 "Both teams (separately)" on every push (main.f20 pc 4) | - |
 | Conquest | con_numbots | "AI Units Per Team: < n >" | `iCONNumBots` | 1 | 0 .. `iMaxBots` | 16 [M] | AI per team in conquest |
 | Conquest | con_mult | "Reinforcements: < n% >" | `iCONMult` | 10 | 10 .. 500 % | 100 % (0x5fa7f0) | starting reinforcements scale (`re-time-limit.md` §5) |
 | Conquest | con_timer | "Timer: < Off / n >" | `iCONTimer` | 5 | 0 "Off" or 5 .. 60 min | 0 Off (0x5fa8c8) | conquest time limit (`re-time-limit.md`) |
-| CTF | ctf_numbots | "AI Units Per Team: < n >" | `iCTFNumBots` | 1 | 0 .. `iMaxBots` | 16 [D] | AI per team (1- and 2-flag) |
+| CTF | ctf_numbots | "AI Units Per Team: < n >" | `iCTFNumBots` | 1 | 0 .. `iMaxBots` | 16 [M menuref `so_ctf_hunt_ass`] | AI per team (1- and 2-flag) |
 | CTF | ctf_score | "CTF Score: < n >" | `iCTFScore` | 1 | 1 .. 15 | 5 (0x5fa850) | captures to win |
 | CTF | ctf_timer | "Timer: < Off / n >" | `iCTFTimer` | 5 | 0 .. 60 min | 0 Off (0x5fa8b0) | CTF time limit |
 | Hunt | hun_timer | "Timer: < n >" | `iHUNTimer` | 5 | **5** .. 60 min | 5 (0x5fa868) | hunt time limit |
 | Hunt | hun_score | "Score Limit: < n >" | `iHUNTScoreLimit` | 10 | 10 .. 1000 | 50 (0x5fa880) | hunt score to win |
-| Assault | ass_numbots | "AI Units Per Team: < n >" | `iASSNumBots` | 1 | 0 .. `iMaxBots` | 16 [D] | AI per team (space) |
+| Assault | ass_numbots | "AI Units Per Team: < n >" | `iASSNumBots` | 1 | 0 .. `iMaxBots` | 16 [M menuref `so_ctf_hunt_ass`] | AI per team (space) |
 | Assault | ass_score | "Score Limit: < n >" | `iASSScoreLimit` | 10 | 50 .. 1000 | 180 (0x5fa898) | assault points to win |
 
 - The texts' keys: `ifs.mp.createopts.numbots`, `.difficulty`, `.heroes`; `ifs.mp.create.opt.reinforcements`,
@@ -207,8 +214,11 @@ Step = the Left/Right step; L1/R1 multiply it by 10. Clamp(v, lo, hi) (main.f5) 
   5, iHUNTScoreLimit 50, iASSScoreLimit 180, per-mode numbots = iNumBots); the engine always returns every key, so the
   values in the table above are the engine's (`re-time-limit.md` §2 table; the "60" fallbacks never fire) [V].
 - `iMaxBots` = `DAT_0060056c` = 16 in the ELF image, raised to `DAT_00600574` = 25 on the non-network branch
-  (`ScriptCB_GetNetGameDefaults` B2 44184-44236) [V]; which branch the shell takes is not read, so the cap is 16 or
-  25 [H] (§9.1 item 1).
+  (`ScriptCB_GetNetGameDefaults` B2 44184-44236) [V]; on the PS2 single-player Session Options the cap is **16**
+  (Right x3 and R1 at 16 stay 16; minimum 0) [M menuref `so_global`, §9.1.1]. A Global change is copied into
+  Conquest, CTF and Assault (Global 10 -> all three read 10) [M menuref `so_global`].
+- The values survive leaving to the Instant Action screen and coming back (Global 0 / Elite, Conquest 150 % kept)
+  [M menuref `so_persist`].
 - Per-mode numbots come from tables at 0x5fa808 / 0x5fa818 / 0x5fa828 / 0x5fa838 indexed by the rule set, clamped
   to `iMaxBots` when read (B2 44270-44300) [V]. They hold -1 in the ELF image (`elfrd` 0x5fa808 = 0xffffffff), and
   `FUN_0019bfc8` replaces every negative entry with `DAT_006004fc` = **16** (B2 43305-43324) [V] - so the default is
@@ -240,7 +250,7 @@ movie still runs behind both].
 |---|---|---|
 | `ifs_start` | Start | memory-card check (`ifs_saveop` `InitialMemcardCheck`) -> `ifs_login` (`ifs_start` main.f8 pc 4-17, main.f11 pc 2-5) |
 | `ifs_login` (no profiles) | Cross on Create | `ifs_vkeyboard` "Enter profile name:" (main.f41 pc 29-63) |
-| `ifs_vkeyboard` | Cross on Accept | name > 2 chars and unique -> `ScriptCB_AddProfile`, `ifs_difficulty` (ifs_login main.f7 pc 4-52); too short -> Popup_Ok "Please enter at least one character" (main.f5) |
+| `ifs_vkeyboard` | Cross on Accept | a non-empty unique name -> `ScriptCB_AddProfile`, `ifs_difficulty` (ifs_login main.f7 pc 4-52); a **one-letter name is accepted** [M menuref `kb_accept2`]; empty -> Popup_Ok "Please enter at least one character" (main.f5) [M menuref `kb_accept`] |
 | `ifs_difficulty` | Cross | `ScriptCB_SetDifficulty(tag, true)`, pops back to `ifs_login`, which saves (main.f6 pc 1-7; main.f32 pc 66-70) |
 | save prompt | Save / Continue Without Saving | -> `ifs_main` (`ifs_login_Done` -> `ifs_start_OnLoginDone`, `ifs_start` main.f10 pc 2) |
 | `ifs_login` (profiles exist) | Cross on a name | load it (`ifs_saveop` `LoadProfile`) -> `ifs_main` |
@@ -301,7 +311,7 @@ Script `shell/ifs_difficulty`. `nologo`, no movie of its own (main pc 1-4) [V]; 
 |---|---|
 | stack | centred, `ScreenRelativeY` 0.6, `width` 460, ySpacing 5, `gMenuButtonFont`; title `ifs.difficulty.title` "Select Difficulty"; buttons `2` "Normal" (`ifs.difficulty.medium`), `3` "Elite" (`ifs.difficulty.hard`) (main pc 21-37) [V][M difficulty.png] |
 | focus | the current `ScriptCB_GetDifficulty()` (main.f0 pc 13-18) [V] |
-| Cross | `ScriptCB_SetDifficulty(tag, true)` then the caller's `fnDone` (main.f2 pc 12-14) [V] |
+| Cross | `ScriptCB_SetDifficulty(tag, true)` then the caller's `fnDone` (main.f2 pc 12-14) [V]; the click heard is **exit** (the screen pops back to the profile code), then the save popup [M menuref `kb_accept2`] |
 | Triangle | default pop; when reached from profile creation it logs out (`LogoutOnCancel`, main.f1) [V] |
 | help | Back, Select [M] |
 
@@ -341,7 +351,7 @@ Built by `common/popup_loadsave2`, filled by `common/ifs_saveop` main.f0 [V].
 | layout | `width` 205, xSpacing 6, ySpacing 5, container y +10 at 0.6, `logo` at y -38 (main pc 37, 75, 87) [V] |
 | list order | sp "Singleplayer", mp "Multiplayer", split "Splitscreen", tutorials "Tutorials", opts "Options", back2 "Profile Management", quit "Exit To Windows", quitdemo; on the PS2 tutorials, back2, quit, quitdemo hidden (main.f15 pc 149-205) [V] |
 | Multiplayer | no network adaptor -> Popup_Ok_Large "No Network Adaptor detected. You will not be able to access the online features of this title." (main.f19 pc 48-65); else `ifs_mp` (pc 73-78) [V] |
-| Triangle | profile dirty -> the 3-button save popup (above); else `ScriptCB_Logout()` and back to `ifs_login` (main.f7 pc 87-92) [V] |
+| Triangle | profile dirty -> the 3-button save popup (above), **no sound**, focus Save and Exit [M menuref `main_back`]; else `ScriptCB_Logout()` and back to `ifs_login` (main.f7 pc 87-92) [V] |
 | help | Back, Select (`bAcceptIsSelect`; `bNohelptext_backPC` hides Back on PC only) (main pc 107) [V] |
 
 ### ifs_sp (Singleplayer) - covered in re-bf2-shell §2 row 6; additions
@@ -353,6 +363,7 @@ Built by `common/popup_loadsave2`, filled by `common/ifs_saveop` main.f0 [V].
 | hidden / dimmed | Training hidden in splitscreen; Rise of the Empire `bDimmed = not 1` = never dimmed (main.f3 pc 0-10) [V] |
 | actions | Training -> mission `geo1c_c` under `campaign` rules (main.f4 pc 17-30); Space Overview -> `ifs_spacetraining`; Rise of the Empire -> (training not done: Popup_Ask_Historical "Do you want to play the training mission first?" Play/Skip, main.f5) -> `ifs_freeform_rise_newload`; Galactic Conquest -> `ifs_sp_campaign`; Instant Action -> rules `instantaction`, `ifs_instant_top` (split: `ifs_split_map`) (main.f8) [V] |
 | save | a dirty profile is saved (ifs_saveop, normal save prompt) before the next screen and on Back (main.f8 pc 59-71, main.f9) [V] |
+| focus on return | coming back to Singleplayer (Triangle from Instant Action, Galactic Conquest, Rise of the Empire, or quitting a mission) focuses **Training**, not the entry left [M menuref `ia_enter_back`, `rise2`] |
 
 ### ifs_freeform_rise_newload (Rise of the Empire)
 
@@ -465,8 +476,10 @@ Left (main.f6) and Right (main.f8) do the same except Tool Tips:
 | objectivedetails | "Objective Details:" (`objectivedetails`) | `bObjectiveDetails` | "On" / "Off" | toggle |
 | (hero, moviesubtitles) | "Instant Action Heroes:", "Movie Subtitles:" | `bHeroes`, `bMovieSubtitles` | On / Off | handled but in no PS2 list |
 
-Defaults: not in the scripts (`ScriptCB_GetGeneralOptions`, `ScriptCB_ResetGameOptionsToDefault` are engine) [H];
-read them on a fresh profile in PCSX2.
+Defaults: not in the scripts (`ScriptCB_GetGeneralOptions`, `ScriptCB_ResetGameOptionsToDefault` are engine). On a
+fresh profile [M menuref `game_options`]: Viewpoint 3rd Person, Vibration Yes, Friendly Fire On, Auto Target On, Aim
+Assist On, Sticky Reticule On, Display Enemy Icons On, AI Difficulty Normal, **Tool Tips Auto**, Objective Details On.
+Tool Tips Right cycles **Auto -> Off -> On** -> Auto, Left the other way; every Left / Right plays accept.
 
 ### ifs_opt_sound (Audio Options)
 
@@ -488,14 +501,16 @@ defaults" (`ifs.SoundOpt.reset`, bottom-left y -40; main.f23 pc 144) [V].
 | sfx | "SFX Volume" | shown | same; plays `shell_auditionSFX` on bus `soundfx` | same |
 | voice | "Speech Volume" | shown | same; `shell_auditionVO` on `voiceover` | same |
 | battlevoice | "Battle Speech Vol" | shown | same; `shell_auditionVO` on `battlechatter` | same |
-| output | "Output Mode" | shown (main.f10 pc 19-30) | "{OptionL} Mono {OptionR}" / "Headphones" / "Stereo" / "Dolby Pro Logic(R) II" (mode 4 on the PS2); Left `ScriptCB_PreviousOutputMode`, Right / Cross `ScriptCB_NextOutputMode` (main.f6 pc 1-46) | `ScriptCB_GetOutputMode()` |
+| output | "Output Mode" | shown (main.f10 pc 19-30) | the texts "Mono" / "Headphones" / "Stereo" / "Dolby Pro Logic(R) II" exist, but the PS2 cycles only **Stereo -> Dolby Pro Logic II -> Mono -> Stereo** (Right; no Headphones; default Stereo) [M menuref `audio_options`]; Left `ScriptCB_PreviousOutputMode`, Right / Cross `ScriptCB_NextOutputMode` (main.f6 pc 1-46) | `ScriptCB_GetOutputMode()` |
 | bassmang | "Bass Management" | hidden (PC only, main.f10 pc 58-61) | - | - |
 | mixconfig | "Mixer Config" | hidden (main.f10 pc 31-39) | - | - |
 | effects | "Effects" | hidden (pc 40-48) | - | - |
 | reset | "Reset" | hidden (pc 49-57); Square does it instead | Popup_YesNo_Large "Do you want to reset sound settings to the defaults?", focus No -> `ScriptCB_ResetSoundToDefault()` (main.f20, main.f9) | - |
 
 Value display: when max = 10 the label is value x 10 "%", else value / max x 100 "%" (main.f0 pc 42-159) [V]; the
-PS2 max is [H] 10 (read `ScriptCB_GetVolumes` in RAM). Defaults: engine [H]. On Enter the in-game buses
+PS2 max is [H] 10 (read `ScriptCB_GetVolumes` in RAM). Defaults [M menuref `audio_options`, `audio_reset`]:
+**Master 100 %, Music 60 %, SFX 70 %, Speech 90 %, Battle Speech 100 %, Output Stereo**; step 10 %, L1 / R1 jump to
+0 % / 100 %; a volume change plays its audition 0.12-0.49 s after the press, the Music row nothing. On Enter the in-game buses
 (`soundfx`, `ambience`, `voiceover`, `battlechatter`) fade to 0 and the shell music interval to 0 (main.f10 pc
 139-166), restored on Exit (main.f11) [V].
 
@@ -590,8 +605,8 @@ Script `common/ifs_pausemenu` [V]. `nologo`, no movie, `bDimBackdrop`, `bAcceptI
 | quit | Quit | shown -> `ScriptCB_SetQuitPlayer(1)`, Popup_YesNo_Large focus No: "Do you really want to quit this battle?"; GC: "...This will be counted as a loss."; host: "Leaving the game now will end this session. Are you sure you want to leave?" (main.f9 pc 17-61) |
 | exit | Exit To Windows | hidden (PC only, pc 97-106) |
 
-Triangle = resume (`exitSound`, `ScriptCB_Unpause`; main.f14) [V]. Which quit text the PS2 shows in single player
-depends on `ScriptCB_GetAmHost()` there [H].
+Triangle = resume (`exitSound`, `ScriptCB_Unpause`; main.f14) [V]. In single player the PS2 shows the host text
+"Leaving the game now will end this session. Are you sure you want to leave?" [M menuref `pause_menu`].
 
 ### Hidden on the PS2 (do not draw)
 
@@ -631,7 +646,7 @@ register set-up, so every branch below was read in the raw listing.
 | Popup "no" / cancel | `shell_menu_cancel` | CORE | sample yes; not played |
 | Forward screen enter | `enterSound` = '' (nothing) | - | - |
 | Screen transition whoosh | `shell_transition1..10` - **never fires in BF2** (no screen has a `movieIntro`) | SHELL.LVL bank `shell` | WAVs baked, dead data |
-| Shell music | `shell_soundtrack` (4 takes of `shell_music`) | SHELL.LVL stream `shell_music` | yes (raw ADPCM `.bin`); port plays take 1 looped |
+| Shell music | `shell_soundtrack` (4 takes of `shell_music`): a random take each time, ~10 s apart [M menuref `coldboot_music`] | SHELL.LVL stream `shell_music` | yes (raw ADPCM `.bin`) |
 
 ### 4.1 What plays when
 
@@ -680,12 +695,14 @@ only if the window moves. No wrap. **At the top or bottom of a list, a press is 
   adds to the playlist, pc 24-26), Add, Remove, Options, Launch. Exception: Cross on the playlist's **"Remove All"**
   row (`gPickedMapList[1]`, set at main.f13 pc 6) plays `errorSound` instead (pc 79). [V]
 - Launch with an empty playlist (only the "Remove All" row): `ifs_missionselect_fnLaunch` plays `errorSound`
-  (main.f21 pc 3-20), then f27 still plays accept (pc 122): **error + accept together**. [D]
+  (main.f21 pc 3-20), then f27 still plays accept (pc 122) [D] - **unreachable by pad**: LAUNCH is dimmed and
+  skipped while the playlist is empty [M menuref "Instant Action"].
 - Triangle (main.f28): `exitSound` in every state (pc 45), including stepping era -> mode -> map -> command. From
-  the command state it also pops (pc 33), and the screen underneath plays its own exit click on re-Enter: likely
-  two exit clicks [D][H, order/overlap unread].
+  the command state it also pops (pc 33): **one** exit click is heard (its gain 2.2 against 3.5 for a plain exit;
+  two stacked would be ~double) [M menuref `ia_back_chain`, §9.3.4].
 - Up/Down: the focused list's NavUp/Down (main.f30 pc 6) -> click only if it moved; in the command state the
-  button stack (pc 17). L1/R1: PageUp/PageDown (main.f32 pc 6, f33 pc 6). [V]
+  button stack (pc 17). L1/R1: PageUp/PageDown (main.f32 pc 6, f33 pc 6). [V] Held Up/Down repeat from 0.61-0.65 s,
+  then every 0.167 s (5 updates), each with a click, as on the main menu [M menuref `ia_cmd_updown`, `main_buttons`].
 - Square (Input_Misc, main.f29): empty. [V]
 - Screen sets no `music`: the previous screen's music continues. [V]
 
@@ -708,7 +725,10 @@ sets the target's music and pushes (main.f2 pc 4-10). Every BF2 shell screen's `
 of `K'movieIntro'`, all `KNone` or LOADNIL; template main.f30 pc 43), so **the whoosh never plays in BF2**. [V][D]
 
 **Popups**: yes/no Cross = accept either answer (`common_popup_yesno` main.f1 pc 9); large yes/no Triangle =
-cancel (`common_popup_yesno_large` main.f0 pc 3); OK = accept (`common_popup_ok` main.f1 pc 23); load/save:
+cancel (`common_popup_yesno_large` main.f0 pc 3); OK = accept (`common_popup_ok` main.f1 pc 23). [M menuref: Cross
+on **No** plays **cancel** (pause Respawn / Quit, audio reset); "No Network Adaptor" and "Selected maplist is full."
+closed by **Triangle play accept**; the delete-profile Yes/No ignores Triangle (`pause_menu`, `audio_reset`,
+`main_mp`, `ia_listfull`, `profile_delete`).] load/save:
 accept / cancel (`shell_popup_loadsave` main.f2 pc 5 / 34); error popup OK plays `shell_menu_ok`
 (`common_error_popup` main.f1 pc 18) - **no LVL defines `shell_menu_ok`** (absent from all 41 parsed `snd_` JSONs),
 so it is silent [D].
@@ -722,7 +742,8 @@ click. [V]
 (main.f11 pc 21), Left/Right = select (main.f18/f19 pc 7); personal / career / award the same pattern. [V]
 
 **Keyboard** (`shell_ifs_vkeyboard`): cursor = `selectSound` (main.f7 pc 106/110), letter = `shell_keyboard_key`
-(main.f12 pc 74), delete = `shell_keyboard_backspace` (main.f12 pc 30, f14 pc 13). [V]
+(main.f12 pc 74), delete = `shell_keyboard_backspace` (main.f12 pc 30, f14 pc 13). [V] Circle (the symbols page) also
+plays `shell_keyboard_key`; Cross on Cancel plays cancel [M menuref `keyboard`].
 
 ### 4.2 Where the data lives
 
@@ -786,8 +807,10 @@ click. [V]
   gain 1, looping 0, cycleplayback 0, **4 takes**: 0B495011 51.4 s, 9A38249A 51.4 s, 80C24D5E 64.4 s, D01C9F63
   56.6 s. Also on the stream: `shell_galacticconquest` 0A6C449B 52.7 s, `shell_droidinvasion` 0A6C449B (same take),
   `shell_clonewars` C27A5DAA 65.7 s, `shell_imperialmarch` 9A38249A, `shell_clash` BAE7943C 68.3 s (cycleplayback
-  1); 8657D84F (133.9 s) is on no SHELL prop. [V] How the engine picks among 4 takes with cycleplayback 0 is not
-  read [H: random take, then next on end].
+  1); 8657D84F (133.9 s) is on no SHELL prop. [V] The PS2 picks **a random take each time, repeats allowed** (A, B, C,
+  C, C, B, C over 7.5 min of one boot; the 64.4 s take never came up), each start 9.9-10.4 s after the previous
+  take's length (10.6-11.0 s of heard silence with its quiet tail), the first with the Press START screen, never
+  restarted by a screen change [M menuref `coldboot_music`, §9.3.9].
 - Screens that set music (template Enter main.f10 pc 50-60): `shell_soundtrack` - `ifs_start` (main pc 71),
   `ifs_main` (pc 107), `ifs_sp` (pc 61), `ifs_sp_campaign` (pc 137), `ifs_sp_briefing` (pc 115),
   `ifs_instant_options` (pc 150), `ifs_tutorials` (pc 68), `ifs_freeform_pickscenario` (pc 47),
@@ -795,8 +818,8 @@ click. [V]
   campaign battle intro, mpps2_netconfig, tutorial viewer (pc 108); Galactic Conquest sets `metagame_menu_music`
   (`shell_ifs_freeform_main`, defined in GAL.LVL). Screens without `music` (missionselect, options, sp_era) keep
   what plays. Sound options: `ScriptCB_SetShellMusicInterval(0)` on Enter, (10) on Exit. [V]
-- Port: baked (raw ADPCM), and `front.rs:451-464` plays `takes[0]` looped at the profile's music level (gain x
-  level, no `shellmusic` 0.6 bus) - "[H] its first take, looped". [V]
+- Port: baked (raw ADPCM); `game/src/main/windowed/front.rs` plays a random take each time with the 10 s gap
+  (`ui::shell_feel::ShellPlaylist`), at the take's gain x bus x the profile's music level.
 
 ### 4.5 BF1
 
@@ -820,16 +843,16 @@ Hashes are FNV-1a of the lower-cased name (checked: `headerbuttonmid` = 0x83245a
 
 | element | what fades | curve | range | speed | when |
 |---|---|---|---|---|---|
-| Vertical menu button (main menu, Singleplayer, Options, popups), flat button, square command buttons (`bAllSquareButtons`, Instant Action LAUNCH/ADD/REMOVE/OPTIONS) | the focused row's **IFObj alpha**, which scales **both the label and its bar** (the bar is the label's own flashy-text background) | linear triangle (ping-pong, clamp at ends) | alpha **0.3 .. 1.0** | **2.0 alpha/s**: 0.35 s each way, **0.7 s period** | continuous every frame while focused [V] |
+| Vertical menu button (main menu, Singleplayer, Options, popups), flat button, square command buttons (`bAllSquareButtons`, Instant Action LAUNCH/ADD/REMOVE/OPTIONS) | the focused row's **IFObj alpha**, which scales **both the label and its bar** (the bar is the label's own flashy-text background) | linear triangle (ping-pong, clamp at ends) | alpha **0.3 .. 1.0** | **2.0 alpha/s** in 30 Hz steps: 11 updates each way, **0.734 s period** [M menuref `measure/main_idle_pulse.csv`: peaks 0.017, 0.751, 1.485, 2.219 s] | continuous every update while focused [V][M] |
 | ...same row, colour | focused: label (138,160,244), bar tint = the object colour (white); unfocused: label (240,240,240), bar tint **(150,150,150)**, alpha fixed **0.6**; dimmed label 110 grey | step on focus change, no fade | | | once, on focus change [V][D] |
-| Listbox (Instant Action map / mode / era / playlist lists, Instant Options rows) | the separate **`listbox_cursor`** 9-slice box behind the focused row (alpha only) | linear triangle | alpha **0.5 .. 1.0** | **1.0 alpha/s**: 0.5 s each way, **1.0 s period** | continuous [V] |
+| Listbox (Instant Action map / mode / era / playlist lists, Instant Options rows) | the separate **`listbox_cursor`** 9-slice box behind the focused row | **none on the PS2**: the box is solid (its edge pixels identical over 5 s) [M menuref `measure/ia_list_pulse.csv`]; the script's 0.5 .. 1.0 at 1.0 /s ping-pong (`ListManager_fnHilight`) is not seen | | | [V script][M screen] |
 | ...listbox rows' text | focused row (138,160,244) a 0.6, other rows (240,240,240) a 0.6 | step on refill | | | on each move [V] |
 | Sound-option sliders | slider bg + thumb alpha | none (static) | focused 1.0, others 0.5 | | set every frame [V] |
-| "Flashy" text (every IFText unless `flashy=0`) | a one-shot **entrance**: bar wipes out, a `cursor` square sweeps across, text grows from its centre line, then text fades in | 5 linear phases | | **0.1 / 0.05 / 0.05 / 0.15 / 0.15 s = 0.5 s** after the start delay | once per screen Enter [V] |
+| "Flashy" text (every IFText unless `flashy=0`) | a one-shot **entrance**: bar wipes out, a `cursor` square sweeps across, text grows from its centre line, then text fades in | 5 linear phases | | ELF table 0.1 / 0.05 / 0.05 / 0.15 / 0.15 s [V]; **on screen 2 / 1 / 3 / 2 / 2 updates = 0.07 / 0.03 / 0.1 / 0.07 / 0.07 s** (Singleplayer title: wipe 1.617-1.684, square 1.684, sweep 1.717-1.817, pop 1.817-1.884, solid ~1.95; last row solid 0.82 s after the press) [M menuref `measure/flashy_sp_entrance_strip.png`] | once per screen Enter [V][M] |
 | start delay | menu rows: **k x 0.1 s** (k = 1.. over visible rows; title 0); list rows: **random 0 .. 0.5 s** each | | | | [V] |
 
 Not a sine, not a colour fade: the "alive" look is a linear alpha ping-pong on the whole focused row (bar + text) for
-buttons, and on the cursor box only for lists.
+buttons; lists have none on the PS2 (the cursor box is solid [M menuref]).
 
 ### Detail: buttons
 
@@ -843,7 +866,9 @@ buttons, and on the cursor box only for lists.
   `IFButton_fnHilight(gCurHiliteButton, 1.0, fDt)` every frame; pc 13-42 do the same for splitscreen viewports 2-4,
   first restoring the saved phase so all viewports show one phase advanced once per frame [V].
   `IFButton_fnHilight` (`common_ifelem_button` main.f2 pc 0-24) defaults fDt to 1/30 and forwards to the label [V].
-  [D] fDt is in seconds (the 1/30 default), so a full cycle is 2 x 0.7 / 2 = **0.7 s**.
+  [D] fDt is in seconds (the 1/30 default), so a full cycle would be 0.7 s; at the shell's 30 updates a second each
+  ramp overshoots its end by one update (0.7 / 0.0667 = 10.5 -> 11), so the period is **22 updates = 0.734 s**
+  [M menuref §9.4.1, §9.4.6].
 - One global phase. The phase is one global for all buttons; focus moves (`SetCurButton`, `button` main.f4,
   `FollowButtonLink` main.f3 pc 38-48) never reset it, so the newly focused row picks up the current phase. On screen
   Enter / Reactivate the template calls `IFButton_fnSelect(cur, 1)` then `IFButton_fnHilight(cur, 1.0, 0.0)`
@@ -885,6 +910,8 @@ buttons, and on the cursor box only for lists.
 
 ### Detail: listboxes
 
+- [M menuref §9.1.9] On the PS2 screen the list cursor box does **not** pulse; what follows is the script, whose
+  effect is not seen (why is not read).
 - `ListManager_fnHilight` (`common_ifelem_listmanager` main.f5 pc 0-26) [V]: max 1.0, min 0.5, step
   `gListbox_CurDir` (start +1.0, main pc 10-13; `gListbox_CurSizeAdd` start 1.0) x fDt; ping-pong; sets the alpha of
   `this.cursor` only. Driven every frame from the template Update (`shellscreen` main.f6 pc 52-67) for
@@ -977,7 +1004,7 @@ Modes `gMapModes` [V] `missionlist main pc 572`. The "subst" column is the missi
 | mode_tdm | tdm | modename.name.tdm "Team DM" | ...tdm | mode_icon_tdm (**not in any BF2 LVL census** [V]; no map uses tdm) |
 | mode_hunt | hunt | modename.name.hunt "Hunt" | ...hunt "Hunt\r\nEliminate as many of the indigenous species..." | mode_icon_hunt |
 | mode_assault | ass | modename.name.assault "Assault" | ...assault "Assault\r\nDestroy enemy critical systems (18 points)..." | mode_icon_ass |
-| mode_eli | eli | **modename.name.assault "Assault"** (so it shows as Assault) | modename.description.elimination "Assault\r\nHeroes and villains clash sabers..." | mode_icon_ass (`mode_icon_eli` exists in SHELL.LVL but is unused) |
+| mode_eli | eli | **modename.name.assault "Assault"** (so it shows as Assault; [M menuref `ia_allmaps*`: All Maps lists "Assault" twice]) | modename.description.elimination "Assault\r\nHeroes and villains clash sabers..." | mode_icon_ass (`mode_icon_eli` exists in SHELL.LVL but is unused) |
 | wildcard | - | modename.name._all_modes_ "All Modes" | ..._all_modes_ "Add all available game modes for this map." | none |
 
 Eras `gMapEras` [V] `main pc 527`: `era_c` = `common.era.cw` "Clone Wars", teams Republic / CIS, icon1 `cis_icon`,
@@ -1191,7 +1218,7 @@ front end's sound library and play the names of §4.
 
 ## 9. What still needs a PCSX2 look
 
-None of this was captured for this note (PCSX2 was busy). The BSHL save states in `engine/artifacts/lead_tmp/re/bshl/ref_frames/` (title, main menu, Singleplayer, Instant Action, Options) are the starting points; start one with `pcsx2_session.py start iso/SWBF2.iso --state <state> --boot-wait 10`. Pad taps need a 300 ms hold and 1.5-1.8 s between presses.
+None of this was captured for this note (PCSX2 was busy). The 2026-10-28 walk answered all but the column fade, the phase carry-over and BF1 (§10; its README's "§9 answers" table goes item by item). The BSHL save states in `engine/artifacts/lead_tmp/re/bshl/ref_frames/` (title, main menu, Singleplayer, Instant Action, Options) are the starting points; start one with `pcsx2_session.py start iso/SWBF2.iso --state <state> --boot-wait 10`. Pad taps need a 300 ms hold and 1.5-1.8 s between presses.
 
 ### 9.1 Instant Action and Session Options (lead)
 Start from `bshl/ref_frames/bf2_shell_ia.p2s` (IA, focus ADD, empty playlist); taps need a 300 ms hold and 1.5-1.8 s
@@ -1286,10 +1313,44 @@ State `bf2_shell_main.p2s` (focus Singleplayer) unless said; taps need a 300 ms 
    space maps on the PS2 and the casing), then the "All Maps" row and its info-box text.
 2. BF2 Mos Eisley mode list [M]: Planet list -> MOS EISLEY -> X. Expect Conquest / 2-flag CTF / Hunt / Assault / All
    Modes (eli shown as "Assault"). Read the mode icons and the info box on the eli row; check whether the playlist
-   later shows `tat2g_eli`.
+   later shows `tat2g_eli`. [M menuref: the All Maps mode list shows two "Assault" rows (Mos Eisley itself not
+  opened); the port lists Assault once.]
 3. BF2 era list after "All Modes" on Kashyyyk [M]: expect Clone Wars / Galactic Civil War / All Eras. Read the era
    icon pair drawn on each row (icon1 = cis_icon on CW, imp_icon on GCW).
 4. BF1 IA, cursor on BESPIN: PLATFORMS, wait more than 0.5 s [M]. Confirm a `BES1fly` clip plays in the lower-right
    380x310 window, and note which MVS it streams from (resolves the `movies\fly.mvs` vs disc SHELL.MVS [H]).
 5. BF1 IA era buttons on END1 (GCW only) and GEO1 (CW only) [M]: confirm the missing era's button is hidden
    (`proto[12]` ShowHideItems), and read the button text casing.
+
+## 10. PCSX2 check 2026-10-28
+
+A PCSX2 2.8.0 walk of the BF2 menus with lossless video and the game's own sound (`engine/artifacts/lead_tmp/menuref/
+README.md`: per-screen tables, a §9 answer table, the sound table; clips, frames, sheets and pixel measures beside it)
+contradicted the script reading here. Corrected in place above, each tagged [M] with its clip or measure:
+
+1. §0, §5: the button pulse period is **0.734 s** (22 updates at 30 Hz, linear ramps), not 0.7 s.
+2. §0, §1.3, §5: the `listbox_cursor` box does **not** pulse; only the focused button row does.
+3. §0, §5: the flashy entrance runs faster than the ELF table: wipe ~0.07 s, square ~0.1 s, pop ~0.07 s, fade
+   ~0.07 s; rows 0.1 s apart.
+4. §0, §2.3: AI Units Per Team **0..16** (not 25); Global copies into Conquest, CTF and Assault; values persist.
+5. §0, §2.3: Hero defaults Heroes **Off** (other rows hidden), Unlock Points, value 10, Best Player, Timer **90 s**;
+   Assign does not wrap; Timer Never -> Left -> 120.
+6. §2.2: the Session Options info text is in the rows' `gamefont_small`, white, on the grey half-transparent box.
+7. §1.2, §1.3: lists scroll one row per press past the 9th visible row; L1 / R1 page **8** rows; REMOVE enters
+   the playlist on its **last** row.
+8. §1.4, §4.1: LAUNCH with an empty playlist is unreachable (dimmed and skipped); Triangle from the IA command
+   state is **one** exit click; held directions repeat from ~0.62 s every 0.167 s.
+9. §4.1 popups: No / Triangle in a Yes-No popup = cancel; OK popups closed by Triangle = accept; the keyboard's
+   Circle = `shell_keyboard_key`; main-menu Triangle with a dirty profile = no sound; Select Difficulty's Cross =
+   exit.
+10. §4, §4.4: the shell music is a random take each time with repeats, ~10 s apart, from Press START, carried across
+    screens.
+11. §3: a one-letter profile name is accepted; Singleplayer is always re-entered on Training; Game Options' Tool Tips
+    default Auto (Auto -> Off -> On); Audio Output Mode Stereo -> Dolby Pro Logic II -> Mono, defaults Master 100,
+    Music 60, SFX 70, Speech 90, Battle Speech 100 %; the single-player Quit text is the host one.
+12. §6: All Maps lists "Assault" twice (eli shares the name) - a PS2 quirk the port does not copy.
+
+The port follows these in `ui::shell_feel` (pulse, flashy, music, hold repeat), `ui::shell` (ranges, defaults,
+lists, the Instant Action clicks), `ui::shell_ia` (the stack pulse, the info text), `ui::shell_ps2` (Training focus)
+and `game::pause::pause_sound`. Not applied, the port having no such screen: Audio Options' Output Mode and its PS2
+defaults, Game Options' Tool Tips, the profile and keyboard screens.

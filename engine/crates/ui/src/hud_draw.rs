@@ -734,6 +734,9 @@ pub fn draw(hud: &Hud, art: &HudArt, size: [f32; 2]) -> HudFrame {
     };
     if let Some((menus, movie)) = &hud.shell {
         ctx.shell_page(menus, *movie, size);
+        if let Some(ia) = &hud.instant {
+            ctx.instant_page(ia, menus.pulse.alpha(), size);
+        }
         return ctx.out;
     }
     let scale = frame_scale(size);
