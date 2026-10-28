@@ -97,6 +97,31 @@ pub fn each(walk: &WalkSim, ears: Vec3, mut play: impl FnMut(&str, Vec3)) {
                     .and_then(|d| d.item.explosion(*cause));
                 boom(e.map(|e| &e.look), *pos, &mut play);
             }
+            Event::DroidCharge { pos, weapon_class } => {
+                let r = walk.sim.weapon_classes[*weapon_class as usize]
+                    .remote
+                    .as_ref();
+                if let Some(n) = r
+                    .and_then(|r| r.destruct.as_ref())
+                    .and_then(|x| x.charge_sound.as_deref())
+                {
+                    play(n, *pos);
+                }
+            }
+            Event::DroidGone {
+                pos,
+                weapon_class,
+                end,
+            } => {
+                if let Some(r) = &walk.sim.weapon_classes[*weapon_class as usize].remote {
+                    for x in r.end_explosions(*end) {
+                        boom(Some(&x.look), *pos, &mut play);
+                    }
+                    if let Some(n) = r.end_burst(*end).and_then(|x| x.burst_sound.as_deref()) {
+                        play(n, *pos);
+                    }
+                }
+            }
             Event::StickyBlast { pos, weapon_class } => {
                 let sticky = &walk.sim.weapon_classes[*weapon_class as usize]
                     .ordnance

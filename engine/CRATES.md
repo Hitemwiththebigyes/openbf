@@ -323,17 +323,19 @@ Flow: disc → `mungefs` → `bake` → `engine/assets_baked/` (schema `manifest
 - `game/src/capture_feed.rs` 398 — command-post capture icon selection and meter presentation, including optional own-post/direction rules · `icon`, `for_unit`, `meter_sign`, `PostState`, `Rules`; module header and `analysis/re-capture-display.md` §3.1.
 - `game/src/camera_collide.rs` 372 — chase-camera pull-in (PROVISIONAL) · `CameraBlockers`
 - `game/src/ambience.rs` 327 — fixed world sound-emitter discovery and distances · `Ambience`, `Emitter`, `Kind`, `emitters`, `with_distances`; module header and `analysis/re-ambience-music.md` 1–2; referee `game/tests/suite/ambience_ps2.rs`, RAM data `game/tests/data/ambience_ps2.txt`.
-- `game/src/animator.rs` 1600 — visual soldier clip selection/layering, blending and root travel twist · `Animator`, `Rig`, `AnimInput`, `ClassAnim`, `RollClock`, `body`, `travel`, `find_clip`; module header and `analysis/re-soldier-anim-layers.md` §3, §7 / `analysis/re-roll-picture.md` §7.
+- `game/src/animator.rs` 1495 — visual soldier clip selection/layering and blending · `Animator`, `Rig`, `AnimInput`, `ClassAnim`, `RollClock`, `body`, `travel`, `find_clip`; module header and `analysis/re-soldier-anim-layers.md` §3, §7 / `analysis/re-roll-picture.md` §7.
 - `game/src/animator/aim.rs` 518 — soldier alert state and head/torso aim posing · `Aim`, `AimStep`, `AimKind`, `global`; module header and `analysis/re-soldier-anim-layers.md` §3.4, §7.
-- `game/src/animator/census.rs` 330 — headless animator diagnostics for clip layers, alert/aim and roll-root travel · `Census`; `ANIM_CENSUS` on `round_to_outcome`; module header describes the referee measurements.
-- `game/src/animator/tests.rs` 1462 — the animator on a synthetic rig whose clips say which one a bone was sampled from
+- `game/src/animator/census.rs` 327 — headless animator diagnostics for clip layers, alert/aim and roll-root travel · `Census`; `ANIM_CENSUS` on `round_to_outcome`; module header describes the referee measurements.
+- `game/src/animator/tests.rs` 1466 — the animator on a synthetic rig whose clips say which one a bone was sampled from
 - `game/src/animator/jump.rs` 98 — BF1's timed jump poses, landing selection and interruption, and fade back to locomotion · `Jump`; `analysis/re-soldier-anim-layers.md` §9.
+- `game/src/animator/turn.rs` 127 — root twist, roll travel and stationary foot turns, with bounded waist rotation for mouse aiming; `analysis/re-soldier-anim-layers.md` §11.
+- `game/src/animator/tests/legs.rs` 123 — firing and rapid mouse-turn regressions, including controller behavior and animation clocks.
 - `game/src/skin.rs` 307 — skeleton + pose → joint palette · `Skeleton`, `Pose`
 - `game/src/soldier_vis.rs` 667 — shared soldier/weapon asset types, draw plans, rider/seat helpers and muzzle geometry; preserves the `soldier_vis` API · `SoldierVisuals`, `DrawPlan`, `WeaponAsset`, `FlashModel`, `weapon_in_hand`, `seat_now`, `rider_now`, `fire_point`.
-- `game/src/soldier_vis/runtime.rs` 944 — `SoldierVisuals` asset loading, animation updates, spawn-screen stills and body/weapon/flash draw submission · `for_walk`, `load`, `load_cpu`, `update_with`, `still_draws`, `step_hover_nines`.
+- `game/src/soldier_vis/runtime.rs` 966 — `SoldierVisuals` asset loading, animation updates, spawn-screen stills and body/weapon/flash draw submission · `for_walk`, `load`, `load_cpu`, `update_with`, `still_draws`, `step_hover_nines`.
 - `game/src/soldier_vis/grenade.rs` 63 — grenade strength variants and pack drop-action selection, including instant-release dispensers.
 - `game/src/soldier_vis/grenade/tests.rs` 318 — real grenade and eight-faction pack drop-animation regressions, standing and moving.
-- `game/src/soldier_vis/tests.rs` 1074 — the eight existing soldier visualization tests; retains `soldier_vis::tests` paths.
+- `game/src/soldier_vis/tests.rs` 1079 — soldier and weapon poses, movement, stance transitions and animation regressions; retains `soldier_vis::tests` paths.
 - `game/src/squad_vis.rs` 237 — the squad-order marker, a dev-mode overlay (off in normal play) · `squad_draws`, `markers_on`
 - `game/src/event_feed.rs` 1626 — per-viewer HUD event/statistic messages, battle-long shot/hit/capture totals, every soldier's round (`round_stats`), localized names and spawn texts, the AI's PS2 names per team (`bot_names`), field/driver squad-order state, reticle target readout and hit-direction edges · `EventFeed`, `battle_stats`, `round`, `unit_name`, `Texts`, `points`, `order_arm`, `ambush_edge`, `POST_LINES`; module header and `analysis/re-event-messages.md`; post lines are the port's rule.
 - `game/src/bot_names.rs` 162 — BF2's AI names: the side's text-table lists and the PS2's per-team LCG (B2 `FUN_0036d880` / `FUN_0036f5f8`), seeded by the side · `BotNames`, `side_number`; module header.
@@ -611,3 +613,8 @@ copy); unfinished packed builds keep dev mode on by default (`OPENBF_DEV=0` disa
 - `core/src/sim/mines.rs` 383 — placed-explosive launch, limits, damage, flight, arming, proximity/contact/timer triggers and remote input.
 - `core/src/sim/mines/tests.rs` 343 — placed-explosive gameplay, damage, attachment and input regression tests.
 - `game/src/roster/mines.rs` 15 — mine entity and trigger/expiry/destroyed explosion resolution through baked class chains.
+- `core/src/remote.rs` 424 — the remote droid's class data, launcher, destruct (salvo / burst), flight step, drain and replay state · DroidClass, RemoteWeapon, Destruct, Salvo, Droid, StrikeRun; `analysis/re-remote-droid.md`.
+- `core/src/remote/tests.rs` 170 — droid class parsing, hover, steering, drain and salvo geometry tests.
+- `core/src/sim/remotes.rs` 466 — droid launch, control routing and hand-back, flight over the world, blaster, destruct, damage, salvo runs and the bot's droid pad.
+- `core/src/sim/remotes/tests.rs` 337 — remote droid control, expiry, combat, destruct, bot and replay regression tests.
+- `game/src/roster/remotes.rs` 91 — the remote weapon's droid, blaster and destruct (salvo shell or burst) resolution through baked class chains.

@@ -1618,7 +1618,9 @@ fn fielded_classes_hold_their_sidearm_and_grenades() {
                     assert_eq!(
                         matches!(
                             kind,
-                            game::roster::SlotKind::Thrown | game::roster::SlotKind::Dispenser
+                            game::roster::SlotKind::Thrown
+                                | game::roster::SlotKind::Dispenser
+                                | game::roster::SlotKind::Remote
                         ),
                         h.weapon.thrown.is_some(),
                         "{}",
@@ -2192,6 +2194,8 @@ fn every_class_kit_is_the_discs_or_explained() {
                         "dispenser"
                     } else if h.weapon.ability.is_some() {
                         "ability"
+                    } else if h.weapon.remote.is_some() {
+                        "remote droid"
                     } else {
                         "fired"
                     };

@@ -404,6 +404,12 @@ impl Sim {
             }
         }
 
+        let droid_pads = if self.droids.is_empty() {
+            Vec::new()
+        } else {
+            self.droid_pads(&mut unit_pads)
+        };
+
         // 1c. The use input (VSEAT, `seats`): an ACTION edge enters what the
         //     soldier looks at, or exits. No bot presses it: a bot's enter /
         //     exit is the request its think left (card VAI), served after.
@@ -864,6 +870,7 @@ impl Sim {
         // 5b. The thrown grenades (GREN).
         self.tick_stickies(dt);
         self.tick_mines(dt);
+        self.tick_droids(dt, &droid_pads);
 
         // 5c. The pickups (PWUP): flight, life, the touch.
         self.tick_buffs(dt);

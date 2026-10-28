@@ -57,7 +57,8 @@
 use crate::skin::{Clip, Pose, Skeleton};
 use core::soldier::Stance;
 use manifest::anim_sets::{bf1, bf2, SoldierSets};
-use std::f32::consts::{PI, TAU};
+use std::f32::consts::PI;
+use turn::wrap;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Game {
@@ -101,18 +102,6 @@ const LEG_LIMIT: f32 = 1.256_637_1;
 // -pi/4 is the ELF's word (-0.7853982).
 const ALERT_LEGS: (f32, f32) = (-std::f32::consts::FRAC_PI_4, 0.549_778_7);
 
-/// Standing still, a twist past these (rad, by stance) turns the legs:
-/// above [`TURN_RIGHT`] the turnright clip, below the left limit turnleft
-/// (BF1 `DAT_00517ab0` / `DAT_00517ac0`, BF2 0x5fdd20 / 0x5fdd30; read from
-/// the ELFs). The turn takes the twist [`TURN_PAST`] beyond the facing over
-/// the turn clip's length (B1:142792-142816, B2:201786-201803).
-// pi/8 is the ELFs' word 0x3ec90fdb.
-const TURN_RIGHT: [f32; 3] = [FRAC_PI_8, FRAC_PI_8, 0.471_238_9];
-const FRAC_PI_8: f32 = std::f32::consts::FRAC_PI_8;
-const TURN_LEFT_BF1: [f32; 3] = [-0.706_858_3, -1.178_097_2, -0.471_238_9];
-const TURN_LEFT_BF2: [f32; 3] = [-0.706_858_3, -0.706_858_3, -0.471_238_9];
-const TURN_PAST: f32 = 0.2;
-
 /// The playback rate of a movement clip: `0.95 v / v_clip + 0.05`, the
 /// share of the speed over the clip's own root speed eased a twentieth
 /// toward 1 (B1:145143, 145197; B2:202353).
@@ -128,11 +117,6 @@ pub fn move_rate(speed: f32, clip_speed: f32) -> f32 {
 /// weight is turned into one that gives the same pose at any frame rate.
 const BF1_UPDATES: f32 = 60.0;
 const BF1_THROW_WINDUP: f32 = 0.3;
-
-/// The share of the root twist's distance to its target kept each update at
-/// 30 updates a second: BF1 `twist + (angle - twist) * 0.25`, BF2
-/// `min(1, 7.5 dt)` (re-roll-picture.md 2, 3).
-const TWIST_KEEP: f32 = 0.75;
 
 /// The direction of travel against the body's facing (rad, positive = his
 /// left, the PS2's row 0): `atan2(v . left, v . forward)` of the planar
@@ -185,6 +169,7 @@ pub struct AnimInput {
     /// The body's facing (the sim's yaw, rad; + turns him left): standing,
     /// the legs keep their place while it turns.
     pub yaw: f32,
+    pub mouse_aim: bool,
     /// BF2: the class's MaxSpeed (m/s), which the speed mode is measured on.
     pub max_speed: f32,
     /// The class's `SkeletonRootScale` ([`ClassAnim::root_scale`]; <= 0 is
@@ -348,7 +333,6 @@ pub fn choose(
     max_speed: f32,
     legs: &mut Legs,
 ) -> Option<(Move, f32)> {
-    let wrap = |a: f32| (a + PI).rem_euclid(TAU) - PI;
     let raw = v.length();
     let v = v / scale;
     let (side, fwd, speed) = (v.x, v.y, v.length());
@@ -1189,7 +1173,6 @@ impl Animator {
     /// into the kept pose.
     pub fn step(&mut self, rig: &Rig, clips: &[Clip], skel: &Skeleton, i: &AnimInput, dt: f32) {
         self.seat = None;
-        let wrap = |a: f32| (a + PI).rem_euclid(TAU) - PI;
         // The facing's turn since the last update (+ = to his left).
         let turned = self.yaw.map_or(0.0, |y| wrap(i.yaw - y));
         self.yaw = Some(i.yaw);
@@ -1320,7 +1303,7 @@ impl Animator {
                         self.leg = leg;
                         m
                     }
-                    None => self.turn_on_spot(rig, clips, s, turned, dt),
+                    None => self.turn_on_spot(rig, clips, s, turned, dt, i.mouse_aim),
                 };
                 self.legs.mv = mv;
                 Body::Feet(s, mv)
@@ -1357,9 +1340,10 @@ impl Animator {
             (Some(a), Some(b)) => a == b,
             _ => false,
         };
+        let legs = self.action.is_some_and(|a| a.legs);
         if let Some(s) = low {
             let phase = keep.then_some(self.lower.t);
-            self.lower.set(rig, s, false, restart && up_action, phase);
+            self.lower.set(rig, s, false, restart && legs, phase);
         }
         let previous_upper = self.upper_clip();
         if let Some(s) = up {
@@ -1397,7 +1381,6 @@ impl Animator {
         };
         self.upper
             .advance(clips, dt * if up_action { rate } else { walk }, clock);
-        let legs = self.action.is_some_and(|a| a.legs);
         self.lower
             .advance(clips, dt * if legs { rate } else { walk }, clock);
 
@@ -1432,96 +1415,7 @@ impl Animator {
         self.upper.apply(pose, &cx, true, snap);
         let (kind, blend_in) = up.map_or((aim::AimKind::None, 0.0), |s| (s.aim, s.blend_in));
         self.aim.ease(&aim, kind, blend_in);
-        // The root twist: toward the travel in a roll, toward the walk's leg
-        // angle on the move, held (the turn on the spot moved it) standing,
-        // else back to 0.
-        if let Some(t) = i.travel() {
-            self.travel = t;
-        }
-        let rolling = body == Body::Special(Special::Roll);
-        let tumble = match body {
-            Body::Special(Special::Tumble(back)) => Some(if back {
-                wrap(self.travel - PI)
-            } else {
-                self.travel
-            }),
-            _ => None,
-        };
-        if let (Some(t), false) = (
-            tumble,
-            matches!(was_body, Some(Body::Special(Special::Tumble(_)))),
-        ) {
-            self.twist = t;
-        }
-        let target = match mv {
-            _ if rolling => Some(self.travel),
-            _ if tumble.is_some() => tumble,
-            _ if matches!(body, Body::Special(Special::Land(_))) => None,
-            Some(m) if m.moving() => Some(self.leg),
-            Some(_) => None,
-            None => Some(0.0),
-        };
-        if let Some(target) = target {
-            // Ours (PROVISIONAL): the short way round. The PS2 subtracts plainly, and its
-            // rolls stay within 120 degrees of ahead; a bot that turns while
-            // it rolls can carry the travel past 180.
-            let rest = wrap(target - self.twist);
-            self.twist += rest * (1.0 - TWIST_KEEP.powf(30.0 * dt.max(0.0)));
-        }
-        self.twist = wrap(self.twist);
-        let r = &mut self.roll;
-        r.ended = None;
-        if rolling {
-            let gap = wrap(self.travel - self.twist);
-            (r.updates, r.after, r.gap) = (r.updates + 1, None, gap);
-        } else if r.updates > 0 {
-            (r.updates, r.after, r.ended) = (0, Some(dt), Some(r.gap));
-        } else if let Some(a) = &mut r.after {
-            *a += dt;
-        }
-    }
-
-    /// Standing on his feet in stance `s` (the chooser gave idle): the legs
-    /// keep their place while the body turns `turned` rad, and past the
-    /// stance's limit a turn clip takes them round to [`TURN_PAST`] beyond
-    /// the facing over the clip's length (BF1 B1:142770-142816, BF2
-    /// B2:201764-201803). Returns the clip.
-    fn turn_on_spot(&mut self, rig: &Rig, clips: &[Clip], s: usize, turned: f32, dt: f32) -> Move {
-        self.twist -= turned;
-        let left = match rig.game {
-            Game::Bf1 => TURN_LEFT_BF1[s],
-            Game::Bf2 => TURN_LEFT_BF2[s],
-        };
-        match self.legs.mv {
-            m @ (Move::TurnLeft | Move::TurnRight) => {
-                // The clip on the legs: its length, and his time on it.
-                let len = self.lower.slot.map_or(0.0, |l| {
-                    let f = clips[l.clip].frames.max(2) as f32;
-                    let frames = match rig.game {
-                        Game::Bf1 => f,
-                        Game::Bf2 => f - 1.0,
-                    };
-                    frames / 30.0
-                });
-                if len > 0.0 {
-                    self.twist += self.turn / len * dt;
-                }
-                if len <= self.lower.secs {
-                    Move::Idle
-                } else {
-                    m
-                }
-            }
-            _ if self.twist > TURN_RIGHT[s] => {
-                self.turn = -self.twist - TURN_PAST;
-                Move::TurnRight
-            }
-            _ if self.twist < left => {
-                self.turn = TURN_PAST - self.twist;
-                Move::TurnLeft
-            }
-            _ => Move::Idle,
-        }
+        self.step_twist(i, body, was_body, mv, dt);
     }
 
     /// The pose the two players keep, without the aim's turn.
@@ -1598,3 +1492,4 @@ pub mod census;
 mod jump;
 #[cfg(test)]
 mod tests;
+mod turn;

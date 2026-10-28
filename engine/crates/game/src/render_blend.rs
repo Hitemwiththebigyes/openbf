@@ -60,11 +60,22 @@ pub struct VehiclePose {
     pub aim: (f32, f32),
 }
 
+/// One remote droid's drawn pose, matched across ticks by its id.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DroidPose {
+    pub id: u64,
+    pub pos: Vec3,
+    pub yaw: f32,
+    pub pitch: f32,
+    pub up: Vec3,
+}
+
 /// Everything the blend reads and writes, as one tick left it.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Pose {
     pub units: Vec<UnitPose>,
     pub vehicles: Vec<VehiclePose>,
+    pub droids: Vec<DroidPose>,
     pub zoom_s: f32,
     pub zoom_fov_mix: f32,
     pub cam_place: Option<(f32, Vec3)>,
@@ -100,6 +111,15 @@ impl Pose {
                 looks: v.guns.iter().map(|g| g.as_ref().map(|g| g.look)).collect(),
                 aim: (v.walker.aim_yaw, v.walker.aim_pitch),
             }));
+        self.droids.clear();
+        self.droids
+            .extend(walk.sim.droids.iter().map(|d| DroidPose {
+                id: d.id,
+                pos: d.pos,
+                yaw: d.yaw,
+                pitch: d.pitch,
+                up: d.up,
+            }));
         self.zoom_s = walk.zoom_s;
         self.zoom_fov_mix = walk.zoom_fov_mix;
         self.cam_place = walk.cam_place;
@@ -121,6 +141,11 @@ impl Pose {
                 }
             }
             (v.walker.aim_yaw, v.walker.aim_pitch) = p.aim;
+        }
+        for (d, p) in walk.sim.droids.iter_mut().zip(&self.droids) {
+            if d.id == p.id {
+                (d.pos, d.yaw, d.pitch, d.up) = (p.pos, p.yaw, p.pitch, p.up);
+            }
         }
         walk.zoom_s = self.zoom_s;
         walk.zoom_fov_mix = self.zoom_fov_mix;
@@ -190,6 +215,18 @@ pub fn blend(prev: &Pose, cur: &Pose, t: f32) -> Pose {
             }
         }
         o.aim = lerp_look(p.aim, o.aim, t);
+    }
+    for o in out.droids.iter_mut() {
+        let Some(p) = prev.droids.iter().find(|p| p.id == o.id) else {
+            continue;
+        };
+        if p.pos.distance_squared(o.pos) > UNIT_SNAP_M * UNIT_SNAP_M {
+            continue;
+        }
+        o.pos = mix3(p.pos, o.pos, t);
+        o.yaw = lerp_angle(p.yaw, o.yaw, t);
+        o.pitch = mix(p.pitch, o.pitch, t);
+        o.up = mix3(p.up, o.up, t).normalize_or(o.up);
     }
     out.zoom_s = mix(prev.zoom_s, cur.zoom_s, t);
     out.zoom_fov_mix = mix(prev.zoom_fov_mix, cur.zoom_fov_mix, t);
@@ -280,6 +317,11 @@ impl Blend {
                     (u.soldier.yaw, u.soldier.pitch) = (yaw, pitch);
                 }
             }
+            LookPreview::Droid { droid, yaw, pitch } => {
+                if let Some(d) = walk.sim.droids.get_mut(droid) {
+                    (d.yaw, d.pitch) = (yaw, pitch);
+                }
+            }
             LookPreview::Seat {
                 vehicle,
                 seat,
@@ -366,6 +408,66 @@ mod tests {
         assert_eq!(me(&mut w).yaw, -3.0);
         assert_eq!(w.cam_place, Some((1.8, Vec3::new(0.0, 0.0, 4.0))));
         assert!(!b.applied());
+    }
+
+    #[test]
+    fn a_droid_is_drawn_between_its_ticks_and_turned_by_the_preview() {
+        struct NoProps;
+        impl core::weapon::PropSource for NoProps {
+            fn prop(&self, _: &str) -> Option<&str> {
+                None
+            }
+            fn prop_hash(&self, _: u32) -> Option<&str> {
+                None
+            }
+        }
+        let mut w = walk();
+        let droid = core::remote::DroidClass::from_props(&NoProps, false);
+        let remote = core::remote::RemoteWeapon::new(
+            &NoProps,
+            droid,
+            core::weapon::WeaponClass::bf1_rifle(),
+        );
+        let d = core::remote::Droid::new(
+            7,
+            w.player,
+            0,
+            0,
+            &remote,
+            Vec3::new(0.0, 2.0, 0.0),
+            Vec3::ZERO,
+            0.5,
+            true,
+        );
+        w.sim.droids.push(d);
+        let mut b = Blend {
+            on: true,
+            ..Default::default()
+        };
+        b.before_tick(&w);
+        let d = &mut w.sim.droids[0];
+        d.pos = Vec3::new(1.0, 2.0, -1.0);
+        d.yaw = 0.7;
+        d.pitch = 0.2;
+        assert!(b.apply(&mut w, 0.5));
+        let d = &w.sim.droids[0];
+        assert!(d.pos.abs_diff_eq(Vec3::new(0.5, 2.0, -0.5), 1e-6));
+        assert!((d.yaw - 0.6).abs() < 1e-6 && (d.pitch - 0.1).abs() < 1e-6);
+        b.preview(
+            &mut w,
+            LookPreview::Droid {
+                droid: 0,
+                yaw: 0.9,
+                pitch: 0.3,
+            },
+        );
+        assert_eq!((w.sim.droids[0].yaw, w.sim.droids[0].pitch), (0.9, 0.3));
+        b.restore(&mut w);
+        let d = &w.sim.droids[0];
+        assert_eq!(
+            (d.pos, d.yaw, d.pitch),
+            (Vec3::new(1.0, 2.0, -1.0), 0.7, 0.2)
+        );
     }
 
     /// A respawned unit (a new generation in its slot) and one that moved

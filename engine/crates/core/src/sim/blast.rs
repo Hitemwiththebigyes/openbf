@@ -172,6 +172,33 @@ impl Sim {
         for (i, damage) in mine_damage {
             self.mines[i].health -= damage;
         }
+        let droid_damage: Vec<_> = self
+            .droids
+            .iter()
+            .enumerate()
+            .filter(|(_, d)| overlaps(d.pos, crate::remote::RADIUS))
+            .filter_map(|(i, d)| {
+                if !crate::perception::los_seat(
+                    self,
+                    pos,
+                    d.pos,
+                    crate::collision::HullFilter::Static,
+                    [source_instance, None],
+                ) {
+                    return None;
+                }
+                let f = blast_falloff(
+                    d.pos.distance(pos),
+                    crate::remote::RADIUS,
+                    e.damage_inner,
+                    e.damage_outer,
+                );
+                Some((i, self.droid_damage(d, e.damage * f, &e.scales, team)))
+            })
+            .collect();
+        for (i, damage) in droid_damage {
+            self.droids[i].health -= damage;
+        }
         let attacker_is_player = attacker
             .and_then(|a| self.units.get(a.index as usize).filter(|u| u.gen == a.gen))
             .is_some_and(|u| u.is_player);

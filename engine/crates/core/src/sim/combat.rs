@@ -98,6 +98,15 @@ impl Sim {
                     mult = 1.0;
                 }
             }
+            for d in self.droids.iter().filter(|d| d.owner != b.owner) {
+                if let Some(t) = crate::unit::ray_sphere(from, dir, d.pos, crate::remote::RADIUS)
+                    .filter(|&t| t <= reach)
+                {
+                    reach = t;
+                    hit = Some(Target::Droid(d.id));
+                    mult = 1.0;
+                }
+            }
             if let Some(filter) = b.hulls.hulls_only() {
                 if let Some(r) = world.ray_with(from, dir, reach, Layers::ORDNANCE, filter) {
                     if let Some(v) = r.owner.filter(|_| r.t < reach) {
@@ -235,6 +244,22 @@ impl Sim {
                     Some(b.team),
                     Some(b.vel.normalize_or_zero()),
                 );
+                self.bolt_explodes(b);
+            }
+            Hit::Target(Target::Droid(id)) => {
+                let desc = self.weapon_classes[b.weapon_class]
+                    .ordnance
+                    .damage_desc_charged(b.age, false, b.charge);
+                if let Some(k) = self.droids.iter().position(|d| d.id == id) {
+                    let damage =
+                        self.droid_damage(&self.droids[k], desc.damage, &desc.scales, Some(b.team));
+                    self.droids[k].health -= damage;
+                }
+                self.events.push(Event::BoltExpired {
+                    pos: b.end,
+                    struck: true,
+                });
+                self.push_impact(b, Surface::Vehicle, None);
                 self.bolt_explodes(b);
             }
             Hit::Target(Target::Mine(id)) => {

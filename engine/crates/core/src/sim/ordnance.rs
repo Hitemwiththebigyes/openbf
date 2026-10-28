@@ -184,6 +184,10 @@ impl Sim {
             // ordnance flies and strikes; a sticky one (a mortar's held
             // round, BF1's smuggler's mortar) is launched.
             let stage = self.weapon_classes[class].stage_index(class, usize::from(spec.stage));
+            if self.weapon_classes[stage].remote.is_some() {
+                self.launch_droid(i, stage, spec.charge);
+                continue;
+            }
             if self.weapon_classes[stage].ability.is_some() {
                 self.fire_ability(i, stage);
                 continue;

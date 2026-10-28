@@ -433,7 +433,11 @@ pub(super) fn hud_model(
 ) -> ui::hud::HudModel {
     let me = &walk.sim.units[walk.player.index as usize];
     let b = &walk.sim.battle;
-    let on_foot = me.alive && me.mount.is_none();
+    let droid = walk
+        .sim
+        .controlled_droid(walk.player)
+        .and_then(|d| Some((d, walk.sim.droid_class(d)?)));
+    let on_foot = me.alive && me.mount.is_none() && droid.is_none();
     let spawn = spawn_model(walk, feed).and_then(|s| s.page);
     let slot = me.spec.player_slot.map_or(0, usize::from);
     let weapon = on_foot.then(|| {
@@ -480,7 +484,7 @@ pub(super) fn hud_model(
                 },
             })
         });
-    let reticle = on_foot.then(|| {
+    let reticle = (on_foot || droid.is_some()).then(|| {
         walk.sim
             .reticle_pick
             .first()
@@ -492,10 +496,10 @@ pub(super) fn hud_model(
         team_names: [walk.teams[0].faction.clone(), walk.teams[1].faction.clone()],
         tickets: [b.teams[0].tickets(), b.teams[1].tickets()],
         bleed: [b.teams[0].bleed_per_sec, b.teams[1].bleed_per_sec],
-        hp: me.health.cur,
-        hp_max: me.health.max,
-        energy: me.soldier.energy,
-        energy_max: me.consts.energy_bar,
+        hp: droid.map_or(me.health.cur, |(d, _)| d.health),
+        hp_max: droid.map_or(me.health.max, |(_, c)| c.max_health),
+        energy: droid.map_or(me.soldier.energy, |(d, _)| d.energy),
+        energy_max: droid.map_or(me.consts.energy_bar, |_| core::remote::ENERGY_MAX),
         weapon,
         weapon2,
         reticle,

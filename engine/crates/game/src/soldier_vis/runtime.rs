@@ -30,7 +30,7 @@ impl SoldierVisuals {
             .weapon_classes
             .iter()
             .map(|w| {
-                if w.ordnance.sticky.is_none() && w.mine.is_none() {
+                if w.ordnance.sticky.is_none() && w.mine.is_none() && w.remote.is_none() {
                     return None;
                 }
                 let name = w.ordnance.geometry.as_deref()?;
@@ -355,9 +355,15 @@ impl SoldierVisuals {
         wg: &str,
         cache: &mut HashMap<String, Option<TextureHandle>>,
     ) -> WeaponAsset {
-        let side = assets_dir.join(format!("side_{game}"));
+        let mut side = assets_dir.join(format!("side_{game}"));
         let mut parts = Vec::new();
-        let wpath = side.join("weapons").join(format!("{wg}.glb"));
+        let mut wpath = side.join("weapons").join(format!("{wg}.glb"));
+        let common = assets_dir.join(format!("common_{game}"));
+        let shared = common.join("models").join(format!("{wg}.glb"));
+        if !pak::is_file(&wpath) && pak::is_file(&shared) {
+            side = common;
+            wpath = shared;
+        }
         if let Some(r) = r {
             match crate::assets::load_glb(&wpath) {
                 Ok(cpu) => match crate::viewer::upload_submeshes(r, &cpu) {
@@ -628,6 +634,7 @@ impl SoldierVisuals {
             stance: s.stance,
             vel: crate::animator::body_vel(s.vel, s.yaw),
             yaw: s.yaw,
+            mouse_aim: s.prev_buttons() & core::sim::buttons::MOUSE_AIM != 0,
             max_speed: u.consts.max_speed,
             root_scale: anim.map_or(1.0, |a| a.root_scale),
             dead: !u.alive,
@@ -759,6 +766,20 @@ impl SoldierVisuals {
                 continue;
             };
             model.part_draws(Mat4::from_translation(g.pos), &mut out);
+        }
+        for d in &walk.sim.droids {
+            if let Some(model) = self
+                .grenades
+                .get(d.weapon_class)
+                .copied()
+                .flatten()
+                .and_then(|i| self.weapons.get(i))
+            {
+                model.part_draws(
+                    Mat4::from_rotation_translation(d.rotation(), d.pos),
+                    &mut out,
+                );
+            }
         }
         for m in &walk.sim.mines {
             if let Some(model) = self
@@ -907,6 +928,7 @@ impl SoldierVisuals {
                 stance: core::soldier::Stance::Stand,
                 vel: glam::Vec2::ZERO,
                 yaw: 0.0,
+                mouse_aim: false,
                 max_speed: 1.0,
                 root_scale: anim.map_or(1.0, |a| a.root_scale),
                 dead: false,

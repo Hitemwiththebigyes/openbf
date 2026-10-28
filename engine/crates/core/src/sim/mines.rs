@@ -25,6 +25,9 @@ fn clamp_axis(y: f32, lo: f32, hi: f32) -> f32 {
 
 impl Sim {
     pub(super) fn has_remote_items(&self, i: usize, weapon: usize) -> bool {
+        if self.weapon_classes[weapon].remote.is_some() {
+            return self.droid_of(self.handle(i), weapon).is_some();
+        }
         self.weapon_classes[weapon]
             .mine
             .as_ref()
@@ -48,6 +51,9 @@ impl Sim {
         blocked: bool,
     ) -> bool {
         let weapon = slot.map_or(self.units[i].weapon_class, |k| self.units[i].held[k].class);
+        if self.weapon_classes[weapon].remote.is_some() {
+            return self.droid_input(i, slot, weapon, held, blocked);
+        }
         if !self.weapon_classes[weapon]
             .mine
             .as_ref()

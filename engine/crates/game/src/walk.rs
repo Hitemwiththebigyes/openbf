@@ -145,6 +145,23 @@ pub fn vehicle_camera(
     (target, Camera { position, ..cam })
 }
 
+pub fn droid_camera(
+    d: &core::remote::Droid,
+    c: &core::remote::DroidClass,
+    fov_y: f32,
+) -> (Vec3, Camera) {
+    let cam = Camera {
+        yaw: d.yaw,
+        pitch: d.pitch - c.tilt,
+        fov_y,
+        ..Camera::default()
+    };
+    let target = d.pos + Vec3::Y * c.eye_offset.y;
+    let o = c.track_offset;
+    let position = target - cam.forward() * o.z + Vec3::Y * o.y + cam.right() * o.x;
+    (target, Camera { position, ..cam })
+}
+
 /// A zoomed building turret's view (card VTURZ, `analysis/re-turret-draw.md`
 /// 4 [O]; B1 `FUN_00225988`, B2 `FUN_0026fdf8`): at the eye point
 /// (`EyePointOffset` on the aim frame, `SeatLook::scope_eye`), looking along
@@ -1037,6 +1054,9 @@ impl WalkSim {
         if let Some(b) = &self.backdrop {
             return b.camera();
         }
+        if let Some(cam) = self.droid_camera() {
+            return cam;
+        }
         if let Some(cam) = self.seat_camera() {
             return cam;
         }
@@ -1139,9 +1159,21 @@ impl WalkSim {
         if me.mount.is_some() {
             return 0.5;
         }
-        let (a, d) = me.aim_ray(self.sim.ground_rules, self.sim.views());
+        let (a, d) = match self.sim.controlled_droid(self.player) {
+            Some(droid) => (droid.muzzle(), droid.aim_frame().0),
+            None => me.aim_ray(self.sim.ground_rules, self.sim.views()),
+        };
         let clip = self.camera().view_proj(1.0) * (a + d * 1024.0).extend(1.0);
         0.5 - 0.5 * clip.y / clip.w
+    }
+
+    fn droid_camera(&self) -> Option<Camera> {
+        let d = self.sim.controlled_droid(self.player)?;
+        let (target, cam) = droid_camera(d, self.sim.droid_class(d)?, self.fov_y());
+        Some(Camera {
+            position: self.settle_camera(target, cam.position),
+            ..cam
+        })
     }
 
     /// The player's seat camera, when the player rides (card VSEAT). A

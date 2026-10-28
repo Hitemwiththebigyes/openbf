@@ -20,6 +20,11 @@ pub enum LookPreview {
         look: (f32, f32),
         walker: bool,
     },
+    Droid {
+        droid: usize,
+        yaw: f32,
+        pitch: f32,
+    },
 }
 
 pub(super) fn seat_look(
@@ -85,6 +90,20 @@ impl Sim {
             return None;
         }
         let u = self.unit(h).filter(|u| u.alive)?;
+        if let Some(k) = self
+            .droids
+            .iter()
+            .position(|d| d.owner == h && d.controlled)
+        {
+            let d = &self.droids[k];
+            let c = self.droid_class(d)?;
+            let (yaw, pitch) = d.mouse_turned(c, pad.look(), u.look_scale());
+            return Some(LookPreview::Droid {
+                droid: k,
+                yaw,
+                pitch,
+            });
+        }
         let Some(m) = u.mount else {
             if u.soldier.look_frozen() {
                 return None;

@@ -44,6 +44,7 @@ mod look;
 mod mines;
 mod ordnance;
 mod pickups;
+mod remotes;
 mod repair;
 mod round;
 mod seats;

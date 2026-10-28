@@ -96,6 +96,15 @@ pub enum Event {
         pos: Vec3,
         weapon_class: u32,
     },
+    DroidCharge {
+        pos: Vec3,
+        weapon_class: u32,
+    },
+    DroidGone {
+        pos: Vec3,
+        weapon_class: u32,
+        end: crate::remote::DroidEnd,
+    },
     Ability {
         unit: UnitHandle,
         weapon_class: u32,
@@ -587,6 +596,9 @@ pub struct Sim {
     pub stickies: Vec<crate::sticky::Sticky>,
     pub mines: Vec<crate::mine::Mine>,
     pub next_mine_id: u64,
+    pub droids: Vec<crate::remote::Droid>,
+    pub next_droid_id: u64,
+    pub strikes: Vec<crate::remote::StrikeRun>,
     /// The `powerupitem` classes (card PWUP, `sim/pickups.rs`). SETUP data
     /// like `weapon_classes`, NOT hashed.
     pub item_classes: Vec<super::pickups::ItemClass>,
@@ -951,6 +963,9 @@ impl Sim {
             stickies: Vec::new(),
             mines: Vec::new(),
             next_mine_id: 0,
+            droids: Vec::new(),
+            next_droid_id: 0,
+            strikes: Vec::new(),
             item_classes: Vec::new(),
             item_pool: super::pickups::ITEM_POOL_DEFAULT,
             pickups: Vec::new(),
@@ -1025,9 +1040,15 @@ impl Sim {
         });
     }
 
-    pub fn add_weapon_class(&mut self, wc: WeaponClass) -> usize {
+    pub fn add_weapon_class(&mut self, mut wc: WeaponClass) -> usize {
         if let Some(d) = &wc.dispenser {
             self.add_item_class(d.item.clone());
+        }
+        if let Some(r) = wc.remote.as_mut() {
+            r.blaster_index = self.add_weapon_class((*r.blaster).clone());
+            if let Some(s) = r.destruct.as_ref().and_then(|d| d.salvo.as_ref()) {
+                r.shell_index = self.add_weapon_class((*s.shell).clone());
+            }
         }
         self.weapon_classes.push(wc);
         self.weapon_classes.len() - 1
@@ -1327,6 +1348,18 @@ impl Sim {
             eat(&(self.mines.len() as u64).to_le_bytes());
             for mine in &self.mines {
                 mine.hash_into(&mut eat);
+            }
+        }
+        if self.next_droid_id > 0 {
+            eat(b"DROIDS");
+            eat(&self.next_droid_id.to_le_bytes());
+            eat(&(self.droids.len() as u64).to_le_bytes());
+            for d in &self.droids {
+                d.hash_into(&mut eat);
+            }
+            eat(&(self.strikes.len() as u64).to_le_bytes());
+            for r in &self.strikes {
+                r.hash_into(&mut eat);
             }
         }
         for g in &self.stickies {

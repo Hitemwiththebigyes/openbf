@@ -21,6 +21,7 @@ pub mod nav;
 pub mod perception;
 pub mod projectile;
 pub mod region;
+pub mod remote;
 pub mod rng;
 pub mod route_patch;
 pub mod sim;

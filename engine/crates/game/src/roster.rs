@@ -16,6 +16,7 @@
 //! lists, the `label` rule, and `jet` having no physics behind it.
 
 mod mines;
+mod remotes;
 
 use crate::classdb::{ClassDb, WeaponSlot};
 use crate::mission::MissionDef;
@@ -682,10 +683,36 @@ fn charge_points(db: &ClassDb, ord_name: &str, ord: &mut OrdnanceClass) {
     }
 }
 
+fn fired_ordnance(db: &ClassDb, ord_name: &str) -> OrdnanceClass {
+    let mut ord = OrdnanceClass::from_props(&ClassSrc {
+        db,
+        class: ord_name,
+    });
+    ord.laser = laser_look(db, ord_name);
+    ord.impact = impact_look(db, ord_name);
+    ord.explosion = impact_explosion(db, ord_name).and_then(|e| explosion_class(db, e));
+    ord.kind = db
+        .engine_base(ord_name)
+        .map_or(OrdKind::Other, OrdKind::from_base);
+    charge_points(db, ord_name, &mut ord);
+    if ord.kind == OrdKind::Shell {
+        // Its fall, and its burst when its life runs out in the air
+        // (re-ordnance-kinds §6).
+        ord.gravity = db.prop_f32(ord_name, "Gravity").unwrap_or(0.0);
+        ord.expire = db
+            .prop(ord_name, "ExplosionExpire")
+            .and_then(|e| explosion_class(db, e));
+    }
+    ord
+}
+
 /// One charge stage of a weapon (the root: every key before the first
 /// `NextCharge`), from its replayed keys `props` (base first, file order).
 fn weapon_stage(db: &ClassDb, weapon: &str, props: &[(u32, &str)]) -> Result<WeaponClass> {
     let wsrc = ListSrc { props };
+    if db.engine_base(weapon) == Some("remote") {
+        return remotes::remote_weapon(db, weapon, &wsrc);
+    }
     if matches!(db.engine_base(weapon), Some("dispenser" | "detonator")) {
         let name = WeaponClass::ordnance_name(&wsrc)
             .with_context(|| format!("{weapon}: no OrdnanceName"))?;
@@ -733,25 +760,7 @@ fn weapon_stage(db: &ClassDb, weapon: &str, props: &[(u32, &str)]) -> Result<Wea
         let ord = sticky_ordnance(db, db.resolve(&ord_name).unwrap_or(&ord_name));
         return Ok(WeaponClass::from_props(weapon, &wsrc, ord));
     }
-    let mut ord = OrdnanceClass::from_props(&ClassSrc {
-        db,
-        class: &ord_name,
-    });
-    ord.laser = laser_look(db, &ord_name);
-    ord.impact = impact_look(db, &ord_name);
-    ord.explosion = impact_explosion(db, &ord_name).and_then(|e| explosion_class(db, e));
-    ord.kind = db
-        .engine_base(&ord_name)
-        .map_or(OrdKind::Other, OrdKind::from_base);
-    charge_points(db, &ord_name, &mut ord);
-    if ord.kind == OrdKind::Shell {
-        // Its fall, and its burst when its life runs out in the air
-        // (re-ordnance-kinds §6).
-        ord.gravity = db.prop_f32(&ord_name, "Gravity").unwrap_or(0.0);
-        ord.expire = db
-            .prop(&ord_name, "ExplosionExpire")
-            .and_then(|e| explosion_class(db, e));
-    }
+    let ord = fired_ordnance(db, &ord_name);
     let mut w = WeaponClass::from_props(weapon, &wsrc, ord);
     if db.is_bf2() && db.engine_base(&ord_name) == Some("emitterordnance") {
         w.ability = core::weapon::Ability::from_props(&ClassSrc {
@@ -888,6 +897,7 @@ pub enum SlotKind {
     Repair,
     Dispenser,
     Ability,
+    Remote,
     /// Fired by the soldier's weapon: a `cannon` or `launcher`, whatever its
     /// channel, and the mortar launchers (a `grenade` weapon on channel 0):
     /// each charge stage's round flies as its ordnance does, a `sticky` one
@@ -917,7 +927,8 @@ pub fn slot_kind(db: &ClassDb, weapon: &str, channel: u8) -> SlotKind {
         ("repair", _) => SlotKind::Repair,
         ("grenade", "sticky") if channel == 1 => SlotKind::Thrown,
         ("dispenser" | "detonator", "mine") => SlotKind::Dispenser,
-        ("remote", _) => SlotKind::NotBuilt("remote droids (issue #44)"),
+        ("remote", "droid") => SlotKind::Remote,
+        ("remote", _) => SlotKind::NotBuilt("the guided rocket, a remote-flown flyer"),
         ("dispenser", "portableturret") => {
             SlotKind::NotBuilt("the portable auto-turret (issue #45)")
         }
@@ -961,9 +972,11 @@ pub fn held_slots(db: &ClassDb, soldier: &str, primary: u8) -> Vec<HeldSlot> {
             let name = db.resolve(&s.weapon)?.to_owned();
             let weapon = match class_slot_kind(db, soldier, &name, s.channel) {
                 SlotKind::Thrown => thrown_weapon_from_db(db, &name).ok()??,
-                SlotKind::Repair | SlotKind::Fired | SlotKind::Dispenser | SlotKind::Ability => {
-                    weapon_from_db(db, &name).ok()?
-                }
+                SlotKind::Repair
+                | SlotKind::Fired
+                | SlotKind::Dispenser
+                | SlotKind::Ability
+                | SlotKind::Remote => weapon_from_db(db, &name).ok()?,
                 SlotKind::NotBuilt(_) => return None,
             };
             Some(HeldSlot {
