@@ -575,6 +575,15 @@ pub fn weapon_from_db(db: &ClassDb, weapon: &str) -> Result<WeaponClass> {
     db.get(weapon)
         .with_context(|| format!("weapon class {weapon} not in class db"))?;
     let wsrc = ClassSrc { db, class: weapon };
+    if db.engine_base(weapon) == Some("dispenser") {
+        let name = WeaponClass::ordnance_name(&wsrc)
+            .with_context(|| format!("{weapon}: no OrdnanceName"))?;
+        let item = item_class_from_db(db, &name)
+            .with_context(|| format!("{weapon}: {name} is not a pickup"))?;
+        let mut w = WeaponClass::from_props(weapon, &wsrc, OrdnanceClass::default());
+        core::weapon::Dispenser::apply(&mut w, &wsrc, db.is_bf2(), item);
+        return Ok(w);
+    }
     if db.engine_base(weapon) == Some("repair") {
         let mut w = WeaponClass::from_props(weapon, &wsrc, OrdnanceClass::default());
         w.repair = Some(core::weapon::Repair::from_props(&wsrc));
@@ -686,7 +695,7 @@ pub fn held_slots(db: &ClassDb, soldier: &str, primary: u8) -> Vec<HeldSlot> {
                 return None;
             }
             let weapon = if s.channel == 1
-                && db.engine_base(&name) != Some("repair")
+                && !matches!(db.engine_base(&name), Some("repair" | "dispenser"))
                 && name != "cis_weap_inf_wrist_rocket"
             {
                 thrown_weapon_from_db(db, &name).ok()??

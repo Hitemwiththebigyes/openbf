@@ -64,7 +64,12 @@ impl Rounds {
         let thrown = sim
             .events
             .iter()
-            .filter(|e| matches!(e, Event::Throw { .. }))
+            .filter(|e| match e {
+                Event::Throw { weapon_class, .. } => sim.weapon_classes[*weapon_class as usize]
+                    .dispenser
+                    .is_none(),
+                _ => false,
+            })
             .count();
         let kept: Vec<&(Sticky, u64)> = if self.tick.map(|t| t + 1) == Some(sim.tick) {
             self.stickies
@@ -167,6 +172,40 @@ mod tests {
     use super::*;
     use crate::fx::Library;
     use core::{projectile::Hit, unit::UnitHandle, weapon::WeaponClass};
+
+    #[test]
+    fn dispensing_a_pack_keeps_an_existing_grenades_trail_identity() {
+        let mut sim = Sim::empty(1);
+        let pack = sim.add_weapon_class(WeaponClass {
+            dispenser: Some(core::weapon::Dispenser {
+                item: core::sim::ItemClass::basic("dual", 100.0, 2),
+                velocity: 10.0,
+                strength: [0.3, 0.4],
+                max_items: 4,
+            }),
+            ..Default::default()
+        });
+        let owner = UnitHandle { index: 0, gen: 0 };
+        sim.stickies.push(Sticky::new(
+            Vec3::ZERO,
+            Vec3::NEG_Z,
+            &core::sticky::StickyClass::new(false),
+            30.0,
+            owner,
+            0,
+            0,
+        ));
+        let mut rounds = Rounds::default();
+        let before = rounds.sticky_ids(&sim);
+        rounds.tick = Some(sim.tick);
+        sim.tick += 1;
+        sim.events.push(Event::Throw {
+            unit: owner,
+            weapon_class: pack as u32,
+            origin: Vec3::ZERO,
+        });
+        assert_eq!(rounds.sticky_ids(&sim), before);
+    }
 
     #[test]
     fn collinear_rounds_keep_separate_trails_and_retire_independently() {

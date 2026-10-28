@@ -6,6 +6,8 @@ use crate::sim::tests::flat_ground;
 use crate::sim::PadState;
 use crate::TICK_HZ;
 
+mod dispensers;
+
 const DT: f32 = 1.0 / TICK_HZ as f32;
 
 /// Item indices of the fixtures below.
@@ -79,6 +81,7 @@ fn step(s: &mut Sim, n: usize) {
 fn lay(s: &mut Sim, class: u8, pos: Vec3) {
     let life = s.item_classes[usize::from(class)].life_span;
     s.pickups.push(Pickup {
+        source: None,
         class,
         pos,
         vel: Vec3::ZERO,
@@ -334,6 +337,7 @@ fn an_item_in_flight_waits_half_a_second() {
     // In the air at the taker's chest, held up by no gravity to speak of.
     let life = s.item_classes[usize::from(H100)].life_span;
     s.pickups.push(Pickup {
+        source: None,
         class: H100,
         pos: Vec3::new(0.0, 6.0, 0.0),
         vel: Vec3::ZERO,

@@ -1611,6 +1611,7 @@ fn fielded_classes_hold_their_sidearm_and_grenades() {
                     assert_eq!(
                         h.channel == 1
                             && h.weapon.repair.is_none()
+                            && h.weapon.dispenser.is_none()
                             && h.weapon.name != "cis_weap_inf_wrist_rocket",
                         h.weapon.ordnance.sticky.is_some(),
                         "{}",

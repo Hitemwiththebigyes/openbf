@@ -107,18 +107,29 @@ impl Sim {
                     weapon_class: class as u32,
                 });
             }
-            if self.weapon_classes[class].ordnance.sticky.is_some() {
-                for _ in &shots {
-                    self.launch(i, class);
-                }
-            } else if !shots.is_empty() {
-                self.soldier_bolts(i, class, &shots);
-            }
+            self.soldier_shots(i, Some(k), &shots);
         }
         held0
     }
 
-    pub(super) fn soldier_bolts(&mut self, i: usize, class: usize, shots: &[ShotSpec]) {
+    pub(super) fn soldier_shots(&mut self, i: usize, held_slot: Option<usize>, shots: &[ShotSpec]) {
+        if shots.is_empty() {
+            return;
+        }
+        let u = &self.units[i];
+        let class = held_slot.map_or(u.weapon_class, |k| u.held[k].class);
+        if self.weapon_classes[class].dispenser.is_some() {
+            self.dispense_shots(i, held_slot, class, shots);
+        } else if self.weapon_classes[class].ordnance.sticky.is_some() {
+            for _ in shots {
+                self.launch(i, class);
+            }
+        } else {
+            self.soldier_bolts(i, class, shots);
+        }
+    }
+
+    fn soldier_bolts(&mut self, i: usize, class: usize, shots: &[ShotSpec]) {
         let unit = self.handle(i);
         // A human's shot leaves the fire point toward what the reticle's
         // ray hits (card AIMA); a bot's leaves the chest along its aim

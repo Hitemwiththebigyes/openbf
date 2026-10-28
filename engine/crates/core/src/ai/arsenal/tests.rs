@@ -12,6 +12,24 @@ use crate::unit::{Controller, SlotSpec, UnitSpec};
 use crate::weapon::{ExplosionClass, OrdnanceClass, Thrown};
 use crate::TICK_DT;
 
+#[test]
+fn supply_dispensers_are_never_attack_weapons() {
+    let mut pack = thermal();
+    pack.dispenser = Some(crate::weapon::Dispenser {
+        item: crate::sim::ItemClass::basic("dual", 100.0, 2),
+        velocity: 10.0,
+        strength: [0.3, 0.4],
+        max_items: 4,
+    });
+    for bf2 in [false, true] {
+        let mut request = ask(16.0);
+        request.bf2 = bf2;
+        request.forced = true;
+        request.group = true;
+        assert!(choose([cand(3, &pack, Some(5))].into_iter(), &request).is_none());
+    }
+}
+
 /// The thermal detonator as BF2's disc authors it (`re-grenades.md` 9).
 fn thermal() -> WeaponClass {
     WeaponClass {

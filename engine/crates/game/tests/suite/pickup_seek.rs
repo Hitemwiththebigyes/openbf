@@ -66,6 +66,7 @@ fn loaded_hoth_health_item_is_sought_and_collected_with_a_nearby_human() {
     let life = item.life_span;
     let class = sim.add_item_class(item);
     sim.pickups.push(Pickup {
+        source: None,
         class,
         pos: item_pos,
         vel: Vec3::ZERO,

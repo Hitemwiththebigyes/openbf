@@ -25,7 +25,7 @@ use super::state::{DeathCause, Event, Sim};
 use crate::fmath;
 use crate::soldier::GroundRules;
 use crate::unit::{Unit, UnitHandle, UnitSpec};
-use crate::weapon::{HealthType, WeaponClass, WeaponState, SPARE_INFINITE};
+use crate::weapon::{HealthType, ShotSpec, WeaponClass, WeaponState, SPARE_INFINITE};
 use glam::Vec3;
 
 /// The slots of a soldier class's drop table (both discs, §3.1).
@@ -145,6 +145,7 @@ impl DropTable {
 /// An item on the field (`Sim::pickups`). HASHED.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Pickup {
+    pub source: Option<(UnitHandle, usize)>,
     /// Index into `Sim::item_classes`.
     pub class: u8,
     /// The item's origin (the bottom of its model).
@@ -159,6 +160,12 @@ pub struct Pickup {
 
 impl Pickup {
     pub fn hash_into(&self, eat: &mut impl FnMut(&[u8])) {
+        if let Some((owner, weapon)) = self.source {
+            eat(b"dispenser");
+            eat(&owner.index.to_le_bytes());
+            eat(&owner.gen.to_le_bytes());
+            eat(&(weapon as u32).to_le_bytes());
+        }
         eat(&[self.class, self.landed as u8]);
         for v in [
             self.pos.x, self.pos.y, self.pos.z, self.vel.x, self.vel.y, self.vel.z, self.yaw,
@@ -186,7 +193,10 @@ fn reserve_cap(spec: &UnitSpec, slot: u8, class: &WeaponClass, state: &WeaponSta
 }
 
 fn needs_clips(w: &WeaponState, class: &WeaponClass, cap: u32) -> bool {
-    !class.infinite_ammo() && w.spare != SPARE_INFINITE && w.spare < cap
+    class.dispenser.is_none()
+        && !class.infinite_ammo()
+        && w.spare != SPARE_INFINITE
+        && w.spare < cap
 }
 
 /// §5.4 for one weapon: `clips` more in reserve, up to `cap` rounds. A
@@ -240,6 +250,116 @@ fn touches(u: &Unit, p: &Pickup, c: &ItemClass) -> bool {
 }
 
 impl Sim {
+    pub(super) fn dispense_shots(
+        &mut self,
+        i: usize,
+        held_slot: Option<usize>,
+        class: usize,
+        shots: &[ShotSpec],
+    ) {
+        for shot in shots {
+            if self.dispense_pickup(i, class, shot.charge) {
+                continue;
+            }
+            let u = &mut self.units[i];
+            let wc = &self.weapon_classes[class];
+            if wc.infinite_ammo() || (self.cheats.infinite_ammo && u.is_player) {
+                continue;
+            }
+            let state = match held_slot {
+                Some(k) => &mut u.held[k].state,
+                None => &mut u.weapon,
+            };
+            let cancel_reload = state.reloading();
+            state.refund_dispense(wc);
+            if cancel_reload {
+                let owner = self.handle(i);
+                if let Some(event) = self.events.iter().rposition(|e| match e {
+                    Event::Reload { unit, weapon_class } => {
+                        *unit == owner && *weapon_class as usize == class
+                    }
+                    _ => false,
+                }) {
+                    self.events.remove(event);
+                }
+            }
+        }
+    }
+
+    pub(super) fn dispense_pickup(&mut self, i: usize, weapon: usize, charge: f32) -> bool {
+        let d = self.weapon_classes[weapon].dispenser.as_ref().unwrap();
+        let owner = self.handle(i);
+        let class = self
+            .item_classes
+            .iter()
+            .position(|c| c.name == d.item.name)
+            .unwrap() as u8;
+        let u = &self.units[i];
+        let (aim, _, _) = u.aim_frame();
+        let speed = (d.strength[0] + (d.strength[1] - d.strength[0]) * charge) * d.velocity;
+        let pos = u.muzzle();
+        self.spawn_pickup(
+            class,
+            pos,
+            aim * speed + u.soldier.vel,
+            u.soldier.yaw,
+            Some((owner, weapon)),
+        )
+    }
+
+    fn spawn_pickup(
+        &mut self,
+        class: u8,
+        pos: Vec3,
+        vel: Vec3,
+        yaw: f32,
+        source: Option<(UnitHandle, usize)>,
+    ) -> bool {
+        if self.ground_rules == GroundRules::Bf2 && self.outcome.is_some() {
+            return false;
+        }
+        let Some(ic) = self.item_classes.get(usize::from(class)) else {
+            return false;
+        };
+        let replace = source.and_then(|(_, weapon)| {
+            let max = self.weapon_classes[weapon].dispenser.as_ref()?.max_items as usize;
+            if max == 0 {
+                return None;
+            }
+            let mut owned = self
+                .pickups
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| p.source == source);
+            let (oldest, _) = owned.next()?;
+            (owned.count() + 1 >= max).then_some(oldest)
+        });
+        if self.pickups.len() - usize::from(replace.is_some()) >= self.item_pool {
+            return false;
+        }
+        if let Some(oldest) = replace {
+            self.pickups.remove(oldest);
+        }
+        self.pickups.push(Pickup {
+            source,
+            class,
+            pos,
+            vel,
+            yaw,
+            life: ic.life_span,
+            landed: false,
+        });
+        if let Some((unit, weapon)) = source {
+            self.events.push(Event::Throw {
+                unit,
+                weapon_class: weapon as u32,
+                origin: pos,
+            });
+        }
+        self.events.push(Event::ItemDropped { item: class, pos });
+        true
+    }
+
     pub(crate) fn item_needed(&self, u: &Unit, c: &ItemClass) -> bool {
         if !matches!(u.health.health_type, HealthType::Person | HealthType::Droid) {
             return false;
@@ -284,18 +404,7 @@ impl Sim {
         let Some(class) = table.pick(r) else {
             return;
         };
-        let Some(ic) = self.item_classes.get(usize::from(class)) else {
-            return;
-        };
-        if self.pickups.len() >= self.item_pool {
-            return;
-        }
-        // BF2's create gate (§3.2): nothing is made while the game is held.
-        // [H] what the hold is; the port takes "the round is decided".
         let bf2 = self.ground_rules == GroundRules::Bf2;
-        if bf2 && self.outcome.is_some() {
-            return;
-        }
         let vel = if bf2 && vel.length_squared() <= DROP_SIDE_SPEED * DROP_SIDE_SPEED {
             // Row 0 of the soldier's matrix = up x forward: its left.
             let (sy, cy) = fmath::sin_cos(yaw);
@@ -304,15 +413,7 @@ impl Sim {
             vel
         };
         let pos = feet + Vec3::Y * DROP_HEIGHT;
-        self.pickups.push(Pickup {
-            class,
-            pos,
-            vel,
-            yaw,
-            life: ic.life_span,
-            landed: false,
-        });
-        self.events.push(Event::ItemDropped { item: class, pos });
+        self.spawn_pickup(class, pos, vel, yaw, None);
     }
 
     /// Step 5c: every item's flight and life, then the pickups.

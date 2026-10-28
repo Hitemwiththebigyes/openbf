@@ -1002,6 +1002,9 @@ impl Sim {
     }
 
     pub fn add_weapon_class(&mut self, wc: WeaponClass) -> usize {
+        if let Some(d) = &wc.dispenser {
+            self.add_item_class(d.item.clone());
+        }
         self.weapon_classes.push(wc);
         self.weapon_classes.len() - 1
     }

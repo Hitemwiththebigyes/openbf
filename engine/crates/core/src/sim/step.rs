@@ -835,7 +835,7 @@ impl Sim {
                     }
                 }
             }
-            self.soldier_bolts(i, wc_idx, &shots);
+            self.soldier_shots(i, None, &shots);
         }
 
         // 5. Bolt flight + impacts (in spawn order): first what each bolt
