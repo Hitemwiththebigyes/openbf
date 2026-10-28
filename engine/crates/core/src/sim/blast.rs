@@ -176,6 +176,7 @@ impl Sim {
             .droids
             .iter()
             .enumerate()
+            .filter(|(_, d)| overlaps(d.pos, crate::remote::RADIUS))
             .filter_map(|(i, d)| {
                 if !crate::perception::los_seat(
                     self,
