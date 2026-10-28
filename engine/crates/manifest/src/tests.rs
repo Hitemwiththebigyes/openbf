@@ -309,6 +309,7 @@ fn full_manifest() -> Manifest {
             }],
             terrain_enable: Some(0.0),
             reflection_color: Some([0.5, 0.5, 1.0]),
+            stars: None,
         }),
         water: Some(ManifestWater {
             glb: "water.glb".into(),
@@ -471,6 +472,7 @@ fn full_water_config() -> ManifestWaterConfig {
         main_texture: Some("kas2_water".into()),
         foam_texture: Some("kam1_water".into()),
         metres_per_repeat: Some([16.0, 16.0]),
+        foam_metres_per_repeat: Some([12.8, 12.8]),
         ocean: true,
         disable_low_res: true,
         specular_enable: true,
@@ -898,6 +900,7 @@ fn water_field_order_is_the_wire_format() {
             "light_azim_and_elev",
             "patch_divisions",
             "lod_decimation",
+            "foam_metres_per_repeat",
         ]
     );
 }

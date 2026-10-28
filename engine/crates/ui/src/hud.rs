@@ -150,6 +150,12 @@ pub struct HudModel {
     /// Winning team once the round is decided; 2 = the time limit ran out
     /// on equal reinforcements and both teams win (`core::sim::OUTCOME_DRAW`).
     pub outcome: Option<u8>,
+    /// The domination countdown (issue #33, `analysis/re-round-end.md` §1.2):
+    /// (the viewer's side holds every post, seconds left) - "Victory In" to
+    /// the holders, "Defeat In" to the others; None hides both.
+    pub countdown: Option<(bool, f32)>,
+    /// The end of the round (issue #33): its banner, then its stats screens.
+    pub round_end: Option<RoundEndModel>,
     /// Seconds left on the round's time limit (BF2's `ShowTimer`, queue
     /// TLO); `None` = no limit, and nothing is drawn.
     pub time_left: Option<f32>,
@@ -327,6 +333,7 @@ pub fn feed(hud: &mut Hud, m: &HudModel, has_mesh: &dyn Fn(&str) -> bool) {
     // The target first: a lost one sends white, then the reticle's own.
     let target = m.target.as_ref().filter(|_| alive && m.reticle.is_some());
     feed_target(hud, target, has_mesh);
+    feed_countdown(hud, m.countdown, has_mesh);
     let mut put = |event: &str, v: EventValue| hud.publish(event, v, has_mesh);
     if let (Some(rel), true) = (m.reticle, alive) {
         put(
@@ -537,6 +544,26 @@ fn feed_target(hud: &mut Hud, t: Option<&HudTarget>, has_mesh: &dyn Fn(&str) -> 
     );
 }
 
+/// The domination countdown's events (B2 HUD update `FUN_003b61e0`,
+/// re-round-end.md §1.2): `victorytimer` / `defeattimer` with the seconds
+/// left each update (the layout's VictoryTimerGroup / DefeatTimerGroup: the
+/// label and the "%m:%02s" number), the other side's `.disable`, and both
+/// `.disable` when it ends.
+fn feed_countdown(hud: &mut Hud, c: Option<(bool, f32)>, has_mesh: &dyn Fn(&str) -> bool) {
+    const SIDES: [&str; 2] = ["victorytimer", "defeattimer"];
+    let on = c.map(|(victory, _)| usize::from(!victory));
+    for (k, side) in SIDES.iter().enumerate() {
+        if Some(k) != on && hud.last(side).is_some() {
+            hud.forget(side);
+            hud.send(&format!("{side}.disable"), EventValue::None, has_mesh);
+        }
+    }
+    if let Some((victory, secs)) = c {
+        let side = SIDES[usize::from(!victory)];
+        hud.publish(side, EventValue::Number(secs.max(0.0)), has_mesh);
+    }
+}
+
 fn panel() -> Frame {
     Frame::new()
         .fill(Color32::from_black_alpha(140))
@@ -562,8 +589,138 @@ pub fn draw_pad_warning(ctx: &egui::Context, text: &str) {
         });
 }
 
+/// One soldier's line on the stats screens.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct StatRow {
+    pub name: String,
+    pub kills: u32,
+    pub deaths: u32,
+    /// The viewer's own line.
+    pub me: bool,
+}
+
+/// What the end of the round shows (issue #33, `analysis/re-round-end.md`
+/// §2.1 / §3.1, BF1's flow on every map).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct RoundEndModel {
+    /// 0 victory, 1 defeat, 2 both teams win (the time limit on equal
+    /// reinforcements).
+    pub result: u8,
+    /// 0 the banner, 1 team stats, 2 personal stats, 3 awards.
+    pub screen: u8,
+    /// Each team's name and its soldiers, most kills first.
+    pub teams: [(String, Vec<StatRow>); 2],
+    /// The viewer: kills, deaths, posts captured, points.
+    pub personal: [i32; 4],
+}
+
+/// BF1's banner tints (B1 249961-249968): victory green, defeat red.
+const BANNER_GREEN: Color32 = Color32::from_rgb(64, 192, 64);
+const BANNER_RED: Color32 = Color32::from_rgb(192, 64, 64);
+
+/// The end of the round: the banner at the screen's centre, or the stats
+/// screen it stands on, with the keys that move on.
+fn draw_round_end(ctx: &egui::Context, r: &RoundEndModel) {
+    if r.screen == 0 {
+        let (text, color) = match r.result {
+            0 => ("VICTORY", BANNER_GREEN),
+            1 => ("DEFEAT", BANNER_RED),
+            _ => ("VICTORY", BANNER_GREEN),
+        };
+        egui::Area::new(egui::Id::new("round_end_banner"))
+            .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.label(
+                    RichText::new(text)
+                        .font(FontId::proportional(64.0))
+                        .strong()
+                        .color(color),
+                );
+            });
+        return;
+    }
+    let title = ["", "TEAM STATS", "PERSONAL STATS", "AWARDS"][usize::from(r.screen.min(3))];
+    egui::Area::new(egui::Id::new("round_end_stats"))
+        .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
+        .show(ctx, |ui| {
+            panel().show(ui, |ui| {
+                ui.set_min_width(520.0);
+                ui.label(
+                    RichText::new(title)
+                        .font(FontId::proportional(24.0))
+                        .strong(),
+                );
+                ui.separator();
+                match r.screen {
+                    1 => {
+                        ui.horizontal_top(|ui| {
+                            for (name, rows) in &r.teams {
+                                ui.vertical(|ui| {
+                                    ui.label(RichText::new(name).strong());
+                                    egui::Grid::new(format!("stats_{name}")).show(ui, |ui| {
+                                        ui.label("");
+                                        ui.label("Kills");
+                                        ui.label("Deaths");
+                                        ui.end_row();
+                                        for row in rows {
+                                            let t = |s: String| {
+                                                let t = RichText::new(s);
+                                                if row.me {
+                                                    t.color(Color32::from_rgb(255, 220, 120))
+                                                } else {
+                                                    t
+                                                }
+                                            };
+                                            ui.label(t(row.name.clone()));
+                                            ui.label(t(row.kills.to_string()));
+                                            ui.label(t(row.deaths.to_string()));
+                                            ui.end_row();
+                                        }
+                                    });
+                                });
+                                ui.add_space(24.0);
+                            }
+                        });
+                    }
+                    2 => {
+                        egui::Grid::new("stats_personal").show(ui, |ui| {
+                            for (label, v) in
+                                ["Kills", "Deaths", "Command posts captured", "Points"]
+                                    .iter()
+                                    .zip(r.personal)
+                            {
+                                ui.label(*label);
+                                ui.label(v.to_string());
+                                ui.end_row();
+                            }
+                        });
+                    }
+                    _ => {
+                        ui.label("No awards this round.");
+                    }
+                }
+                ui.separator();
+                let next = if r.screen == 3 {
+                    "Accept: done"
+                } else {
+                    "Accept: next"
+                };
+                let back = if r.screen == 1 {
+                    "Back: done"
+                } else {
+                    "Back: previous"
+                };
+                ui.label(RichText::new(format!("{next}    {back}")).weak());
+            });
+        });
+}
+
 /// The egui half of the HUD for this frame (module doc).
 pub fn draw_hud(ctx: &egui::Context, m: &HudModel) {
+    if let Some(r) = &m.round_end {
+        draw_round_end(ctx, r);
+        return;
+    }
     // The round timer, top centre under the reinforcement counts.
     if let Some(t) = m.time_left {
         let secs = t.max(0.0).ceil() as u32;
@@ -631,6 +788,8 @@ mod tests {
             dead: false,
             respawn_in: None,
             outcome: None,
+            countdown: None,
+            round_end: None,
             time_left: Some(125.0),
             messages: Vec::new(),
             stats: None,

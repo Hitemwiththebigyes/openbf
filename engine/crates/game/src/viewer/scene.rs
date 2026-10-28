@@ -9,7 +9,7 @@
 
 use super::camera::instance_matrix;
 use super::look::{
-    apply_lighting, clear_color, far_cull, far_cull_from, lod_bands, lod_enabled, lowres_enabled,
+    apply_lighting, clear_color, far_cull, far_cull_from, lod_bands, lod_mode, lowres_enabled,
     lowres_range, speckle_enabled, speckle_frames, speckle_look, water_look,
 };
 use super::upload::{
@@ -658,7 +658,7 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
         let look = water_look(&scene.manifest.source_game, &scene.manifest.lighting, info);
         let ocean = info.config.as_ref().is_some_and(|c| c.ocean);
         let far = if ocean { look.far } else { cull.and(look.far) };
-        let mut handle = |name: Option<&str>| -> Result<Option<TextureHandle>> {
+        let mut handle = |name: Option<&str>, uv_scale| -> Result<Option<TextureHandle>> {
             let Some(t) = name.and_then(|n| scene.textures.get(&n.to_ascii_lowercase())) else {
                 return Ok(None);
             };
@@ -667,10 +667,10 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
                 t,
                 name.unwrap_or("water"),
                 info.uv_velocity,
-                [1.0, 1.0],
+                uv_scale,
             )?))
         };
-        let tex = handle(info.texture.as_deref())?;
+        let tex = handle(info.texture.as_deref(), [1.0, 1.0])?;
         // The ocean's foam layer: a SECOND draw of the same surface with the
         // map's `FoamTexture`, blended over the opaque base by its sheet's
         // alpha × its vertex alpha (`analysis/re-water.md` §3 cit. 5 [V],
@@ -697,7 +697,7 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
                     .and_then(|n| scene.textures.get(&n.to_ascii_lowercase()))
                     .is_some_and(texture_has_alpha)
                 {
-                    true => handle(name)?,
+                    true => handle(name, foam_uv_scale(info.config.as_ref()))?,
                     false => None,
                 }
             }
@@ -805,7 +805,8 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
         .as_ref()
         .map_or(&[][..], |f| &f.path_props[..]);
     let mut placed: Vec<PlacedModel<'_>> = Vec::new();
-    let bands = lod_enabled()
+    let mode = lod_mode();
+    let bands = (mode != super::look::LodMode::Off)
         .then(|| lod_bands(&scene.manifest.lighting))
         .flatten();
     for (ii, inst) in scene
@@ -823,8 +824,8 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
         // Card LOD (`analysis/re-lod.md` §4, §7 [O]): on a map with a far
         // scene the PS2 draws a geometry that has a LOWD as its model to the
         // near scene's end and as its LOWD past the far scene's reach; the
-        // two draws below share one dithered threshold per pixel between
-        // `NearSceneRange[1]` and `[2]` ([`render::LodSwitch`]). The PS2
+        // two draws below switch whole at one distance ([`render::LodSwitch`],
+        // `LodBands::at`). The PS2
         // culls the LOWD at `FarSceneRange` by the OBJECT's sphere; the port
         // gives it the map's model cull like every other draw (per fragment,
         // off by default), since a per-fragment cut at `FarSceneRange` drops
@@ -833,7 +834,20 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
         // `NearSceneRange[2]`; the port keeps it, a named deviation (draw
         // distance, re-lod §7.2). Path props are world instances of their
         // class (re-foliage §9) and take the same rule.
-        let lowd = bands.and_then(|b| Some((scene.resolve_lowd(&inst.class)?, b)));
+        let matrix = instance_matrix(inst.rotation, inst.translation);
+        // The switch's sphere: the model's, shared by both sides so the
+        // instance switches whole.
+        let lowd = bands.and_then(|b| {
+            let (anchor, radius) = crate::point_light::model_sphere(&scene.meshes[model], matrix)
+                .map_or((Vec3::from(inst.translation), 0.0), |s| {
+                    (s.centre, s.radius)
+                });
+            let reach = super::leaf::attach_reach(&scene.manifest, &inst.class);
+            Some((
+                scene.resolve_lowd(&inst.class)?,
+                b.sides(mode, reach, anchor, radius),
+            ))
+        });
         // PWST: a droid turns whole, its rig's nodes by its own animation.
         let class = world.then(|| scene.resolve_class(&inst.class)).flatten();
         let station = class
@@ -867,7 +881,7 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
             color: None,
             fade: None,
             near: None,
-            lod: lowd.map(|(_, b)| b.sides().0),
+            lod: lowd.map(|(_, s)| s.0),
         });
         if let Some(model) = wreck_models.get(&ii).filter(|_| station.is_some()) {
             placed.push(PlacedModel {
@@ -882,7 +896,7 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
                 lod: None,
             });
         }
-        if let Some((lowd, b)) = lowd {
+        if let Some((lowd, sides)) = lowd {
             placed.push(PlacedModel {
                 model: lowd,
                 matrix: instance_matrix(inst.rotation, inst.translation),
@@ -892,17 +906,15 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
                 color: None,
                 fade: None,
                 near: None,
-                lod: Some(b.sides().1),
+                lod: Some(sides.1),
             });
-            continue;
         }
         // The far scene's LOWD extension (card UTAS, `analysis/re-far-lowd.md`
-        // §0/§6 [O]): what a geometry's LOWD draws beyond its LOD0 — BF2
-        // UTA1's far sinkhole wall — with the fragments nearer than
-        // `NearSceneRange[1]` discarded. The switch above draws the whole
-        // LOWD past the near scene and so covers it wherever it applies;
-        // this is left for a geometry the switch does not take (it is off,
-        // `OPENBF_LOD=0`, or its mesh did not load).
+        // §0/§6 [O]): the LOWD triangles its LOD0 lacks — BF2 UTA1's far
+        // sinkhole and canyon walls — with the fragments nearer than
+        // `NearSceneRange[1]` discarded. It goes with the MODEL: drawn
+        // whenever the model is (the switch's model side), and dropped once
+        // the whole LOWD, which holds those triangles, takes over.
         let reach = scene.manifest.lighting.near_scene_range.map(|r| r[1]);
         if let (true, Some(far), Some(near)) = (world, scene.resolve_far(&inst.class), reach) {
             placed.push(PlacedModel {
@@ -914,7 +926,7 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
                 color: None,
                 fade: None,
                 near: Some(near),
-                lod: None,
+                lod: lowd.map(|(_, s)| s.0),
             });
         }
     }
@@ -1076,8 +1088,10 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
         install_spec_table(r, assets_dir, &scene.manifest.source_game)?;
         install_omniproj(r, assets_dir, &scene.manifest.source_game)?;
     }
-    let sky = upload_sky(r, scene, &mut textures, &mut census)?;
+    let (sky, dome_shells) = upload_sky(r, scene, &mut textures, &mut census)?;
     r.set_sky(sky);
+    // Set on every upload, so a map without stars clears the last map's.
+    r.set_stars(star_field(&scene.manifest), dome_shells);
     // The grass patches (queue FOLGG, `super::grass`): the FOLG records'
     // patches and the world instances of a grass class, drawn by the
     // renderer's own pass every frame. Set on every upload, so a map
@@ -1205,15 +1219,18 @@ fn upload_sky(
     scene: &Scene,
     textures: &mut HashMap<String, BoundTexture>,
     census: &mut Census,
-) -> Result<Vec<render::SkyShell>> {
+) -> Result<(Vec<render::SkyShell>, usize)> {
     let Some(sky) = &scene.manifest.sky else {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), 0));
     };
     let ambient = [sky.ambient[0], sky.ambient[1], sky.ambient[2], 1.0];
     let reflection = sky.reflection_color.unwrap_or([1.0; 3]);
     let reflection = [reflection[0], reflection[1], reflection[2], 1.0];
     let mut scale = None;
     let mut shells = Vec::new();
+    // The shells model 0 (the base dome) drew, mirror included: the stars go
+    // right after them (`analysis/re-stars.md` §3).
+    let mut dome_shells = 0;
     for (i, m) in sky.models.iter().enumerate() {
         let ambient = sky_shell_tint(scene.manifest.lightning.as_ref(), i, ambient);
         let Some(cpu) = scene.meshes.get(&m.geometry) else {
@@ -1300,9 +1317,12 @@ fn upload_sky(
             }));
         }
         shells.extend(own);
+        if i == 0 {
+            dome_shells = shells.len();
+        }
     }
     shells.extend(upload_sky_objects(r, scene, textures, ambient, census)?);
-    Ok(shells)
+    Ok((shells, dome_shells))
 }
 
 /// The tint dome shell `index` is drawn with: `base` (the map's flat
@@ -1484,3 +1504,31 @@ use terrain::{upload_terrain_chunks, upload_terrain_layer_chunks};
 
 #[cfg(test)]
 mod tests;
+
+/// The map's `DomeInfo.Stars()` for the renderer (issue #16,
+/// `analysis/re-stars.md`). `EnableBottom` is read by BF2's draw only.
+pub(crate) fn star_field(m: &manifest::Manifest) -> Option<render::StarField> {
+    let st = m.sky.as_ref()?.stars.as_ref()?;
+    Some(render::StarField {
+        count: st.count,
+        seed: st.seed,
+        twinkle_factor: st.twinkle_factor,
+        twinkle_frequency: st.twinkle_frequency,
+        color: st.color,
+        bright_fraction: st.bright_fraction,
+        alpha_min: st.alpha_min,
+        color_saturation: st.color_saturation,
+        enable_bottom: st.enable_bottom && m.source_game == "bf2",
+    })
+}
+
+/// The ocean foam layer's UV scale over the water mesh, whose UVs repeat
+/// every `metres_per_repeat`: the base's repeat over the foam's own
+/// (`ManifestWaterConfig::foam_metres_per_repeat`; both KAM1s 40 / 32 =
+/// 1.25). 1 when either is missing (a pre-2026-10-28 bake).
+pub(crate) fn foam_uv_scale(cfg: Option<&manifest::ManifestWaterConfig>) -> [f32; 2] {
+    match cfg.and_then(|c| Some((c.metres_per_repeat?, c.foam_metres_per_repeat?))) {
+        Some((base, foam)) => [base[0] / foam[0], base[1] / foam[1]],
+        None => [1.0, 1.0],
+    }
+}

@@ -59,6 +59,22 @@ pub struct OrdnanceClass {
     pub explosion: Option<ExplosionClass>,
     /// The engine base, for the AI's choice ([`OrdKind`]).
     pub kind: OrdKind,
+    /// `Gravity`: a shell falls at this x 9.8 m/s² ([`SHELL_G`];
+    /// `analysis/re-ordnance-kinds.md` §6). The class loader reads it for a
+    /// `shell` only: the key is dead on a bolt (the rifles author 1.0).
+    pub gravity: f32,
+    /// A shell's `ExplosionExpire`: its burst when its LifeSpan runs out in
+    /// the air (§6). Filled by the class loader.
+    pub expire: Option<ExplosionClass>,
+    /// The ordnance's charge points after the root (a `NextCharge` in the
+    /// ordnance class; issue #29, `analysis/re-weapon-charge.md` §4): the
+    /// charge picks the segment it falls in and blends Velocity, LifeSpan,
+    /// damage and its scales toward the segment's end ([`OrdnanceClass::charged`]).
+    pub knots: Vec<OrdKnot>,
+    /// An emitter's (the arc caster's) `Damage` beside its `MaxDamage`: its
+    /// damage is lerp(Damage, MaxDamage, charge) (B1 `FUN_00278208`
+    /// 199074-199075). None: `max_damage` whatever the charge.
+    pub min_damage: Option<f32>,
 }
 
 impl Default for OrdnanceClass {
@@ -81,6 +97,10 @@ impl Default for OrdnanceClass {
             sticky: None,
             explosion: None,
             kind: OrdKind::Other,
+            gravity: 0.0,
+            expire: None,
+            knots: Vec::new(),
+            min_damage: None,
         }
     }
 }
@@ -132,8 +152,62 @@ impl OrdnanceClass {
     /// Damage descriptor at impact. `age` = bolt flight time (BF2 falloff);
     /// `team_bonus` = attacker team holds the +bonus (BF2 hash 0xbb03442e).
     /// Charge/NextCharge lerp omitted (rifles have none).
+    /// The round's values at `charge` (B1 `FUN_002728a8` 195082-195133,
+    /// `FUN_002762a0`, `FUN_00272f88`; re-weapon-charge §4): the last point
+    /// at or under the charge (the root at 0), blended by `s` = the charge's
+    /// place in its segment toward the next point (0 on the last); an
+    /// emitter's damage by the raw charge instead.
+    pub fn charged(&self, charge: f32) -> OrdBlend {
+        let root = OrdBlend {
+            velocity: self.velocity,
+            life_span: self.life_span,
+            damage: self.max_damage,
+            scales: self.scales,
+            shield_scale: self.shield_scale,
+        };
+        let point = |k: &OrdKnot| OrdBlend {
+            velocity: k.velocity,
+            life_span: k.life_span,
+            damage: k.damage,
+            scales: k.scales,
+            shield_scale: k.shield_scale,
+        };
+        let mut pts = vec![(0.0, root)];
+        pts.extend(self.knots.iter().map(|k| (k.at, point(k))));
+        let i = pts.iter().rposition(|(at, _)| *at <= charge).unwrap_or(0);
+        let mut out = pts[i].1;
+        if let Some((t1, next)) = pts.get(i + 1) {
+            let t0 = pts[i].0;
+            let s = if *t1 > t0 {
+                (charge - t0) / (t1 - t0)
+            } else {
+                0.0
+            };
+            let l = |a: f32, b: f32| a + (b - a) * s;
+            out.velocity = l(out.velocity, next.velocity);
+            out.life_span = l(out.life_span, next.life_span);
+            out.damage = l(out.damage, next.damage);
+            for (a, b) in out.scales.iter_mut().zip(next.scales) {
+                *a = l(*a, b);
+            }
+            out.shield_scale = l(out.shield_scale, next.shield_scale);
+        }
+        if let Some(min) = self.min_damage {
+            out.damage = min + (self.max_damage - min) * charge.clamp(0.0, 1.0);
+        }
+        out
+    }
+
     pub fn damage_desc(&self, age: f32, team_bonus: bool) -> DamageDesc {
-        let mut damage = self.max_damage;
+        self.damage_desc_charged(age, team_bonus, 1.0)
+    }
+
+    /// [`OrdnanceClass::damage_desc`] for a round fired at `charge`
+    /// ([`OrdnanceClass::charged`]); the age falloff and team bonus are the
+    /// root's (re-weapon-charge §4).
+    pub fn damage_desc_charged(&self, age: f32, team_bonus: bool, charge: f32) -> DamageDesc {
+        let blend = self.charged(charge);
+        let mut damage = blend.damage;
         if let Some(f) = self.falloff {
             let t = age - f.start_time;
             if t > 0.0 {
@@ -155,8 +229,8 @@ impl OrdnanceClass {
         }
         DamageDesc {
             damage,
-            scales: self.scales,
-            shield_scale: self.shield_scale,
+            scales: blend.scales,
+            shield_scale: blend.shield_scale,
         }
     }
 
@@ -263,6 +337,10 @@ pub struct ExplosionClass {
     /// (`sim::blast::knock_falloff`).
     pub push: f32,
     pub push_outer: f32,
+    /// The push moves only bodies, never a living soldier (a named
+    /// deviation, `game::roster::PUSH_SPARES_THE_LIVING`); the damage is
+    /// untouched.
+    pub spares_living: bool,
     /// Its `Effect` / `WaterEffect` (card FXP3, [`crate::impact`]).
     /// Render-only: the sim never reads it; filled by the game's class
     /// loader.
@@ -279,6 +357,7 @@ impl Default for ExplosionClass {
             damage_outer: 0.0,
             push: 0.0,
             push_outer: 0.0,
+            spares_living: false,
             look: crate::impact::ExplosionLook::default(),
         }
     }
@@ -427,3 +506,28 @@ impl Health {
         dmg
     }
 }
+/// One ordnance charge point ([`OrdnanceClass::knots`]): from charge `at`
+/// the values blend toward the next point's.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OrdKnot {
+    pub at: f32,
+    pub velocity: f32,
+    pub life_span: f32,
+    pub damage: f32,
+    pub scales: [f32; 7],
+    pub shield_scale: f32,
+}
+
+/// [`OrdnanceClass::charged`]'s values for one round.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct OrdBlend {
+    pub velocity: f32,
+    pub life_span: f32,
+    pub damage: f32,
+    pub scales: [f32; 7],
+    pub shield_scale: f32,
+}
+
+/// The shell's gravity unit: `v.y += Gravity x -9.8 x dt` each update (B1
+/// `FUN_0027e478` 203497-203542, B2 `FUN_003202d0`; re-ordnance-kinds §6).
+pub const SHELL_G: f32 = 9.8;

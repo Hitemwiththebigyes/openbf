@@ -194,10 +194,54 @@ pub(super) fn open_spawn_screens(walk: &mut WalkSim, mission: Option<&game::miss
         eprintln!("spawn screens: slot 0 holds no live unit; the respawn stays automatic");
         return;
     }
+    walk.end_shots = mission.map(|m| m.camera_shots()).unwrap_or_default();
     walk.backdrop = mission.and_then(|m| {
         game::spawn_backdrop::Backdrop::new(m.camera_shots(), game::spawn_backdrop::LCG_RESEED)
     });
     walk.follow_backdrop();
+}
+
+/// The end of the round as the HUD draws it (issue #33): the result, the
+/// screen, each team's soldiers by kills, the viewer's own numbers.
+fn round_end_model(
+    walk: &WalkSim,
+    feed: &game::event_feed::EventFeed,
+    r: &game::round_end::RoundEnd,
+) -> ui::hud::RoundEndModel {
+    use game::round_end::{Phase, Result, Screen};
+    let teams = [0u8, 1].map(|t| {
+        let mut rows: Vec<ui::hud::StatRow> = walk
+            .sim
+            .units
+            .iter()
+            .enumerate()
+            .filter(|(_, u)| u.team == t && u.gen > 0)
+            .map(|(i, u)| ui::hud::StatRow {
+                name: feed.unit_name(&walk.sim, walk.sim.handle(i)),
+                kills: u.kills,
+                deaths: u.deaths,
+                me: i == walk.player.index as usize,
+            })
+            .collect();
+        rows.sort_by(|a, b| b.kills.cmp(&a.kills).then(a.deaths.cmp(&b.deaths)));
+        (walk.teams[usize::from(t)].faction.clone(), rows)
+    });
+    let s = feed.stats(&walk.sim, walk.player);
+    ui::hud::RoundEndModel {
+        result: match r.result {
+            Result::Victory => 0,
+            Result::Defeat => 1,
+            Result::Draw => 2,
+        },
+        screen: match r.phase {
+            Phase::Banner => 0,
+            Phase::Stats(Screen::Team) => 1,
+            Phase::Stats(Screen::Personal) => 2,
+            Phase::Stats(Screen::Awards) | Phase::Done => 3,
+        },
+        teams,
+        personal: [s.kills, s.deaths, s.captures, s.points],
+    }
 }
 
 /// Build the walk/battle sim for a loaded scene per the CLI flags.
@@ -462,6 +506,14 @@ pub(super) fn hud_model(
             })
         }),
         outcome: walk.sim.outcome,
+        countdown: walk
+            .sim
+            .domination_left()
+            .map(|(holder, secs)| (holder == me.team, secs)),
+        round_end: walk
+            .round_end
+            .as_ref()
+            .map(|r| round_end_model(walk, feed, r)),
         time_left: walk.sim.time_limit.map(|l| {
             (u64::from(l) * u64::from(core::TICK_HZ)).saturating_sub(walk.sim.tick) as f32
                 / core::TICK_HZ as f32

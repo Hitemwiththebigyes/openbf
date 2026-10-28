@@ -83,6 +83,7 @@ mod point_light;
 mod resources;
 mod sky;
 mod specular;
+mod stars;
 mod terrain_light;
 mod texture;
 
@@ -109,6 +110,7 @@ pub use particles::{ParticleDraw, ParticleShape};
 pub use point_light::{LitSphere, PointLight, SpotCone, MAX_POINT_LIGHTS};
 pub use sky::{mirror_squash, Placement, SkyMode, SkyShell, MIRROR_LIFT};
 pub use specular::spec_texcoord;
+pub use stars::{half_size as star_half_size, star_rgb, Star, StarField};
 pub use terrain_light::{
     LitPatch, TerrainLight, TerrainLights, LIGHTS_PER_PATCH, MAX_LIT_PATCHES, MAX_TERRAIN_LIGHTS,
 };
@@ -336,6 +338,11 @@ pub struct Renderer {
     bolt_core_pipeline: wgpu::RenderPipeline,
     bolt_glow_pipeline: wgpu::RenderPipeline,
     bolts: bolt::BoltState,
+    /// The sky's star field (`stars.rs`, issue #16): vs `grass.wgsl`, fs
+    /// `fs_bolt_glow`, additive with no depth, in the sky pass; the
+    /// field set by [`Renderer::set_stars`].
+    star_pipeline: wgpu::RenderPipeline,
+    stars: stars::StarState,
     /// This frame's particle effects (`particles.rs`, card FXP2), set by
     /// [`Renderer::set_particles`]; drawn with the bolts' pipelines.
     particles: particles::ParticleState,
@@ -395,6 +402,25 @@ pub const TIME_WRAP: f32 = 2000.0;
 /// `(time, water_time)`.
 pub fn advance_clocks(time: f32, water_time: f64, dt: f32) -> (f32, f64) {
     ((time + dt) % TIME_WRAP, water_time + f64::from(dt))
+}
+
+impl Renderer {
+    /// Drop the map's look: everything drawn without a draw command (the
+    /// sky, stars, grass, leaves, lights, effects, filter) and its lighting.
+    /// A frame after this is the clear colour plus its draws, as before any
+    /// map was loaded (the shell after a battle).
+    pub fn clear_scene(&mut self) {
+        self.set_sky(Vec::new());
+        self.set_stars(None, 0);
+        self.set_grass(Vec::new(), Vec::new());
+        self.set_leaves(Vec::new(), Vec::new(), None);
+        self.set_point_lights(Vec::new());
+        self.set_bolts(Vec::new());
+        self.set_particles(Vec::new());
+        self.set_terrain_lights(Default::default());
+        self.set_frame_filter(None);
+        self.lighting = Lighting::default();
+    }
 }
 
 #[cfg(test)]

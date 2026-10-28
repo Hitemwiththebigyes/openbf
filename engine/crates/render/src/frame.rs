@@ -285,8 +285,7 @@ impl Renderer {
         // byte-identical with it on — that, not the unit tests, is the proof
         // it removes nothing visible. The same box drops a draw whose
         // distance bands discard every fragment it could make
-        // (`draw::all_discarded`, card LODP: the far switch's model past the
-        // switch, its LOWD wholly nearer).
+        // (`draw::all_discarded`, card LODP).
         let mut culled = 0u32;
         let eye = camera.position;
         let visible = |d: &DrawCmd, f: &frustum::Frustum, meshes: &[GpuMesh]| -> bool {
@@ -298,11 +297,15 @@ impl Renderer {
             let (cull, cull_near) = crate::draw::instance_cull(d);
             f.intersects_aabb(lo, hi) && !crate::draw::all_discarded(cull, cull_near, near, far)
         };
+        // The far scene's switch (card LOD) drops the side of a geometry
+        // not drawn from this eye, with or without culling: its model and
+        // LOWD must never both draw.
+        let switched = |d: &DrawCmd| d.lod.is_none_or(|l| l.drawn(eye));
         let keep: Vec<bool> = if self.cull {
             draws
                 .iter()
                 .map(|d| {
-                    let v = visible(d, &frustum, &self.meshes);
+                    let v = switched(d) && visible(d, &frustum, &self.meshes);
                     if !v {
                         culled += 1;
                     }
@@ -310,7 +313,7 @@ impl Renderer {
                 })
                 .collect()
         } else {
-            vec![true; draws.len()]
+            draws.iter().map(switched).collect()
         };
 
         let mut order: Vec<usize> = (0..draws.len())
@@ -509,6 +512,34 @@ impl Renderer {
             }
         }
 
+        // The star field (`stars.rs`): this view's quads.
+        let mut star_vertices = std::mem::take(&mut self.stars.vertices);
+        crate::stars::build(&self.stars, camera, self.time, &mut star_vertices);
+        if !star_vertices.is_empty() {
+            let vb = bytemuck::cast_slice(&star_vertices);
+            let inst = [crate::bolt::identity_instance()];
+            let ib: &[u8] = bytemuck::cast_slice(&inst);
+            crate::grass::ensure(
+                &self.device,
+                &mut self.stars.vertex_buf,
+                vb.len(),
+                "star vertices",
+            );
+            crate::grass::ensure(
+                &self.device,
+                &mut self.stars.instance_buf,
+                ib.len(),
+                "star instance",
+            );
+            if let (Some((v, _)), Some((i, _))) = (&self.stars.vertex_buf, &self.stars.instance_buf)
+            {
+                self.queue.write_buffer(v, 0, vb);
+                self.queue.write_buffer(i, 0, ib);
+            }
+        }
+        let star_count = star_vertices.len() as u32;
+        self.stars.vertices = star_vertices;
+
         // BF2's terrain light pass (`terrain_light.rs`): its parameters and
         // the frame's copy, before the frame is acquired.
         let terrain_light = self.terrain_light_wanted();
@@ -594,12 +625,33 @@ impl Renderer {
                 occlusion_query_set: None,
             });
 
-            // Sky first: unlit shells around the camera, no depth at all.
-            if sky_base > 0 {
+            // Sky first: unlit shells around the camera, no depth at all. The
+            // stars go after the base dome's shells (its mirror included) and
+            // under the rest (a cloud deck covers them), as both ELFs order
+            // the sky pass (`analysis/re-stars.md` §3).
+            let star_slot = self.stars.slot.min(self.sky.len());
+            if sky_base > 0 || star_count > 0 {
                 pass.set_bind_group(0, &self.globals_bg, &[]);
                 pass.set_vertex_buffer(1, self.instance_buf.slice(..));
                 let mut bound: Option<SkyMode> = None;
-                for (slot, shell) in self.sky.iter().enumerate() {
+                for item in self.sky.iter().enumerate().map(Some).chain([None]) {
+                    if item.map_or(self.sky.len(), |(i, _)| i) == star_slot && star_count > 0 {
+                        if let (Some((vbuf, _)), Some((ibuf, _))) =
+                            (&self.stars.vertex_buf, &self.stars.instance_buf)
+                        {
+                            pass.set_pipeline(&self.star_pipeline);
+                            pass.set_bind_group(1, self.tex_bg(None), &[]);
+                            pass.set_vertex_buffer(0, vbuf.slice(..));
+                            pass.set_vertex_buffer(1, ibuf.slice(..));
+                            pass.draw(0..star_count, 0..1);
+                            draw_calls += 1;
+                            pass.set_vertex_buffer(1, self.instance_buf.slice(..));
+                            bound = None;
+                        }
+                    }
+                    let Some((slot, shell)) = item else {
+                        break;
+                    };
                     let Some(mesh) = self.meshes.get(shell.mesh.0 as usize) else {
                         continue;
                     };
@@ -1257,8 +1309,9 @@ mod tests {
         let (m, t) = (MeshHandle(0), TextureHandle(0));
         let side = |side| {
             Some(crate::LodSwitch {
-                fade_begin: 60.0,
-                fade_end: 90.0,
+                at: 90.0,
+                anchor: glam::Vec3::ZERO,
+                radius: 1.0,
                 side,
             })
         };

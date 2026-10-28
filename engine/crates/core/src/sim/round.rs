@@ -18,6 +18,24 @@ pub fn scale_reinforcements(count: u32, pct: u32) -> u32 {
 }
 
 impl Sim {
+    /// The domination countdown the HUD shows (issue #33,
+    /// `analysis/re-round-end.md` §1.2): while one team holds every post,
+    /// (that team, seconds left of the 20 s), the winner's side reading
+    /// "Victory In" and the other "Defeat In"; through BF2's 1 s step after
+    /// 0 it reads 0. None while no team holds every post, or once the round
+    /// is over.
+    pub fn domination_left(&self) -> Option<(u8, f32)> {
+        if self.outcome.is_some() {
+            return None;
+        }
+        self.domination.map(|(t, secs)| {
+            (
+                t,
+                (crate::battle::BF2_DOMINATION_DEFEAT_SECS - secs).max(0.0),
+            )
+        })
+    }
+
     /// Register a command post with its starting owner (0-based team, None =
     /// neutral). Returns its index.
     pub fn add_cp(&mut self, def: CpDef, owner: Option<u8>) -> usize {
@@ -201,6 +219,51 @@ mod tests {
     use crate::skill::Difficulty;
     use crate::unit::{Controller, UnitSpec};
     use glam::Vec3;
+
+    /// Issue #33 (`analysis/re-round-end.md` §1.1-1.2): one team holding every
+    /// post counts 20 s down - the HUD's Victory In / Defeat In - and the
+    /// round ends 1 s after 0 (BF2's `dittyTimer`); a neutral post stops it.
+    #[test]
+    fn the_domination_countdown_reads_20_s_and_the_round_ends_at_21() {
+        let mut s = Sim::empty(3);
+        s.heightfield = Some(flat_ground());
+        s.battle = Battle::new([150, 150]);
+        for (i, x) in [0.0f32, 60.0].into_iter().enumerate() {
+            s.add_cp(
+                sphere_cp(&format!("cp{i}"), Vec3::new(x, 0.0, -200.0), 8.0, false),
+                Some(0),
+            );
+        }
+        let mut left = Vec::new();
+        let mut ended = None;
+        for t in 0..(30 * 25) {
+            s.step(&[PadState::default()]);
+            if t % 150 == 149 {
+                left.push(s.domination_left().map(|(w, secs)| (w, secs.round())));
+            }
+            if s.outcome.is_some() && ended.is_none() {
+                ended = Some(s.tick as f32 / 30.0);
+            }
+        }
+        assert_eq!(left[0], Some((0, 15.0)));
+        assert_eq!(left[2], Some((0, 5.0)));
+        let ended = ended.expect("the round ends");
+        assert!((ended - 21.0).abs() < 0.1, "ended at {ended} s");
+        assert_eq!(s.outcome, Some(0));
+        assert_eq!(s.domination_left(), None, "over: no countdown");
+        // A neutral post stops it.
+        let mut s = Sim::empty(3);
+        s.add_cp(
+            sphere_cp("cp0", Vec3::new(0.0, 0.0, -200.0), 8.0, false),
+            Some(0),
+        );
+        s.add_cp(
+            sphere_cp("cp1", Vec3::new(60.0, 0.0, -200.0), 8.0, false),
+            None,
+        );
+        s.step(&[PadState::default()]);
+        assert_eq!(s.domination_left(), None);
+    }
 
     /// An AI walks to the nearest non-friendly post and captures it.
     #[test]

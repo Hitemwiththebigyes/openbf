@@ -840,6 +840,7 @@ impl Sim {
 
         // 5. Bolt flight + impacts (in spawn order): first what each bolt
         //    passes through on this tick's flight (issue #41).
+        self.fly_shells(dt);
         self.sweep_bolts(dt);
         let mut done = Vec::new();
         for (i, b) in self.bolts.iter_mut().enumerate() {

@@ -224,7 +224,7 @@ impl Sim {
             let feet = self.units[i].soldier.pos;
             self.units[i].soldier.kick(feet - pos);
         }
-        if e.push <= 0.0 || mounted {
+        if e.push <= 0.0 || mounted || (e.spares_living && self.units[i].alive) {
             return;
         }
         if self.units[i].soldier.stance.knocked() {
@@ -641,6 +641,35 @@ mod tests {
     /// thrown. The port pushes the same way, [`port_push`] as strong, and
     /// still throws him. The same soldier 7.5 m off, one tumbling and a
     /// rider: nothing.
+    /// The Bulldog's rule (the maintainer 2026-10-27, `ExplosionClass::spares_living`):
+    /// the blast still hurts a living soldier but does not throw him; the same
+    /// blast without the flag does.
+    #[test]
+    fn a_push_that_spares_the_living_hurts_but_does_not_throw() {
+        for spares in [false, true] {
+            let mut s = sim_for(crate::soldier::GroundRules::Bf2);
+            // 50 damage: he lives through it (a corpse is pushed either way).
+            let e = ExplosionClass {
+                spares_living: spares,
+                damage: 50.0,
+                ..thermal()
+            };
+            let p = s
+                .spawn(&UnitSpec::trooper(1, Vec3::new(2.0, 0.0, 0.0)))
+                .unwrap();
+            let hp = s.units[p.index as usize].health.cur;
+            s.explode(&e, Vec3::new(0.0, 0.12, 0.0), None, Some(0));
+            let u = &s.units[p.index as usize];
+            assert!(u.health.cur < hp, "spares {spares}: the blast hurts");
+            if spares {
+                assert_eq!(u.soldier.stance, Stance::Stand);
+                assert_eq!(vel(&s, p), Vec3::ZERO, "not thrown");
+            } else {
+                assert_eq!(u.soldier.stance, Stance::Thrown);
+            }
+        }
+    }
+
     #[test]
     fn knock_bf1_pushes_the_living_and_skips_the_knocked() {
         let mut s = sim_for(crate::soldier::GroundRules::Bf1);

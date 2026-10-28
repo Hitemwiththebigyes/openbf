@@ -112,28 +112,54 @@ impl Sim {
         held0
     }
 
+    /// Stage 5's shells (issue #29, `analysis/re-ordnance-kinds.md` §6): each
+    /// falls (v.y -= g dt, then the move), and the world is met along this
+    /// tick's chord of its arc - the terrain, water and the map's bodies, as a
+    /// bolt's spawn ray meets them; soldiers and hulls are the per-tick sweep
+    /// that follows ([`Sim::sweep_bolts`]).
+    pub(super) fn fly_shells(&mut self, dt: f32) {
+        for k in 0..self.bolts.len() {
+            let b = &mut self.bolts[k];
+            if b.gravity <= 0.0 || b.hit != crate::projectile::Hit::None {
+                continue;
+            }
+            b.vel.y -= b.gravity * dt;
+            let speed = b.vel.length();
+            if speed <= 1e-4 {
+                continue;
+            }
+            let (pos, dir, step) = (b.pos, b.vel / speed, dt.min(b.remaining.max(0.0)));
+            let who = Shooter {
+                owner: b.owner,
+                team: b.team,
+                weapon_class: b.weapon_class,
+                is_player: b.shooter_is_player,
+            };
+            let probe = Bolt::spawn(
+                pos,
+                dir,
+                speed,
+                step,
+                who,
+                self.heightfield.as_ref(),
+                self.water_plane(),
+                &self.collision,
+                HullFilter::Static,
+                std::iter::empty(),
+            );
+            if probe.hit != crate::projectile::Hit::None {
+                let b = &mut self.bolts[k];
+                (b.hit, b.end, b.remaining) = (probe.hit, probe.end, probe.remaining);
+            }
+        }
+    }
+
     pub(super) fn soldier_shots(&mut self, i: usize, held_slot: Option<usize>, shots: &[ShotSpec]) {
         if shots.is_empty() {
             return;
         }
         let u = &self.units[i];
         let class = held_slot.map_or(u.weapon_class, |k| u.held[k].class);
-        if self.weapon_classes[class].ability.is_some() {
-            for _ in shots {
-                self.fire_ability(i, class);
-            }
-        } else if self.weapon_classes[class].dispenser.is_some() {
-            self.dispense_shots(i, held_slot, class, shots);
-        } else if self.weapon_classes[class].ordnance.sticky.is_some() {
-            for _ in shots {
-                self.launch(i, class);
-            }
-        } else {
-            self.soldier_bolts(i, class, shots);
-        }
-    }
-
-    fn soldier_bolts(&mut self, i: usize, class: usize, shots: &[ShotSpec]) {
         let unit = self.handle(i);
         // A human's shot leaves the fire point toward what the reticle's
         // ray hits (card AIMA); a bot's leaves the chest along its aim
@@ -153,8 +179,24 @@ impl Sim {
         // Perception's hearing reads this (`perception::scan`): anyone
         // within HEAR_RADIUS of a shot knows a shooter is there, with no
         // line of sight.
-        self.units[i].last_shot_tick = self.tick;
         for spec in shots {
+            // A charge stage's round is its own class's (issue #29): its
+            // ordnance flies and strikes; a sticky one (a mortar's held
+            // round, BF1's smuggler's mortar) is launched.
+            let stage = self.weapon_classes[class].stage_index(class, usize::from(spec.stage));
+            if self.weapon_classes[stage].ability.is_some() {
+                self.fire_ability(i, stage);
+                continue;
+            }
+            if self.weapon_classes[stage].dispenser.is_some() {
+                self.dispense_shots(i, held_slot, stage, std::slice::from_ref(spec));
+                continue;
+            }
+            self.units[i].last_shot_tick = self.tick;
+            if self.weapon_classes[stage].ordnance.sticky.is_some() {
+                self.launch(i, stage);
+                continue;
+            }
             let dir = shot_direction(
                 &mut self.lcg,
                 fwd,
@@ -164,21 +206,30 @@ impl Sim {
                 spec.yaw_spread,
                 spec.tilt,
             );
-            let wc = &self.weapon_classes[class];
-            let bolt = Bolt::fire(
+            let wc = &self.weapon_classes[stage];
+            let who = Shooter {
+                weapon_class: stage,
+                ..who
+            };
+            // The round's speed and life at its charge (its ordnance's charge
+            // points, re-weapon-charge §4).
+            let blend = wc.ordnance.charged(spec.charge);
+            let mut bolt = Bolt::fire(
                 origin,
                 dir,
-                wc.ordnance.velocity,
-                wc.ordnance.life_span,
+                blend.velocity,
+                blend.life_span,
                 who,
                 self.heightfield.as_ref(),
                 self.water_plane(),
                 &self.collision,
                 HullFilter::All,
-            );
+            )
+            .shaped(&self.weapon_classes[stage].ordnance);
+            bolt.charge = spec.charge;
             self.events.push(Event::Shot {
                 unit,
-                weapon_class: class as u32,
+                weapon_class: stage as u32,
                 origin,
                 dir,
             });
@@ -1360,5 +1411,133 @@ mod tests {
         let u = s.unit(p).unwrap();
         assert!(u.held.is_empty() && u.cur1.is_none() && u.active_channel == 0);
         assert!(s.stickies.is_empty());
+    }
+
+    /// Issue #29: a charge weapon fires the stage its trigger reached. A tap
+    /// fires the root's round; held past the stage's threshold (charge =
+    /// pressed / MaxPressedTime), the stage's own class, which its round
+    /// carries.
+    #[test]
+    fn a_held_charge_fires_its_stage_class() {
+        use crate::weapon::{ChargeStage, WeaponClass};
+        for (hold, want_stage) in [(2u32, false), (40, true)] {
+            let mut s = Sim::empty(5);
+            let mut root = WeaponClass::bf1_rifle();
+            root.max_pressed_time = 1.0;
+            let mut heavy = root.clone();
+            heavy.ordnance.velocity = 600.0;
+            let stage = s.add_weapon_class(heavy.clone());
+            root.stages = vec![ChargeStage {
+                threshold: 0.5,
+                class: Box::new(heavy),
+                index: stage,
+            }];
+            let wc = s.add_weapon_class(root);
+            let me = s
+                .spawn(&UnitSpec {
+                    weapon_class: wc,
+                    ..UnitSpec::player_in_slot(0, 0, Vec3::ZERO)
+                })
+                .unwrap();
+            let _ = me;
+            let mut fired = Vec::new();
+            for t in 0..hold + 10 {
+                s.step(&[pad(if t < hold { buttons::FIRE } else { 0 })]);
+                fired.extend(s.events.iter().filter_map(|e| match e {
+                    Event::Shot { weapon_class, .. } => Some(*weapon_class as usize),
+                    _ => None,
+                }));
+            }
+            assert_eq!(fired.len(), 1, "hold {hold}: one shot on release");
+            assert_eq!(fired[0], if want_stage { stage } else { wc }, "hold {hold}");
+            let speed = s.bolts.first().map(|b| b.vel.length());
+            if want_stage {
+                assert!(speed.is_none_or(|v| (v - 600.0).abs() < 1.0), "{speed:?}");
+            }
+        }
+    }
+
+    /// Issue #29, the shell (`analysis/re-ordnance-kinds.md` §6): it falls at
+    /// Gravity x 9.8 and meets the world on its arc - fired level from the
+    /// muzzle it lands where its arc meets the floor, not on its straight
+    /// line's end; out of life in the air it bursts with its ExplosionExpire.
+    #[test]
+    fn a_shell_falls_on_its_arc_and_bursts_when_its_life_runs_out() {
+        use crate::weapon::{ExplosionClass, OrdKind, WeaponClass};
+        let shell = |life: f32| {
+            let mut w = WeaponClass::bf1_rifle();
+            let o = &mut w.ordnance;
+            (o.kind, o.gravity, o.velocity, o.life_span) = (OrdKind::Shell, 1.75, 40.0, life);
+            o.expire = Some(ExplosionClass {
+                damage: 100.0,
+                damage_inner: 2.0,
+                damage_outer: 4.0,
+                ..Default::default()
+            });
+            w
+        };
+        let flat = || crate::heightfield::Heightfield {
+            size: 2,
+            unit: 400.0,
+            offset_x: 200.0,
+            offset_z: 200.0,
+            heights: vec![0.0; 4],
+        };
+        // Level: the first bolt's impact on the floor.
+        let mut s = Sim::empty(3);
+        s.heightfield = Some(flat());
+        let wc = s.add_weapon_class(shell(3.0));
+        let me = s
+            .spawn(&UnitSpec {
+                weapon_class: wc,
+                ..UnitSpec::player_in_slot(0, 0, Vec3::ZERO)
+            })
+            .unwrap();
+        let mut landed = None;
+        for t in 0..60 {
+            s.step(&[pad(if t == 0 { buttons::FIRE } else { 0 })]);
+            for e in &s.events {
+                if let Event::BoltExpired { pos, struck: true } = e {
+                    landed.get_or_insert(*pos);
+                }
+            }
+        }
+        let feet = s.unit(me).unwrap().soldier.pos;
+        let at = landed.expect("the shell lands");
+        let run = Vec3::new(at.x - feet.x, 0.0, at.z - feet.z).length();
+        println!("level shell lands {run:.1} m out at y {:.2}", at.y);
+        assert!(at.y.abs() < 0.3, "on the floor: {at}");
+        assert!(
+            (10.0..25.0).contains(&run),
+            "on its arc, not 120 m out: {run}"
+        );
+        // Up at 1 s of life: it bursts in the air over a soldier.
+        let mut s = Sim::empty(3);
+        s.heightfield = Some(flat());
+        let wc = s.add_weapon_class(shell(1.0));
+        let me = s
+            .spawn(&UnitSpec {
+                weapon_class: wc,
+                ..UnitSpec::player_in_slot(0, 0, Vec3::ZERO)
+            })
+            .unwrap();
+        s.unit_mut(me).unwrap().soldier.pitch = 1.2;
+        // Where a 40 m/s round at 1.2 rad is after 1 s of this fall.
+        let (sp, cp) = (1.2f32.sin(), 1.2f32.cos());
+        let burst = Vec3::new(0.0, 1.6 + 40.0 * sp - 0.5 * 17.15, -40.0 * cp);
+        let under = s
+            .spawn(&UnitSpec::trooper(1, Vec3::new(0.0, 0.0, burst.z)))
+            .unwrap();
+        let hp = s.unit(under).unwrap().health.cur;
+        println!("burst near {burst}");
+        for t in 0..45 {
+            s.step(&[pad(if t == 0 { buttons::FIRE } else { 0 })]);
+            // Held where the burst comes (a soldier on a ledge there).
+            let u = s.unit_mut(under).unwrap();
+            (u.soldier.pos, u.soldier.vel) = (burst - Vec3::Y, Vec3::ZERO);
+        }
+        assert!(s.bolts.is_empty(), "the shell is gone");
+        let now = s.unit(under).unwrap().health.cur;
+        assert!(now < hp, "the air burst hurt him: {hp} -> {now}");
     }
 }

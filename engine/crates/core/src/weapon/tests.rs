@@ -777,3 +777,42 @@ fn optional_target_properties_keep_inheritance_and_override_order() {
     assert_eq!(w.ai_target_kind, 1 << 4);
     assert_eq!(defaults.ai_target_kind, defaults.target_kind);
 }
+
+/// Issue #29 (`analysis/re-weapon-charge.md` §4): an ordnance's charge points
+/// blend by the charge's place in its segment - BF2's Hoth dish turret
+/// (Damage 1000 / 1250 / 1500 / 3000 at 0 / 0.5 / 0.75 / 2.0) reaches 1800 at
+/// a full charge - and an emitter's damage runs Damage -> MaxDamage by the
+/// raw charge.
+#[test]
+fn ordnance_charge_points_blend_by_the_charge() {
+    let knot = |at: f32, damage: f32| OrdKnot {
+        at,
+        velocity: 600.0,
+        life_span: 1.0,
+        damage,
+        scales: [1.0; 7],
+        shield_scale: 1.0,
+    };
+    let dish = OrdnanceClass {
+        velocity: 600.0,
+        life_span: 1.0,
+        max_damage: 1000.0,
+        knots: vec![knot(0.5, 1250.0), knot(0.75, 1500.0), knot(2.0, 3000.0)],
+        ..Default::default()
+    };
+    let at = |c: f32| dish.charged(c).damage;
+    assert_eq!((at(0.0), at(0.25), at(0.5)), (1000.0, 1125.0, 1250.0));
+    assert!((at(0.6) - 1350.0).abs() < 1e-3, "{}", at(0.6));
+    assert!((at(1.0) - 1800.0).abs() < 1e-3, "{}", at(1.0));
+    assert!((dish.damage_desc_charged(0.0, false, 1.0).damage - 1800.0).abs() < 1e-3);
+    let arc = OrdnanceClass {
+        max_damage: 325.0,
+        min_damage: Some(300.0),
+        ..Default::default()
+    };
+    assert!((arc.charged(0.4).damage - 310.0).abs() < 1e-3);
+    assert_eq!(arc.charged(1.0).damage, 325.0);
+    // No points, no emitter: the class's own numbers at any charge.
+    let rifle = WeaponClass::bf1_rifle().ordnance;
+    assert_eq!(rifle.charged(0.3).damage, rifle.max_damage);
+}

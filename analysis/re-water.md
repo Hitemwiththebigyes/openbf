@@ -489,6 +489,22 @@ states) the source of the water's teal body (+13..+27 G/B levels on BF1 KAS2, NA
 `SpeckleAmbient + SpeckleSpecular · lobe³²` around the sun's azimuth, not flat; the ocean's vertex RGB is the engine's
 global white halved = unity. [V][O] — `re-water-colour.md` §0–§3; one Opus verifier, 11 SUPPORTED / 2 PARTLY (corrected).
 
+## 3d. The ocean foam's texture matrix — `FoamTile` (issue #18, card FOAMT, 2026-10-28) [O]
+
+- **Load.** The `fx__ Effect("Water")` loader stores `FoamTile` (fnv 0xdcb91b88) raw: B1 `FUN_004763d0` 538988–538990
+  (`DAT_005648f8` = x, `DAT_005648fc` = z; reset to 1.0 at 538253 / 538259); B2 696576–696578 (`DAT_006615f0` / `f4`;
+  reset 695895 / 695901). The finalise (538831–538834, its twin 538880–538883) multiplies only the BASE `Tile`
+  (`DAT_00564934` / `38`) by INFO5 (`DAT_00564920`) and divides `Velocity` by it; `FoamTile` is never scaled (its only
+  other readers are the draw below: `re_check.py writers b1 DAT_005648f8`).
+- **Draw.** The ocean pass B1 `FUN_0048b280` builds two texture matrices from one stack record (551026–551035): the
+  base with diagonal (`DAT_00564934`, `DAT_00564938`) and translation the scroll's fraction
+  `t·(−Velocity/INFO5) − ⌊…⌋`, sent by `FUN_0039da50(0, a local, …, 0x1800, 0)`; then the same record with only the
+  diagonal replaced by (`DAT_005648f8`, `DAT_005648fc`) — the foam's, sent to `a local`. Same scroll offset, own
+  scale. B2 the same at 708397–708398.
+- **So** metres per repeat: base `cell / (Tile·INFO5)`, foam `cell / FoamTile`. Both KAM1s (`INFO` cell 160.0, INFO5 1,
+  `Tile(4,4)`, `FoamTile(5,5)`): base 40 m, foam 32 m. The port reused the base's UVs for the foam (40 m) until this card;
+  now `ManifestWaterConfig::foam_metres_per_repeat` and the foam sheet's `uv_scale` (base / foam = 1.25) carry it.
+
 ## 4. `CPAT` REPLACES
 - Parser: for every cell whose nibble has bit 3, one `LPTC` is read in row-major order and linked with (x, z) (538764–538787; B2 696379–696396). Disc: bit-3
   cells == `LPTC` count on all 14 chunks (BF1 NAB2 4 = 4, BF2 NAB2 8 = 8, BF2 DEA1 1 = 1, eleven 0 = 0); nibbles are only 0/1/9. [V]

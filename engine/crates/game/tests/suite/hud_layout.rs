@@ -701,3 +701,53 @@ fn a_bf1_soldiers_grenade_row_sits_in_its_own_pill() {
     );
     assert!(icon[3] < health[1] - 20.0, "clear of the health bar");
 }
+
+/// Issue #33 (`analysis/re-round-end.md` §1.2): the BF2 layout's
+/// domination countdown. While the viewer's side holds every post the
+/// VictoryTimerGroup shows "%m:%02s" of the seconds left; the other side
+/// sees the DefeatTimerGroup; when it ends both are hidden.
+#[test]
+fn the_domination_countdown_shows_victory_in_or_defeat_in() {
+    let common = game::assets::baked_root().join("common_bf2/hud");
+    if !common.join("1playerhud.ron").exists() {
+        eprintln!("SKIP: no baked BF2 HUD");
+        return;
+    }
+    let read = |f: &str| -> manifest::hud::HudLayout {
+        ron::from_str(&std::fs::read_to_string(common.join(f)).unwrap()).unwrap()
+    };
+    let mut hud = ui::hud_tree::Hud::new(&read("1playerhud.ron"), &read("hudtransforms.ron"));
+    let (win, lose) = (
+        hud.find("victorytimer").unwrap(),
+        hud.find("defeattimer").unwrap(),
+    );
+    let shown = |hud: &ui::hud_tree::Hud, i: usize| hud.elems[i].fader.state != 0;
+    let mut m = ui::hud::HudModel {
+        countdown: Some((true, 17.4)),
+        ..Default::default()
+    };
+    let step = |hud: &mut ui::hud_tree::Hud, m: &ui::hud::HudModel| {
+        ui::hud::feed(hud, m, &|_| false);
+        hud.advance(1.0 / 30.0);
+    };
+    step(&mut hud, &m);
+    assert_eq!(hud.elems[win].text, "0:17");
+    assert!(shown(&hud, win) && !shown(&hud, lose));
+    m.countdown = Some((false, 9.0));
+    for _ in 0..30 {
+        step(&mut hud, &m);
+    }
+    assert_eq!(hud.elems[lose].text, "0:09");
+    assert!(
+        shown(&hud, lose) && !shown(&hud, win),
+        "the other side's is hidden"
+    );
+    m.countdown = None;
+    for _ in 0..60 {
+        step(&mut hud, &m);
+    }
+    assert!(
+        !shown(&hud, win) && !shown(&hud, lose),
+        "both hidden when it ends"
+    );
+}

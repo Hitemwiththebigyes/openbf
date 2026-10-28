@@ -137,7 +137,7 @@ impl Sim {
                 let victim_is_player = victim.is_player;
                 let desc = self.weapon_classes[b.weapon_class]
                     .ordnance
-                    .damage_desc(b.age, false);
+                    .damage_desc_charged(b.age, false, b.charge);
                 let friendly = victim_team == b.team;
                 // A bolt of a unit that is not a human player does nothing to
                 // a human player of its own team (B1 FUN_001bc190, B2
@@ -210,7 +210,7 @@ impl Sim {
                 }
                 let desc = self.weapon_classes[b.weapon_class]
                     .ordnance
-                    .damage_desc(b.age, false);
+                    .damage_desc_charged(b.age, false, b.charge);
                 self.events.push(Event::BoltExpired {
                     pos: b.end,
                     struck: true,
@@ -239,7 +239,7 @@ impl Sim {
                 }
                 let desc = self.weapon_classes[b.weapon_class]
                     .ordnance
-                    .damage_desc(b.age, false);
+                    .damage_desc_charged(b.age, false, b.charge);
                 self.events.push(Event::BoltExpired {
                     pos: b.end,
                     struck: true,
@@ -261,10 +261,19 @@ impl Sim {
                 self.push_impact(b, surface, None);
                 self.bolt_explodes(b);
             }
-            Hit::None => self.events.push(Event::BoltExpired {
-                pos: b.end,
-                struck: false,
-            }),
+            Hit::None => {
+                // A shell out of life bursts in the air with its
+                // ExplosionExpire (re-ordnance-kinds §6).
+                if b.gravity > 0.0 {
+                    if let Some(e) = self.weapon_classes[b.weapon_class].ordnance.expire.clone() {
+                        self.explode(&e, b.pos, Some(b.owner), Some(b.team));
+                    }
+                }
+                self.events.push(Event::BoltExpired {
+                    pos: b.end,
+                    struck: false,
+                })
+            }
         }
     }
 
@@ -519,6 +528,8 @@ mod tests {
             shooter_is_player: false,
             hulls: crate::collision::HullFilter::All,
             hit_mult: 1.0,
+            gravity: 0.0,
+            charge: 1.0,
         };
         s.resolve_bolt(&bolt(old));
         assert_eq!(s.nav_stats.ai_hits, 0, "new AI is not the old idle shooter");
@@ -616,6 +627,8 @@ mod tests {
             shooter_is_player,
             hulls: crate::collision::HullFilter::All,
             hit_mult: 1.0,
+            gravity: 0.0,
+            charge: 1.0,
         };
         let hp = |s: &Sim, h: UnitHandle| s.unit(h).unwrap().health.cur;
         s.resolve_bolt(&bolt(bot, human, false));
@@ -662,6 +675,8 @@ mod tests {
             shooter_is_player: false,
             hulls: crate::collision::HullFilter::All,
             hit_mult: 1.0,
+            gravity: 0.0,
+            charge: 1.0,
         });
         let u = &s.units[v.index as usize];
         assert!(!u.alive && u.body);
@@ -718,6 +733,8 @@ mod tests {
             shooter_is_player: false,
             hulls: crate::collision::HullFilter::All,
             hit_mult: 1.0,
+            gravity: 0.0,
+            charge: 1.0,
         };
         let world = || {
             let mut s = Sim::empty(3);

@@ -521,6 +521,9 @@ pub struct Elem {
     /// What an INFINITE number prints (`re-hud.md` §2.3, property
     /// 0x7a4e6e71): "--" when set, nothing when clear.
     pub infinite_dashes: bool,
+    /// `numbertotime`: the number is seconds, printed as minutes and two-digit
+    /// seconds ("%m:%02s", the domination countdown's "0:20"; issue #33).
+    pub as_time: bool,
     // Model3D.
     pub mesh: Option<String>,
     pub mesh_info: Vec<MeshInfo>,
@@ -582,6 +585,7 @@ impl Elem {
             v_align: VAlign::Top,
             text_scale: [1.0, 1.0],
             infinite_dashes: false,
+            as_time: false,
             mesh: None,
             mesh_info: Vec::new(),
         }
@@ -897,6 +901,7 @@ impl Hud {
                     e.text_scale = [num(c, 0).unwrap_or(1.0), num(c, 1).unwrap_or(1.0)];
                 }
                 "#7a4e6e71" => e.infinite_dashes = num(c, 0).unwrap_or(0.0) != 0.0,
+                "numbertotime" => e.as_time = true,
                 "mesh" => e.mesh = text(c, 0).map(str::to_ascii_lowercase),
                 "eventenable" => self.listen(c, i, Listen::Enable),
                 "eventdisable" => self.listen(c, i, Listen::Disable),
@@ -1153,6 +1158,9 @@ impl Hud {
                         e.text = if is_infinite(*v) {
                             let dashes = if e.infinite_dashes { "--" } else { "" };
                             dashes.to_owned()
+                        } else if e.as_time {
+                            let s = v.max(0.0) as i64;
+                            format!("{}:{:02}", s / 60, s % 60)
                         } else {
                             format!("{}", *v as i64)
                         }

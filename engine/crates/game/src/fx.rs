@@ -1323,6 +1323,8 @@ mod tests {
             shooter_is_player: false,
             hulls: core::collision::HullFilter::All,
             hit_mult: 1.0,
+            gravity: 0.0,
+            charge: 1.0,
         };
         sim.bolts.push(bolt(wc));
         sim.tick = 1;

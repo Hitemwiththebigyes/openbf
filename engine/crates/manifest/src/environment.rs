@@ -535,6 +535,15 @@ pub struct ManifestWaterConfig {
     pub patch_divisions: Option<[f32; 2]>,
     #[serde(default)]
     pub lod_decimation: Option<f32>,
+    /// Metres of world per repeat of the FOAM layer, `cell / FoamTile`: the
+    /// PS2 builds the foam's texture matrix from `FoamTile` as authored,
+    /// without the base's `× INFO5` (B1 `FUN_0048b280` 551026-551035, B2
+    /// 708397-708398; `analysis/re-water.md` §3d). Both KAM1s: 160 / 5 =
+    /// 32 m against the base's 40. `None` when the map authors no
+    /// `FoamTile`; absent in pre-2026-10-28 bakes.
+    /// Appended last (the wire-format rule, `manifest::tests`).
+    #[serde(default)]
+    pub foam_metres_per_repeat: Option<[f32; 2]>,
 }
 
 // --- lighting, fog and sky (baked by `bake::lighting`) ----------------------
@@ -721,4 +730,36 @@ pub struct ManifestSky {
     /// (`analysis/re-sky-reflect.md` §1). Absent in pre-2026-09-29 bakes.
     #[serde(default)]
     pub reflection_color: Option<[f32; 3]>,
+    /// `DomeInfo.Stars()` with the loaders' defaults filled in; `None` where
+    /// the map authors no stars (or `NumStars` 0). Absent in pre-2026-10-27
+    /// bakes.
+    #[serde(default)]
+    pub stars: Option<ManifestStars>,
+}
+
+/// A map's star field as both games' loaders read it (BF1 `FUN_002e6a50`,
+/// BF2 `FUN_003bfc30`; `analysis/re-stars.md` §1). The renderer rebuilds the
+/// stars from these with the PS2's own generator (`render::stars`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ManifestStars {
+    /// `NumStars`, ≥ 1.
+    pub count: u32,
+    /// `RandomSeed` (default 0).
+    pub seed: u32,
+    /// `TwinkleFactor` (default 0.5): how far a star's alpha dips.
+    pub twinkle_factor: f32,
+    /// `TwinkleFrequency` (default 20): new twinkle targets per second.
+    pub twinkle_frequency: f32,
+    /// `Color` bytes, 0..255 (the loaders clamp; four values with alpha).
+    pub color: [u8; 4],
+    /// `BrightStarPercent` / 100 (default 0.08): the share at full brightness.
+    pub bright_fraction: f32,
+    /// `AlphaMin` / 255 (default 0.05): the dimmest star's brightness.
+    pub alpha_min: f32,
+    /// `ColorSaturation` (default 1.0): how far the red / blue tint goes.
+    pub color_saturation: f32,
+    /// `EnableBottom` ≠ 0 as authored: the field is drawn a second time
+    /// mirrored under the horizon. Only BF2's draw reads it (the BF1 loader
+    /// has no such key); the game applies that gate.
+    pub enable_bottom: bool,
 }

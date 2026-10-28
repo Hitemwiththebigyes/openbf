@@ -2,7 +2,7 @@
 """parity.py — how close the port is to the PS2: re-render the port at every stored PCSX2 pose and score each pair (card PARITY).
 
   scripts/parity.py run [--maps a,b] [--tree T --target D] [--out DIR] [--bake DIR] [--publish] [--keep-renders]
-  scripts/parity.py main                     # main HEAD's scores (cached per sha + bake; rendered and published when missing)
+  scripts/parity.py main                     # the main branch's scores (cached per sha + bake; rendered and published when missing)
   scripts/parity.py gate --tree T --target D --out DIR [--allow a,b] [--base CSV] [--threshold L]   # the gates.py `parity` gate
   scripts/parity.py compare <base.csv> <new.csv> [--maps a,b] [--allow a,b]
   scripts/parity.py scoreboard               # one line from loop/parity/ (loopctl.py scoreboard prints it)
@@ -24,7 +24,8 @@ engine/artifacts/loop/parity/ latest.csv + summary.md + worst.png and appends hi
 all-maps mean block error, per-map means); `main` does that whenever it has to score a new main HEAD, and keeps each
 sha/bake's scores in loop/parity/main/<sha>_<bake>.csv.
 
-`gate` scores the tree (all maps: a full run is ~30 s of rendering) and main's HEAD (`main`), then `compare`s them:
+`gate` scores the tree (all maps: a full run is ~30 s of rendering) and the `main` branch's commit (`main`; built in
+../openbf-wt/parity-main with its own target when the main checkout is on another commit), then `compare`s them:
 per map, the mean block error over the (map, spot) pairs both scored, tree - main; a map FAILS when it rises by more
 than --threshold (0.5 levels) unless --allow names it (the card's `declares: parity=<maps>`, or `all`). Exit 3: main
 has no pose_render yet (no baseline). Deterministic: the same binary over the same bake scores byte-identically. The
@@ -264,7 +265,12 @@ def summary(res, skipped, head, secs, out):
 
 
 def git_head(tree):
-    return subprocess.run(["git", "-C", tree, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+    return git_rev(tree, "HEAD")
+
+
+def git_rev(tree, ref):
+    return subprocess.run(["git", "-C", tree, "rev-parse", "--verify", "-q", ref + "^{commit}"],
+                          capture_output=True, text=True).stdout.strip()
 
 
 def publish(out, pm, allm, head, bake):
@@ -354,9 +360,27 @@ def cmd_run(a, *, locked=False):
         print(f"published to {PUB}")
 
 
+def main_tree(root, sha):
+    """(tree, target) that builds main's commit `sha`: the main checkout itself while its HEAD is `sha`, else a detached
+    worktree beside it (../openbf-wt/parity-main) with its own target, moved to `sha`. Gates run on a branch checked
+    out in the main checkout, so its HEAD is not main; scoring that HEAD compared the branch with itself."""
+    if git_head(root) == sha:
+        return root, None
+    wt = os.path.join(os.path.dirname(root), "openbf-wt", "parity-main")
+    target = os.path.join(root, "engine/artifacts/lead_tmp/parity_main_target")
+    if os.path.isdir(wt):
+        r = subprocess.run(["git", "-C", wt, "checkout", "-q", "--detach", sha], capture_output=True, text=True)
+    else:
+        r = subprocess.run(["git", "-C", root, "worktree", "add", "-q", "--detach", wt, sha], capture_output=True, text=True)
+    if r.returncode or git_head(wt) != sha:
+        sys.exit(f"parity: cannot put {wt} at main {sha[:10]}:\n{r.stderr[-2000:]}")
+    return wt, target
+
+
 def main_scores(*, locked=False):
-    """Path of main HEAD's scores.csv: cached per sha + bake in loop/parity/main/; rendered (main's checkout, its engine/target)
-    and published when missing. None when main has no pose_render yet. One scorer at a time (loop/parity/main.lock)."""
+    """Path of main's scores.csv (the `main` branch's commit, not the main checkout's HEAD): cached per sha + bake in
+    loop/parity/main/; rendered (main_tree) and published when missing. None when main has no pose_render yet. One
+    scorer at a time (loop/parity/main.lock)."""
     if not locked:
         with ci_lock():
             return main_scores(locked=True)
@@ -365,16 +389,20 @@ def main_scores(*, locked=False):
     with open(os.path.join(PUB, "main.lock"), "w") as lk:
         fcntl.flock(lk, fcntl.LOCK_EX)
         root = main_root()
-        head = git_head(root)
-        if not os.path.exists(os.path.join(root, "engine/crates/game/examples/pose_render.rs")):
+        head = git_rev(root, "main")
+        if not head:
+            sys.exit("parity: no `main` branch in the main checkout")
+        if subprocess.run(["git", "-C", root, "cat-file", "-e", f"{head}:engine/crates/game/examples/pose_render.rs"],
+                          capture_output=True).returncode:
             return None
         bake = bake_fingerprint()
         cache = cache_path(head, bake)
         if os.path.exists(cache):
             return cache
+        tree, target = main_tree(root, head)
         out = os.path.join(ART, "lead_tmp/parity_runs", f"main_{head[:10]}")
-        res, pm, allm, h2 = run_tree(root, None, out, locked=True)
-        if h2 != head or git_head(root) != head:
+        res, pm, allm, h2 = run_tree(tree, target, out, locked=True)
+        if h2 != head or git_rev(root, "main") != head:
             sys.exit(f"main moved during the parity run ({head[:10]} -> {h2[:10]}) — rerun")
         publish(out, pm, allm, head, bake)
         return cache

@@ -70,6 +70,11 @@ pub struct Bolt {
     /// a soldier's head x3 (`Unit::bolt_hit`), a vehicle prim its class's
     /// (`Body::hit_mult`: the x4 critical prims, BF1's x0 two), else 1.0.
     pub hit_mult: f32,
+    /// A shell's fall, m/s² ([`Bolt::shaped`]); 0 flies straight.
+    pub gravity: f32,
+    /// The charge it was fired at: its damage's blend
+    /// (`OrdnanceClass::damage_desc_charged`); 1.0 for an uncharged weapon.
+    pub charge: f32,
 }
 
 /// Who fired (carried by the bolt for damage attribution + friendly fire).
@@ -265,7 +270,25 @@ impl Bolt {
             shooter_is_player: shooter.is_player,
             hulls,
             hit_mult: 1.0,
+            gravity: 0.0,
+            charge: 1.0,
         }
+    }
+
+    /// A `shell` round as its ordnance flies it (`analysis/re-ordnance-kinds.md`
+    /// §6, issue #29): it falls at Gravity x [`crate::weapon::SHELL_G`], has no
+    /// predictive ray - the world is met tick by tick on its arc
+    /// (`Sim::fly_shells`) - and lives its whole LifeSpan, then bursts with
+    /// its ExplosionExpire. Any other ordnance's bolt is returned as it is.
+    pub fn shaped(mut self, o: &crate::weapon::OrdnanceClass) -> Self {
+        if o.kind != crate::weapon::OrdKind::Shell || o.gravity == 0.0 {
+            return self;
+        }
+        self.gravity = o.gravity * crate::weapon::SHELL_G;
+        self.hit = Hit::None;
+        self.remaining = o.life_span;
+        self.end = self.pos + self.vel * o.life_span;
+        self
     }
 
     /// One tick: `pos += vel × min(dt, remaining)`; returns true when the

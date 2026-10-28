@@ -33,6 +33,7 @@ pub mod render_blend;
 mod repair_feedback;
 pub mod ride;
 pub mod roster;
+pub mod round_end;
 pub mod shell_movie;
 pub mod skin;
 pub mod soldier_vis;

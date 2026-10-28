@@ -532,29 +532,76 @@ pub fn lowres_range(
     (near.is_finite() && near > 0.0 && far > near).then_some((near, far))
 }
 
-/// Is the far scene's model / LOWD switch on? Yes unless `OPENBF_LOD=0`,
-/// which draws every geometry as its model at every distance (the port before
-/// card LOD), for an A/B.
-pub fn lod_enabled() -> bool {
-    std::env::var("OPENBF_LOD").as_deref() != Ok("0")
+/// Where the far scene's model / LOWD switch sits (card LOD), from
+/// `OPENBF_LOD`: off (`0`, every geometry its model at every distance), the
+/// PS2's distance (`ps2`), or the default, classic-plus.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LodMode {
+    Off,
+    Ps2,
+    ClassicPlus,
 }
+
+pub fn lod_mode() -> LodMode {
+    match std::env::var("OPENBF_LOD").as_deref() {
+        Ok("0") => LodMode::Off,
+        Ok("ps2") => LodMode::Ps2,
+        _ => LodMode::ClassicPlus,
+    }
+}
+
+/// How much farther than the PS2 the classic-plus switch sits: a modern GPU
+/// draws the full models across the whole near scene and past it, so a LOWD
+/// only takes over at twice the near scene's end, where an object is half as
+/// tall on screen and the swap is hard to see. PROVISIONAL: chosen by eye on
+/// BF2 MUS1; PERF.md's per-map numbers are the check.
+pub const CLASSIC_PLUS_LOD_FACTOR: f32 = 2.0;
 
 /// Where a map switches a LOWD-bearing geometry from its model to its `LOWD`
 /// (card LOD, `analysis/re-lod.md` §4, §7 [O]).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LodBands {
-    /// `NearSceneRange[1]`: the far scene's reach, where the crossfade begins.
+    /// `NearSceneRange[1]`: the far scene's reach.
     pub begin: f32,
     /// `NearSceneRange[2]`: the near scene's end — no model past it.
     pub end: f32,
 }
 
 impl LodBands {
-    /// The model's and the LOWD's sides of the switch ([`render::LodSwitch`]).
-    pub fn sides(self) -> (render::LodSwitch, render::LodSwitch) {
+    /// The switch distance: the PS2 composites its near scene (the model,
+    /// to `end`) over its far scene (the LOWD, from `begin`) through a depth
+    /// ramp, so the middle of the two is where it reads as switched; the
+    /// classic-plus switch is [`CLASSIC_PLUS_LOD_FACTOR`] × `end`.
+    ///
+    /// `leaf_reach` caps the classic-plus distance for a prop whose canopy
+    /// is leaf patches (`leaf::attach_reach`): past their `MaxDistance` the
+    /// model is a bare trunk and only the LOWD has the canopy (BF1 NAB1's
+    /// ridge trees), so the LOWD takes over there — never nearer than the
+    /// PS2's own switch.
+    pub fn at(self, mode: LodMode, leaf_reach: Option<f32>) -> f32 {
+        let ps2 = 0.5 * (self.begin + self.end);
+        match mode {
+            LodMode::Ps2 => ps2,
+            LodMode::ClassicPlus | LodMode::Off => {
+                let plus = CLASSIC_PLUS_LOD_FACTOR * self.end;
+                leaf_reach.map_or(plus, |r| plus.min(r).max(ps2))
+            }
+        }
+    }
+
+    /// The model's and the LOWD's sides of the switch for an instance whose
+    /// model sphere is `anchor`, `radius` ([`render::LodSwitch`]).
+    pub fn sides(
+        self,
+        mode: LodMode,
+        leaf_reach: Option<f32>,
+        anchor: glam::Vec3,
+        radius: f32,
+    ) -> (render::LodSwitch, render::LodSwitch) {
         let side = |side| render::LodSwitch {
-            fade_begin: self.begin,
-            fade_end: self.end,
+            at: self.at(mode, leaf_reach),
+            anchor,
+            radius,
             side,
         };
         (side(render::LodSide::Model), side(render::LodSide::Lowd))
@@ -733,6 +780,7 @@ mod tests {
                     objects: Vec::new(),
                     terrain_enable: None,
                     reflection_color: None,
+                    stars: None,
                 }),
             )
         };
@@ -1279,11 +1327,23 @@ mod tests {
         assert_eq!(lod_bands(&ranges(None, Some(1000.0))), None);
         // No FarSceneRange authored: the ELF's default, which reaches past.
         assert!(lod_bands(&ranges(Some([1.0, 100.0, 130.0]), None)).is_some());
-        let (m, l) = nab1.unwrap().sides();
+        let anchor = glam::Vec3::new(1.0, 2.0, 3.0);
+        let (m, l) = nab1.unwrap().sides(LodMode::ClassicPlus, None, anchor, 5.0);
         assert_eq!(
             (m.side, l.side),
             (render::LodSide::Model, render::LodSide::Lowd)
         );
-        assert_eq!((m.fade_begin, m.fade_end), (l.fade_begin, l.fade_end));
+        assert_eq!((m.at, m.anchor, m.radius), (l.at, l.anchor, l.radius));
+        // Classic-plus switches at twice the near scene's end; the PS2 mode
+        // between the far scene's reach and the near scene's end.
+        assert_eq!(m.at, 260.0);
+        assert_eq!(nab1.unwrap().at(LodMode::Ps2, None), 115.0);
+        // A leaf-patch canopy caps classic-plus at its reach, never nearer
+        // than the PS2's switch.
+        let b = nab1.unwrap();
+        assert_eq!(b.at(LodMode::ClassicPlus, Some(180.0)), 180.0);
+        assert_eq!(b.at(LodMode::ClassicPlus, Some(80.0)), 115.0);
+        assert_eq!(b.at(LodMode::ClassicPlus, Some(400.0)), 260.0);
+        assert_eq!(b.at(LodMode::Ps2, Some(80.0)), 115.0);
     }
 }

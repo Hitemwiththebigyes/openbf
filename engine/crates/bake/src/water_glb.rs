@@ -135,6 +135,10 @@ pub fn manifest_config(c: &WaterConfig, w: &Water) -> ManifestWaterConfig {
         main_texture: c.main_texture.clone(),
         foam_texture: c.foam_texture.clone(),
         metres_per_repeat: c.metres_per_repeat(w.info.cell_size, w.info.unknown_5),
+        foam_metres_per_repeat: c
+            .foam_tile
+            .filter(|t| t.iter().all(|v| v.is_finite() && *v > 0.0))
+            .map(|t| [w.info.cell_size / t[0], w.info.cell_size / t[1]]),
         // Authored as a float on every map that has the key; anything but 0
         // is the ocean path (both KAM1s author exactly 1).
         ocean: c.ocean_enable.is_some_and(|v| v != 0.0),
@@ -386,6 +390,32 @@ mod tests {
         // The two axes are read separately even though no disc map differs.
         let c = cfg(None, Some([2.0, 4.0]));
         assert_eq!(metres_per_repeat(&w, Some(&c)), [16.0, 8.0]);
+    }
+
+    /// The foam layer's repeat is `cell / FoamTile`, with no `× INFO5`
+    /// (the PS2's foam texture matrix, `analysis/re-water.md` §3d): KAM1's
+    /// 160 m cell, `Tile(4,4)`, `FoamTile(5,5)`, INFO5 1 → base 40 m, foam
+    /// 32 m. INFO5 scales the base only.
+    #[test]
+    fn the_foam_repeats_every_cell_over_foam_tile() {
+        let mut w = water(4, &[(1, 1)], vec![]);
+        w.info.cell_size = 160.0;
+        let mut c = cfg(None, Some([4.0, 4.0]));
+        c.foam_tile = Some([5.0, 5.0]);
+        let m = manifest_config(&c, &w);
+        assert_eq!(m.metres_per_repeat, Some([40.0, 40.0]));
+        assert_eq!(m.foam_metres_per_repeat, Some([32.0, 32.0]));
+        w.info.unknown_5 = 4;
+        let m = manifest_config(&c, &w);
+        assert_eq!(m.metres_per_repeat, Some([10.0, 10.0]));
+        assert_eq!(m.foam_metres_per_repeat, Some([32.0, 32.0]));
+        // No FoamTile (every map but the KAM1s), or a zero one: none.
+        assert_eq!(
+            manifest_config(&cfg(None, Some([4.0, 4.0])), &w).foam_metres_per_repeat,
+            None
+        );
+        c.foam_tile = Some([0.0, 5.0]);
+        assert_eq!(manifest_config(&c, &w).foam_metres_per_repeat, None);
     }
 
     /// The pre-`fx__` `LAYR` rule survives only for a map that authors no

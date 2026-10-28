@@ -251,6 +251,13 @@ fn unit_line(snap: &Snapshot, p: &Probe) -> String {
     s
 }
 
+fn weapon_name(snap: &Snapshot, i: i32) -> &str {
+    usize::try_from(i)
+        .ok()
+        .and_then(|i| snap.names.weapons.get(i))
+        .map_or("?", String::as_str)
+}
+
 fn event_line(snap: &Snapshot, e: &EventRow) -> String {
     let at = format!("({:.1},{:.1},{:.1})", e.pos[0], e.pos[1], e.pos[2]);
     let what = match e.kind {
@@ -286,6 +293,23 @@ fn event_line(snap: &Snapshot, e: &EventRow) -> String {
             e.a,
             body_name(snap, e.b)
         ),
+        Ev::Shot => format!("#{} fired {}", e.a, weapon_name(snap, e.c)),
+        Ev::Hit => {
+            let v = |i: usize| e.v.get(i).copied().unwrap_or(0.0);
+            format!(
+                "#{} hit #{} with {}: {} damage ({}), {} left, at {at}",
+                e.a,
+                e.b,
+                weapon_name(snap, e.c),
+                v(0),
+                if v(2) > 0.0 {
+                    format!("direct, {:.2} s flight", v(2))
+                } else {
+                    "blast".into()
+                },
+                v(1)
+            )
+        }
         k => format!("#{} died: {k:?} at {at}", e.a),
     };
     format!("{:>7.1} s  {what}", secs(snap, e.tick))

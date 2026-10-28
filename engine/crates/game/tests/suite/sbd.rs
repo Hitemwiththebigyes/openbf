@@ -2,7 +2,7 @@ use core::sim::{buttons, Event, PadState, Sim};
 use core::unit::{Controller, UnitHandle, UnitSpec};
 use core::weapon::{FireInput, WeaponState, DEG};
 use game::roster::{load_classdb, weapon_from_db, ClassRoster};
-use glam::Vec3;
+use glam::{Vec2, Vec3};
 
 #[test]
 fn both_discs_keep_their_sbd_source_values() {
@@ -561,4 +561,99 @@ fn wrist_rocket_draws_original_trail_without_a_placeholder_box_on_both_map_sets(
     }
     assert_eq!(captures.len(), 2);
     assert_eq!(captures[0], captures[1]);
+}
+
+/// The maintainer 2026-10-27: "it is possible to fire 2 wrist rockets right after each
+/// other". However the trigger is worked (tapped every 2 or 5 updates, or
+/// held), one rocket leaves per 2 s reload: 68-70 updates apart (the 0.21 s
+/// wind-up and the 2.0 s ReloadTime), on both map sets.
+#[test]
+fn wrist_rockets_leave_one_per_reload_however_the_trigger_is_worked() {
+    for game in ["bf2", "bf1"] {
+        for pattern in [2u32, 5, 0] {
+            let Some((mut sim, shooter, _)) = battle(game) else {
+                return;
+            };
+            let mut ticks = Vec::new();
+            for t in 0..240u32 {
+                let press = pattern == 0 || t % pattern == 0;
+                let shots = step(&mut sim, if press { buttons::SECONDARY_FIRE } else { 0 });
+                let u = sim.unit(shooter).unwrap();
+                let rocket = u.held[u.cur1.unwrap() as usize].class;
+                if shots.iter().any(|(w, _)| *w == rocket) {
+                    ticks.push(t);
+                }
+            }
+            println!("{game} every {pattern}: rockets at {ticks:?}");
+            assert!(!ticks.is_empty(), "{game} {pattern}");
+            for w in ticks.windows(2) {
+                assert!(w[1] - w[0] >= 66, "{game} {pattern}: rockets at {ticks:?}");
+            }
+        }
+    }
+}
+
+/// The maintainer 2026-10-27: a wrist rocket "square in the chest" seemed to take half
+/// a clone's health. On BF2 Coruscant's own collision, a rocket from 3 m into
+/// a BF2 clone's chest deals its direct hit (110 at 0.05 s, rising with the
+/// flight to 250 at 0.5 s) and then its blast's 250 (inner radius 1 m): 360
+/// of his 400.
+#[test]
+fn a_wrist_rocket_to_the_chest_on_coruscant_deals_its_hit_and_its_blast() {
+    let root = game::assets::baked_root();
+    let map = root.join("bf2_cor1");
+    if !map.join("manifest.ron").exists() {
+        eprintln!("SKIP: no baked BF2 Coruscant");
+        return;
+    }
+    let (scene, _) = game::assets::load_battle_scene(&map, "con").unwrap();
+    let layout = game::layout::MapLayout::from_manifest(&scene.manifest);
+    let db = load_classdb(&root.join("classes"), "bf2", &["rep", "cis"]).unwrap();
+    let sbd = ClassRoster::build(&db, "cis_inf_rifleman", 1, None).unwrap();
+    let clone = ClassRoster::build(&db, "rep_inf_ep3_rifleman", 1, None).unwrap();
+    let mut checked = 0;
+    for spot in layout.cps.iter().take(2).map(|c| c.pos) {
+        let mut sim = Sim::empty(7);
+        sim.ground_rules = core::soldier::GroundRules::Bf2;
+        sim.heightfield = scene.heightfield();
+        scene.install_collision(&mut sim);
+        let sc = sbd.register(&mut sim, &mut Vec::new());
+        let cc = clone.register(&mut sim, &mut Vec::new());
+        let feet = |at: Vec3| Vec3::new(at.x, sim.ground_under(at + Vec3::Y * 2.0, false), at.z);
+        let (f0, f1) = (feet(spot), feet(spot - Vec3::Z * 3.0));
+        let shooter = sim
+            .spawn(&sc.spec(0, f0, 0.0, Controller::Player { slot: 0 }, 0, 0))
+            .unwrap();
+        let target = sim
+            .spawn(&cc.spec(1, f1, 0.0, Controller::Ai, 0, 0))
+            .unwrap();
+        for _ in 0..20 {
+            step(&mut sim, 0);
+        }
+        let t = sim.unit(target).unwrap().soldier.pos;
+        let (eye, _) = sim
+            .unit(shooter)
+            .unwrap()
+            .aim_ray(sim.ground_rules, sim.views());
+        let chest = t + Vec3::Y * 1.1;
+        let flat = Vec2::new(chest.x - eye.x, chest.z - eye.z);
+        let mut dmg = Vec::new();
+        for k in 0..60 {
+            let u = sim.unit_mut(shooter).unwrap();
+            u.soldier.yaw = (-flat.x).atan2(-flat.y);
+            u.soldier.pitch = (chest.y - eye.y).atan2(flat.length());
+            sim.unit_mut(target).unwrap().soldier.vel = Vec3::ZERO;
+            step(&mut sim, if k == 0 { buttons::SECONDARY_FIRE } else { 0 });
+            dmg.extend(sim.events.iter().filter_map(|e| match e {
+                Event::Hit { victim, damage, .. } if *victim == target => Some(*damage),
+                _ => None,
+            }));
+        }
+        let hp = sim.unit(target).unwrap().health.cur;
+        println!("cp at {spot:.0?}: hits {dmg:?}, {hp} of 400 left");
+        assert_eq!(dmg, vec![110.0, 250.0], "at {spot:?}");
+        assert_eq!(hp, 40.0);
+        checked += 1;
+    }
+    assert_eq!(checked, 2);
 }

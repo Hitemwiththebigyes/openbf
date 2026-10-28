@@ -256,6 +256,26 @@ pub fn build(
     Ok((classes, objects))
 }
 
+/// How far `class`'s attached leaf patches draw: the nearest `MaxDistance`
+/// of its attach entries' leaf classes, `None` when it attaches none. Past
+/// it the model is a bare trunk, so the LOD switch must not keep the model
+/// (`look::LodBands::at`).
+pub fn attach_reach(m: &manifest::Manifest, class: &str) -> Option<f32> {
+    let k = m
+        .classes
+        .iter()
+        .find(|k| k.name.eq_ignore_ascii_case(class))?;
+    k.attach
+        .iter()
+        .filter_map(|a| {
+            m.leaf
+                .iter()
+                .find(|g| g.name.eq_ignore_ascii_case(&a.class))
+                .map(|g| g.max_distance)
+        })
+        .reduce(f32::min)
+}
+
 /// Every leaf object of the manifest: attached to a placed prop (world
 /// instance or path prop), a world instance of a leaf class, and — when the
 /// terrain is given — every FOLG `LeafPatch` record (see the module doc).

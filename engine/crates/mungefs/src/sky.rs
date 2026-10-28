@@ -101,6 +101,16 @@ mod key {
     pub const TERRAIN_ENABLE: u32 = 0xae29_1b6d; // "TerrainEnable"
     pub const REFLECT: u32 = 0x92c7_78aa; // "Reflect"
     pub const REFLECTION_COLOR: u32 = 0x8a81_de8b; // "ReflectionColor"
+    pub const STARS: u32 = 0x622b_0026; // "Stars"
+    pub const NUM_STARS: u32 = 0x836b_de54; // "NumStars"
+    pub const RANDOM_SEED: u32 = 0x69bf_5463; // "RandomSeed"
+    pub const TWINKLE_FACTOR: u32 = 0xa435_aaa4; // "TwinkleFactor"
+    pub const TWINKLE_FREQUENCY: u32 = 0xa9ee_e423; // "TwinkleFrequency"
+    pub const STAR_TEXTURE: u32 = 0xda68_9440; // "StarTexture"
+    pub const BRIGHT_STAR_PERCENT: u32 = 0x7368_37de; // "BrightStarPercent"
+    pub const ALPHA_MIN: u32 = 0x7de4_197d; // "AlphaMin"
+    pub const COLOR_SATURATION: u32 = 0x0d7e_c5c0; // "ColorSaturation"
+    pub const ENABLE_BOTTOM: u32 = 0x02ff_3675; // "EnableBottom"
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -208,6 +218,29 @@ pub struct DomeInfo {
     /// copies. Authored only on BF1 KAS1, (200, 200, 255); BF1's loader
     /// clamps it to bytes and defaults it to white (`analysis/re-sky-reflect.md` §1 [V]).
     pub reflection_color: Option<[f32; 3]>,
+    /// `Stars()`: the star field drawn in the sky pass, as authored.
+    pub stars: Option<Stars>,
+}
+
+/// `DomeInfo.Stars()` as stored (`analysis/re-stars.md` §1). Authored on BF1
+/// KAS1 and RHN2 and BF2 COR1 and NAB2 among the ground maps. Each field is
+/// `None` when the block leaves it out; the loaders' defaults are the
+/// consumer's (`manifest::ManifestStars`).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Stars {
+    pub num_stars: Option<f32>,
+    pub random_seed: Option<f32>,
+    pub twinkle_factor: Option<f32>,
+    pub twinkle_frequency: Option<f32>,
+    /// 0..255, three or four values.
+    pub color: Option<Vec<f32>>,
+    /// Authored `fx_star`; the draw is untextured (re-stars §3).
+    pub texture: Option<String>,
+    pub bright_star_percent: Option<f32>,
+    pub alpha_min: Option<f32>,
+    pub color_saturation: Option<f32>,
+    /// BF2 only: the field is also drawn mirrored under the horizon.
+    pub enable_bottom: Option<f32>,
 }
 
 /// A prop that circles in the sky (capital ships over Tatooine, etc.).
@@ -325,10 +358,31 @@ fn parse_dome(node: &ConfigNode, unknown: &mut Vec<(u32, Vec<f32>)>) -> DomeInfo
             }
             key::TERRAIN_ENABLE => d.terrain_enable = c.f32(0),
             key::REFLECTION_COLOR => d.reflection_color = c.f3(),
+            key::STARS => d.stars = Some(parse_stars(c, unknown)),
             h => unknown.push((h, c.floats())),
         }
     }
     d
+}
+
+fn parse_stars(node: &ConfigNode, unknown: &mut Vec<(u32, Vec<f32>)>) -> Stars {
+    let mut s = Stars::default();
+    for k in &node.children {
+        match k.hash {
+            key::NUM_STARS => s.num_stars = k.f32(0),
+            key::RANDOM_SEED => s.random_seed = k.f32(0),
+            key::TWINKLE_FACTOR => s.twinkle_factor = k.f32(0),
+            key::TWINKLE_FREQUENCY => s.twinkle_frequency = k.f32(0),
+            key::COLOR => s.color = Some(k.floats()),
+            key::STAR_TEXTURE => s.texture = non_empty(k.string.clone()),
+            key::BRIGHT_STAR_PERCENT => s.bright_star_percent = k.f32(0),
+            key::ALPHA_MIN => s.alpha_min = k.f32(0),
+            key::COLOR_SATURATION => s.color_saturation = k.f32(0),
+            key::ENABLE_BOTTOM => s.enable_bottom = k.f32(0),
+            h => unknown.push((h, k.floats())),
+        }
+    }
+    s
 }
 
 fn parse_object(node: &ConfigNode) -> SkyObject {
@@ -381,6 +435,16 @@ mod tests {
             ("Filter", key::FILTER),
             ("Threshold", key::THRESHOLD),
             ("OffSet", key::OFFSET),
+            ("Stars", key::STARS),
+            ("NumStars", key::NUM_STARS),
+            ("RandomSeed", key::RANDOM_SEED),
+            ("TwinkleFactor", key::TWINKLE_FACTOR),
+            ("TwinkleFrequency", key::TWINKLE_FREQUENCY),
+            ("StarTexture", key::STAR_TEXTURE),
+            ("BrightStarPercent", key::BRIGHT_STAR_PERCENT),
+            ("AlphaMin", key::ALPHA_MIN),
+            ("ColorSaturation", key::COLOR_SATURATION),
+            ("EnableBottom", key::ENABLE_BOTTOM),
             ("MovementScale", key::MOVEMENT_SCALE),
             ("MaxDistance", key::MAX_DISTANCE),
             ("NumObjects", key::NUM_OBJECTS),

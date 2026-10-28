@@ -417,6 +417,18 @@ impl Renderer {
             ..PipelineDesc::world("bolt core pipeline", &pipeline_layout, &grass_vb)
         }
         .build(&device, &bolt_shader, format);
+        // The star field (`stars.rs`): the bolt glow's ADDITIVE shader
+        // (the draw's GS ALPHA is 0x48, `analysis/re-stars.md` §3) over the
+        // sky pass's state — no depth test or write.
+        let star_pipeline = PipelineDesc {
+            vs: "vs_grass",
+            fs: "fs_bolt_glow",
+            blend: Some(additive),
+            depth_write: false,
+            depth_compare: Some(wgpu::CompareFunction::Always),
+            ..PipelineDesc::world("star pipeline", &pipeline_layout, &grass_vb)
+        }
+        .build(&device, &bolt_shader, format);
         let bolt_glow_pipeline = PipelineDesc {
             vs: "vs_grass",
             fs: "fs_bolt_glow",
@@ -557,6 +569,8 @@ impl Renderer {
             bolt_core_pipeline,
             bolt_glow_pipeline,
             bolts: Default::default(),
+            star_pipeline,
+            stars: Default::default(),
             particles: Default::default(),
             terrain_light_pipeline,
             terrain_light_bgl,

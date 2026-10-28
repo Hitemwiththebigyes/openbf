@@ -47,6 +47,8 @@ fn model() -> ui::hud::HudModel {
         dead: false,
         respawn_in: None,
         outcome: None,
+        countdown: None,
+        round_end: None,
         time_left: None,
         messages: Vec::new(),
         stats: Some(ui::hud::HudStats::default()),

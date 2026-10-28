@@ -1033,6 +1033,11 @@ impl App {
         self.walk = None;
         self.music_voice = None;
         self.gpu = None;
+        // The map's sky and look stay in the renderer otherwise, and the
+        // shell's frames draw them behind the movie.
+        if let Some(r) = self.renderer.as_mut() {
+            r.clear_scene();
+        }
         self.hud_view = None;
         self.paused = false;
         self.kbm.release_keys();
@@ -1686,6 +1691,15 @@ impl winit::application::ApplicationHandler for App {
                             w.set_title(&hud_title(walk));
                         }
                     }
+                    // The end of the round (issue #33): its camera shot and
+                    // banner, then the stats screens, accept / back moving
+                    // on; when it is left, back to the shell.
+                    if walk.sim.outcome.is_some()
+                        && !self.paused
+                        && walk.follow_round_end(dt, edges & 16 != 0, edges & 32 != 0, None)
+                    {
+                        self.quit_clicked = true;
+                    }
                     if walk.sim.outcome.is_some() && !self.outcome_reported {
                         self.outcome_reported = true;
                         println!("{}", hud_title(walk));
@@ -1805,7 +1819,9 @@ impl winit::application::ApplicationHandler for App {
                     let mut hud_view = match (&mut self.hud_view, &hud) {
                         (Some(hv), Some(model)) => {
                             hv.update(model, hud_dt, [w, h]);
-                            (!hud_hidden).then_some(hv)
+                            // The end of the round draws no battle HUD over
+                            // its camera shot (issue #33).
+                            (!hud_hidden && model.round_end.is_none()).then_some(hv)
                         }
                         _ => None,
                     };

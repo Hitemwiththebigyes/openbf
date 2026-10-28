@@ -86,9 +86,9 @@ mod repair;
 pub use ability::Ability;
 pub use dispenser::Dispenser;
 pub use ordnance::{
-    blast_falloff, DamageDesc, ExplosionClass, Falloff, Health, HealthType, OrdKind, OrdnanceClass,
-    EXPLOSION_OFFSET, HASH_FALLOFF_DURATION, HASH_FALLOFF_END_DAMAGE, HASH_FALLOFF_START,
-    HASH_TEAM_BONUS_SCALE,
+    blast_falloff, DamageDesc, ExplosionClass, Falloff, Health, HealthType, OrdBlend, OrdKind,
+    OrdKnot, OrdnanceClass, EXPLOSION_OFFSET, HASH_FALLOFF_DURATION, HASH_FALLOFF_END_DAMAGE,
+    HASH_FALLOFF_START, HASH_TEAM_BONUS_SCALE, SHELL_G,
 };
 pub use repair::Repair;
 
@@ -112,6 +112,17 @@ pub const TIGHT_HOLD_CAP: f32 = 6.0 * DEG;
 /// `StandAimSpread`, `CrouchAimSpread`, `ProneAimSpread` (`re-zoom.md` §2;
 /// no disc class authors one).
 pub const HASH_ZOOM_SPREAD: [u32; 3] = [0x5BC0_137F, 0x67BF_C1D7, 0x7D9D_A8BD];
+
+/// One charge stage of a [`WeaponClass`]: from `threshold` (the charge it
+/// must exceed) the shot is `class`'s; `index` is its own entry in
+/// `Sim::weapon_classes` (`usize::MAX` until registered), which its rounds
+/// carry.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ChargeStage {
+    pub threshold: f32,
+    pub class: Box<WeaponClass>,
+    pub index: usize,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct WeaponClass {
@@ -205,6 +216,14 @@ pub struct WeaponClass {
     pub pitch_spread: f32,
     pub yaw_spread: f32,
     pub shot_tilts: Vec<(f32, f32)>,
+    /// The charge stages after the root (issue #29, `analysis/re-weapon-charge.md`
+    /// §1-§3: B1 `FUN_002864f0` / `FUN_00285108`, B2 `FUN_00328fb0` /
+    /// `FUN_00327168`): each `NextCharge` clones the class as it stands, and
+    /// the keys after it go to the clone. While the trigger is held the
+    /// weapon steps to the next stage while pressed / MaxPressedTime is over
+    /// that stage's threshold; the shot is built from the stage reached (its
+    /// ordnance, ShotsPerSalvo, offsets, HeatPerShot). Empty: no stages.
+    pub stages: Vec<ChargeStage>,
     /// [stand, crouch, prone] × [still, move, zoom], radians.
     pub posture_spread: [[f32; 3]; 3],
     pub spread_per_shot: f32,
@@ -357,6 +376,7 @@ impl Default for WeaponClass {
             pitch_spread: 0.0,
             yaw_spread: 0.0,
             shot_tilts: Vec::new(),
+            stages: Vec::new(),
             posture_spread: [[0.0; 3]; 3],
             spread_per_shot: 0.0,
             spread_recover_rate: 0.0,
@@ -380,6 +400,37 @@ impl Default for WeaponClass {
 }
 
 impl WeaponClass {
+    /// The stage a charge reaches: the PS2 steps on while the charge is over
+    /// the next stage's threshold (B2 `FUN_00327168`). 0 is the root.
+    pub fn stage_for(&self, charge: f32) -> usize {
+        self.stages
+            .iter()
+            .take_while(|s| charge > s.threshold)
+            .count()
+    }
+
+    /// Stage `k`'s class (0, or past the last: the root / the last).
+    pub fn stage(&self, k: usize) -> &WeaponClass {
+        match k {
+            0 => self,
+            k => self.stages.get(k - 1).map_or(self, |s| &*s.class),
+        }
+    }
+
+    /// Stage `k`'s entry in `Sim::weapon_classes` for a root registered at
+    /// `root` (an unregistered stage: the root's).
+    pub fn stage_index(&self, root: usize, k: usize) -> usize {
+        match k {
+            0 => root,
+            k => self
+                .stages
+                .get(k - 1)
+                .map(|s| s.index)
+                .filter(|i| *i != usize::MAX)
+                .unwrap_or(root),
+        }
+    }
+
     /// OURS (card SPRD, a named deviation; FEEL_NOTES): the extra free
     /// buffer under the spread state's floor, radians - what
     /// [`TIGHT_HOLD_SECS`] ([`TIGHT_HOLD_SECS_AI`] for a bot) of fire at the
@@ -454,6 +505,7 @@ impl WeaponClass {
             pitch_spread: 0.25 * DEG,
             yaw_spread: 0.25 * DEG,
             shot_tilts: Vec::new(),
+            stages: Vec::new(),
             posture_spread: [[0.0; 3]; 3],
             spread_per_shot: 1.1 * DEG,
             spread_recover_rate: 4.8 * DEG,
@@ -483,6 +535,10 @@ impl WeaponClass {
                 sticky: None,
                 explosion: None,
                 kind: OrdKind::Other,
+                gravity: 0.0,
+                expire: None,
+                knots: Vec::new(),
+                min_damage: None,
                 impact: Some(crate::impact::ImpactLook {
                     soft: Some("ord_explosion".into()),
                     rigid: Some("ord_explosion".into()),
@@ -563,6 +619,10 @@ impl WeaponClass {
                 sticky: None,
                 explosion: None,
                 kind: OrdKind::Other,
+                gravity: 0.0,
+                expire: None,
+                knots: Vec::new(),
+                min_damage: None,
                 impact: Some(crate::impact::ImpactLook {
                     soft: Some("com_sfx_ord_exp".into()),
                     rigid: Some("com_sfx_ord_exp".into()),
@@ -896,6 +956,8 @@ pub fn ai_sniper_yaw(dist_sq: f32) -> f32 {
 pub struct ShotSpec {
     pub tilt: (f32, f32),
     pub charge: f32,
+    /// The charge stage that fired it ([`WeaponClass::stage`]).
+    pub stage: u8,
     /// Half-angle magnitudes (radians) at spawn time.
     pub pitch_spread: f32,
     pub yaw_spread: f32,
@@ -968,6 +1030,8 @@ pub struct WeaponState {
     pub active: bool,
     pub shots_fired: u64,
     pub tilt_index: u32,
+    /// The charge stage this trigger fires ([`WeaponClass::stage_for`]).
+    pub stage: u8,
     /// The rounds this weapon was issued (the clip and the reserve at its
     /// making; [`SPARE_INFINITE`] = endless). Never written again: the PS2's
     /// cap of the reserve (B1 weapon+0x94, B2 ammo[2]), which the AI's
@@ -987,6 +1051,7 @@ impl WeaponState {
             salvo_counter: 0,
             salvo_timer: 0.0,
             charge: 0.0,
+            stage: 0,
             spread: Self::spread_floor(class, human, 1.0),
             spread_mult: 1.0,
             posture_base: 0.0,
@@ -1044,6 +1109,11 @@ impl WeaponState {
         } else {
             0
         };
+    }
+
+    /// The stage the trigger reached (0 the root; [`WeaponClass::stages`]).
+    pub fn stage(&self) -> usize {
+        usize::from(self.stage)
     }
 
     /// FUN_00289150.
@@ -1115,6 +1185,7 @@ impl WeaponState {
         } else {
             1.0
         };
+        self.stage = c.stage_for(self.charge).min(usize::from(u8::MAX)) as u8;
         self.refire_accum = 0.0;
         self.refire_time = lcg.uniform(c.shot_delay[0], c.shot_delay[1]);
         self.salvo_counter = c.salvo_count;
@@ -1184,6 +1255,18 @@ impl WeaponState {
             self.start_reload(c);
         }
 
+        // Charge enter (B1 cannon `FUN_00289050` 211479-211486, B2 twin;
+        // `analysis/re-weapon-charge.md` §2): a fresh press of a charge weapon
+        // starts the accumulator at 0 with MaxPressedTime its limit (in place
+        // of the refire period); the idle tick below fills it while the
+        // trigger is held, and the trigger reads charge = accum /
+        // MaxPressedTime. The port used the refire period as the limit, so a
+        // held charge stopped at ShotDelay / MaxPressedTime (issue #29).
+        if c.max_pressed_time > 0.0 && self.state == FireState::Idle && self.fire_cmd == 1 {
+            self.refire_accum = 0.0;
+            self.refire_time = c.max_pressed_time;
+        }
+
         // Idle → trigger (weapon update state 0: active && fire predicate).
         if self.state == FireState::Idle
             && self.active
@@ -1201,9 +1284,17 @@ impl WeaponState {
         }
 
         if self.state == FireState::Firing {
-            self.fire_cycle(dt, c, blocked, infinite_ammo, lcg, shots);
-            if self.cycle_finished(c, blocked) {
+            // The stage the trigger reached fires: its ShotsPerSalvo, offsets
+            // and heat; the ammunition is the weapon's (§3).
+            let sc = c.stage(self.stage());
+            let first = shots.len();
+            self.fire_cycle(dt, sc, blocked, infinite_ammo, lcg, shots);
+            for s in &mut shots[first..] {
+                s.stage = self.stage;
+            }
+            if self.cycle_finished(sc, blocked) {
                 self.state = FireState::Idle;
+                self.stage = 0;
                 if !infinite_ammo
                     && !c.infinite_ammo()
                     && self.active
@@ -1285,6 +1376,7 @@ impl WeaponState {
                                     .copied()
                                     .unwrap_or_default(),
                                 charge: self.charge,
+                                stage: 0,
                                 pitch_spread: self.pitch_spread(c),
                                 yaw_spread: self.yaw_spread(c),
                             });
@@ -1334,6 +1426,7 @@ impl WeaponState {
         ] {
             eat(&v.to_bits().to_le_bytes());
         }
+        // `stage` follows from `charge` (hashed above) and the class.
         eat(&self.salvo_counter.to_le_bytes());
         eat(&self.clip.to_le_bytes());
         eat(&self.spare.to_le_bytes());

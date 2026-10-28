@@ -74,9 +74,10 @@ pub struct TextureDesc<'a> {
     /// the sign PROVISIONAL — `mungefs::fx::WaterConfig::scroll_per_second`).
     pub scroll: [f32; 2],
     /// Multiplies the mesh UV before the scroll — read ONLY by the water's
-    /// speckle layer (`fs_speckle`, [`crate::DrawLayer::Speckle`]), which
-    /// samples its frames over the water mesh at their own tiling; `[1.0,
-    /// 1.0]` for every other texture, and no other entry point reads it.
+    /// speckle layer (`fs_speckle`, [`crate::DrawLayer::Speckle`]) and the
+    /// ocean's foam layer (`fs_water`), which sample over the water mesh at
+    /// their own tiling; `[1.0, 1.0]` for every other texture, and no other
+    /// entry point reads it.
     pub uv_scale: [f32; 2],
     pub label: Option<&'a str>,
 }

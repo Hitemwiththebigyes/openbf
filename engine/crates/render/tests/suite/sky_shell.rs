@@ -76,6 +76,37 @@ fn sky_paints_the_background_and_geometry_draws_over_it() {
     );
 }
 
+/// `clear_scene` drops the sky: the next frame is the clear colour, as the
+/// shell after a battle must be (it drew the map's sky behind its movie).
+#[test]
+#[ignore = "requires a GPU adapter"]
+fn clear_scene_drops_the_sky() {
+    let mut r = headless();
+    let (mesh, tex) = quad(&mut r, [255, 0, 0, 255], -1.0);
+    r.set_sky(vec![SkyShell {
+        mesh,
+        texture: Some(tex),
+        color: [1.0; 4],
+        scale: 1.0,
+        placement: render::Placement::Object {
+            offset: glam::Vec3::ZERO,
+        },
+        yaw: 0.0,
+        mode: render::SkyMode::Blend,
+    }]);
+    r.render(&Camera::default(), &[], [0.0, 0.0, 0.0, 1.0])
+        .expect("frame");
+    assert!(centre(&mut r)[0] > 200, "the sky did not paint");
+    r.clear_scene();
+    r.render(&Camera::default(), &[], [0.0, 0.0, 0.0, 1.0])
+        .expect("frame");
+    assert_eq!(
+        centre(&mut r),
+        [0, 0, 0, 255],
+        "the sky outlived clear_scene"
+    );
+}
+
 /// The sky is unlit and unfogged: darkening the sun and ambient to nothing
 /// and switching on a fog that would swallow anything at that distance leaves
 /// the shell exactly as bright.

@@ -17,6 +17,8 @@ fn bolt() -> Bolt {
         shooter_is_player: false,
         hulls: crate::collision::HullFilter::All,
         hit_mult: 1.0,
+        gravity: 0.0,
+        charge: 1.0,
     }
 }
 

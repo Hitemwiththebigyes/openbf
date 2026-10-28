@@ -331,6 +331,9 @@ pub struct EventFeed {
     /// The vehicle and building-turret classes' names, by `Vehicle::class`
     /// ([`Texts::class_name`], else the class's `Label`, else its ODF name).
     vehicles: Vec<String>,
+    /// The station classes' Locl names (health and ammo droids), by
+    /// `Sim::station_classes` index.
+    stations: Vec<String>,
     /// The lines made since the last [`EventFeed::take`], oldest first.
     out: Vec<HudMessage>,
     /// The chevron edges the viewer's hits lit since the last
@@ -372,6 +375,7 @@ impl EventFeed {
             posts: post_keys.iter().map(|k| texts.post_name(k)).collect(),
             classes: [Vec::new(), Vec::new()],
             vehicles: Vec::new(),
+            stations: Vec::new(),
             order_labels: ORDER_LABELS.map(|l| texts.order_label(l)),
             driver_labels: DRIVER_LABELS.map(|l| texts.order_label(l)),
             texts,
@@ -418,6 +422,20 @@ impl EventFeed {
                         .flatten()
                         .unwrap_or_else(|| c.clone())
                 })
+            })
+            .collect();
+        feed.stations = walk
+            .sim
+            .station_classes
+            .iter()
+            .map(|c| {
+                // BF2's unbuilt and hero droids have no text of their own:
+                // the droid's ("Medical Droid").
+                let base = c.name.trim_end_matches("_unbuilt").replace("_hero_", "_");
+                feed.texts
+                    .class_name(&c.name)
+                    .or_else(|| feed.texts.class_name(&base))
+                    .unwrap_or_else(|| c.name.clone())
             })
             .collect();
         feed
@@ -735,7 +753,9 @@ impl EventFeed {
     /// unowned building turret is (card HTGT). The sim has no shields, and
     /// the classes' `HideHealthBar` drop (§2: two BF2 classes) is not ported.
     pub fn target(&self, sim: &Sim, slot: usize) -> Option<HudTarget> {
-        let (t, relation) = sim.reticle_pick.get(slot).copied().flatten()?;
+        let Some((t, relation)) = sim.reticle_pick.get(slot).copied().flatten() else {
+            return self.station_target(sim, slot);
+        };
         let fraction = |h: &core::weapon::Health| {
             if h.max > 0.0 {
                 (h.cur / h.max).clamp(0.0, 1.0)
@@ -776,6 +796,67 @@ impl EventFeed {
                 })
             }
         }
+    }
+
+    /// A health or ammo droid under the reticle when the pick holds no unit
+    /// or vehicle (the maintainer 2026-10-27: they showed no readout). Ours: the
+    /// PS2's pick takes any object with health in the cone
+    /// (`re-target-hud.md` §1), but the port's pick also drives the aim
+    /// assist, so the stations join the readout only: the nearest live one
+    /// whose sphere the reticle's ray passes within the weapon's
+    /// ExtremeRange, in sight. Its relation is its team's (none: neutral,
+    /// white).
+    fn station_target(&self, sim: &Sim, slot: usize) -> Option<HudTarget> {
+        let me = sim.units.iter().find(|u| {
+            u.alive
+                && u.mount.is_none()
+                && matches!(u.controller, core::unit::Controller::Player { slot: s } if usize::from(s) == slot)
+        })?;
+        let (pos, dir) = me.aim_ray(sim.ground_rules, sim.views());
+        let range = sim.weapon_classes.get(me.weapon_class)?.extreme_range;
+        let mut best: Option<(f32, usize)> = None;
+        for (i, s) in sim.stations.iter().enumerate() {
+            if s.destroyed || s.health.max <= 0.0 {
+                continue;
+            }
+            let (c, r) = (s.sphere_centre, s.sphere_radius.max(0.5));
+            let along = (c - pos).dot(dir);
+            if along <= 0.0 || along > range + r || best.is_some_and(|(b, _)| b <= along) {
+                continue;
+            }
+            if (c - pos).length_squared() - along * along > r * r {
+                continue;
+            }
+            let near = c - dir * r;
+            if core::perception::los_seat(
+                sim,
+                pos,
+                near,
+                core::collision::HullFilter::All,
+                [s.instance, None],
+            ) {
+                best = Some((along, i));
+            }
+        }
+        let (_, i) = best?;
+        let s = &sim.stations[i];
+        Some(HudTarget {
+            // Bit 62: a station's id is neither a unit's nor a vehicle's.
+            id: (1 << 62) | i as u64,
+            name: self
+                .stations
+                .get(usize::from(s.class))
+                .cloned()
+                .unwrap_or_default(),
+            health_fraction: (s.health.cur / s.health.max).clamp(0.0, 1.0),
+            relation: match s.team {
+                None => 0,
+                Some(t) if t == me.team => 1,
+                Some(_) => -1,
+            },
+            team0: s.team.is_none(),
+            shield: None,
+        })
     }
 
     /// The viewer's statistics as BF2 publishes them (§5).
@@ -981,6 +1062,58 @@ mod tests {
             s.feed.target(&s.sim, 0).unwrap().id,
             "one id per unit"
         );
+    }
+
+    /// A health droid under the reticle with no unit or vehicle picked reads
+    /// its class's name and health, neutral white; a nearer pick wins, a
+    /// destroyed droid or one out of the ray shows nothing.
+    #[test]
+    fn a_station_under_the_reticle_reads_its_health() {
+        use core::sim::Station;
+        let mut s = scene();
+        s.sim.reticle_pick.resize(1, None);
+        let me = s.sim.units.iter().find(|u| u.is_player).expect("player");
+        let (eye, dir) = me.aim_ray(s.sim.ground_rules, s.sim.views());
+        // Every station class has a name in the baked text, on both games'
+        // maps ("Medical Droid", "Ammunition Droid", "Machinery Repair Droid").
+        let root = crate::assets::baked_root();
+        if root.join("common_bf2/locl/english.ron").exists() {
+            for game in ["bf1", "bf2"] {
+                let texts = Texts::load(&root, game);
+                for c in [
+                    "com_item_healthrecharge",
+                    "com_item_weaponrecharge",
+                    "com_item_vehiclerecharge",
+                ] {
+                    let name = texts.class_name(c);
+                    println!("{game} {c}: {name:?}");
+                    assert!(name.is_some(), "{game} {c}: no entity name");
+                }
+            }
+        }
+        s.feed.stations = vec!["Health Droid".into()];
+        let mut st = Station::new(0, eye + dir * 10.0, 2.0);
+        (st.sphere_centre, st.sphere_radius) = (eye + dir * 10.0, 0.8);
+        st.health.cur = 40.0;
+        s.sim.stations.push(st);
+        let t = s.feed.target(&s.sim, 0).expect("the droid");
+        assert_eq!(
+            (t.name.as_str(), t.health_fraction, t.relation, t.team0),
+            ("Health Droid", 0.5, 0, true)
+        );
+        assert_eq!(t.color(), ui::hud::target_color::NONE);
+        // Off the ray: nothing.
+        let side = dir.cross(glam::Vec3::Y).normalize() * 3.0;
+        s.sim.stations[0].sphere_centre += side;
+        assert_eq!(s.feed.target(&s.sim, 0), None);
+        s.sim.stations[0].sphere_centre -= side;
+        // A unit or vehicle pick comes first.
+        let [r0, _] = s.rebels;
+        s.sim.reticle_pick[0] = Some((AimTarget::Unit(r0), -1));
+        assert_ne!(s.feed.target(&s.sim, 0).unwrap().id, t.id);
+        s.sim.reticle_pick[0] = None;
+        s.sim.stations[0].destroyed = true;
+        assert_eq!(s.feed.target(&s.sim, 0), None);
     }
 
     /// Card HTGT slice 3: a picked vehicle reads its class's Locl name and
