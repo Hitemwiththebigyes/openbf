@@ -185,11 +185,14 @@ fn append_events(csv: &mut String, tick: usize, events: &[core::sim::Event]) {
                 weapon_class,
                 cause,
             } => format!(
-                "{tick},mine_blast,{weapon_class},{},{pos:?}\n",
-                *cause as u8
+                "{tick},mine_blast,{weapon_class},{},{:.2}:{:.2}:{:.2}\n",
+                *cause as u8, pos.x, pos.y, pos.z
             ),
             Event::MineTick { pos, weapon_class } => {
-                format!("{tick},mine_tick,{weapon_class},{pos:?}\n")
+                format!(
+                    "{tick},mine_tick,{weapon_class},,{:.2}:{:.2}:{:.2}\n",
+                    pos.x, pos.y, pos.z
+                )
             }
             Event::Ability {
                 unit,

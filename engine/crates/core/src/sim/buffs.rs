@@ -1,7 +1,10 @@
+//! Timed soldier effects from abilities and pickups: damage dealt and taken
+//! multipliers, regeneration and poison. Each is (seconds left, strength);
+//! a longer incoming timer replaces both (`analysis/re-officer-abilities.md`).
+
 use super::Sim;
 use crate::unit::UnitHandle;
 use crate::weapon::{Ability, DamageDesc};
-use glam::Vec3;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Buffs {
@@ -25,6 +28,8 @@ impl Default for Buffs {
 }
 
 impl Buffs {
+    /// Count the timers down. Timers over 300 s never run down: the PS2
+    /// keeps award effects (340 s) permanent that way.
     pub(super) fn tick(&mut self, dt: f32) {
         for b in [
             &mut self.offense,
@@ -109,6 +114,7 @@ impl Buffs {
     }
 }
 
+/// Replace an effect only with a longer one; true when it was replaced.
 fn refresh(current: &mut (f32, f32), incoming: (f32, f32)) -> bool {
     if incoming.0 > current.0 {
         *current = incoming;
@@ -119,6 +125,9 @@ fn refresh(current: &mut (f32, f32), incoming: (f32, f32)) -> bool {
 }
 
 impl Sim {
+    /// One tick of every soldier's effects: dead soldiers lose theirs,
+    /// regeneration heals up to full health, poison damages with its
+    /// caster's credit.
     pub(super) fn tick_buffs(&mut self, dt: f32) {
         for i in 0..self.units.len() {
             if !self.units[i].alive {
@@ -139,10 +148,9 @@ impl Sim {
             let victim = self.handle(i);
             let scale = self.buff_scale(attacker, victim);
             let invincible = self.units[i].is_player && self.cheats.invincible;
+            let now = self.tick;
             let u = &mut self.units[i];
-            let damage = if invincible {
-                0.0
-            } else {
+            if !invincible {
                 u.health.take_damage(
                     &DamageDesc {
                         damage,
@@ -152,9 +160,16 @@ impl Sim {
                     scale,
                     false,
                     1.0,
-                )
-            };
-            if self.finish_unit_damage(victim, attacker, damage, 0.0, Vec3::ZERO) {
+                );
+            }
+            // Poison keeps its attacker for perception and the kill credit,
+            // but is no shot: an `Event::Hit` every tick would spawn a hit
+            // puff, a hurt-cry check and a black-box row 30 times a second.
+            if let Some(a) = attacker {
+                u.last_hit = Some((a, now));
+            }
+            if !u.health.alive() {
+                self.unit_killed(victim, attacker);
                 self.units[i].buffs = Buffs::default();
             }
         }

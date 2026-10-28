@@ -65,9 +65,11 @@ impl Rounds {
             .events
             .iter()
             .filter(|e| match e {
-                Event::Throw { weapon_class, .. } => sim.weapon_classes[*weapon_class as usize]
-                    .dispenser
-                    .is_none(),
+                // Packs and placed items are no stickies: only a grenade's
+                // throw adds one to `sim.stickies`.
+                Event::Throw { weapon_class, .. } => {
+                    !sim.weapon_classes[*weapon_class as usize].dispenses()
+                }
                 _ => false,
             })
             .count();
@@ -173,18 +175,11 @@ mod tests {
     use crate::fx::Library;
     use core::{projectile::Hit, unit::UnitHandle, weapon::WeaponClass};
 
-    #[test]
-    fn dispensing_a_pack_keeps_an_existing_grenades_trail_identity() {
+    /// A thrown item that is no sticky (a pack, a placed mine) must not
+    /// re-number the grenades already in flight.
+    fn keeps_grenade_ids_when_throwing(class: WeaponClass) {
         let mut sim = Sim::empty(1);
-        let pack = sim.add_weapon_class(WeaponClass {
-            dispenser: Some(core::weapon::Dispenser {
-                item: core::sim::ItemClass::basic("dual", 100.0, 2),
-                velocity: 10.0,
-                strength: [0.3, 0.4],
-                max_items: 4,
-            }),
-            ..Default::default()
-        });
+        let item = sim.add_weapon_class(class);
         let owner = UnitHandle { index: 0, gen: 0 };
         sim.stickies.push(Sticky::new(
             Vec3::ZERO,
@@ -201,10 +196,45 @@ mod tests {
         sim.tick += 1;
         sim.events.push(Event::Throw {
             unit: owner,
-            weapon_class: pack as u32,
+            weapon_class: item as u32,
             origin: Vec3::ZERO,
         });
         assert_eq!(rounds.sticky_ids(&sim), before);
+    }
+
+    #[test]
+    fn dispensing_a_pack_keeps_an_existing_grenades_trail_identity() {
+        keeps_grenade_ids_when_throwing(WeaponClass {
+            dispenser: Some(core::weapon::Dispenser {
+                item: core::sim::ItemClass::basic("dual", 100.0, 2),
+                velocity: 10.0,
+                strength: [0.3, 0.4],
+                max_items: 4,
+            }),
+            ..Default::default()
+        });
+    }
+
+    #[test]
+    fn placing_a_mine_keeps_an_existing_grenades_trail_identity() {
+        struct NoProps;
+        impl core::weapon::PropSource for NoProps {
+            fn prop(&self, _: &str) -> Option<&str> {
+                None
+            }
+            fn prop_hash(&self, _: u32) -> Option<&str> {
+                None
+            }
+        }
+        keeps_grenade_ids_when_throwing(WeaponClass {
+            mine: Some(core::weapon::Dispenser {
+                item: core::mine::MineClass::from_props(&NoProps, false),
+                velocity: 10.0,
+                strength: [0.3, 0.4],
+                max_items: 4,
+            }),
+            ..Default::default()
+        });
     }
 
     #[test]

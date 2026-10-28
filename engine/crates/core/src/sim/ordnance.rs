@@ -179,9 +179,6 @@ impl Sim {
             weapon_class: class,
             is_player: self.units[i].is_player,
         };
-        // Perception's hearing reads this (`perception::scan`): anyone
-        // within HEAR_RADIUS of a shot knows a shooter is there, with no
-        // line of sight.
         for spec in shots {
             // A charge stage's round is its own class's (issue #29): its
             // ordnance flies and strikes; a sticky one (a mortar's held
@@ -199,8 +196,15 @@ impl Sim {
                 self.dispense_shots(i, held_slot, stage, std::slice::from_ref(spec));
                 continue;
             }
-            self.units[i].last_shot_tick = self.tick;
-            if self.weapon_classes[stage].ordnance.sticky.is_some() {
+            let sticky = self.weapon_classes[stage].ordnance.sticky.is_some();
+            // Perception's hearing reads this (`perception::scan`): anyone
+            // within HEAR_RADIUS of a shot knows a shooter is there, with no
+            // line of sight. A thrown grenade (a held slot's sticky) is not
+            // heard, as before this path was shared.
+            if !(sticky && held_slot.is_some()) {
+                self.units[i].last_shot_tick = self.tick;
+            }
+            if sticky {
                 self.launch(i, stage);
                 continue;
             }

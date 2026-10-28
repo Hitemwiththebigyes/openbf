@@ -1,3 +1,7 @@
+//! Placed explosives in the sim: placing, flight and landing, arming,
+//! proximity / contact / timer / remote triggers and the blast
+//! (`crate::mine`; issue #43).
+
 use super::{Event, Sim};
 use crate::collision::{ray_terrain_ps2, HullFilter, Layers};
 use crate::mine::{Detonation, Mine};
@@ -6,6 +10,17 @@ use glam::Vec3;
 
 fn square(v: f32) -> f32 {
     v * v
+}
+
+/// `y` held to a capsule's axis `[lo, hi]`. A capsule no taller than its two
+/// caps has `lo == hi`, and rounding can leave `lo` a hair above `hi`, where
+/// `f32::clamp` panics (a crouched or prone soldier beside a BF2 mine).
+fn clamp_axis(y: f32, lo: f32, hi: f32) -> f32 {
+    if lo <= hi {
+        y.clamp(lo, hi)
+    } else {
+        (lo + hi) * 0.5
+    }
 }
 
 impl Sim {
@@ -22,6 +37,9 @@ impl Sim {
             })
     }
 
+    /// A remote (detpack) weapon: a fresh press with packs out sets them
+    /// all off and fires nothing; with none out the press places one.
+    /// Returns whether the trigger must be kept from the weapon.
     pub(super) fn remote_input(
         &mut self,
         i: usize,
@@ -62,6 +80,7 @@ impl Sim {
         suppress
     }
 
+    /// Place one item; past `MaxItems` the owner's oldest is destroyed first.
     pub(super) fn place_mine(&mut self, i: usize, weapon: usize, charge: f32) {
         let d = self.weapon_classes[weapon].mine.as_ref().unwrap().clone();
         let owner = self.handle(i);
@@ -142,6 +161,9 @@ impl Sim {
         }
     }
 
+    /// One tick of every placed item. An armed item fires when an enemy is
+    /// in its trigger radius and not moving towards it (BF1 `FUN_0028d958`),
+    /// unless a friend is within its friend radius.
     pub(super) fn tick_mines(&mut self, dt: f32) {
         let mut i = 0;
         while i < self.mines.len() {
@@ -151,7 +173,7 @@ impl Sim {
                 .as_ref()
                 .unwrap()
                 .item
-                .clone();
+                .motion();
             let cause = if m.flight.life <= dt + 0.0001 {
                 Some(Detonation::Expire)
             } else if m.health <= 0.0 {
@@ -244,10 +266,11 @@ impl Sim {
                             let r = cap.radius.min(cap.height * 0.5);
                             let p = Vec3::new(
                                 cap.base.x,
-                                m.flight
-                                    .pos
-                                    .y
-                                    .clamp(cap.base.y + r, cap.base.y + cap.height - r),
+                                clamp_axis(
+                                    m.flight.pos.y,
+                                    cap.base.y + r,
+                                    cap.base.y + cap.height - r,
+                                ),
                                 cap.base.z,
                             );
                             p.distance_squared(m.flight.pos) <= square(cap.radius + 0.05)
