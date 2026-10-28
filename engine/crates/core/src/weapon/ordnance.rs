@@ -263,6 +263,10 @@ pub struct ExplosionClass {
     /// (`sim::blast::knock_falloff`).
     pub push: f32,
     pub push_outer: f32,
+    /// The push moves only bodies, never a living soldier (a named
+    /// deviation, `game::roster::PUSH_SPARES_THE_LIVING`); the damage is
+    /// untouched.
+    pub spares_living: bool,
     /// Its `Effect` / `WaterEffect` (card FXP3, [`crate::impact`]).
     /// Render-only: the sim never reads it; filled by the game's class
     /// loader.
@@ -279,6 +283,7 @@ impl Default for ExplosionClass {
             damage_outer: 0.0,
             push: 0.0,
             push_outer: 0.0,
+            spares_living: false,
             look: crate::impact::ExplosionLook::default(),
         }
     }

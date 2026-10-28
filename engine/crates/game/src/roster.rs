@@ -807,9 +807,21 @@ fn impact_explosion<'a>(db: &'a ClassDb, ordnance: &str) -> Option<&'a str> {
 
 /// An `expc` class's numbers and look, `None` when the class is not in the
 /// db.
+/// Explosions whose push moves only bodies (the maintainer 2026-10-27, a named
+/// deviation): the Magnaguard's Bulldog (BF2 `cis_weap_inf_bulldog`, Push 5)
+/// sent troops flying since every push knocks the living (issue #32); it hits
+/// harder than a rifle but does not throw like a grenade. Matched along the
+/// class chain.
+pub const PUSH_SPARES_THE_LIVING: &[&str] = &["com_weap_inf_bulldog_exp"];
+
 fn explosion_class(db: &ClassDb, name: &str) -> Option<ExplosionClass> {
     let e = db.resolve(name.trim())?;
     let mut x = ExplosionClass::from_props(&ClassSrc { db, class: e });
+    x.spares_living = db.chain(e).iter().any(|d| {
+        PUSH_SPARES_THE_LIVING
+            .iter()
+            .any(|n| d.name.eq_ignore_ascii_case(n))
+    });
     if let Some(look) = explosion_look(db, e) {
         x.look = look;
     }
