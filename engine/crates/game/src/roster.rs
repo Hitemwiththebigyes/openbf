@@ -626,6 +626,54 @@ pub fn weapon_from_db(db: &ClassDb, weapon: &str) -> Result<WeaponClass> {
     Ok(w)
 }
 
+/// An ordnance's charge points (issue #29, `analysis/re-weapon-charge.md`
+/// §4): a `NextCharge` in the ordnance class clones it as it stands and the
+/// keys after it go to the clone, so the root is the keys before the first
+/// and each point the keys up to the next (a key the clone re-authors wins);
+/// and an emitter's Damage when it authors MaxDamage beside it
+/// (its damage blends between the two by the charge).
+fn charge_points(db: &ClassDb, ord_name: &str, ord: &mut OrdnanceClass) {
+    let Some(name) = db.resolve(ord_name) else {
+        return;
+    };
+    let props = chain_props(db, name);
+    let cuts: Vec<usize> = props
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| p.0 == NEXT_CHARGE)
+        .map(|(i, _)| i)
+        .collect();
+    if let Some(&first) = cuts.first() {
+        let upto = |end: usize| {
+            OrdnanceClass::from_props(&ListSrc {
+                props: &props[..end],
+            })
+        };
+        let root = upto(first);
+        (ord.velocity, ord.life_span, ord.max_damage) =
+            (root.velocity, root.life_span, root.max_damage);
+        (ord.scales, ord.shield_scale) = (root.scales, root.shield_scale);
+        for (k, &at) in cuts.iter().enumerate() {
+            let o = upto(cuts.get(k + 1).copied().unwrap_or(props.len()));
+            ord.knots.push(core::weapon::OrdKnot {
+                at: props[at].1.trim().parse().unwrap_or(1.0),
+                velocity: o.velocity,
+                life_span: o.life_span,
+                damage: o.max_damage,
+                scales: o.scales,
+                shield_scale: o.shield_scale,
+            });
+        }
+    }
+    if db
+        .engine_base(name)
+        .is_some_and(|b| b.eq_ignore_ascii_case("emitterordnance"))
+        && db.prop(name, "MaxDamage").is_some()
+    {
+        ord.min_damage = db.prop_f32(name, "Damage");
+    }
+}
+
 /// One charge stage of a weapon (the root: every key before the first
 /// `NextCharge`), from its replayed keys `props` (base first, file order).
 fn weapon_stage(db: &ClassDb, weapon: &str, props: &[(u32, &str)]) -> Result<WeaponClass> {
@@ -660,6 +708,15 @@ fn weapon_stage(db: &ClassDb, weapon: &str, props: &[(u32, &str)]) -> Result<Wea
     ord.kind = db
         .engine_base(&ord_name)
         .map_or(OrdKind::Other, OrdKind::from_base);
+    charge_points(db, &ord_name, &mut ord);
+    if ord.kind == OrdKind::Shell {
+        // Its fall, and its burst when its life runs out in the air
+        // (re-ordnance-kinds §6).
+        ord.gravity = db.prop_f32(&ord_name, "Gravity").unwrap_or(0.0);
+        ord.expire = db
+            .prop(&ord_name, "ExplosionExpire")
+            .and_then(|e| explosion_class(db, e));
+    }
     let mut w = WeaponClass::from_props(weapon, &wsrc, ord);
     // The offsets: the count key starts a stage's table and its pairs follow
     // (the bowcaster authors one per stage, re-blaster-damage.md §3.3); a

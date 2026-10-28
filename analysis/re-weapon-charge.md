@@ -220,6 +220,28 @@ CIS pilot classes (bf1_imp 3036 / 3520 / 3641, bf1_cis 3557 / 4421). BF2: mortar
 (bf2_imp 7844, bf2_cis 8800), all Wookiee (bf2_all 10553); bowcaster = Wookiee + Chewbacca; arc caster = dark
 trooper (bf2_imp 5559); dish turret = Hoth turret.
 
+## The port (issue #29)
+
+What the port does with each weapon feature #29 lists, on both games (main after the issue's three slices):
+
+| feature | PS2 rule (this note, re-ordnance-kinds.md) | port | where |
+|---|---|---|---|
+| Charge accumulator | a fresh press starts it at 0, limit MaxPressedTime; charge = held / MaxPressedTime | built (before: the limit stayed the shot delay, so a held charge stopped at ShotDelay / MaxPressedTime) | `core::weapon::WeaponState::update` |
+| Weapon charge stages | NextCharge clones the class; the shot is the stage reached | built: BF1 bowcaster 1 -> 3 -> 5 -> 7 bolts, BF2 bowcaster fan -> one heavy bolt, mortars shell -> sticky, BF1 arc caster heat steps | `game::roster::weapon_from_db`, `WeaponClass::stages` |
+| Per-stage shot offsets | each stage's count key and pairs | built (before: the first table only) | `weapon_stage` |
+| Ordnance charge points | Velocity, LifeSpan, damage + scales blend by the charge's place in its segment | built (BF2 Hoth dish turret 1000 -> 1800; BF1 haywire always 25 m/s) | `OrdnanceClass::charged` |
+| Emitter damage | lerp(Damage, MaxDamage, charge) | built for the first target's damage (BF2 arc caster 300 -> 325) | `OrdnanceClass::min_damage` |
+| Emitter chain | targets and jumps by the charge (re-ordnance-kinds §8) | **not built**: the arc caster still fires a bolt; card UORDE | - |
+| Shell | Gravity x 9.8, meets the world on its arc, ExplosionExpire in the air | built (before: a straight bolt) | `Bolt::shaped`, `Sim::fly_shells` |
+| Heat / cooldown | HeatPerShot, HeatRecoverRate, overheat at 1, clear under HeatThreshold | built earlier (card heat), per stage now | `WeaponState::update` |
+| Clips and ammo | RoundsPerClip, WeaponAmmo clips, ReloadTime | built earlier (card AMMO); every class's clips checked against the discs by `roster::every_class_kit_is_the_discs_or_explained` | `game::roster` |
+| Rumble (Light / Heavy) | the two controller motors while charging | **not built** (no rumble in the port) | - |
+| Grenades | the grenade class reads MaxPressedTime, but no thrown grenade on either disc authors it (the survey above): grenades do not charge | as the PS2: a grenade throws at once; the charge it carries is 1.0 (the throw animation's variant reads it) | `core::weapon` |
+
+Before the issue the port read a class key's FIRST value in the weapon's own class, so a charge weapon's
+every shot was its stage 0 (the first OrdnanceName and ShotsPerSalvo) - and since the charge never got past the
+shot delay, no stage was ever reached.
+
 ## Open questions
 
 1. **re-ordnance-kinds.md conflicts with the data.** Its table row says the BF2 mortar is "one stage, shell", but

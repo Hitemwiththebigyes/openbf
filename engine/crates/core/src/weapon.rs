@@ -82,9 +82,9 @@ fn pair(src: &dyn PropSource, key: &str) -> Option<[f32; 2]> {
 mod ordnance;
 mod repair;
 pub use ordnance::{
-    blast_falloff, DamageDesc, ExplosionClass, Falloff, Health, HealthType, OrdKind, OrdnanceClass,
-    EXPLOSION_OFFSET, HASH_FALLOFF_DURATION, HASH_FALLOFF_END_DAMAGE, HASH_FALLOFF_START,
-    HASH_TEAM_BONUS_SCALE,
+    blast_falloff, DamageDesc, ExplosionClass, Falloff, Health, HealthType, OrdBlend, OrdKind,
+    OrdKnot, OrdnanceClass, EXPLOSION_OFFSET, HASH_FALLOFF_DURATION, HASH_FALLOFF_END_DAMAGE,
+    HASH_FALLOFF_START, HASH_TEAM_BONUS_SCALE, SHELL_G,
 };
 pub use repair::Repair;
 
@@ -527,6 +527,10 @@ impl WeaponClass {
                 sticky: None,
                 explosion: None,
                 kind: OrdKind::Other,
+                gravity: 0.0,
+                expire: None,
+                knots: Vec::new(),
+                min_damage: None,
                 impact: Some(crate::impact::ImpactLook {
                     soft: Some("ord_explosion".into()),
                     rigid: Some("ord_explosion".into()),
@@ -605,6 +609,10 @@ impl WeaponClass {
                 sticky: None,
                 explosion: None,
                 kind: OrdKind::Other,
+                gravity: 0.0,
+                expire: None,
+                knots: Vec::new(),
+                min_damage: None,
                 impact: Some(crate::impact::ImpactLook {
                     soft: Some("com_sfx_ord_exp".into()),
                     rigid: Some("com_sfx_ord_exp".into()),

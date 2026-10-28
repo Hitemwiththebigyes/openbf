@@ -437,8 +437,11 @@ impl Sim {
                 weapon_class: w.class,
                 is_player,
             };
-            let (speed, life) = (wc.ordnance.velocity, wc.ordnance.life_span);
             for spec in &shots {
+                // The round's speed and life at its charge (the Hoth dish
+                // turret's charge points, re-weapon-charge §4).
+                let blend = self.weapon_classes[w.class].ordnance.charged(spec.charge);
+                let (speed, life) = (blend.velocity, blend.life_span);
                 let d = shot_direction(
                     &mut self.lcg,
                     fwd,
@@ -458,7 +461,10 @@ impl Sim {
                     self.water_plane(),
                     &self.collision,
                     HullFilter::except(Some(m.vehicle)),
-                );
+                )
+                .shaped(&self.weapon_classes[w.class].ordnance);
+                let mut bolt = bolt;
+                bolt.charge = spec.charge;
                 if ai {
                     self.nav_stats.ai_shots += 1;
                     self.nav_stats.seat_shots += 1;

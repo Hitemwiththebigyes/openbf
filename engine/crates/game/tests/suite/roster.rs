@@ -2282,5 +2282,41 @@ fn charge_stages_are_the_discs() {
             m.stage(1).ordnance.sticky.is_some(),
             "{w}: the held round is a sticky"
         );
+        assert_eq!(m.ordnance.gravity, 1.75, "{w}: the shell's Gravity");
+        assert!(
+            m.ordnance.expire.is_some(),
+            "{w}: the shell's ExplosionExpire"
+        );
     }
+}
+
+/// Issue #29: the ordnance charge points and the emitter's damage out of the
+/// BF2 disc - the arc caster blends 300 -> 325 by the charge; the Hoth dish
+/// turret's ordnance carries its three points after a 1000 root.
+#[test]
+fn ordnance_charge_points_are_the_discs() {
+    let Some(dir) = classes_dir() else { return };
+    let bf2 = load_classdb_all(&dir, "bf2");
+    let arc = game::roster::weapon_from_db(&bf2, "imp_weap_inf_arccaster").unwrap();
+    assert_eq!(
+        (arc.ordnance.min_damage, arc.ordnance.max_damage),
+        (Some(300.0), 325.0)
+    );
+    let baked = game::assets::baked_root().join("classes");
+    let mut db = game::classdb::ClassDb::default();
+    for f in ["bf2_ingame.ron", "bf2_tur.ron"] {
+        if !baked.join(f).exists() {
+            return;
+        }
+        db.load(&baked.join(f)).unwrap();
+    }
+    let dish = game::roster::weapon_from_db(&db, "tur_weap_hoth_dishturret").unwrap();
+    let pts: Vec<(f32, f32)> = dish
+        .ordnance
+        .knots
+        .iter()
+        .map(|k| (k.at, k.damage))
+        .collect();
+    assert_eq!(dish.ordnance.max_damage, 1000.0);
+    assert_eq!(pts, [(0.5, 1250.0), (0.75, 1500.0), (2.0, 3000.0)]);
 }
