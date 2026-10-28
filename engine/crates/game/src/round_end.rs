@@ -1,13 +1,14 @@
 //! The end of a round (issue #33, `analysis/re-round-end.md` §2-§3): one flow
-//! on every map, BF1's. When the round is decided the view goes to a random
+//! on every map. When the round is decided the view goes to a random
 //! camera shot of the mission and the victory / defeat banner stands over it
-//! (5 s at least, 7 s at most, not past the music's end: BF1 §2.1); then the
-//! stats screens, flipped through with accept (the PS2's X) - team stats,
-//! personal stats, awards - and left with back (Triangle) on the team stats,
-//! accept on the last, or 30 s with no input (§3, both games); leaving goes
+//! (5 s at least, 7 s at most, not past the music's end: BF1 §2.1); then
+//! BF2's stats pages (issue #50, [`ui::stats`]: Team Stats, a row's Personal
+//! Stats, the player's Career Stats), left with Square ("Done") or 30 s with
+//! no input (§3, both games); leaving goes on to the next playlist map or
 //! back to the shell.
 
 use crate::spawn_backdrop::{CameraShot, ShotPicker};
+use ui::stats::{Command, Pad, StatsScreens};
 
 /// The banner's shortest and longest stay (BF1 `FUN_002ae6c8`, §2.1).
 pub const BANNER_MIN_SECS: f32 = 5.0;
@@ -20,18 +21,10 @@ pub const STATS_IDLE_SECS: f32 = 30.0;
 pub enum Phase {
     /// The banner over the camera shot.
     Banner,
-    /// One of the stats screens.
-    Stats(Screen),
-    /// Left: back to the shell.
+    /// The stats pages ([`RoundEnd::stats`] says which).
+    Stats,
+    /// Left: the next playlist map, else the shell.
     Done,
-}
-
-/// BF1's stats screens, in order (§3.1).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Screen {
-    Team,
-    Personal,
-    Awards,
 }
 
 /// How the round went for the viewer.
@@ -55,6 +48,9 @@ pub struct RoundEnd {
     /// screen.
     pub secs: f32,
     idle: f32,
+    /// The stats pages, made once the banner is down
+    /// ([`RoundEnd::wants_stats`]); input waits for them.
+    pub stats: Option<StatsScreens>,
 }
 
 impl RoundEnd {
@@ -75,33 +71,24 @@ impl RoundEnd {
                 .clamp(BANNER_MIN_SECS, BANNER_MAX_SECS),
             secs: 0.0,
             idle: 0.0,
+            stats: None,
         }
     }
 
-    /// One frame: `accept` / `back` are this frame's presses.
-    pub fn step(&mut self, dt: f32, accept: bool, back: bool) {
+    /// The banner is down and the pages are not made yet.
+    pub fn wants_stats(&self) -> bool {
+        self.phase == Phase::Stats && self.stats.is_none()
+    }
+
+    /// One frame: `pad` is this frame's presses.
+    pub fn step(&mut self, dt: f32, pad: Pad) {
         self.secs += dt;
         let next = match self.phase {
-            Phase::Banner => (self.secs >= self.banner_secs).then_some(Phase::Stats(Screen::Team)),
-            Phase::Stats(s) => {
-                self.idle = if accept || back { 0.0 } else { self.idle + dt };
-                if self.idle >= STATS_IDLE_SECS {
-                    Some(Phase::Done)
-                } else if accept {
-                    Some(match s {
-                        Screen::Team => Phase::Stats(Screen::Personal),
-                        Screen::Personal => Phase::Stats(Screen::Awards),
-                        Screen::Awards => Phase::Done,
-                    })
-                } else if back {
-                    Some(match s {
-                        Screen::Team => Phase::Done,
-                        Screen::Personal => Phase::Stats(Screen::Team),
-                        Screen::Awards => Phase::Stats(Screen::Personal),
-                    })
-                } else {
-                    None
-                }
+            Phase::Banner => (self.secs >= self.banner_secs).then_some(Phase::Stats),
+            Phase::Stats => {
+                self.idle = if pad.any() { 0.0 } else { self.idle + dt };
+                let quit = self.stats.as_mut().and_then(|s| s.input(pad));
+                (self.idle >= STATS_IDLE_SECS || quit == Some(Command::Quit)).then_some(Phase::Done)
             }
             Phase::Done => None,
         };
@@ -120,6 +107,7 @@ impl RoundEnd {
 #[cfg(test)]
 mod flow_tests {
     use super::*;
+    use ui::stats::{Career, Page, StatRow, StatsTexts, TeamList};
 
     fn shots() -> Vec<CameraShot> {
         (0..4)
@@ -127,11 +115,37 @@ mod flow_tests {
             .collect()
     }
 
+    fn pages() -> StatsScreens {
+        let me = StatRow {
+            name: "Player 1".into(),
+            me: true,
+            ..Default::default()
+        };
+        StatsScreens::new(
+            StatsTexts::default(),
+            [
+                TeamList {
+                    icon: String::new(),
+                    rows: vec![me],
+                },
+                TeamList::default(),
+            ],
+            [Vec::new(), Vec::new()],
+            Career::default(),
+        )
+    }
+
+    fn press(f: impl FnOnce(&mut Pad)) -> Pad {
+        let mut p = Pad::default();
+        f(&mut p);
+        p
+    }
+
     /// The banner stands for the music within 5-7 s (7 with none), then the
-    /// team stats; accept flips to personal, awards, and out; back steps
-    /// back, and quits from the team stats.
+    /// stats pages, which wait to be made; X walks them, Triangle back,
+    /// Square leaves.
     #[test]
-    fn the_banner_then_the_stats_screens_then_out() {
+    fn the_banner_then_the_stats_pages_then_out() {
         for (music, want) in [
             (None, 7.0),
             (Some(3.0), 5.0),
@@ -141,49 +155,51 @@ mod flow_tests {
             let mut r = RoundEnd::start(Result::Victory, &shots(), 7, music);
             let mut t = 0.0f32;
             while r.phase == Phase::Banner {
-                r.step(1.0 / 30.0, false, false);
+                r.step(1.0 / 30.0, Pad::default());
                 t += 1.0 / 30.0;
             }
             assert!((t - want).abs() < 0.05, "music {music:?}: {t}");
-            assert_eq!(r.phase, Phase::Stats(Screen::Team));
+            assert_eq!(r.phase, Phase::Stats);
         }
         let mut r = RoundEnd::start(Result::Defeat, &shots(), 7, Some(5.0));
-        r.step(5.1, false, false);
-        r.step(0.1, true, false);
-        assert_eq!(r.phase, Phase::Stats(Screen::Personal));
-        r.step(0.1, false, true);
-        assert_eq!(r.phase, Phase::Stats(Screen::Team));
-        r.step(0.1, true, false);
-        r.step(0.1, true, false);
-        assert_eq!(r.phase, Phase::Stats(Screen::Awards));
-        r.step(0.1, true, false);
-        assert!(r.done());
-        let mut r = RoundEnd::start(Result::Draw, &shots(), 7, None);
-        r.step(7.1, false, false);
-        r.step(0.1, false, true);
-        assert!(r.done(), "back on the team stats quits");
+        r.step(5.1, Pad::default());
+        assert!(r.wants_stats());
+        r.step(0.1, press(|p| p.square = true));
+        assert!(!r.done(), "no pages yet: nothing to quit");
+        r.stats = Some(pages());
+        assert!(!r.wants_stats());
+        r.step(0.1, press(|p| p.cross = true));
+        assert_eq!(r.stats.as_ref().unwrap().page, Page::Personal);
+        r.step(0.1, press(|p| p.cross = true));
+        assert_eq!(r.stats.as_ref().unwrap().page, Page::Career);
+        r.step(0.1, press(|p| p.triangle = true));
+        r.step(0.1, press(|p| p.triangle = true));
+        assert_eq!(r.stats.as_ref().unwrap().page, Page::Team);
+        r.step(0.1, press(|p| p.triangle = true));
+        assert!(!r.done(), "Triangle does nothing on Team Stats");
+        r.step(0.1, press(|p| p.square = true));
+        assert!(r.done(), "Square: Done");
     }
 
-    /// 30 s with no input on a stats screen quits; any press restarts the
+    /// 30 s with no input on a stats page quits; any press restarts the
     /// count. A mission with no shots keeps the battle's view.
     #[test]
     fn an_idle_stats_screen_quits_after_30_s() {
         let mut r = RoundEnd::start(Result::Victory, &shots(), 1, None);
         assert!(r.shot.is_some());
-        r.step(7.1, false, false);
+        r.step(7.1, Pad::default());
+        r.stats = Some(pages());
         for _ in 0..(29 * 30) {
-            r.step(1.0 / 30.0, false, false);
+            r.step(1.0 / 30.0, Pad::default());
         }
         assert!(!r.done());
-        r.step(0.0, false, false);
-        r.step(1.0 / 30.0, true, false);
-        assert_eq!(
-            r.phase,
-            Phase::Stats(Screen::Personal),
-            "a press restarts it"
-        );
-        for _ in 0..(31 * 30) {
-            r.step(1.0 / 30.0, false, false);
+        r.step(1.0 / 30.0, press(|p| p.down = true));
+        for _ in 0..(29 * 30) {
+            r.step(1.0 / 30.0, Pad::default());
+        }
+        assert!(!r.done(), "a press restarts it");
+        for _ in 0..(2 * 30) {
+            r.step(1.0 / 30.0, Pad::default());
         }
         assert!(r.done());
         assert!(RoundEnd::start(Result::Victory, &[], 1, None)
@@ -194,41 +210,56 @@ mod flow_tests {
 
 #[cfg(test)]
 mod tests {
-    use crate::round_end::{Phase, Result, Screen};
+    use crate::round_end::{Phase, Result};
     use crate::spawn_backdrop::CameraShot;
     use crate::walk::WalkSim;
+    use ui::stats::Pad;
 
     /// Issue #33 in the walk: nothing before the round is decided; then the
     /// view stands on a mission shot and the viewer's result is drawn, the
-    /// battle's own camera again with no shots; the stats screens follow and
-    /// a run of accepts leaves.
+    /// battle's own camera again with no shots; the stats pages follow,
+    /// made by the caller, and Square leaves.
     #[test]
     fn the_walk_ends_its_round_on_a_mission_shot() {
         let mut w = WalkSim::new(7, glam::Vec3::ZERO, None);
         let shot = CameraShot::from_call([1.0, 0.0, 0.0, 0.0, 40.0, 25.0, -10.0]);
         w.end_shots = vec![shot];
-        assert!(!w.follow_round_end(0.1, false, false, None));
+        assert!(!w.follow_round_end(0.1, Pad::default(), None));
         assert!(w.round_end.is_none(), "not before the round is decided");
         let me = w.sim.units[w.player.index as usize].team;
         w.sim.outcome = Some(me);
-        w.follow_round_end(1.0 / 30.0, false, false, None);
+        w.follow_round_end(1.0 / 30.0, Pad::default(), None);
         let r = w.round_end.as_ref().unwrap();
         assert_eq!((r.result, r.phase), (Result::Victory, Phase::Banner));
         assert_eq!(w.camera().position, shot.camera().position);
-        w.follow_round_end(7.1, false, false, None);
-        assert_eq!(
-            w.round_end.as_ref().unwrap().phase,
-            Phase::Stats(Screen::Team)
-        );
-        let mut done = false;
-        for _ in 0..3 {
-            done = w.follow_round_end(0.1, true, false, None);
-        }
-        assert!(done, "accept through team, personal, awards: out");
+        w.follow_round_end(7.1, Pad::default(), None);
+        let r = w.round_end.as_mut().unwrap();
+        assert!(r.wants_stats());
+        let unit = |i: usize| format!("U{i}");
+        let text = |_: &str, en: &str| en.to_owned();
+        let names = crate::round_stats::Names {
+            unit: &unit,
+            class: &|_, _| String::new(),
+            weapon: &|_| String::new(),
+            text: &text,
+            sides: ["", ""],
+        };
+        r.stats = Some(crate::round_stats::screens(
+            &w.sim,
+            &Default::default(),
+            w.player,
+            &Default::default(),
+            &names,
+        ));
+        let square = Pad {
+            square: true,
+            ..Pad::default()
+        };
+        assert!(w.follow_round_end(0.1, square, None), "Done: out");
         let mut w = WalkSim::new(7, glam::Vec3::ZERO, None);
         w.sim.outcome = Some(1 - me.min(1));
         let before = w.camera().position;
-        w.follow_round_end(0.1, false, false, None);
+        w.follow_round_end(0.1, Pad::default(), None);
         assert_eq!(w.round_end.as_ref().unwrap().result, Result::Defeat);
         assert_eq!(w.camera().position, before, "no shots: the battle's view");
     }

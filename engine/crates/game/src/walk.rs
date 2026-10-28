@@ -1023,6 +1023,7 @@ impl WalkSim {
             stats.hits,
             stats.captures,
         );
+        profile.career.points += i64::from(stats.points);
     }
 
     pub fn camera(&self) -> Camera {
@@ -1087,13 +1088,13 @@ impl WalkSim {
     /// The end of the round, one frame (issue #33): it starts the first time
     /// the round is decided - the viewer's result, a shot drawn from the
     /// mission's (seeded by the round's tick), the banner for `music_secs` -
-    /// and steps with this frame's accept / back presses. True once it is
-    /// left (back to the shell).
+    /// and steps with this frame's presses on the stats pages (issue #50;
+    /// the caller makes them when [`crate::round_end::RoundEnd::wants_stats`]).
+    /// True once it is left (the next playlist map, else the shell).
     pub fn follow_round_end(
         &mut self,
         dt: f32,
-        accept: bool,
-        back: bool,
+        pad: ui::stats::Pad,
         music_secs: Option<f32>,
     ) -> bool {
         let Some(winner) = self.sim.outcome else {
@@ -1111,7 +1112,7 @@ impl WalkSim {
             };
             RoundEnd::start(result, &self.end_shots, self.sim.tick as u32, music_secs)
         });
-        r.step(dt, accept, back);
+        r.step(dt, pad);
         r.done()
     }
 

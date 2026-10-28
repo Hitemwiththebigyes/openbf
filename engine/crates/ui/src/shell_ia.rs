@@ -223,7 +223,7 @@ impl Ctx<'_> {
 
     /// A nine-part box, untinted: `corner` units over `t` of the sheet's uv
     /// at each corner, the edges stretched.
-    fn nine(
+    pub(crate) fn nine(
         &mut self,
         s: &crate::hud_draw::Screen,
         [x0, y0, x1, y1]: [f32; 4],
@@ -322,7 +322,7 @@ impl Ctx<'_> {
 
     /// `listbox_cursor` around a row: its line sits at texels 3..61 × 4..54
     /// of the sheet, 2 texels thick; drawn with thin corners `[ours]`.
-    fn cursor_box(&mut self, s: &crate::hud_draw::Screen, r: [f32; 4]) {
+    pub(crate) fn cursor_box(&mut self, s: &crate::hud_draw::Screen, r: [f32; 4]) {
         let uv = [3.0 / 64.0, 4.0 / 64.0, 61.0 / 64.0, 54.0 / 64.0];
         self.nine(s, r, uv, (4.0, 6.0 / 64.0), "listbox_cursor");
     }

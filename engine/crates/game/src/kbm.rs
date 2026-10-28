@@ -14,6 +14,10 @@ pub const KEY_PAGE_DOWN: u32 = 1024;
 /// The menu edge bits of L1 and R1.
 pub const MENU_L1: u32 = 128;
 pub const MENU_R1: u32 = 256;
+/// `[ours]` Space is the pad's Square on the stats pages ("Done", issue
+/// #50), and its menu edge bit.
+pub const KEY_SQUARE: u32 = 2048;
+pub const MENU_SQUARE: u32 = 512;
 
 pub fn menu_key(code: KeyCode) -> u32 {
     match code {
@@ -26,6 +30,7 @@ pub fn menu_key(code: KeyCode) -> u32 {
         KeyCode::Escape => KEY_ESCAPE,
         KeyCode::PageUp => KEY_PAGE_UP,
         KeyCode::PageDown => KEY_PAGE_DOWN,
+        KeyCode::Space => KEY_SQUARE,
         _ => 0,
     }
 }
@@ -43,6 +48,9 @@ pub fn menu_bits(keys: u32, shell: bool) -> u32 {
     }
     if keys & KEY_PAGE_DOWN != 0 {
         bits |= MENU_R1;
+    }
+    if keys & KEY_SQUARE != 0 {
+        bits |= MENU_SQUARE;
     }
     bits
 }

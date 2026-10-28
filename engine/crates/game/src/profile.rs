@@ -128,6 +128,10 @@ pub struct Career {
     pub captures: u32,
     #[serde(default)]
     pub class_kills: std::collections::BTreeMap<String, u32>,
+    /// BF2's points over every round (the Career Stats page, issue #50); a
+    /// profile from before it starts at 0.
+    #[serde(default)]
+    pub points: i64,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -135,6 +139,8 @@ pub struct BattleStats {
     pub shots: u64,
     pub hits: u64,
     pub captures: u32,
+    /// The round's points (`EventFeed::stats`).
+    pub points: i32,
 }
 
 /// Where the game keeps what it writes (the profile, the playtest snapshots of
@@ -245,6 +251,7 @@ mod tests {
                 hits: 80,
                 captures: 4,
                 class_kills: Default::default(),
+                points: 0,
             }
         );
         assert_eq!(profile.settings.assist_intensity, 0.7);

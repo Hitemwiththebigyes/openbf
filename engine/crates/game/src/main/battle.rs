@@ -201,47 +201,51 @@ pub(super) fn open_spawn_screens(walk: &mut WalkSim, mission: Option<&game::miss
     walk.follow_backdrop();
 }
 
-/// The end of the round as the HUD draws it (issue #33): the result, the
-/// screen, each team's soldiers by kills, the viewer's own numbers.
-fn round_end_model(
-    walk: &WalkSim,
-    feed: &game::event_feed::EventFeed,
-    r: &game::round_end::RoundEnd,
-) -> ui::hud::RoundEndModel {
-    use game::round_end::{Phase, Result, Screen};
-    let teams = [0u8, 1].map(|t| {
-        let mut rows: Vec<ui::hud::StatRow> = walk
-            .sim
-            .units
-            .iter()
-            .enumerate()
-            .filter(|(_, u)| u.team == t && u.gen > 0)
-            .map(|(i, u)| ui::hud::StatRow {
-                name: feed.unit_name(&walk.sim, walk.sim.handle(i)),
-                kills: u.kills,
-                deaths: u.deaths,
-                me: i == walk.player.index as usize,
-            })
-            .collect();
-        rows.sort_by(|a, b| b.kills.cmp(&a.kills).then(a.deaths.cmp(&b.deaths)));
-        (walk.teams[usize::from(t)].faction.clone(), rows)
-    });
-    let s = feed.stats(&walk.sim, walk.player);
+/// The end of the round as the HUD draws it (issue #33): the result, then
+/// the stats pages (issue #50) once they are made.
+fn round_end_model(r: &game::round_end::RoundEnd) -> ui::hud::RoundEndModel {
+    use game::round_end::Result;
     ui::hud::RoundEndModel {
         result: match r.result {
             Result::Victory => 0,
             Result::Defeat => 1,
             Result::Draw => 2,
         },
-        screen: match r.phase {
-            Phase::Banner => 0,
-            Phase::Stats(Screen::Team) => 1,
-            Phase::Stats(Screen::Personal) => 2,
-            Phase::Stats(Screen::Awards) | Phase::Done => 3,
-        },
-        teams,
-        personal: [s.kills, s.deaths, s.captures, s.points],
+        stats: r.stats.clone(),
     }
+}
+
+/// The stats pages of `walk`'s battle (issue #50, `game::round_stats`): the
+/// feed's names and texts, the profile's `career` (this round in it).
+pub(super) fn stats_pages(
+    walk: &WalkSim,
+    feed: &game::event_feed::EventFeed,
+    career: &game::profile::Career,
+) -> ui::stats::StatsScreens {
+    let sim = &walk.sim;
+    let unit = |i: usize| feed.unit_name(sim, sim.handle(i));
+    let class = |team: u8, c: u8| feed.class_name(team, c).unwrap_or_default().to_owned();
+    let weapon = |w: usize| {
+        sim.weapon_classes.get(w).map_or_else(String::new, |c| {
+            feed.weapon_name(&c.name).unwrap_or_else(|| c.name.clone())
+        })
+    };
+    // A `#` key is a text the ELF names by its hash.
+    let text = |key: &str, en: &str| {
+        let t = match key.strip_prefix('#') {
+            Some(h) => feed.text_by_hash(u32::from_str_radix(h, 16).unwrap_or(0), en),
+            None => feed.screen_text(key, en),
+        };
+        t.trim().to_owned()
+    };
+    let names = game::round_stats::Names {
+        unit: &unit,
+        class: &class,
+        weapon: &weapon,
+        text: &text,
+        sides: feed.sides(),
+    };
+    game::round_stats::screens(sim, feed.round(), walk.player, career, &names)
 }
 
 /// Build the walk/battle sim for a loaded scene per the CLI flags.
@@ -510,10 +514,7 @@ pub(super) fn hud_model(
             .sim
             .domination_left()
             .map(|(holder, secs)| (holder == me.team, secs)),
-        round_end: walk
-            .round_end
-            .as_ref()
-            .map(|r| round_end_model(walk, feed, r)),
+        round_end: walk.round_end.as_ref().map(round_end_model),
         time_left: walk.sim.time_limit.map(|l| {
             (u64::from(l) * u64::from(core::TICK_HZ)).saturating_sub(walk.sim.tick) as f32
                 / core::TICK_HZ as f32

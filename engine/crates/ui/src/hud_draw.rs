@@ -739,6 +739,10 @@ pub fn draw(hud: &Hud, art: &HudArt, size: [f32; 2]) -> HudFrame {
         }
         return ctx.out;
     }
+    if let Some(st) = &hud.stats {
+        ctx.stats_page(st, size);
+        return ctx.out;
+    }
     let scale = frame_scale(size);
     let box_w = 4.0 / 3.0 * size[1];
     // A spawn screen (card SSELB) dims the backdrop under everything; the

@@ -5,7 +5,8 @@
 //! the profile autosave and the title-bar line.
 
 use super::battle::{
-    hud_model, load_and_upload, load_hud_view, make_walk, spawn_model, squad_icons, walk_draws,
+    hud_model, load_and_upload, load_hud_view, make_walk, spawn_model, squad_icons, stats_pages,
+    walk_draws,
 };
 use super::{BattleSetup, ViewerArgs};
 use anyhow::Result;
@@ -1021,7 +1022,7 @@ impl App {
 
     /// Raw menu buttons this frame as edge bits: 1 up, 2 down, 4 left,
     /// 8 right, 16 confirm (Cross), 32 back (Circle), 64 Start, 128 L1,
-    /// 256 R1.
+    /// 256 R1, 512 Square.
     fn menu_edges(&mut self) -> u32 {
         let mut now = 0u32;
         if let Some(g) = &mut self.gilrs {
@@ -1045,6 +1046,7 @@ impl App {
                     (Button::Start, 64),
                     (Button::LeftTrigger, game::kbm::MENU_L1),
                     (Button::RightTrigger, game::kbm::MENU_R1),
+                    (Button::West, game::kbm::MENU_SQUARE),
                 ];
                 for (b, bit) in bits {
                     if pad.is_pressed(b) {
@@ -1052,8 +1054,14 @@ impl App {
                     }
                 }
                 // The shell's Back is Triangle, as its help line shows
-                // (re-bf2-shell §3.4); Circle too, as everywhere else.
-                if matches!(self.screen, Screen::Shell) && pad.is_pressed(Button::North) {
+                // (re-bf2-shell §3.4), and the stats pages' (issue #50);
+                // Circle too, as everywhere else.
+                let stats = self
+                    .walk
+                    .as_ref()
+                    .is_some_and(|(w, _)| w.round_end.as_ref().is_some_and(|r| r.stats.is_some()));
+                if (matches!(self.screen, Screen::Shell) || stats) && pad.is_pressed(Button::North)
+                {
                     now |= 32;
                 }
                 // The left stick presses the same arms as the D-pad.
@@ -1688,14 +1696,31 @@ impl winit::application::ApplicationHandler for App {
                         }
                     }
                     // The end of the round (issue #33): its camera shot and
-                    // banner, then the stats screens, accept / back moving
-                    // on; when it is left, back to the shell.
-                    if walk.sim.outcome.is_some()
-                        && !self.paused
-                        && walk.follow_round_end(dt, edges & 16 != 0, edges & 32 != 0, None)
-                    {
-                        self.quit_clicked = true;
-                        self.round_over = true;
+                    // banner, then BF2's stats pages (issue #50), made once
+                    // the banner is down; when they are left, the next
+                    // playlist map or the shell.
+                    if walk.sim.outcome.is_some() && !self.paused {
+                        let pad = ui::stats::Pad {
+                            up: edges & 1 != 0,
+                            down: edges & 2 != 0,
+                            left: edges & 4 != 0,
+                            right: edges & 8 != 0,
+                            cross: edges & 16 != 0,
+                            triangle: edges & 32 != 0,
+                            l1: edges & game::kbm::MENU_L1 != 0,
+                            r1: edges & game::kbm::MENU_R1 != 0,
+                            square: edges & game::kbm::MENU_SQUARE != 0,
+                        };
+                        if walk.follow_round_end(dt, pad, None) {
+                            self.quit_clicked = true;
+                            self.round_over = true;
+                        }
+                        if walk.round_end.as_ref().is_some_and(|r| r.wants_stats()) {
+                            let pages = stats_pages(walk, &self.feed, &self.profile.career);
+                            if let Some(r) = walk.round_end.as_mut() {
+                                r.stats = Some(pages);
+                            }
+                        }
                     }
                     if walk.sim.outcome.is_some() && !self.outcome_reported {
                         self.outcome_reported = true;
@@ -1817,8 +1842,13 @@ impl winit::application::ApplicationHandler for App {
                         (Some(hv), Some(model)) => {
                             hv.update(model, hud_dt, [w, h]);
                             // The end of the round draws no battle HUD over
-                            // its camera shot (issue #33).
-                            (!hud_hidden && model.round_end.is_none()).then_some(hv)
+                            // its camera shot (issue #33); its stats pages
+                            // are the pass's, the `hud` cheat or not.
+                            let pages = model.round_end.as_ref().map(|r| r.stats.is_some());
+                            match pages {
+                                None => (!hud_hidden).then_some(hv),
+                                Some(up) => up.then_some(hv),
+                            }
                         }
                         _ => None,
                     };

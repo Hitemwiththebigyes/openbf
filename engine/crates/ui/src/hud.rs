@@ -305,6 +305,11 @@ pub fn feed(hud: &mut Hud, m: &HudModel, has_mesh: &dyn Fn(&str) -> bool) {
         hud.ambush.hit(e);
     }
     hud.spawn = m.spawn.clone();
+    hud.stats = m
+        .round_end
+        .as_ref()
+        .and_then(|r| r.stats.clone())
+        .map(Box::new);
     let mut put = |event: &str, v: EventValue| hud.publish(event, v, has_mesh);
     if alive && m.map.is_some() {
         put("player1.map.enable", EventValue::None);
@@ -589,129 +594,42 @@ pub fn draw_pad_warning(ctx: &egui::Context, text: &str) {
         });
 }
 
-/// One soldier's line on the stats screens.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct StatRow {
-    pub name: String,
-    pub kills: u32,
-    pub deaths: u32,
-    /// The viewer's own line.
-    pub me: bool,
-}
-
 /// What the end of the round shows (issue #33, `analysis/re-round-end.md`
-/// §2.1 / §3.1, BF1's flow on every map).
+/// §2.1; the stats pages issue #50).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct RoundEndModel {
     /// 0 victory, 1 defeat, 2 both teams win (the time limit on equal
     /// reinforcements).
     pub result: u8,
-    /// 0 the banner, 1 team stats, 2 personal stats, 3 awards.
-    pub screen: u8,
-    /// Each team's name and its soldiers, most kills first.
-    pub teams: [(String, Vec<StatRow>); 2],
-    /// The viewer: kills, deaths, posts captured, points.
-    pub personal: [i32; 4],
+    /// The stats pages once the banner is down (drawn by the HUD pass,
+    /// `crate::stats_draw`); `None` = the banner.
+    pub stats: Option<crate::stats::StatsScreens>,
 }
 
 /// BF1's banner tints (B1 249961-249968): victory green, defeat red.
 const BANNER_GREEN: Color32 = Color32::from_rgb(64, 192, 64);
 const BANNER_RED: Color32 = Color32::from_rgb(192, 64, 64);
 
-/// The end of the round: the banner at the screen's centre, or the stats
-/// screen it stands on, with the keys that move on.
+/// The end of the round's banner at the screen's centre; the stats pages
+/// after it are the HUD pass's.
 fn draw_round_end(ctx: &egui::Context, r: &RoundEndModel) {
-    if r.screen == 0 {
-        let (text, color) = match r.result {
-            0 => ("VICTORY", BANNER_GREEN),
-            1 => ("DEFEAT", BANNER_RED),
-            _ => ("VICTORY", BANNER_GREEN),
-        };
-        egui::Area::new(egui::Id::new("round_end_banner"))
-            .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
-            .show(ctx, |ui| {
-                ui.label(
-                    RichText::new(text)
-                        .font(FontId::proportional(64.0))
-                        .strong()
-                        .color(color),
-                );
-            });
+    if r.stats.is_some() {
         return;
     }
-    let title = ["", "TEAM STATS", "PERSONAL STATS", "AWARDS"][usize::from(r.screen.min(3))];
-    egui::Area::new(egui::Id::new("round_end_stats"))
+    let (text, color) = match r.result {
+        0 => ("VICTORY", BANNER_GREEN),
+        1 => ("DEFEAT", BANNER_RED),
+        _ => ("VICTORY", BANNER_GREEN),
+    };
+    egui::Area::new(egui::Id::new("round_end_banner"))
         .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
         .show(ctx, |ui| {
-            panel().show(ui, |ui| {
-                ui.set_min_width(520.0);
-                ui.label(
-                    RichText::new(title)
-                        .font(FontId::proportional(24.0))
-                        .strong(),
-                );
-                ui.separator();
-                match r.screen {
-                    1 => {
-                        ui.horizontal_top(|ui| {
-                            for (name, rows) in &r.teams {
-                                ui.vertical(|ui| {
-                                    ui.label(RichText::new(name).strong());
-                                    egui::Grid::new(format!("stats_{name}")).show(ui, |ui| {
-                                        ui.label("");
-                                        ui.label("Kills");
-                                        ui.label("Deaths");
-                                        ui.end_row();
-                                        for row in rows {
-                                            let t = |s: String| {
-                                                let t = RichText::new(s);
-                                                if row.me {
-                                                    t.color(Color32::from_rgb(255, 220, 120))
-                                                } else {
-                                                    t
-                                                }
-                                            };
-                                            ui.label(t(row.name.clone()));
-                                            ui.label(t(row.kills.to_string()));
-                                            ui.label(t(row.deaths.to_string()));
-                                            ui.end_row();
-                                        }
-                                    });
-                                });
-                                ui.add_space(24.0);
-                            }
-                        });
-                    }
-                    2 => {
-                        egui::Grid::new("stats_personal").show(ui, |ui| {
-                            for (label, v) in
-                                ["Kills", "Deaths", "Command posts captured", "Points"]
-                                    .iter()
-                                    .zip(r.personal)
-                            {
-                                ui.label(*label);
-                                ui.label(v.to_string());
-                                ui.end_row();
-                            }
-                        });
-                    }
-                    _ => {
-                        ui.label("No awards this round.");
-                    }
-                }
-                ui.separator();
-                let next = if r.screen == 3 {
-                    "Accept: done"
-                } else {
-                    "Accept: next"
-                };
-                let back = if r.screen == 1 {
-                    "Back: done"
-                } else {
-                    "Back: previous"
-                };
-                ui.label(RichText::new(format!("{next}    {back}")).weak());
-            });
+            ui.label(
+                RichText::new(text)
+                    .font(FontId::proportional(64.0))
+                    .strong()
+                    .color(color),
+            );
         });
 }
 

@@ -248,6 +248,7 @@ fn battle_stats_filter_non_player_and_non_enemy_damage_and_deduplicate_ticks() {
         shots: 2,
         hits: 1,
         captures: 0,
+        points: 0,
     };
     assert_eq!(feed.battle_stats(), expected);
     feed.tick(&walk.sim, player);

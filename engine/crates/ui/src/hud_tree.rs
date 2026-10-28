@@ -655,6 +655,9 @@ pub struct Hud {
     pub shell: Option<(crate::shell_ps2::ShellMenus, bool)>,
     /// The Instant Action screen over the shell's page (`crate::shell_ia`).
     pub instant: Option<Box<crate::shell::InstantAction>>,
+    /// The end of the round's stats page up this frame (`crate::stats_draw`,
+    /// issue #50); it draws alone, over black.
+    pub stats: Option<Box<crate::stats::StatsScreens>>,
     /// Per font: each glyph's pen advance in texels (what a MultiLineText
     /// wraps its words by). Empty until [`Hud::set_fonts`].
     advances: HashMap<String, HashMap<u32, f32>>,
@@ -769,6 +772,7 @@ impl Hud {
             spawn: None,
             shell: None,
             instant: None,
+            stats: None,
             advances: HashMap::new(),
         };
         for n in &layout.nodes {

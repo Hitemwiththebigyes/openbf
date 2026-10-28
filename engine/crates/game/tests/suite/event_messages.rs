@@ -87,9 +87,10 @@ fn a_battles_teams_and_posts_carry_the_discs_names() {
         assert_eq!(feed.unit_name(&walk.sim, walk.player), "Player 1");
         let (imp, all) = (name(0), name(1));
         println!("an Imperial {imp:?}, a Rebel {all:?}");
-        assert_eq!(imp.len(), 6, "two letters and three digits: {imp:?}");
-        assert_eq!(all.split(' ').count(), 2, "first and last name: {all:?}");
-        assert!(all.chars().next().is_some_and(char::is_alphabetic));
+        // Each side's first AI takes its side's first PS2 name (issue #50,
+        // `game::bot_names`): the statsref captures' sequences.
+        assert_eq!(imp, "DX 178", "two letters and three digits");
+        assert_eq!(all, "Thrak Farelle", "first and last name");
     }
     if let Some((walk, game)) = battle("bf1_kas2", "bf1_kas2_con_cw.ron") {
         let feed = EventFeed::for_walk(&assets(), &game, &walk);

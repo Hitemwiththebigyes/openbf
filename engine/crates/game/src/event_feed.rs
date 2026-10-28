@@ -50,6 +50,9 @@ use ui::hud::{message_color, HudMessage, HudStats, HudTarget};
 use ui::hud_ambush::Edge;
 use ui::hud_squad::{self, SquadCross};
 
+/// Names made per team: more AI than this on one team reuse them in turn.
+const BOT_NAMES: usize = 64;
+
 /// `[ours]` Post lines on every map. The BF2 PS2 shows none (its events 4
 /// and 5 only speak, §1 [V][O]); BF1 shows both. `false` is the BF2 disc.
 pub const POST_LINES: bool = true;
@@ -253,42 +256,14 @@ impl Texts {
             let Some(l) = &self.bf2 else {
                 return Vec::new();
             };
+            // The table keeps the source's escaped apostrophe ("Jal\\'daan");
+            // the PS2 prints "JAL'DAAN".
             (1..=64)
                 .map_while(|n| l.text(&format!("common.sides.{faction}.{kind}.{n:02}")))
-                .map(str::to_owned)
+                .map(|t| t.replace("\\'", "'"))
                 .collect()
         };
         (list("firstnames"), list("lastnames"))
-    }
-}
-
-/// A small fixed hash: the name draws must not touch the sim's RNG.
-fn mix(mut x: u64) -> u64 {
-    x = x.wrapping_add(0x9e37_79b9_7f4a_7c15);
-    x = (x ^ (x >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-    x = (x ^ (x >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-    x ^ (x >> 31)
-}
-
-/// An AI soldier's name, as the PS2 composes them (§6, PS2 RAM [M], BF2
-/// HOT1's 37 AI records and BF1 KAS2's lines): a side with first and last
-/// names "Ben Pulastra"; with first names only "Unit 688"; with neither two
-/// letters and a number, "DX 178". PROVISIONAL (ours): which name a unit
-/// draws — the PS2 draws from its own RNG — and a first-name-only side with
-/// more than one name (the Republic's "Alpha" …, not seen on the PS2).
-fn ai_name(first: &[String], last: &[String], unit: u32) -> String {
-    let h = mix(u64::from(unit));
-    let pick = |list: &[String], salt: u64| -> String {
-        list[(mix(h ^ salt) % list.len() as u64) as usize].clone()
-    };
-    let number = (h >> 20) % 1000;
-    match (first.is_empty(), last.is_empty()) {
-        (false, false) => format!("{} {}", pick(first, 1), pick(last, 2)),
-        (false, true) => format!("{} {number:03}", pick(first, 1)),
-        _ => {
-            let letter = |salt: u64| (b'A' + (mix(h ^ salt) % 26) as u8) as char;
-            format!("{}{} {number:03}", letter(3), letter(4))
-        }
     }
 }
 
@@ -333,8 +308,11 @@ struct Press {
 #[derive(Debug)]
 pub struct EventFeed {
     texts: Texts,
-    /// Per team: its name and its soldiers' name lists.
-    teams: [(String, Vec<String>, Vec<String>); 2],
+    /// Per team: its name and its AI soldiers' names in the order they are
+    /// made (`crate::bot_names`).
+    teams: [(String, Vec<String>); 2],
+    /// Per team: its side ("rep", "cis", ...).
+    sides: [String; 2],
     /// Per post (`Sim::cps` order): its name.
     posts: Vec<String>,
     /// Per team, its soldier classes' names in the class table's order
@@ -363,6 +341,8 @@ pub struct EventFeed {
     points: i32,
     kills: i32,
     battle: crate::profile::BattleStats,
+    /// Every soldier's round, for the stats pages (issue #50).
+    round: crate::round_stats::RoundStats,
     /// The four order names, up / down / right / left.
     order_labels: [String; 4],
     driver_labels: [String; 4],
@@ -381,10 +361,12 @@ impl EventFeed {
     pub fn new(texts: Texts, factions: [&str; 2], post_keys: &[String]) -> Self {
         let team = |f: &str| {
             let (first, last) = texts.name_lists(f);
-            (texts.team_name(f), first, last)
+            let names = crate::bot_names::BotNames::list(f, &first, &last, BOT_NAMES);
+            (texts.team_name(f), names)
         };
         Self {
             teams: [team(factions[0]), team(factions[1])],
+            sides: factions.map(str::to_owned),
             posts: post_keys.iter().map(|k| texts.post_name(k)).collect(),
             classes: [Vec::new(), Vec::new()],
             vehicles: Vec::new(),
@@ -400,6 +382,7 @@ impl EventFeed {
             inside: Vec::new(),
             points: 0,
             kills: 0,
+            round: Default::default(),
             battle: Default::default(),
             order: None,
         }
@@ -481,20 +464,35 @@ impl EventFeed {
         [&self.teams[0].0, &self.teams[1].0]
     }
 
+    /// The two teams' sides ("rep", "cis", ...).
+    pub fn sides(&self) -> [&str; 2] {
+        [&self.sides[0], &self.sides[1]]
+    }
+
     /// The posts' names as the lines print them, in `Sim::cps` order.
     pub fn post_names(&self) -> &[String] {
         &self.posts
     }
 
     /// The name a line gives unit `h`: "Player 1" for a human (the PS2's
-    /// `Player %d`), a composed one for an AI.
+    /// `Player %d`); an AI the team's next name in the order its AI units
+    /// are made (unit order, `crate::bot_names`): the same unit keeps it
+    /// through its respawns.
     pub fn unit_name(&self, sim: &Sim, h: UnitHandle) -> String {
-        let u = &sim.units[h.index as usize];
+        let i = h.index as usize;
+        let u = &sim.units[i];
         match u.spec.player_slot {
             Some(slot) => format!("Player {}", u32::from(slot) + 1),
             None => {
-                let (_, first, last) = &self.teams[usize::from(u.team.min(1))];
-                ai_name(first, last, h.index)
+                let k = sim.units[..i]
+                    .iter()
+                    .filter(|o| o.team == u.team && o.spec.player_slot.is_none())
+                    .count();
+                let names = &self.teams[usize::from(u.team.min(1))].1;
+                names
+                    .get(k % names.len().max(1))
+                    .cloned()
+                    .unwrap_or_else(|| format!("Unit {i}"))
             }
         }
     }
@@ -556,6 +554,7 @@ impl EventFeed {
             }
         };
         self.note_capture_regions(sim);
+        self.round.tick(sim);
 
         for e in &sim.events {
             if let Some(edge) = ambush_edge(sim, viewer, e) {
@@ -594,6 +593,7 @@ impl EventFeed {
                     self.battle.hits = self.battle.hits.saturating_add(1);
                 }
                 Event::Kill { shooter, victim } => {
+                    self.round.kill(sim, shooter, victim);
                     let (k, v) = (
                         &sim.units[shooter.index as usize],
                         &sim.units[victim.index as usize],
@@ -636,6 +636,18 @@ impl EventFeed {
                     if unit == viewer {
                         self.points += points::SUICIDE;
                     }
+                    self.round.env_death(unit);
+                }
+                Event::VehicleDestroyed {
+                    vehicle,
+                    killer: Some(killer),
+                    ..
+                } => {
+                    let team = sim
+                        .vehicles
+                        .get(vehicle.index as usize)
+                        .and_then(|v| v.team);
+                    self.round.vehicle(sim, killer, team);
                 }
                 Event::Captured { cp, team } => {
                     if POST_LINES {
@@ -655,6 +667,12 @@ impl EventFeed {
                         } else {
                             points::CAPTURE_ASSIST
                         };
+                    }
+                    // Every soldier's share, for the stats pages (issue #50).
+                    for i in 0..sim.units.len() {
+                        if let Some(first) = self.capture_credit(sim, sim.handle(i), cp, team) {
+                            self.round.capture(i, first);
+                        }
                     }
                 }
                 Event::Neutralized { cp, by } => {
@@ -874,8 +892,23 @@ impl EventFeed {
         }
     }
 
+    /// Every soldier's round so far (`crate::round_stats`).
+    pub fn round(&self) -> &crate::round_stats::RoundStats {
+        &self.round
+    }
+
+    /// Team `team`'s soldier class `class`'s name, as the spawn screen's.
+    pub fn class_name(&self, team: u8, class: u8) -> Option<&str> {
+        self.classes[usize::from(team.min(1))]
+            .get(usize::from(class))
+            .map(String::as_str)
+    }
+
     pub fn battle_stats(&self) -> crate::profile::BattleStats {
-        self.battle
+        crate::profile::BattleStats {
+            points: self.points,
+            ..self.battle
+        }
     }
 }
 
@@ -1461,16 +1494,13 @@ mod tests {
             fill("%s lost the %s", &["Empire", "Bunker"]),
             "Empire lost the Bunker"
         );
-        // The three ways the PS2 composes an AI's name.
-        let (first, last) = (vec!["Unit".to_string()], vec!["Farelle".to_string()]);
-        assert_eq!(ai_name(&first, &last, 7), "Unit Farelle");
-        assert!(ai_name(&first, &[], 7).starts_with("Unit "));
-        assert_eq!(ai_name(&[], &[], 7).len(), 6);
-        assert_eq!(
-            ai_name(&[], &[], 7),
-            ai_name(&[], &[], 7),
-            "a unit keeps its name"
-        );
+        // A side's lists from its keys; a side with none composes letters
+        // and digits.
+        let (first, last) = t.name_lists("all");
+        assert_eq!((first, last), (vec!["Ben".into()], vec!["Pulastra".into()]));
+        let feed = EventFeed::new(t.clone(), ["imp", "all"], &[]);
+        assert_eq!(feed.teams[0].1[..2], ["DX 178", "KL 987"]);
+        assert_eq!(feed.teams[1].1[0], "Ben Pulastra");
     }
 
     fn pad(buttons: u32) -> PadState {

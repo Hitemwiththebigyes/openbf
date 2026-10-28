@@ -37,3 +37,5 @@ pub mod shell_ia;
 pub mod shell_ps2;
 pub mod spawn;
 pub mod spawn_draw;
+pub mod stats;
+pub mod stats_draw;
