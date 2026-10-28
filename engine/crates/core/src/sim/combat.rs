@@ -920,12 +920,14 @@ mod tests {
         assert_eq!(hit_tick, Some(8), "impact tick");
         assert!(s.unit(t).unwrap().health.cur < 300.0);
         assert_eq!(s.unit(p).unwrap().weapon.clip, 49);
-        // No drop: the bolt ended at muzzle height.
+        // The hit's age counts the updates the bolt came through before the
+        // one it lands in (card SGDMG): 7 of them, the flight's 0.244 s
+        // rounded down to the tick.
         let end = s.events.iter().find_map(|e| match e {
             Event::Hit { age, .. } => Some(*age),
             _ => None,
         });
-        assert!(end.unwrap() >= 19.5 / 80.0);
+        assert!((end.unwrap() - 7.0 / 30.0).abs() < 1e-5, "{end:?}");
         // The hit carries the way the bolt flew (card HATK's chevrons):
         // from the shooter toward the target.
         let dir = s.events.iter().find_map(|e| match e {
@@ -1422,5 +1424,70 @@ mod tests {
                 < 1e-3
         );
         assert_eq!(Difficulty::Easy.tier().human_damage, 1.0);
+    }
+
+    /// The BF2 shotgun pellet (`com_weap_inf_shotgun`: 2000 m/s, 0.1 s,
+    /// MaxDamage 65 falling to 15 over 0.1 s) as PCSX2 measured it at 3 m
+    /// (`re-ordnance-kinds.md` §7): a pellet that lands in its first update
+    /// does the full 65 to the body and 195 to the head, so one point-blank
+    /// body shot is 8 x 65 = 520. One that needs a second update (past
+    /// 66.7 m) is a tick old: 48.3.
+    #[test]
+    fn a_pellet_landing_in_its_first_update_does_its_full_damage() {
+        use crate::projectile::{Bolt, Hit};
+        fn hit(dist: f32, height: f32) -> f32 {
+            let mut s = Sim::empty(3);
+            s.heightfield = Some(flat_ground());
+            let o = &mut s.weapon_classes[0].ordnance;
+            o.velocity = 2000.0;
+            o.life_span = 0.1;
+            o.max_damage = 65.0;
+            o.falloff = Some(crate::weapon::Falloff {
+                start_time: 0.0,
+                duration: 0.1,
+                end_damage: 15.0,
+            });
+            let shooter = s
+                .spawn(&UnitSpec {
+                    controller: Controller::Idle,
+                    ..UnitSpec::trooper(0, Vec3::new(0.0, 0.0, 500.0))
+                })
+                .unwrap();
+            let v = s
+                .spawn(&UnitSpec {
+                    controller: Controller::Idle,
+                    ..UnitSpec::trooper(1, Vec3::ZERO)
+                })
+                .unwrap();
+            s.unit_mut(v).unwrap().health.max = 3000.0;
+            s.unit_mut(v).unwrap().health.cur = 3000.0;
+            let feet = s.unit(v).unwrap().soldier.pos;
+            let pos = feet + Vec3::new(-dist, height, 0.0);
+            let vel = Vec3::X * 2000.0;
+            s.bolts.push(Bolt {
+                pos,
+                vel,
+                remaining: 0.1,
+                age: 0.0,
+                owner: shooter,
+                team: 0,
+                weapon_class: 0,
+                hit: Hit::None,
+                end: pos + vel * 0.1,
+                shooter_is_player: true,
+                hulls: crate::collision::HullFilter::All,
+                hit_mult: 1.0,
+                gravity: 0.0,
+                charge: 1.0,
+            });
+            for _ in 0..3 {
+                s.step(&[]);
+            }
+            3000.0 - s.unit(v).unwrap().health.cur
+        }
+        assert!((hit(3.0, 1.0) - 65.0).abs() < 1e-3, "{}", hit(3.0, 1.0));
+        assert!((hit(3.0, 1.65) - 195.0).abs() < 1e-3, "{}", hit(3.0, 1.65));
+        let far = 65.0 - 50.0 / 3.0;
+        assert!((hit(100.0, 1.0) - far).abs() < 1e-3, "{}", hit(100.0, 1.0));
     }
 }

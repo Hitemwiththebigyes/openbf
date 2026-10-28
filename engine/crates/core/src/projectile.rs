@@ -297,12 +297,18 @@ impl Bolt {
     }
 
     /// One tick: `pos += vel × min(dt, remaining)`; returns true when the
-    /// flight is over (impact or expiry) this tick.
+    /// flight is over (impact or expiry) this tick. The age counts only the
+    /// updates the bolt came through, so a bolt that lands in its first one
+    /// strikes at age 0 with its full damage (PCSX2 BF2 shotgun at 3 m:
+    /// 65 a pellet, never the falloff's 48.3; `re-ordnance-kinds.md` §7).
     pub fn advance(&mut self, dt: f32) -> bool {
         let step = dt.min(self.remaining.max(0.0));
         self.pos += self.vel * step;
-        self.age += dt;
         self.remaining -= dt;
-        self.remaining <= 0.0
+        let over = self.remaining <= 0.0;
+        if !over {
+            self.age += dt;
+        }
+        over
     }
 }

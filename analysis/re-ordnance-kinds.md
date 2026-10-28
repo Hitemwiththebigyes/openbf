@@ -323,8 +323,14 @@ BF1 KAS2 Clone Wars as the ARC trooper (`ps2/out/b1_kas2_arc_spawned.p2s`), BF2 
   own triangular spread (±3° x ±4.5°), one round each; pellet `bullet` 2000 m/s, 0.1 s, 65 -> 15 by the age falloff.
   A 0-damage tracer bolt rides with every pellet: `SecondaryOrdnanceName` 0xdddb253a, `SecondaryOrdnancePeriod`
   0x82e86218 = 1 (B2:324171-324181). Chaingun: automatic 20 / s, 20000 m/s, tracer every 5th shot.
-- [D] BF2's falloff age grows once per update and a pellet is struck by the sweep after an update moved it, so pellet
-  damage comes in 66.7 m steps: 48.3 / 31.7 / 15 [H live].
+- BF2's falloff age grows once per update, and a pellet struck in its first update is still age 0 [M]: PCSX2 on Dagobah
+  (2026-10-28, Rebel engineer vs a stormtrooper held 3 m ahead, health reset before each shot) read every shot as a
+  multiple of 65: 520 = 8 body, 455 = 7 body, 975 = 3 body + 4 head, 1430 = 1 body + 7 head, 1560 = 8 head. So a
+  point-blank pellet does 65 to the body and 195 to the head (x3), and one body shot (520) kills a 400-health soldier.
+  The earlier deduction (the age already one update old at the first strike, 48.3) was wrong by one step. [D] the steps
+  are then 65 / 48.3 / 31.7 per 66.7 m; only the first is measured (the 10 m and 25 m runs lost their aim). Probe:
+  `lead_tmp/sgprobe/shotgun_live.py` (not kept in git). The port: `Bolt::advance` counts only the updates a bolt came
+  through.
 
 ## 8. The emitter [V][O] (H2)
 

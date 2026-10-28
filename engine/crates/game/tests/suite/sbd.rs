@@ -180,7 +180,8 @@ fn sbd_fires_bolts_and_rockets_with_identical_gameplay_on_both_map_sets() {
             }));
         }
         let hp = sim.unit(target).unwrap().health.cur;
-        assert_eq!(rocket_damage, vec![130.0, 250.0]);
+        // The hit is a tick younger than its landing update (card SGDMG).
+        assert_eq!(rocket_damage, vec![120.0, 250.0]);
         outcomes.push((hp, shots, rocket_shots));
     }
     if outcomes.len() == 2 {
@@ -595,9 +596,10 @@ fn wrist_rockets_leave_one_per_reload_however_the_trigger_is_worked() {
 
 /// The maintainer 2026-10-27: a wrist rocket "square in the chest" seemed to take half
 /// a clone's health. On BF2 Coruscant's own collision, a rocket from 3 m into
-/// a BF2 clone's chest deals its direct hit (110 at 0.05 s, rising with the
-/// flight to 250 at 0.5 s) and then its blast's 250 (inner radius 1 m): 360
-/// of his 400.
+/// a BF2 clone's chest deals its direct hit (100: it lands in its second
+/// update, so a tick old, and the age that raises it toward 250 at 0.5 s
+/// counts only the updates it came through; card SGDMG) and then its
+/// blast's 250 (inner radius 1 m): 350 of his 400.
 #[test]
 fn a_wrist_rocket_to_the_chest_on_coruscant_deals_its_hit_and_its_blast() {
     let root = game::assets::baked_root();
@@ -651,8 +653,8 @@ fn a_wrist_rocket_to_the_chest_on_coruscant_deals_its_hit_and_its_blast() {
         }
         let hp = sim.unit(target).unwrap().health.cur;
         println!("cp at {spot:.0?}: hits {dmg:?}, {hp} of 400 left");
-        assert_eq!(dmg, vec![110.0, 250.0], "at {spot:?}");
-        assert_eq!(hp, 40.0);
+        assert_eq!(dmg, vec![100.0, 250.0], "at {spot:?}");
+        assert_eq!(hp, 50.0);
         checked += 1;
     }
     assert_eq!(checked, 2);
