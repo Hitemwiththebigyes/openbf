@@ -167,7 +167,9 @@ def render(tree, target, out, rows, bake_root):
     sh = os.path.join(out, "render.sh")  # one line per map: too long for an argv
     open(sh, "w").write(script + "\n")
     t0 = time.time()
-    r = subprocess.run(["flock", GPU_LOCK, "bash", sh], env=renv, cwd=os.path.join(tree, "engine"))
+    # Shared, as gates.py and pcsx2_session.py take it (measured 2026-10-11): exclusive, a gate waited for every
+    # PCSX2 session to close (card PLOCK).
+    r = subprocess.run(["flock", "-s", GPU_LOCK, "bash", sh], env=renv, cwd=os.path.join(tree, "engine"))
     if r.returncode:
         sys.exit(f"pose_render failed (exit {r.returncode})")
     return time.time() - t0

@@ -1,3 +1,6 @@
+//! Weapons that place an item instead of firing a shot: health and ammo
+//! pack dispensers (issue #46) and, through `MineClass`, mines and packs.
+
 use super::{pair, pf, PropSource, Thrown, WeaponClass, WeaponState};
 use crate::sim::ItemClass;
 
@@ -40,6 +43,7 @@ impl<I> Dispenser<I> {
 }
 
 impl WeaponState {
+    /// Give back a use whose item could not be placed.
     pub(crate) fn refund_dispense(&mut self, c: &WeaponClass) {
         self.clip = self
             .clip

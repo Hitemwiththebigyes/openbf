@@ -22,9 +22,13 @@ pub(crate) fn input(sim: &Sim, owner: UnitHandle) -> Option<u32> {
         if w.channel != 1 || w.state.reloading() || w.state.clip < wc.ammo_per_shot {
             return None;
         }
+        // Who would gain from it first (cheap), then the rays: the caster's
+        // sight of that soldier, and an enemy in sight of a soldier who would
+        // gain damage or defense.
+        let caster = owner.index as usize;
         let useful = sim
-            .ability_targets(owner.index as usize, ability)
-            .any(|target| {
+            .ability_candidates(caster, ability)
+            .filter(|&target| {
                 let other = &sim.units[target];
                 (ability.poison.0 > 0.0 && other.buffs.poison.0 <= 0.0)
                     || (ability.regeneration.0 > 0.0
@@ -38,7 +42,8 @@ pub(crate) fn input(sim: &Sim, owner: UnitHandle) -> Option<u32> {
                                     <= SUPPORT_THREAT_RANGE * SUPPORT_THREAT_RANGE
                                 && crate::perception::los(sim, other.muzzle(), enemy.muzzle())
                         }))
-            });
+            })
+            .any(|target| sim.ability_sees(caster, target));
         useful.then_some(k)
     });
     let selected = match selected {

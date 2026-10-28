@@ -10,7 +10,7 @@ files: engine/crates/core/src/weapon, engine/crates/core/src/sim/abilities.rs, e
 declares: sim; ci=+15
 needs: maintainer validation per Astra instruction
 effort:
-branch: codex/bf2-officer-abilities
+branch:
 resume: Run the added tests and compare officer effects, supply, query boundaries and presentation with live BF2 before accepting issue 47.
 created: 2026-10-28
 ---

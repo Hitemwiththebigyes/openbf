@@ -1,8 +1,12 @@
+//! Placed explosives: mines, time bombs and detpacks (issue #43,
+//! `analysis/re-grenades.md` sections 5 and 9).
+
 use crate::sticky::{Anchor, Sticky};
 use crate::unit::UnitHandle;
 use crate::weapon::{ExplosionClass, HealthType, PropSource};
 use glam::{Quat, Vec3};
 
+/// A placed item's sphere for shots and blasts. Ours: the PS2's is not known.
 pub const RADIUS: f32 = 0.15;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -54,7 +58,9 @@ impl MineClass {
                 .prop("HealthType")
                 .map_or(Some(HealthType::Person), HealthType::parse),
             trigger_radius: num("TriggerRadius", 0.0),
+            // A friendly soldier this close stops the mine (key name unknown).
             friend_radius: hash(0xce754894).unwrap_or(0.0),
+            // BF2 only: the mine also fires on touch (key name unknown).
             contact_trigger: bf2 && hash(0xbfb22e35).unwrap_or(0.0) != 0.0,
             explosions: [None, None, None],
             geometry: src.prop("GeometryName").map(|s| s.trim().to_owned()),
@@ -66,6 +72,34 @@ impl MineClass {
     pub fn explosion(&self, cause: Detonation) -> Option<&ExplosionClass> {
         self.explosions[cause as usize].as_ref()
     }
+
+    /// The numbers a placed item's tick reads, copied so the per-tick loop
+    /// does not clone the class's names.
+    pub fn motion(&self) -> MineMotion {
+        MineMotion {
+            bf2: self.bf2,
+            gravity: self.gravity,
+            rebound: self.rebound,
+            friction: self.friction,
+            life_span: self.life_span,
+            trigger_radius: self.trigger_radius,
+            friend_radius: self.friend_radius,
+            contact_trigger: self.contact_trigger,
+        }
+    }
+}
+
+/// See [`MineClass::motion`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MineMotion {
+    pub bf2: bool,
+    pub gravity: f32,
+    pub rebound: f32,
+    pub friction: f32,
+    pub life_span: f32,
+    pub trigger_radius: f32,
+    pub friend_radius: f32,
+    pub contact_trigger: bool,
 }
 
 #[derive(Clone, Debug)]

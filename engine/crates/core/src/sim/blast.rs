@@ -147,6 +147,9 @@ impl Sim {
             .mines
             .iter()
             .enumerate()
+            // The cheap reach test first, as for every other victim: only an
+            // item inside the outer radius is worth a line-of-sight ray.
+            .filter(|(_, m)| overlaps(m.flight.pos, crate::mine::RADIUS))
             .filter_map(|(i, m)| {
                 if !crate::perception::los_seat(
                     self,

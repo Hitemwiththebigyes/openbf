@@ -1,3 +1,6 @@
+//! An officer ability's data, read from its emitter ordnance class
+//! (`analysis/re-officer-abilities.md`).
+
 use super::{pf, PropSource};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -14,6 +17,8 @@ pub struct Ability {
 }
 
 impl Ability {
+    /// `None` unless the class is a radius ability (Radius > 0, no cone) with
+    /// at least one timed effect.
     pub fn from_props(src: &dyn PropSource) -> Option<Self> {
         let pair = |timer, value, default| {
             (
@@ -26,6 +31,7 @@ impl Ability {
             friends: pf(src, "AffectFriends").unwrap_or(1.0) != 0.0,
             enemies: pf(src, "AffectEnemies").unwrap_or(1.0) != 0.0,
             self_on_hit: src
+                // The self-on-hit flag; its key name is not known.
                 .prop_hash(0x39b3_648c)
                 .and_then(|v| v.parse::<f32>().ok())
                 .unwrap_or(0.0)
@@ -34,6 +40,7 @@ impl Ability {
             defense: pair("BuffDefenseTimer", "BuffDefenseMult", 1.0),
             regeneration: pair("BuffHealthTimer", "BuffHealthRate", 0.0),
             poison: pair("DebuffDamageTimer", "DebuffDamageRate", 0.0),
+            // The activation particle effect; its key name is not known.
             activation_effect: src.prop_hash(0x76f3_beea).map(str::to_owned),
         };
         (ability.radius > 0.0

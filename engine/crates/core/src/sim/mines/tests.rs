@@ -341,3 +341,14 @@ fn bf2_pack_sticks_to_a_hull_and_follows_its_position_and_rotation() {
         assert_eq!(sim.mines[0].rotation, expected.1);
     }
 }
+
+#[test]
+fn a_capsule_axis_whose_bounds_cross_by_rounding_does_not_panic() {
+    // The crash's numbers (a prone soldier beside a BF2 mine): lo above hi
+    // by 4e-6, where `f32::clamp` panics.
+    let (lo, hi) = (-62.712_704_f32, -62.712_708_f32);
+    assert!(lo > hi);
+    let y = clamp_axis(-60.0, lo, hi);
+    assert!(y >= hi && y <= lo);
+    assert_eq!(clamp_axis(5.0, 0.0, 1.0), 1.0);
+}
