@@ -67,11 +67,15 @@ pub trait PropSource {
     fn prop_hash(&self, hash: u32) -> Option<&str>;
 }
 
-fn pf(src: &dyn PropSource, key: &str) -> Option<f32> {
+pub(crate) fn pf(src: &dyn PropSource, key: &str) -> Option<f32> {
     src.prop(key)?.split_whitespace().next()?.parse().ok()
 }
 
-fn pair(src: &dyn PropSource, key: &str) -> Option<[f32; 2]> {
+pub(crate) fn pf_hash(src: &dyn PropSource, hash: u32) -> Option<f32> {
+    src.prop_hash(hash)?.trim().parse().ok()
+}
+
+pub(crate) fn pair(src: &dyn PropSource, key: &str) -> Option<[f32; 2]> {
     let s = src.prop(key)?;
     let mut it = s.split_whitespace().filter_map(|t| t.parse::<f32>().ok());
     let a = it.next()?;
@@ -251,6 +255,7 @@ pub struct WeaponClass {
     pub dispenser: Option<Dispenser>,
     pub mine: Option<Dispenser<crate::mine::MineClass>>,
     pub ability: Option<Ability>,
+    pub remote: Option<Box<crate::remote::RemoteWeapon>>,
 }
 
 /// What the `grenade` weapon class adds (`analysis/re-grenades.md` §3.1; B1
@@ -397,6 +402,7 @@ impl Default for WeaponClass {
             dispenser: None,
             mine: None,
             ability: None,
+            remote: None,
         }
     }
 }
@@ -564,6 +570,7 @@ impl WeaponClass {
             dispenser: None,
             mine: None,
             ability: None,
+            remote: None,
             flash: Some(crate::flash::MuzzleFlashLook {
                 radius: 0.6,
                 length: 0.025,
@@ -653,7 +660,7 @@ impl WeaponClass {
     }
 
     pub fn dispenses(&self) -> bool {
-        self.dispenser.is_some() || self.mine.is_some()
+        self.dispenser.is_some() || self.mine.is_some() || self.remote.is_some()
     }
 
     /// Name of the ordnance class this weapon fires (`OrdnanceName` /

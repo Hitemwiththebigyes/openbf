@@ -191,6 +191,14 @@ fn append_events(csv: &mut String, tick: usize, events: &[core::sim::Event]) {
             Event::MineTick { pos, weapon_class } => {
                 format!("{tick},mine_tick,{weapon_class},{pos:?}\n")
             }
+            Event::DroidCharge { pos, weapon_class } => {
+                format!("{tick},droid_charge,{weapon_class},{pos:?}\n")
+            }
+            Event::DroidGone {
+                pos,
+                weapon_class,
+                end,
+            } => format!("{tick},droid_gone,{weapon_class},{end:?},{pos:?}\n"),
             Event::Ability {
                 unit,
                 weapon_class,
@@ -210,6 +218,7 @@ fn append_events(csv: &mut String, tick: usize, events: &[core::sim::Event]) {
                     core::projectile::Target::Vehicle(h) => format!("v{}g{}", h.index, h.gen),
                     core::projectile::Target::Station(i) => format!("s{i}"),
                     core::projectile::Target::Mine(i) => format!("m{i}"),
+                    core::projectile::Target::Droid(i) => format!("d{i}"),
                 };
                 format!("{tick},repair,{},{target},{amount}\n", unit.index)
             }

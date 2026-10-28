@@ -611,3 +611,51 @@ fn run_ticks(walk: &mut WalkSim, pad: PadState, ticks: usize) {
         walk.step_tick(&[pad]);
     }
 }
+
+#[test]
+fn the_reticle_follows_a_flown_droids_aim() {
+    struct NoProps;
+    impl core::weapon::PropSource for NoProps {
+        fn prop(&self, _: &str) -> Option<&str> {
+            None
+        }
+        fn prop_hash(&self, _: u32) -> Option<&str> {
+            None
+        }
+    }
+    let mut w = WalkSim::new(1, Vec3::ZERO, Some(flat_ground()));
+    let droid = core::remote::DroidClass::from_props(&NoProps, false);
+    let remote =
+        core::remote::RemoteWeapon::new(&NoProps, droid, core::weapon::WeaponClass::bf1_rifle());
+    let mut class = core::weapon::WeaponClass::bf1_rifle();
+    class.remote = Some(Box::new(remote.clone()));
+    let weapon = w.sim.add_weapon_class(class);
+    let d = core::remote::Droid::new(
+        1,
+        w.player,
+        0,
+        weapon,
+        &remote,
+        Vec3::new(0.0, 2.0, -6.0),
+        Vec3::ZERO,
+        0.0,
+        true,
+    );
+    w.sim.droids.push(d);
+    w.sim.droids[0].controlled = true;
+    let mut seen = Vec::new();
+    for pitch in [-0.8, -0.4, 0.0, 0.4, 0.8] {
+        w.sim.droids[0].pitch = pitch;
+        w.sim.units[w.player.index as usize].soldier.pitch = -pitch;
+        let y = w.reticle_y();
+        assert!(
+            (0.3..0.7).contains(&y),
+            "droid pitch {pitch}: reticle at {y}"
+        );
+        seen.push(y);
+    }
+    assert!(
+        seen.windows(2).all(|p| (p[0] - p[1]).abs() < 0.05),
+        "{seen:?}"
+    );
+}

@@ -859,6 +859,19 @@ impl Fx {
                         self.explode(look, *pos, sim.water_under(*pos));
                     }
                 }
+                Event::DroidGone {
+                    pos,
+                    weapon_class,
+                    end,
+                } => {
+                    let r = sim
+                        .weapon_classes
+                        .get(*weapon_class as usize)
+                        .and_then(|w| w.remote.as_ref());
+                    for x in r.into_iter().flat_map(|r| r.end_explosions(*end)) {
+                        self.explode(&x.look, *pos, sim.water_under(*pos));
+                    }
+                }
                 // A thrown grenade's fuse ran out (GREN): its explosion
                 // class's effect where it lay.
                 Event::StickyBlast { pos, weapon_class } => {

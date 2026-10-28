@@ -43,6 +43,7 @@ pub enum Target {
     Vehicle(crate::vehicle::VehicleHandle),
     Station(u16),
     Mine(u64),
+    Droid(u64),
 }
 
 #[derive(Clone, Debug)]
@@ -133,6 +134,10 @@ impl Bolt {
             Hit::Water => eat(&[6]),
             Hit::Target(Target::Mine(id)) => {
                 eat(&[7]);
+                eat(&id.to_le_bytes());
+            }
+            Hit::Target(Target::Droid(id)) => {
+                eat(&[8]);
                 eat(&id.to_le_bytes());
             }
         }

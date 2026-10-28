@@ -599,3 +599,8 @@ copy); unfinished packed builds keep dev mode on by default (`OPENBF_DEV=0` disa
 - `core/src/sim/mines.rs` 372 — placed-explosive launch, limits, damage, flight, arming, proximity/contact/timer triggers and remote input.
 - `core/src/sim/mines/tests.rs` 331 — placed-explosive gameplay, damage, attachment and input regression tests.
 - `game/src/roster/mines.rs` 15 — mine entity and trigger/expiry/destroyed explosion resolution through baked class chains.
+- `core/src/remote.rs` 424 — the remote droid's class data, launcher, destruct (salvo / burst), flight step, drain and replay state · DroidClass, RemoteWeapon, Destruct, Salvo, Droid, StrikeRun; `analysis/re-remote-droid.md`.
+- `core/src/remote/tests.rs` 170 — droid class parsing, hover, steering, drain and salvo geometry tests.
+- `core/src/sim/remotes.rs` 466 — droid launch, control routing and hand-back, flight over the world, blaster, destruct, damage, salvo runs and the bot's droid pad.
+- `core/src/sim/remotes/tests.rs` 337 — remote droid control, expiry, combat, destruct, bot and replay regression tests.
+- `game/src/roster/remotes.rs` 91 — the remote weapon's droid, blaster and destruct (salvo shell or burst) resolution through baked class chains.

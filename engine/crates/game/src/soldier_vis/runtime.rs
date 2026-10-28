@@ -30,7 +30,7 @@ impl SoldierVisuals {
             .weapon_classes
             .iter()
             .map(|w| {
-                if w.ordnance.sticky.is_none() && w.mine.is_none() {
+                if w.ordnance.sticky.is_none() && w.mine.is_none() && w.remote.is_none() {
                     return None;
                 }
                 let name = w.ordnance.geometry.as_deref()?;
@@ -355,9 +355,15 @@ impl SoldierVisuals {
         wg: &str,
         cache: &mut HashMap<String, Option<TextureHandle>>,
     ) -> WeaponAsset {
-        let side = assets_dir.join(format!("side_{game}"));
+        let mut side = assets_dir.join(format!("side_{game}"));
         let mut parts = Vec::new();
-        let wpath = side.join("weapons").join(format!("{wg}.glb"));
+        let mut wpath = side.join("weapons").join(format!("{wg}.glb"));
+        let common = assets_dir.join(format!("common_{game}"));
+        let shared = common.join("models").join(format!("{wg}.glb"));
+        if !pak::is_file(&wpath) && pak::is_file(&shared) {
+            side = common;
+            wpath = shared;
+        }
         if let Some(r) = r {
             match crate::assets::load_glb(&wpath) {
                 Ok(cpu) => match crate::viewer::upload_submeshes(r, &cpu) {
@@ -759,6 +765,20 @@ impl SoldierVisuals {
                 continue;
             };
             model.part_draws(Mat4::from_translation(g.pos), &mut out);
+        }
+        for d in &walk.sim.droids {
+            if let Some(model) = self
+                .grenades
+                .get(d.weapon_class)
+                .copied()
+                .flatten()
+                .and_then(|i| self.weapons.get(i))
+            {
+                model.part_draws(
+                    Mat4::from_rotation_translation(d.rotation(), d.pos),
+                    &mut out,
+                );
+            }
         }
         for m in &walk.sim.mines {
             if let Some(model) = self
