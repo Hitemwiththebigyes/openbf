@@ -509,6 +509,34 @@ impl Renderer {
             }
         }
 
+        // The star field (`stars.rs`): this view's quads.
+        let mut star_vertices = std::mem::take(&mut self.stars.vertices);
+        crate::stars::build(&self.stars, camera, self.time, &mut star_vertices);
+        if !star_vertices.is_empty() {
+            let vb = bytemuck::cast_slice(&star_vertices);
+            let inst = [crate::bolt::identity_instance()];
+            let ib: &[u8] = bytemuck::cast_slice(&inst);
+            crate::grass::ensure(
+                &self.device,
+                &mut self.stars.vertex_buf,
+                vb.len(),
+                "star vertices",
+            );
+            crate::grass::ensure(
+                &self.device,
+                &mut self.stars.instance_buf,
+                ib.len(),
+                "star instance",
+            );
+            if let (Some((v, _)), Some((i, _))) = (&self.stars.vertex_buf, &self.stars.instance_buf)
+            {
+                self.queue.write_buffer(v, 0, vb);
+                self.queue.write_buffer(i, 0, ib);
+            }
+        }
+        let star_count = star_vertices.len() as u32;
+        self.stars.vertices = star_vertices;
+
         // BF2's terrain light pass (`terrain_light.rs`): its parameters and
         // the frame's copy, before the frame is acquired.
         let terrain_light = self.terrain_light_wanted();
@@ -594,12 +622,33 @@ impl Renderer {
                 occlusion_query_set: None,
             });
 
-            // Sky first: unlit shells around the camera, no depth at all.
-            if sky_base > 0 {
+            // Sky first: unlit shells around the camera, no depth at all. The
+            // stars go after the base dome's shells (its mirror included) and
+            // under the rest (a cloud deck covers them), as both ELFs order
+            // the sky pass (`analysis/re-stars.md` §3).
+            let star_slot = self.stars.slot.min(self.sky.len());
+            if sky_base > 0 || star_count > 0 {
                 pass.set_bind_group(0, &self.globals_bg, &[]);
                 pass.set_vertex_buffer(1, self.instance_buf.slice(..));
                 let mut bound: Option<SkyMode> = None;
-                for (slot, shell) in self.sky.iter().enumerate() {
+                for item in self.sky.iter().enumerate().map(Some).chain([None]) {
+                    if item.map_or(self.sky.len(), |(i, _)| i) == star_slot && star_count > 0 {
+                        if let (Some((vbuf, _)), Some((ibuf, _))) =
+                            (&self.stars.vertex_buf, &self.stars.instance_buf)
+                        {
+                            pass.set_pipeline(&self.star_pipeline);
+                            pass.set_bind_group(1, self.tex_bg(None), &[]);
+                            pass.set_vertex_buffer(0, vbuf.slice(..));
+                            pass.set_vertex_buffer(1, ibuf.slice(..));
+                            pass.draw(0..star_count, 0..1);
+                            draw_calls += 1;
+                            pass.set_vertex_buffer(1, self.instance_buf.slice(..));
+                            bound = None;
+                        }
+                    }
+                    let Some((slot, shell)) = item else {
+                        break;
+                    };
                     let Some(mesh) = self.meshes.get(shell.mesh.0 as usize) else {
                         continue;
                     };

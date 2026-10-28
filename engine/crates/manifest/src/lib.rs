@@ -25,8 +25,8 @@ pub use environment::{
     foliage_bin, FoliageKind, LeafLayout, ManifestFilter, ManifestFog, ManifestFoliage,
     ManifestFoliageMesh, ManifestGrassClass, ManifestHdr, ManifestLeafClass, ManifestLight,
     ManifestLighting, ManifestLightning, ManifestPointLight, ManifestPrecipitation, ManifestSky,
-    ManifestSkyModel, ManifestSkyObject, ManifestSpotCone, ManifestWater, ManifestWaterConfig,
-    ManifestWetMask, ManifestWind,
+    ManifestSkyModel, ManifestSkyObject, ManifestSpotCone, ManifestStars, ManifestWater,
+    ManifestWaterConfig, ManifestWetMask, ManifestWind,
 };
 
 pub mod anim_sets;

@@ -83,6 +83,7 @@ mod point_light;
 mod resources;
 mod sky;
 mod specular;
+mod stars;
 mod terrain_light;
 mod texture;
 
@@ -109,6 +110,7 @@ pub use particles::{ParticleDraw, ParticleShape};
 pub use point_light::{LitSphere, PointLight, SpotCone, MAX_POINT_LIGHTS};
 pub use sky::{mirror_squash, Placement, SkyMode, SkyShell, MIRROR_LIFT};
 pub use specular::spec_texcoord;
+pub use stars::{half_size as star_half_size, star_rgb, Star, StarField};
 pub use terrain_light::{
     LitPatch, TerrainLight, TerrainLights, LIGHTS_PER_PATCH, MAX_LIT_PATCHES, MAX_TERRAIN_LIGHTS,
 };
@@ -336,6 +338,11 @@ pub struct Renderer {
     bolt_core_pipeline: wgpu::RenderPipeline,
     bolt_glow_pipeline: wgpu::RenderPipeline,
     bolts: bolt::BoltState,
+    /// The sky's star field (`stars.rs`, issue #16): vs `grass.wgsl`, fs
+    /// `fs_bolt_glow`, additive with no depth, in the sky pass; the
+    /// field set by [`Renderer::set_stars`].
+    star_pipeline: wgpu::RenderPipeline,
+    stars: stars::StarState,
     /// This frame's particle effects (`particles.rs`, card FXP2), set by
     /// [`Renderer::set_particles`]; drawn with the bolts' pipelines.
     particles: particles::ParticleState,

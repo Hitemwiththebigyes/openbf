@@ -82,6 +82,7 @@ fn only_bf1_terrain_enable_zero_hides_the_terrain() {
         objects: Vec::new(),
         terrain_enable: e,
         reflection_color: None,
+        stars: None,
     };
     assert!(!terrain_drawn("bf1", Some(&sky(Some(0.0)))));
     assert!(terrain_drawn("bf2", Some(&sky(Some(0.0)))));

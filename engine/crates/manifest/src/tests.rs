@@ -309,6 +309,7 @@ fn full_manifest() -> Manifest {
             }],
             terrain_enable: Some(0.0),
             reflection_color: Some([0.5, 0.5, 1.0]),
+            stars: None,
         }),
         water: Some(ManifestWater {
             glb: "water.glb".into(),

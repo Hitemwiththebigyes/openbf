@@ -733,6 +733,7 @@ mod tests {
                     objects: Vec::new(),
                     terrain_enable: None,
                     reflection_color: None,
+                    stars: None,
                 }),
             )
         };

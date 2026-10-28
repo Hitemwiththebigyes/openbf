@@ -1076,8 +1076,10 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
         install_spec_table(r, assets_dir, &scene.manifest.source_game)?;
         install_omniproj(r, assets_dir, &scene.manifest.source_game)?;
     }
-    let sky = upload_sky(r, scene, &mut textures, &mut census)?;
+    let (sky, dome_shells) = upload_sky(r, scene, &mut textures, &mut census)?;
     r.set_sky(sky);
+    // Set on every upload, so a map without stars clears the last map's.
+    r.set_stars(star_field(&scene.manifest), dome_shells);
     // The grass patches (queue FOLGG, `super::grass`): the FOLG records'
     // patches and the world instances of a grass class, drawn by the
     // renderer's own pass every frame. Set on every upload, so a map
@@ -1205,15 +1207,18 @@ fn upload_sky(
     scene: &Scene,
     textures: &mut HashMap<String, BoundTexture>,
     census: &mut Census,
-) -> Result<Vec<render::SkyShell>> {
+) -> Result<(Vec<render::SkyShell>, usize)> {
     let Some(sky) = &scene.manifest.sky else {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), 0));
     };
     let ambient = [sky.ambient[0], sky.ambient[1], sky.ambient[2], 1.0];
     let reflection = sky.reflection_color.unwrap_or([1.0; 3]);
     let reflection = [reflection[0], reflection[1], reflection[2], 1.0];
     let mut scale = None;
     let mut shells = Vec::new();
+    // The shells model 0 (the base dome) drew, mirror included: the stars go
+    // right after them (`analysis/re-stars.md` §3).
+    let mut dome_shells = 0;
     for (i, m) in sky.models.iter().enumerate() {
         let ambient = sky_shell_tint(scene.manifest.lightning.as_ref(), i, ambient);
         let Some(cpu) = scene.meshes.get(&m.geometry) else {
@@ -1300,9 +1305,12 @@ fn upload_sky(
             }));
         }
         shells.extend(own);
+        if i == 0 {
+            dome_shells = shells.len();
+        }
     }
     shells.extend(upload_sky_objects(r, scene, textures, ambient, census)?);
-    Ok(shells)
+    Ok((shells, dome_shells))
 }
 
 /// The tint dome shell `index` is drawn with: `base` (the map's flat
@@ -1484,3 +1492,20 @@ use terrain::{upload_terrain_chunks, upload_terrain_layer_chunks};
 
 #[cfg(test)]
 mod tests;
+
+/// The map's `DomeInfo.Stars()` for the renderer (issue #16,
+/// `analysis/re-stars.md`). `EnableBottom` is read by BF2's draw only.
+pub(crate) fn star_field(m: &manifest::Manifest) -> Option<render::StarField> {
+    let st = m.sky.as_ref()?.stars.as_ref()?;
+    Some(render::StarField {
+        count: st.count,
+        seed: st.seed,
+        twinkle_factor: st.twinkle_factor,
+        twinkle_frequency: st.twinkle_frequency,
+        color: st.color,
+        bright_fraction: st.bright_fraction,
+        alpha_min: st.alpha_min,
+        color_saturation: st.color_saturation,
+        enable_bottom: st.enable_bottom && m.source_game == "bf2",
+    })
+}

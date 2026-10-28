@@ -56,7 +56,7 @@ use mungefs::sky::Sky;
 /// crate, re-exported here under its old path. See `bake::map`.
 pub use manifest::{
     ManifestFilter, ManifestFog, ManifestLight, ManifestLighting, ManifestSky, ManifestSkyModel,
-    ManifestSkyObject,
+    ManifestSkyObject, ManifestStars,
 };
 
 /// The engine's pre-2026-08-31 hardcoded look, kept as the fallback for a map
@@ -431,7 +431,13 @@ pub fn sky_from(
         })
         .collect();
     let lrt = dome.low_res_terrain.as_ref();
-    if models.is_empty() && lrt.is_none() && objects.is_empty() && dome.terrain_enable.is_none() {
+    let stars = dome.stars.as_ref().and_then(stars);
+    if models.is_empty()
+        && lrt.is_none()
+        && objects.is_empty()
+        && dome.terrain_enable.is_none()
+        && stars.is_none()
+    {
         return None;
     }
     Some(ManifestSky {
@@ -443,6 +449,33 @@ pub fn sky_from(
         objects,
         terrain_enable: dome.terrain_enable,
         reflection_color: dome.reflection_color.map(reflection_tint),
+        stars,
+    })
+}
+
+/// `DomeInfo.Stars()` with the loaders' defaults (B1 `FUN_002e6a50`, B2
+/// `FUN_003bfc30`; `analysis/re-stars.md` §1). `NumStars` absent or 0 draws
+/// nothing on either game.
+fn stars(st: &mungefs::sky::Stars) -> Option<ManifestStars> {
+    let count = st.num_stars.filter(|n| *n >= 1.0)? as u32;
+    let byte = |v: f32| v.clamp(0.0, 255.0) as u8;
+    let mut color = [255u8; 4];
+    if let Some(c) = st.color.as_ref().filter(|c| c.len() >= 3) {
+        for (dst, v) in color.iter_mut().zip(c) {
+            *dst = byte(*v);
+        }
+    }
+    Some(ManifestStars {
+        count,
+        seed: st.random_seed.unwrap_or(0.0).max(0.0) as u32,
+        twinkle_factor: st.twinkle_factor.unwrap_or(0.5),
+        twinkle_frequency: st.twinkle_frequency.unwrap_or(20.0),
+        color,
+        bright_fraction: st.bright_star_percent.map_or(0.08, |p| p * 0.01),
+        // The ELF scales by its own 1/255 constant (`* 0.003921569`).
+        alpha_min: st.alpha_min.map_or(0.05, |a| a * 0.003_921_569),
+        color_saturation: st.color_saturation.unwrap_or(1.0),
+        enable_bottom: st.enable_bottom.is_some_and(|b| b != 0.0),
     })
 }
 
