@@ -9,6 +9,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 pub(super) enum Round {
     Bolt(crate::bolt_vis::Key, u64),
     Sticky(u64),
+    Guided(u64),
 }
 
 #[derive(Debug, Default)]
@@ -131,6 +132,10 @@ impl Fx {
         let ids = self.rounds.sticky_ids(sim);
         for (g, id) in sim.stickies.iter().zip(ids) {
             now.insert(Round::Sticky(id), (g.pos, g.vel, trail(g.weapon_class)));
+        }
+        for r in &sim.guided {
+            let trail = sim.guided_class(r).and_then(|c| c.trail.as_deref());
+            now.insert(Round::Guided(r.id), (r.pos, r.vel, trail));
         }
         self.rounds.tick = Some(sim.tick);
         for e in &mut self.live {

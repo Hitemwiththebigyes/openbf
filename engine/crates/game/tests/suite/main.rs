@@ -19,6 +19,7 @@ mod collision;
 mod event_messages;
 mod glb_material;
 mod global_sound;
+mod guided_rockets;
 mod hud_layout;
 mod load_scene;
 mod locate_ps2;

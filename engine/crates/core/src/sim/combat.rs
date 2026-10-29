@@ -106,6 +106,20 @@ impl Sim {
                     mult = 1.0;
                 }
             }
+            for r in self.guided.iter().filter(|r| r.owner != b.owner) {
+                if let Some(t) = crate::unit::ray_sphere(
+                    from,
+                    dir,
+                    r.pos,
+                    crate::guided::COLLISION_RADIUS_PROVISIONAL,
+                )
+                .filter(|&t| t <= reach)
+                {
+                    reach = t;
+                    hit = Some(Target::Guided(r.id));
+                    mult = 1.0;
+                }
+            }
             if let Some(filter) = b.hulls.hulls_only() {
                 if let Some(r) = world.ray_with(from, dir, reach, Layers::ORDNANCE, filter) {
                     if let Some(v) = r.owner.filter(|_| r.t < reach) {
@@ -245,7 +259,9 @@ impl Sim {
                 );
                 self.bolt_explodes(b);
             }
-            Hit::Target(t @ (Target::Droid(_) | Target::Mine(_) | Target::Turret(_))) => {
+            Hit::Target(
+                t @ (Target::Droid(_) | Target::Mine(_) | Target::Turret(_) | Target::Guided(_)),
+            ) => {
                 let desc = self.weapon_classes[b.weapon_class]
                     .ordnance
                     .damage_desc_charged(b.age, false, b.charge);

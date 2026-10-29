@@ -859,6 +859,19 @@ impl Fx {
                         self.explode(look, *pos, sim.water_under(*pos));
                     }
                 }
+                Event::GuidedGone {
+                    pos,
+                    weapon_class,
+                    end,
+                } => {
+                    if let Some(e) = sim.weapon_classes[*weapon_class as usize]
+                        .guided
+                        .as_ref()
+                        .and_then(|g| g.explosion(*end))
+                    {
+                        self.explode(&e.look, *pos, sim.water_under(*pos));
+                    }
+                }
                 Event::DroidGone {
                     pos,
                     weapon_class,

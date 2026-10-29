@@ -626,3 +626,6 @@ copy); unfinished packed builds keep dev mode on by default (`OPENBF_DEV=0` disa
 - `core/src/cloak.rs` — Bothan cloak properties, concealment curve, byte visibility and deterministic state.
 - `core/src/sim/cloaks.rs` — cloak activation, shared energy, drain, fade, flicker and lifecycle cleanup; behavioral tests in `cloaks/tests.rs` cover perception memory and portable-turret visibility integration.
 - `game/tests/suite/cloaking.rs` — inherited ordinary-class cloak census and activation against the local disc bake.
+- `core/src/guided.rs` — award rocket class, quaternion flight, energy/boost, distinct end reasons and replay state; separate from recon-droid hover movement.
+- `core/src/sim/guided.rs` — guided launch, player/bot control routing, swept collision, detonation and control return; behavioral tests in `guided/tests.rs`.
+- `game/tests/suite/guided_rockets.rs` — all 14 inherited guided launchers, award gating, camera/interpolation restoration, smooth mouse/controller turning at 60/75/144 Hz and all-side/map-local equipment census.

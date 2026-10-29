@@ -69,6 +69,9 @@ impl Sim {
         blocked: bool,
     ) -> bool {
         let weapon = slot.map_or(self.units[i].weapon_class, |k| self.units[i].held[k].class);
+        if self.weapon_classes[weapon].guided.is_some() {
+            return self.guided_input(i, slot, held);
+        }
         if self.weapon_classes[weapon].remote.is_some() {
             return self.droid_input(i, slot, weapon, held, blocked);
         }
@@ -184,6 +187,13 @@ impl Sim {
                     let t = &self.turrets[k];
                     let ht = self.turret_class(t).map(|c| c.health_type);
                     self.turrets[k].health -= self.item_damage(damage, scales, ht, t.team, team);
+                }
+            }
+            Target::Guided(id) => {
+                if let Some(k) = self.guided.iter().position(|r| r.id == id) {
+                    let r = &self.guided[k];
+                    let ht = self.guided_class(r).map(|c| c.health_type);
+                    self.guided[k].health -= self.item_damage(damage, scales, ht, r.team, team);
                 }
             }
             Target::Unit(_) | Target::Vehicle(_) | Target::Station(_) => {}

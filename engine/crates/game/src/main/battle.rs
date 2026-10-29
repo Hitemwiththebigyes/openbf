@@ -437,7 +437,21 @@ pub(super) fn hud_model(
         .sim
         .controlled_droid(walk.player)
         .and_then(|d| Some((d, walk.sim.droid_class(d)?)));
-    let on_foot = me.alive && me.mount.is_none() && droid.is_none();
+    let guided = walk
+        .sim
+        .controlled_guided(walk.player)
+        .and_then(|r| Some((r, walk.sim.guided_class(r)?)));
+    let on_foot = me.alive && me.mount.is_none() && droid.is_none() && guided.is_none();
+    let (hp, hp_max, energy, energy_max) = match (guided, droid) {
+        (Some((r, c)), _) => (r.health, c.health, r.energy, c.energy),
+        (None, Some((d, c))) => (d.health, c.max_health, d.energy, core::remote::ENERGY_MAX),
+        (None, None) => (
+            me.health.cur,
+            me.health.max,
+            me.soldier.energy,
+            me.consts.energy_bar,
+        ),
+    };
     let spawn = spawn_model(walk, feed).and_then(|s| s.page);
     let slot = me.spec.player_slot.map_or(0, usize::from);
     let weapon = on_foot.then(|| {
@@ -484,7 +498,7 @@ pub(super) fn hud_model(
                 },
             })
         });
-    let reticle = (on_foot || droid.is_some()).then(|| {
+    let reticle = (on_foot || droid.is_some() || guided.is_some()).then(|| {
         walk.sim
             .reticle_pick
             .first()
@@ -496,10 +510,10 @@ pub(super) fn hud_model(
         team_names: [walk.teams[0].faction.clone(), walk.teams[1].faction.clone()],
         tickets: [b.teams[0].tickets(), b.teams[1].tickets()],
         bleed: [b.teams[0].bleed_per_sec, b.teams[1].bleed_per_sec],
-        hp: droid.map_or(me.health.cur, |(d, _)| d.health),
-        hp_max: droid.map_or(me.health.max, |(_, c)| c.max_health),
-        energy: droid.map_or(me.soldier.energy, |(d, _)| d.energy),
-        energy_max: droid.map_or(me.consts.energy_bar, |_| core::remote::ENERGY_MAX),
+        hp,
+        hp_max,
+        energy,
+        energy_max,
         weapon,
         weapon2,
         reticle,

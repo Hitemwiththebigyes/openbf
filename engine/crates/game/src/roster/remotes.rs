@@ -17,6 +17,9 @@ pub(super) fn remote_weapon(
         .resolve(ord.trim())
         .with_context(|| format!("{weapon}: droid class {ord} not in class db"))?
         .to_owned();
+    if db.engine_base(&droid_name) == Some("flyer") {
+        return guided_weapon(db, weapon, wsrc, &droid_name);
+    }
     let mut droid = DroidClass::from_props(
         &ClassSrc {
             db,
@@ -88,4 +91,32 @@ fn destruct(db: &ClassDb, name: &str) -> Destruct {
         d.salvo = Some(Salvo::from_props(&src, shell));
     }
     d
+}
+
+fn guided_weapon(db: &ClassDb, name: &str, src: &dyn PropSource, ord: &str) -> Result<WeaponClass> {
+    anyhow::ensure!(
+        db.prop_f32(name, "MedalsTypeToUnlock") == Some(2.0),
+        "{name}: only the infantry award launcher is built, not vehicle or hero ones"
+    );
+    let osrc = ClassSrc { db, class: ord };
+    let mut class = core::guided::GuidedClass::from_props(&osrc);
+    class.explosion = osrc
+        .prop_hash(0xe04f_08c1)
+        .and_then(|n| explosion_class(db, n.trim()));
+    class.noncritical = osrc
+        .prop_hash(0x8a32_3f32)
+        .and_then(|n| explosion_class(db, n.trim()));
+    let mut w = WeaponClass::from_props(name, src, OrdnanceClass::default());
+    core::weapon::Dispenser::new(&mut w, src, true, ());
+    w.thrown = None;
+    w.ordnance.geometry = db.prop(ord, "GeometryName").map(str::to_owned);
+    w.ordnance.velocity = class.speeds[1];
+    anyhow::ensure!(
+        class.speeds[1] > 0.0 && class.energy > 0.0 && class.energy_restore < 0.0,
+        "{name}: missing guided flyer movement or lifetime properties"
+    );
+    w.ordnance.life_span = class.energy / -class.energy_restore;
+    w.ordnance.explosion = class.explosion.clone();
+    w.guided = Some(Box::new(core::guided::GuidedWeapon::new(src, class)));
+    Ok(w)
 }

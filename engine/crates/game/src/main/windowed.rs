@@ -67,6 +67,7 @@ fn play_event_sounds(
     engines.tick(walk, |h, l| sl.engine(h, l), &mut voices);
     sl.loop_voices(audio, &voices, &listener);
     sl.play_repair_loops(audio, &walk.sim, &listener);
+    sl.guided_loops(audio, &walk.sim, &listener);
     // The soldiers' steps and stance sounds (card FOLY).
     if let Some(foley) = foley {
         let view = game::foley::View::of(&walk.camera(), aspect);

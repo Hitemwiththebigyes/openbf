@@ -155,6 +155,13 @@ impl Sim {
                     .iter()
                     .map(|t| (Target::Turret(t.id), t.centre(), crate::autoturret::RADIUS)),
             )
+            .chain(self.guided.iter().map(|r| {
+                (
+                    Target::Guided(r.id),
+                    r.pos,
+                    crate::guided::COLLISION_RADIUS_PROVISIONAL,
+                )
+            }))
             // The cheap reach test first, as for every other victim: only an
             // item inside the outer radius is worth a line-of-sight ray.
             .filter(|&(_, c, w)| overlaps(c, w))

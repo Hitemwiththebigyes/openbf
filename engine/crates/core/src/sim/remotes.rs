@@ -112,16 +112,15 @@ impl Sim {
         } else {
             unit_pads.get(i).copied().unwrap_or_default()
         };
+        let owner = self.droids[k].owner;
+        self.take_remote_pad(owner, unit_pads);
         let d = &mut self.droids[k];
         let exit = pad.pressed(buttons::ACTION) && d.prev_buttons & buttons::ACTION == 0;
         let bot_done = self.units[i].controller == Controller::Ai && d.idle > BOT_RECALL;
-        if let Some(p) = unit_pads.get_mut(i) {
-            *p = PadState::default();
-        }
         if exit || bot_done {
             d.controlled = false;
             let owner = d.owner;
-            self.release(owner, pad.buttons);
+            self.release_remote(owner, pad.buttons);
             return None;
         }
         Some(pad)
@@ -270,7 +269,7 @@ impl Sim {
                     self.destruct(&d);
                 }
                 if d.controlled {
-                    self.release(d.owner, d.prev_buttons);
+                    self.release_remote(d.owner, d.prev_buttons);
                 }
                 self.droid_gone(&d, end);
                 continue;
@@ -280,7 +279,13 @@ impl Sim {
         }
     }
 
-    fn release(&mut self, owner: UnitHandle, buttons: u32) {
+    pub(super) fn take_remote_pad(&self, owner: UnitHandle, pads: &mut [PadState]) {
+        if let Some(pad) = pads.get_mut(owner.index as usize) {
+            *pad = PadState::default();
+        }
+    }
+
+    pub(super) fn release_remote(&mut self, owner: UnitHandle, buttons: u32) {
         if let Some(u) = self.unit_mut(owner) {
             u.soldier.set_prev_buttons(buttons);
         }

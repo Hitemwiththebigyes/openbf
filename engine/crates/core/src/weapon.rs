@@ -257,6 +257,7 @@ pub struct WeaponClass {
     pub mine: Option<Dispenser<crate::mine::MineClass>>,
     pub ability: Option<Ability>,
     pub cloak: Option<crate::cloak::CloakClass>,
+    pub guided: Option<Box<crate::guided::GuidedWeapon>>,
     pub remote: Option<Box<crate::remote::RemoteWeapon>>,
     pub turret: Option<Box<Dispenser<crate::autoturret::TurretClass>>>,
 }
@@ -406,6 +407,7 @@ impl Default for WeaponClass {
             mine: None,
             ability: None,
             cloak: None,
+            guided: None,
             remote: None,
             turret: None,
         }
@@ -576,6 +578,7 @@ impl WeaponClass {
             mine: None,
             ability: None,
             cloak: None,
+            guided: None,
             remote: None,
             turret: None,
             flash: Some(crate::flash::MuzzleFlashLook {
@@ -664,6 +667,10 @@ impl WeaponClass {
             }),
             ..Self::bf1_rifle()
         }
+    }
+
+    pub fn award_locked(&self, all_awards: bool) -> bool {
+        !all_awards && self.guided.as_ref().is_some_and(|g| g.requires_award)
     }
 
     pub fn dispenses(&self) -> bool {

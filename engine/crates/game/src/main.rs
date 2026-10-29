@@ -439,7 +439,8 @@ fn parse_cheats(s: &str) -> Result<core::sim::Cheats> {
         match item {
             "invincible" | "god" => c.invincible = true,
             "ammo" | "infinite_ammo" => c.infinite_ammo = true,
-            other => bail!("unknown cheat: {other} (invincible, ammo)"),
+            "awards" => c.all_awards = true,
+            other => bail!("unknown cheat: {other} (invincible, ammo, awards)"),
         }
     }
     Ok(c)

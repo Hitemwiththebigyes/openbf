@@ -105,6 +105,11 @@ pub enum Event {
         pos: Vec3,
         weapon_class: u32,
     },
+    GuidedGone {
+        pos: Vec3,
+        weapon_class: u32,
+        end: crate::guided::GuidedEnd,
+    },
     DroidGone {
         pos: Vec3,
         weapon_class: u32,
@@ -606,6 +611,8 @@ pub struct Sim {
     pub stickies: Vec<crate::sticky::Sticky>,
     pub mines: Vec<crate::mine::Mine>,
     pub next_mine_id: u64,
+    pub guided: Vec<crate::guided::GuidedRocket>,
+    pub next_guided_id: u64,
     pub droids: Vec<crate::remote::Droid>,
     pub next_droid_id: u64,
     pub strikes: Vec<crate::remote::StrikeRun>,
@@ -975,6 +982,8 @@ impl Sim {
             stickies: Vec::new(),
             mines: Vec::new(),
             next_mine_id: 0,
+            guided: Vec::new(),
+            next_guided_id: 0,
             droids: Vec::new(),
             next_droid_id: 0,
             turrets: Vec::new(),
@@ -1365,6 +1374,14 @@ impl Sim {
             eat(&(self.mines.len() as u64).to_le_bytes());
             for mine in &self.mines {
                 mine.hash_into(&mut eat);
+            }
+        }
+        if self.next_guided_id > 0 {
+            eat(b"GUIDED");
+            eat(&self.next_guided_id.to_le_bytes());
+            eat(&(self.guided.len() as u64).to_le_bytes());
+            for r in &self.guided {
+                r.hash_into(&mut eat);
             }
         }
         if self.next_droid_id > 0 {

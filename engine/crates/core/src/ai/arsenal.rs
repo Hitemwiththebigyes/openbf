@@ -221,6 +221,13 @@ pub(super) fn score(wc: &WeaponClass, kind: u32) -> f32 {
 pub(super) fn shot(wc: &WeaponClass, kind: u32) -> f32 {
     let o = &wc.ordnance;
     let k = (kind as usize).min(o.scales.len() - 1);
+    if let Some(g) = &wc.guided {
+        return g
+            .class
+            .explosion
+            .as_ref()
+            .map_or(0.0, |e| e.damage * e.scales[k]);
+    }
     let mut dmg = o.max_damage * o.scales[k];
     if let Some(x) = o.sticky.as_ref().and_then(|s| s.explosion.as_ref()) {
         dmg += x.damage * x.scales[k];
@@ -526,9 +533,9 @@ pub(super) fn slots<'a>(sim: &'a Sim, u: &Unit) -> [Option<Cand<'a>>; 8] {
             slot,
             class,
             rounds: w.issued(class),
-            empty: w.out_of_ammo(class),
+            empty: w.out_of_ammo(class) || class.award_locked(sim.cheats.all_awards),
             busy: w.reloading(),
-            heavy: class.ordnance.kind == OrdKind::Missile
+            heavy: (class.ordnance.kind == OrdKind::Missile || class.guided.is_some())
                 && (class.ai_target_kind & 1 == 0 || slot != first),
         }
     };

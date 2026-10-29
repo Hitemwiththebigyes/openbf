@@ -39,6 +39,7 @@ mod buffs;
 mod cloaks;
 mod combat;
 mod doors;
+mod guided;
 mod guns;
 mod input;
 mod look;

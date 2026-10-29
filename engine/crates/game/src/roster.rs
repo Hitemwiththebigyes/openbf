@@ -909,6 +909,7 @@ pub enum SlotKind {
     Dispenser,
     Ability,
     Cloak,
+    Guided,
     Remote,
     /// Fired by the soldier's weapon: a `cannon` or `launcher`, whatever its
     /// channel, and the mortar launchers (a `grenade` weapon on channel 0):
@@ -922,12 +923,6 @@ pub enum SlotKind {
 
 /// [`SlotKind`] of `weapon` (resolved) in a slot of `channel`.
 pub fn slot_kind(db: &ClassDb, weapon: &str, channel: u8) -> SlotKind {
-    if db
-        .prop_f32(weapon, "MedalsTypeToUnlock")
-        .is_some_and(|m| m != -1.0)
-    {
-        return SlotKind::NotBuilt("an award weapon, unlocked by a medal (no medals yet)");
-    }
     let base = db.engine_base(weapon).unwrap_or("").to_ascii_lowercase();
     let ord = db
         .prop(weapon, "OrdnanceName")
@@ -935,12 +930,20 @@ pub fn slot_kind(db: &ClassDb, weapon: &str, channel: u8) -> SlotKind {
         .and_then(|o| db.engine_base(o))
         .unwrap_or("")
         .to_ascii_lowercase();
+    if (base.as_str(), ord.as_str()) != ("remote", "flyer")
+        && db
+            .prop_f32(weapon, "MedalsTypeToUnlock")
+            .is_some_and(|m| m != -1.0)
+    {
+        return SlotKind::NotBuilt("an award weapon, unlocked by a medal (no medals yet)");
+    }
     match (base.as_str(), ord.as_str()) {
         ("repair", _) => SlotKind::Repair,
         ("grenade", "sticky") if channel == 1 => SlotKind::Thrown,
         ("dispenser" | "detonator", "mine") => SlotKind::Dispenser,
         ("remote", "droid") => SlotKind::Remote,
-        ("remote", _) => SlotKind::NotBuilt("the guided rocket, a remote-flown flyer"),
+        ("remote", "flyer") => SlotKind::Guided,
+        ("remote", _) => SlotKind::NotBuilt("an unsupported remote entity"),
         ("dispenser", "portableturret") => SlotKind::Dispenser,
         ("dispenser", "powerupitem") => SlotKind::Dispenser,
         ("cannon", "emitterordnance") if channel == 1 => {
@@ -967,6 +970,9 @@ pub fn slot_kind(db: &ClassDb, weapon: &str, channel: u8) -> SlotKind {
 
 pub fn class_slot_kind(db: &ClassDb, soldier: &str, weapon: &str, channel: u8) -> SlotKind {
     match slot_kind(db, weapon, channel) {
+        SlotKind::Guided if soldier.contains("_hero_") => {
+            SlotKind::NotBuilt("hero equipment (the hero work)")
+        }
         SlotKind::Ability if !soldier.contains("officer") => {
             SlotKind::NotBuilt("hero abilities (the hero work)")
         }
@@ -987,6 +993,7 @@ pub fn held_slots(db: &ClassDb, soldier: &str, primary: u8) -> Vec<HeldSlot> {
                 | SlotKind::Dispenser
                 | SlotKind::Ability
                 | SlotKind::Cloak
+                | SlotKind::Guided
                 | SlotKind::Remote => weapon_from_db(db, &name).ok()?,
                 SlotKind::NotBuilt(_) => return None,
             };

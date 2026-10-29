@@ -77,6 +77,7 @@ pub struct Pose {
     pub vehicles: Vec<VehiclePose>,
     pub droids: Vec<ItemPose>,
     pub turrets: Vec<ItemPose>,
+    pub guided: Vec<(u64, Vec3, Quat, f32)>,
     pub zoom_s: f32,
     pub zoom_fov_mix: f32,
     pub cam_place: Option<(f32, Vec3)>,
@@ -129,6 +130,9 @@ impl Pose {
                 pitch: t.pitch,
                 up: t.up,
             }));
+        self.guided.clear();
+        self.guided
+            .extend(walk.sim.guided.iter().map(|r| (r.id, r.pos, r.rot, r.bank)));
         self.zoom_s = walk.zoom_s;
         self.zoom_fov_mix = walk.zoom_fov_mix;
         self.cam_place = walk.cam_place;
@@ -159,6 +163,11 @@ impl Pose {
         for (t, p) in walk.sim.turrets.iter_mut().zip(&self.turrets) {
             if t.id == p.id {
                 (t.pos, t.yaw, t.pitch, t.up) = (p.pos, p.yaw, p.pitch, p.up);
+            }
+        }
+        for (r, p) in walk.sim.guided.iter_mut().zip(&self.guided) {
+            if r.id == p.0 {
+                (r.pos, r.rot, r.bank) = (p.1, p.2, p.3);
             }
         }
         walk.zoom_s = self.zoom_s;
@@ -247,6 +256,13 @@ pub fn blend(prev: &Pose, cur: &Pose, t: f32) -> Pose {
     }
     blend_items(&prev.droids, &mut out.droids, t);
     blend_items(&prev.turrets, &mut out.turrets, t);
+    for r in &mut out.guided {
+        if let Some(p) = prev.guided.iter().find(|p| p.0 == r.0) {
+            r.1 = mix3(p.1, r.1, t);
+            r.2 = p.2.lerp(r.2, t).normalize();
+            r.3 = mix(p.3, r.3, t);
+        }
+    }
     out.zoom_s = mix(prev.zoom_s, cur.zoom_s, t);
     out.zoom_fov_mix = mix(prev.zoom_fov_mix, cur.zoom_fov_mix, t);
     if let (Some(p), Some(c)) = (prev.cam_place, cur.cam_place) {

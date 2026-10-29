@@ -158,7 +158,11 @@ impl Sim {
                     (v.health.cur + repair.health[v.health.health_type as usize]).min(v.health.max);
                 (v.pos, v.health.cur - before)
             }
-            Target::Unit(_) | Target::Mine(_) | Target::Droid(_) | Target::Turret(_) => return,
+            Target::Unit(_)
+            | Target::Mine(_)
+            | Target::Droid(_)
+            | Target::Turret(_)
+            | Target::Guided(_) => return,
         };
         if amount > 0.0 {
             self.events.push(Event::Repair {

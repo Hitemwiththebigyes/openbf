@@ -34,6 +34,7 @@ impl SoldierVisuals {
                     && w.mine.is_none()
                     && w.remote.is_none()
                     && w.turret.is_none()
+                    && w.guided.is_none()
                 {
                     return None;
                 }
@@ -785,6 +786,10 @@ impl SoldierVisuals {
             .chain(sim.turrets.iter().map(|t| {
                 let m = Mat4::from_rotation_translation(t.rotation(), t.pos);
                 (t.weapon_class, m)
+            }))
+            .chain(sim.guided.iter().map(|r| {
+                let m = Mat4::from_rotation_translation(r.drawn_rotation(), r.pos);
+                (r.weapon_class, m)
             }))
             .chain(sim.mines.iter().map(|m| {
                 let at = Mat4::from_rotation_translation(m.rotation, m.flight.pos);

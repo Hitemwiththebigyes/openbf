@@ -45,6 +45,7 @@ pub enum Target {
     Mine(u64),
     Droid(u64),
     Turret(u64),
+    Guided(u64),
 }
 
 #[derive(Clone, Debug)]
@@ -135,6 +136,10 @@ impl Bolt {
             Hit::Water => eat(&[6]),
             Hit::Target(Target::Mine(id)) => {
                 eat(&[7]);
+                eat(&id.to_le_bytes());
+            }
+            Hit::Target(Target::Guided(id)) => {
+                eat(&[10]);
                 eat(&id.to_le_bytes());
             }
             Hit::Target(Target::Droid(id)) => {

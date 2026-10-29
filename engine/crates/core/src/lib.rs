@@ -13,6 +13,7 @@ pub mod cp;
 pub mod door;
 pub mod flash;
 pub mod fmath;
+pub mod guided;
 pub mod heightfield;
 pub mod impact;
 pub mod laser;

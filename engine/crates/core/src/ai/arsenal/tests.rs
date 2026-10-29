@@ -13,6 +13,35 @@ use crate::weapon::{ExplosionClass, OrdnanceClass, Thrown};
 use crate::TICK_DT;
 
 #[test]
+fn guided_scoring_uses_authored_explosion_damage_and_target_scales() {
+    let src = crate::remote::tests::Props(&[]);
+    let mut class = crate::guided::GuidedClass::from_props(&src);
+    let mut scales = [1.0; 7];
+    scales[2] = 0.2;
+    class.explosion = Some(ExplosionClass {
+        damage: 500.0,
+        scales,
+        ..Default::default()
+    });
+    let mut weapon = WeaponClass {
+        guided: Some(Box::new(crate::guided::GuidedWeapon::new(&src, class))),
+        ..Default::default()
+    };
+    assert_eq!(shot(&weapon, 0), 500.0);
+    assert_eq!(shot(&weapon, 2), 100.0);
+    weapon
+        .guided
+        .as_mut()
+        .unwrap()
+        .class
+        .explosion
+        .as_mut()
+        .unwrap()
+        .damage = 0.0;
+    assert_eq!(shot(&weapon, 0), 0.0);
+}
+
+#[test]
 fn supply_dispensers_are_never_attack_weapons() {
     let mut pack = thermal();
     pack.dispenser = Some(crate::weapon::Dispenser {

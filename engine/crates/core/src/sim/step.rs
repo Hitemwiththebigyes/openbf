@@ -404,6 +404,7 @@ impl Sim {
             }
         }
 
+        let guided_pads = self.guided_pads(&mut unit_pads);
         let droid_pads = if self.droids.is_empty() {
             Vec::new()
         } else {
@@ -429,6 +430,11 @@ impl Sim {
             let Some(ph) = self.players[slot] else {
                 continue;
             };
+            if self.controlled_guided(ph).is_some() {
+                self.magnet[slot] = None;
+                self.reticle_pick[slot] = None;
+                continue;
+            }
             if self.unit(ph).is_none_or(|u| u.mount.is_some()) {
                 continue;
             }
@@ -877,6 +883,7 @@ impl Sim {
         self.tick_mines(dt);
         self.tick_droids(dt, &droid_pads);
         self.tick_turrets(dt);
+        self.tick_guided(&guided_pads, dt);
 
         // 5c. The pickups (PWUP): flight, life, the touch.
         self.tick_buffs(dt);

@@ -145,6 +145,23 @@ pub fn vehicle_camera(
     (target, Camera { position, ..cam })
 }
 
+pub fn guided_camera(
+    r: &core::guided::GuidedRocket,
+    c: &core::guided::GuidedClass,
+    fov_y: f32,
+) -> Camera {
+    let (yaw, pitch) = r.yaw_pitch();
+    let target = r.pos + r.rot * c.track_center;
+    let position = target + r.rot * c.track_offset;
+    Camera {
+        position,
+        yaw,
+        pitch,
+        fov_y,
+        ..Camera::default()
+    }
+}
+
 pub fn droid_camera(
     d: &core::remote::Droid,
     c: &core::remote::DroidClass,
@@ -1054,6 +1071,11 @@ impl WalkSim {
         if let Some(b) = &self.backdrop {
             return b.camera();
         }
+        if let Some(r) = self.sim.controlled_guided(self.player) {
+            if let Some(c) = self.sim.guided_class(r) {
+                return guided_camera(r, c, self.fov_y());
+            }
+        }
         if let Some(cam) = self.droid_camera() {
             return cam;
         }
@@ -1159,9 +1181,12 @@ impl WalkSim {
         if me.mount.is_some() {
             return 0.5;
         }
-        let (a, d) = match self.sim.controlled_droid(self.player) {
-            Some(droid) => (droid.muzzle(), droid.aim_frame().0),
-            None => me.aim_ray(self.sim.ground_rules, self.sim.views()),
+        let (a, d) = if let Some(r) = self.sim.controlled_guided(self.player) {
+            (r.pos, r.forward())
+        } else if let Some(droid) = self.sim.controlled_droid(self.player) {
+            (droid.muzzle(), droid.aim_frame().0)
+        } else {
+            me.aim_ray(self.sim.ground_rules, self.sim.views())
         };
         let clip = self.camera().view_proj(1.0) * (a + d * 1024.0).extend(1.0);
         0.5 - 0.5 * clip.y / clip.w

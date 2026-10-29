@@ -104,6 +104,9 @@ impl Sim {
                 pitch,
             });
         }
+        if self.controlled_guided(h).is_some() {
+            return None;
+        }
         let Some(m) = u.mount else {
             if u.soldier.look_frozen() {
                 return None;

@@ -1627,7 +1627,8 @@ fn fielded_classes_hold_their_sidearm_and_grenades() {
                         c.class
                     );
                     assert!(
-                        !h.weapon.name.contains("award"),
+                        !h.weapon.name.contains("award")
+                            || h.weapon.guided.as_ref().is_some_and(|g| g.requires_award),
                         "{}: {}",
                         c.class,
                         h.weapon.name
