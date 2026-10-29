@@ -252,6 +252,11 @@ pub struct WeaponClass {
     /// other weapon.
     pub thrown: Option<Thrown>,
     pub offhand_weapon: bool,
+    /// `ScoreForMedalsType` (BF2 wpn+0x1e0, `analysis/re-hitzones.md` §3):
+    /// which award the weapon's hits count toward (2 = demolition, the
+    /// rocket launchers; 4 = marksman, the sniper rifles). `None` when no
+    /// class in the chain authors it (every BF1 weapon).
+    pub medals_type: Option<i8>,
     pub repair: Option<Repair>,
     pub dispenser: Option<Dispenser>,
     pub mine: Option<Dispenser<crate::mine::MineClass>>,
@@ -402,6 +407,7 @@ impl Default for WeaponClass {
             flash: None,
             thrown: None,
             offhand_weapon: false,
+            medals_type: None,
             repair: None,
             dispenser: None,
             mine: None,
@@ -573,6 +579,7 @@ impl WeaponClass {
             // re-muzzle-flash §2's BF1 Alliance rifle row.
             thrown: None,
             offhand_weapon: false,
+            medals_type: None,
             repair: None,
             dispenser: None,
             mine: None,
@@ -657,6 +664,8 @@ impl WeaponClass {
             reload_sound: Some("com_weap_inf_reload_med".into()),
             empty_sound: Some("com_weap_inf_ammo_empty".into()),
             change_sound: Some("com_weap_inf_equip_med".into()),
+            // `com_weap_inf_rifle`'s ScoreForMedalsType (the rifle award).
+            medals_type: Some(1),
             // re-muzzle-flash §2's BF2 Republic rifle row.
             flash: Some(crate::flash::MuzzleFlashLook {
                 radius: 0.6,
@@ -712,6 +721,9 @@ impl WeaponClass {
         }
         if let Some(v) = pf(src, "OffhandWeapon") {
             w.offhand_weapon = v != 0.0;
+        }
+        if let Some(v) = pf(src, "ScoreForMedalsType") {
+            w.medals_type = Some(v as i8);
         }
         // The zoom keys (`analysis/re-zoom.md` §2): a written 0 reads 1.0
         // (B2:320352-320361, B1:209974-209983), and `ZoomMin` / `ZoomMax`
@@ -949,7 +961,75 @@ impl WeaponClass {
     pub fn ai_distance_table(&self) -> bool {
         self.yaw_spread == 0.0 && self.trigger_single && self.zoom_max >= 6.0
     }
+
+    /// A sniper rifle: a scope weapon (`ZoomFirstPerson`) in the AI's
+    /// sniper table. On the discs: BF1's four `*_weap_inf_sniperrifle`, BF2's
+    /// `com_weap_inf_sniper_rifle` and `com_weap_award_sniper_rifle` and
+    /// their side children. The bowcaster, the award and target pistols and
+    /// the scoped vehicle guns fail the table.
+    pub fn is_sniper_rifle(&self) -> bool {
+        self.zoom_first_person && self.ai_distance_table()
+    }
+
+    /// OURS (the maintainer 2026-10-28: "give bf1 and bf2 snipers aim assist with
+    /// controller"): every disc sniper ships `LockOnRange 0`, so it never has
+    /// a magnet. Give a sniper rifle one: the reach is the rifle's own
+    /// `MaxRange` (128 m on every disc sniper, the AI's band for it), the cone
+    /// its own `LockOnAngle` (1° on every disc sniper, the rifle's), the kinds
+    /// it may take soldiers, animals and droids (the disc's bits) plus
+    /// vehicles when its round hurts them (BF2's VehicleScale 0.1; BF1's is
+    /// 0). The cone's length is at least the new reach. The mouse rule stays:
+    /// a mouse-aimed pad is never pulled (`Sim::step` stage 2). Only the
+    /// human's magnet reads these fields; the AI's own kinds
+    /// (`ai_target_kind`) are left as parsed.
+    pub fn give_sniper_assist(&mut self) {
+        if !self.is_sniper_rifle() || self.lock_on_range > 0.0 {
+            return;
+        }
+        self.lock_on_range = if self.ai_range[2] > 0.0 {
+            self.ai_range[2]
+        } else {
+            SNIPER_LOCK_ON_RANGE
+        };
+        if self.lock_on_angle <= 0.0 {
+            self.lock_on_angle = SNIPER_LOCK_ON_ANGLE;
+        }
+        self.target_team |= 1;
+        self.target_kind |= TARGET_SOLDIER_KINDS;
+        if self.ordnance.scales[3] > 0.0 {
+            self.target_kind |= 1 << 3;
+        }
+        self.extreme_range = self.extreme_range.max(self.lock_on_range);
+    }
+
+    /// An infantry rocket launcher: the weapons whose vehicle critical hits
+    /// count toward BF2's demolition award ("%s rocket launcher critical
+    /// hits on a vehicle", `analysis/re-hitzones.md` §3). BF2: the PS2's
+    /// own key, `ScoreForMedalsType` 2 (`com_weap_inf_rocket_launcher` and
+    /// the four sides' `*_weap_inf_rocket_launcher`, the award and hero
+    /// guided launchers; not the EMP launcher, which writes -1). BF1 has no
+    /// award key: its infantry launchers by name, `*_weap_inf_rocket_launcher`
+    /// and `*_weap_inf_torpedo_launcher` (the four sides' rocket launchers).
+    pub fn rocket_launcher(&self) -> bool {
+        match self.medals_type {
+            Some(t) => t == 2,
+            None => {
+                let n = self.name.to_ascii_lowercase();
+                n.contains("_weap_inf_")
+                    && (n.ends_with("rocket_launcher") || n.ends_with("torpedo_launcher"))
+            }
+        }
+    }
 }
+
+/// [`WeaponClass::give_sniper_assist`]'s reach for a sniper that authors no
+/// `MaxRange` (none on the discs): the discs' sniper `MaxRange`.
+pub const SNIPER_LOCK_ON_RANGE: f32 = 128.0;
+/// [`WeaponClass::give_sniper_assist`]'s cone for a sniper that authors no
+/// `LockOnAngle` (none on the discs): the discs' sniper `LockOnAngle`, 1°.
+pub const SNIPER_LOCK_ON_ANGLE: f32 = DEG;
+/// `TargetPerson | TargetAnimal | TargetDroid`.
+const TARGET_SOLDIER_KINDS: u32 = 0b111;
 
 /// The AI sniper distance table: `(d² upper edge, yaw half-angle in radians)`
 /// (B2:323373-323398 / B1:211274-211299, byte-identical constants in both
@@ -1541,4 +1621,4 @@ pub fn shot_direction(
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

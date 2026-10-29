@@ -137,6 +137,13 @@ pub struct HudModel {
     /// picks (−1 enemy, 1 friend, 0 nothing) — `Sim::reticle_pick`. A
     /// [`HudModel::target`] colours it instead.
     pub reticle: Option<i8>,
+    /// The critical-hit flash (hitmark): `Some(colour)` while the PS2's
+    /// 0.5 s hit timer of the player's last sniper-rifle headshot runs - the
+    /// victim's relation colour, sent as `target.hitColor` with
+    /// `target.hitCritical` every frame (`analysis/re-target-hud.md` §12).
+    /// The layout's `player1reticule_criticalhit` holds it 0.6 s and 0.5 s
+    /// more after the last send.
+    pub hit_critical: Option<[u8; 3]>,
     /// The reticle's pick as the target readout shows it (card HTGT);
     /// `None` = nothing picked.
     pub target: Option<HudTarget>,
@@ -358,6 +365,23 @@ pub fn feed(hud: &mut Hud, m: &HudModel, has_mesh: &dyn Fn(&str) -> bool) {
             None => RETICLE_COLORS[(rel.clamp(-1, 1) + 1) as usize],
         };
         put("player1.weapon1.target.teamColor", EventValue::Color(c));
+        // The hit flash (`FUN_003b3398` B2:410434-410467): every update the
+        // hit timer runs, `hitCritical` (the factor over 1) and its colour.
+        // Body hits send nothing here: the port keeps the plain `hit`
+        // flash off (hitmark, the maintainer 2026-10-28) - the readout's bar shows
+        // them.
+        if let Some(c) = m.hit_critical {
+            hud.send(
+                "player1.weapon1.target.hitColor",
+                EventValue::Color(c),
+                has_mesh,
+            );
+            hud.send(
+                "player1.weapon1.target.hitCritical",
+                EventValue::None,
+                has_mesh,
+            );
+        }
     }
 
     // The event lines: the colour first, then the text (the three senders,
@@ -728,6 +752,7 @@ mod tests {
             weapon: None,
             weapon2: None,
             reticle: Some(0),
+            hit_critical: None,
             target: None,
             reticle_y: 0.5,
             dead: false,
@@ -878,6 +903,45 @@ mod tests {
             step(&mut hud, &m);
         }
         assert_eq!(hud.elems[fill].fader.state, 0, "gone after 1 s");
+    }
+
+    /// The critical-hit flash (hitmark, `re-target-hud.md` §12): while the
+    /// model carries it, `player1reticule_criticalhit` is up in the colour
+    /// sent; after the last send it holds 0.6 s, sustains 0.5 s and goes.
+    /// The plain `hit` flash never lights, and nothing lights without it.
+    #[test]
+    fn a_critical_hit_lights_the_reticle_mark() {
+        let mut hud = crate::hud_tree::fixture::reticle_hud();
+        let crit = hud.find("player1reticule_criticalhit").unwrap();
+        let hit = hud.find("player1reticule_hit").unwrap();
+        let step = |hud: &mut Hud, m: &HudModel| {
+            feed(hud, m, &|_| false);
+            hud.advance(1.0 / 30.0);
+        };
+        let mut m = model();
+        for _ in 0..10 {
+            step(&mut hud, &m);
+        }
+        assert_eq!(hud.elems[crit].fader.state, 0, "no hit: no mark");
+        m.hit_critical = Some(target_color::ENEMY);
+        // The 0.5 s hit timer: 15 frames of sends.
+        for _ in 0..15 {
+            step(&mut hud, &m);
+            assert_eq!(hud.elems[crit].fader.state, 2, "up while sent");
+        }
+        assert_eq!(hud.elems[crit].color, [200.0, 100.0, 100.0], "enemy red");
+        assert!(hud.alpha(crit) > 0.0);
+        assert_eq!(hud.elems[hit].fader.state, 0, "no plain hit flash");
+        m.hit_critical = None;
+        // Hold 0.6 s + sustain 0.5 s after the last send, then out.
+        for _ in 0..30 {
+            step(&mut hud, &m);
+        }
+        assert!(hud.elems[crit].fader.state >= 2, "still up after 1 s");
+        for _ in 0..5 {
+            step(&mut hud, &m);
+        }
+        assert_eq!(hud.elems[crit].fader.state, 0, "gone after 1.1 s");
     }
 
     /// BF2's reticle colours (`re-target-hud.md` §3): friend blue, not BF1's

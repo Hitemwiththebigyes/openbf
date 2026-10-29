@@ -267,13 +267,24 @@ impl VehicleVisuals {
     }
 
     /// The draws of every live vehicle of `sim`, at its sim transform; a
-    /// skinned walker's meshes are posed first (card WSKN).
-    pub fn draws(&mut self, r: &mut Renderer, sim: &core::sim::Sim) -> Vec<DrawCmd> {
+    /// skinned walker's meshes are posed first (card WSKN). A vehicle in
+    /// `faded` is drawn see-through at its opacity (the chase camera's,
+    /// `crate::camera_collide::see_through_vehicles`).
+    pub fn draws(
+        &mut self,
+        r: &mut Renderer,
+        sim: &core::sim::Sim,
+        faded: &[(core::vehicle::VehicleHandle, f32)],
+    ) -> Vec<DrawCmd> {
         let mut out = Vec::new();
         for (slot, v) in sim.vehicles.iter().enumerate().filter(|(_, v)| v.alive) {
             let Some(Some(class)) = self.classes.get(v.class as usize) else {
                 continue;
             };
+            let fade = faded
+                .iter()
+                .find(|(h, _)| h.index as usize == slot && h.gen == v.gen)
+                .map(|&(_, o)| render::Fade::see_through(o));
             let walker = v.kind == core::vehicle::VehicleKind::Walker;
             let posed = match (&class.skin, walker) {
                 (Some(skin), true) => {
@@ -306,14 +317,19 @@ impl VehicleVisuals {
                     out.push(
                         DrawCmd::specular(mesh, t, rgb, power, m)
                             .with_cull(self.spec_cull)
-                            .with_light(p.light),
+                            .with_light(p.light)
+                            .with_fade(fade),
                     );
                 }
                 let base = match p.texture {
                     Some(t) => draw_in(p.layer, mesh, t, m),
                     None => DrawCmd::flat(mesh, [0.6, 0.6, 0.6, 1.0], m),
                 };
-                out.push(base.with_cull(self.cull).with_light(p.light));
+                out.push(
+                    base.with_cull(self.cull)
+                        .with_light(p.light)
+                        .with_fade(fade),
+                );
             }
         }
         out.extend(self.items.draws(r, sim));

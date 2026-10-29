@@ -36,6 +36,7 @@ mod abilities;
 mod blast;
 mod bounds;
 mod buffs;
+mod building_turrets;
 mod cloaks;
 mod combat;
 mod doors;
@@ -64,6 +65,7 @@ pub use bounds::{
     Level, ReturnPath, BOUND_DROP, KILL_FLOOR_DROP, LEVEL_HUBS, LEVEL_RISE, UNDER_MAP_SPEED,
 };
 pub use buffs::Buffs;
+pub use building_turrets::{BuildingTurret, TurretFall};
 pub use droid_death::PUSHED_DEAD_HEALTH;
 pub use guns::SeatLook;
 pub use input::{buttons, AimTarget, InputLog, PadState, LOOK_UNIT};
@@ -83,7 +85,6 @@ pub use stations::{
     Station, StationAnim, StationClass, StationMotion, DELAY_DEFAULT as STATION_DELAY_DEFAULT,
     GATHER_MAX as STATION_GATHER_MAX,
 };
-pub use vehicles::BuildingTurret;
 
 #[cfg(test)]
 mod tests {

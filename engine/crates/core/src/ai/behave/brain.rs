@@ -33,7 +33,11 @@ use super::Tick;
 /// when one is safe ([`crate::ai::unseen`]).
 pub fn think(sim: &Sim, me: UnitHandle, st: &mut AiState) -> (PadState, NavTick) {
     let (was, cp) = (st.behaviour, st.target_cp);
-    let (pad, mut nt) = chain(sim, me, st);
+    let (mut pad, mut nt) = chain(sim, me, st);
+    // Card TBLD: a fixer at its turret stands and holds its cutter on it.
+    if let Some(p) = crate::ai::fix::serve(sim, me, st) {
+        pad = p;
+    }
     // Card UNSN: a bot on the level given up for going nowhere is moved on
     // where no human sees it, else recycled.
     if nt.stalled != 0 && nt.recycle == 0 {
@@ -128,8 +132,15 @@ fn chain(sim: &Sim, me: UnitHandle, st: &mut AiState) -> (PadState, NavTick) {
         // picked (`snipe::upkeep`).
         let seen_any = st.contacts.iter().flatten().any(|c| c.seen_now);
         super::snipe::upkeep(sim, me, u, st, seen_any);
+        // Card TBLD: a cutter carrier's broken turret (`fix::upkeep`).
+        crate::ai::fix::upkeep(sim, me, u, st);
+        let fixing = crate::ai::fix::walk(sim, me, st);
         match (u.command, ring_walk(sim, st), super::snipe::walk(st)) {
             (Some(c), _, _) if !c.in_pool() => crate::squad::steer(sim, me, st, &c, &mut nt),
+            // Card TBLD: a fixer walks to its turret over the graph.
+            _ if fixing.is_some() => {
+                super::route::retarget_board(sim, me, st, fixing.unwrap_or(eye), &mut nt)
+            }
             // Card FGHT: a circling bot walks over the graph to its ring
             // point's hub and straight at the point from there (as a boarder
             // walks to its vehicle).
@@ -469,6 +480,17 @@ fn chain(sim: &Sim, me: UnitHandle, st: &mut AiState) -> (PadState, NavTick) {
         _ => goal,
     };
     let at_spot = spot.filter(|p| goal == Some(*p));
+    // Card TBLD: a fixer's stand by its turret - over the graph, and
+    // straight at it on the last leg and with no route; ahead of the ring
+    // and the spot (it walks only while no enemy is seen).
+    let fixing = crate::ai::fix::walk(sim, me, st).filter(|_| {
+        ret.is_none() && flee.is_none() && boarding.is_none() && item.is_none() && st.cmd.is_none()
+    });
+    let goal = match fixing {
+        Some(p) if st.route.is_none_or(|r| r.is_last()) => Some(p),
+        _ => goal,
+    };
+    let at_fix = fixing.filter(|p| goal == Some(*p));
     // Card HOLD: the position held (when nothing more urgent walks the bot).
     let holding = st.hold.filter(|h| {
         sim.tick < h.until
@@ -477,6 +499,7 @@ fn chain(sim: &Sim, me: UnitHandle, st: &mut AiState) -> (PadState, NavTick) {
             && boarding.is_none()
             && item.is_none()
             && ring.is_none()
+            && fixing.is_none()
     });
     // Diagnostic (card BLKF): which link of the chain below walks the bot.
     let walk_kind = match () {
@@ -498,6 +521,7 @@ fn chain(sim: &Sim, me: UnitHandle, st: &mut AiState) -> (PadState, NavTick) {
         WalkAsk::PICKUP => item.map(|p| (p, 0.2)),
         WalkAsk::HOLD => holding.map(|h| (h.goal, HOLD_ARRIVE)),
         // (Card TPOS: a position is walked onto, as a held one is.)
+        WalkAsk::LEG if fixing.is_some() => at_fix.map(|p| (p, HOLD_ARRIVE)),
         WalkAsk::LEG if ring.is_some() && st.fight.mode == FightState::TAKE => {
             at_ring.map(|p| (p, HOLD_ARRIVE))
         }
@@ -546,6 +570,10 @@ fn chain(sim: &Sim, me: UnitHandle, st: &mut AiState) -> (PadState, NavTick) {
         (None, None, None, None)
             if boarding.is_some() && st.ride.is_some_and(|r| r.player_board.is_some()) =>
         {
+            AimRequest::Travel(goal.unwrap_or(pos) + Vec3::Y * 1.4)
+        }
+        // Card TBLD: a fixer with no route walks straight at its turret.
+        (None, None, None, None) if fixing.is_some() => {
             AimRequest::Travel(goal.unwrap_or(pos) + Vec3::Y * 1.4)
         }
         (None, None, None, Some(r)) => AimRequest::Travel(r.waypoint),
@@ -756,6 +784,10 @@ fn chain(sim: &Sim, me: UnitHandle, st: &mut AiState) -> (PadState, NavTick) {
         // Card SNPR: at the sniper's spot, or the way to it shut.
         Walk::Arrived if at_spot.is_some() && holding.is_none() => {
             super::snipe::arrive(sim, me, st);
+        }
+        Walk::Failed if fixing.is_some() => {
+            crate::ai::fix::walk_failed(sim, st);
+            recover(sim, st, &mut nt);
         }
         Walk::Failed if spot.is_some() && holding.is_none() => {
             super::snipe::walk_failed(sim, st);

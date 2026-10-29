@@ -1,6 +1,8 @@
 //! Issue #36: a soldier a blast throws near BF2 Coruscant's walls stays in
 //! the chase camera's view (walls used to pull the camera in toward the look
-//! point above him, which dropped him off the bottom of the screen).
+//! point above him, which dropped him off the bottom of the screen) - or,
+//! with the camera come into him, his body is hidden and the view is his
+//! (`game::camera_collide::BODY_HIDE_DIST`, playtest 2026-10-28).
 use core::sim::{buttons, PadState, Sim, SpawnStage};
 use core::soldier::Stance;
 use core::weapon::ExplosionClass;
@@ -100,6 +102,9 @@ fn a_thrown_soldier_stays_in_view_near_coruscants_walls() {
             walk.step_tick(&[PadState::default()]);
             ticks += 1;
             let (x, y, w) = on_screen(&walk);
+            if walk.player_body_hidden() {
+                continue;
+            }
             let m = x.abs().max(y.abs());
             if (m > 1.0 || w <= 0.0) && first_out.is_none() {
                 let s = walk.soldier();

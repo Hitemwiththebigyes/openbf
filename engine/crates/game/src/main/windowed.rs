@@ -1354,6 +1354,7 @@ impl winit::application::ApplicationHandler for App {
                 }
                 let mut extra: Vec<DrawCmd> = Vec::new();
                 let mut skinned: Vec<render::SkinnedDrawCmd> = Vec::new();
+                let mut see = game::camera_collide::SeeThrough::default();
                 // The loaded map's own clear colour (its fog, where it authors
                 // fog); the shell and the pre-map screens keep the default.
                 let clear = self.gpu.as_ref().map_or(CLEAR, |g| g.clear);
@@ -1704,8 +1705,11 @@ impl winit::application::ApplicationHandler for App {
                         .as_ref()
                         .map_or([false; 2], |v| [v.has_model(0), v.has_model(1)]);
                     walk_draws(*cube, walk, &mut extra, models);
+                    // The props and vehicles in the camera's way are drawn
+                    // see-through (`game::camera_collide`).
+                    see = walk.camera_see_through();
                     if let Some(r) = self.renderer.as_mut() {
-                        extra.extend(self.vehicle_vis.draws(r, &walk.sim));
+                        extra.extend(self.vehicle_vis.draws(r, &walk.sim, &see.vehicles));
                     }
                     if let Some(vis) = self.soldier_vis.as_ref() {
                         skinned = vis.draws(walk);
@@ -1800,6 +1804,7 @@ impl winit::application::ApplicationHandler for App {
                             gpu.pose_doors(&walk.sim.doors);
                             gpu.pose_turrets(&walk.sim, &walk.vehicle_seats);
                             gpu.pose_stations(&walk.sim);
+                            gpu.see_through(&see.props);
                             self.holos.advance(walk);
                             game::point_light::submit(
                                 r,

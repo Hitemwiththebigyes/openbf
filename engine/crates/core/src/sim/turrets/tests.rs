@@ -140,6 +140,34 @@ fn it_shoots_an_enemy_in_range_dead_for_its_owner() {
     assert_eq!(kills, [(owner, enemy)]);
 }
 
+/// Card TKFIX (ours): the turret holds its fire while a friend of its team
+/// stands on the line to its target, and shoots once he has left it. Its
+/// kills are its owner's, so a shot through the friend was a team kill.
+#[test]
+fn it_holds_fire_through_a_friend_on_its_line() {
+    let (mut sim, owner, weapon) = setup();
+    deploy(&mut sim);
+    let enemy = enemy_ahead(&mut sim, 20.0);
+    let mid = sim.turrets[0].pos.with_y(0.0) - Vec3::Z * 8.0;
+    let friend = sim.spawn(&UnitSpec::trooper(0, mid)).unwrap();
+    let events = run(&mut sim, 10.0);
+    let g = gun(&sim, weapon);
+    assert_eq!(shots(&events, g), 0, "a shot with the friend on its line");
+    assert!(sim
+        .unit(friend)
+        .is_some_and(|u| u.health.cur == u.health.max));
+    assert!(sim.turrets[0].target.is_some(), "it tracks the enemy");
+    sim.unit_mut(friend).unwrap().soldier.pos = mid + Vec3::X * 6.0;
+    let events = run(&mut sim, 15.0);
+    assert!(shots(&events, g) >= 4, "fires once the line is clear");
+    assert!(events.iter().any(
+        |e| matches!(e, Event::Kill { shooter, victim } if *shooter == owner && *victim == enemy)
+    ));
+    assert!(sim
+        .unit(friend)
+        .is_some_and(|u| u.health.cur == u.health.max));
+}
+
 /// Review fix 1: a turret thrown in a previous life credits its owner's
 /// current life (the same unit slot), not the stale handle.
 #[test]

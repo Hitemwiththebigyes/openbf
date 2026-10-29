@@ -175,6 +175,7 @@ fn hud_model(dead: bool) -> ui::hud::HudModel {
         squad: None,
         capture: None,
         ambush: vec![],
+        hit_critical: None,
         spawn: None,
         scope: None,
     }

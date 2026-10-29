@@ -69,18 +69,18 @@ pub(crate) struct Instance {
     /// [`affine::AFFINE_BIT`](crate::affine::AFFINE_BIT), set by the draw's
     /// layer. Compare the path with `light & 0xff`, never the whole word.
     pub light: u32,
-    /// The per-instance distance fade, `[begin, end, near]` metres
+    /// The per-instance fade, `[begin, end, near]` metres and its opacity
     /// ([`DrawCmd::fade`](crate::DrawCmd::fade)); [`NO_FADE`] for a draw
-    /// with none, which is every draw but the terrain foliage.
-    pub fade: [f32; 3],
+    /// with none.
+    pub fade: [f32; 4],
     /// The light-table records this instance's vertices add (card BPNT,
     /// `crate::point_light::gather`); 0 = none.
     pub lights: [u16; 4],
 }
 
 /// "This draw never fades": a begin no horizontal distance reaches, and no
-/// near fade.
-pub(crate) const NO_FADE: [f32; 3] = [NO_CULL, NO_CULL, 0.0];
+/// near fade, at full opacity.
+pub(crate) const NO_FADE: [f32; 4] = [NO_CULL, NO_CULL, 0.0, 1.0];
 
 /// "This draw is never culled by distance." A finite metre value rather than
 /// an infinity: it travels as an interpolated vertex output, and a finite one
@@ -103,7 +103,7 @@ impl Instance {
         11 => Float32x2, // cull band [lo, hi], metres
         12 => Float32x2, // near-edge band [lo, hi], metres
         13 => Uint32,   // light path
-        14 => Float32x3, // fade [begin, end, near], metres
+        14 => Float32x4, // fade [begin, end, near] metres, opacity
         15 => Uint16x4, // light-table records, 0 = none
     ];
 
@@ -437,8 +437,9 @@ mod tests {
         // 3+3+2 f32 + 4 u8 = 36 bytes, matching Vertex::layout() stride.
         assert_eq!(std::mem::size_of::<Vertex>(), 36);
         // mat4 + vec4 + the far cull band + the near-edge band + the light
-        // path + the fade + the four light records = 120 bytes.
-        assert_eq!(std::mem::size_of::<Instance>(), 120);
+        // path + the fade (with its opacity) + the four light records = 124
+        // bytes.
+        assert_eq!(std::mem::size_of::<Instance>(), 124);
         // Vertex + 4 u8 joints + 4 f32 weights = 56 bytes.
         assert_eq!(std::mem::size_of::<SkinnedVertex>(), 56);
         // Palette stride must satisfy the 256-B dynamic-offset alignment.

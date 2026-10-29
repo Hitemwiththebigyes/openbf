@@ -291,7 +291,6 @@ pub(super) fn make_walk(scene: &game::assets::Scene, b: &BattleSetup) -> WalkSim
     // instance).
     scene.install_collision(&mut walk.sim);
     walk.camera_blockers = game::camera_collide::CameraBlockers::from_scene(scene);
-    walk.fov_y_ps2 = game::walk::ps2_fov_y(&scene.manifest.source_game);
     if b.targets {
         walk.spawn_dummy_targets();
     }
@@ -508,6 +507,8 @@ pub(super) fn hud_model(
         }),
         messages: feed.take(),
         ambush: feed.take_ambush(),
+        // The sniper headshot's reticle mark (hitmark).
+        hit_critical: feed.hit_critical(walk.sim.tick),
         stats: Some(feed.stats(&walk.sim, walk.player)),
         player_team: me.team,
         map: walk.minimap.as_ref().map(|m| match &spawn {

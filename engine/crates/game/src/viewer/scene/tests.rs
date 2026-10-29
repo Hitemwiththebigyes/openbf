@@ -38,6 +38,7 @@ fn door_and_speckle_indices_follow_an_ocean_splice() {
         &mut doors,
         &mut turrets,
         &mut [],
+        &mut [],
         &mut speckle,
         &(10..12),
         130,
@@ -53,6 +54,7 @@ fn door_and_speckle_indices_follow_an_ocean_splice() {
         &mut doors,
         &mut turrets,
         &mut [],
+        &mut [],
         &mut speckle,
         &(10..140),
         2,
@@ -62,6 +64,7 @@ fn door_and_speckle_indices_follow_an_ocean_splice() {
     reindex_after_splice(
         &mut doors,
         &mut turrets,
+        &mut [],
         &mut [],
         &mut speckle,
         &(10..12),

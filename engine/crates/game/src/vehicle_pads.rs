@@ -157,14 +157,10 @@ pub struct TurretDef {
     pub instance: u32,
     pub spec: VehicleSpec,
     pub rot: glam::Quat,
-    /// Its class's `RespawnTime` (s): a fallen one is built again after it.
-    pub respawn_time: f32,
+    /// What it falls to and that look's geometry
+    /// ([`crate::turret_fall::fall_look`], card TBLD).
+    pub fall: (core::sim::TurretFall, Option<String>),
 }
-
-/// An armed building's `RespawnTime` where its class authors none (the
-/// constructor's default, `analysis/re-build-zones.md` 0.3; BF1's gun
-/// turret measured 2.5 HP a second of its 300).
-pub const ARMED_RESPAWN_TIME: f32 = 120.0;
 
 /// A building turret's acquisition sphere (card HTGT, `Vehicle::aim_sphere`):
 /// the box around its building's bodies (`Body::instance`), as a centre in
@@ -375,11 +371,7 @@ pub fn add_turrets(
         if spec.seats.is_empty() {
             continue;
         }
-        // A fallen armed building is built again after its `RespawnTime`
-        // (the class default 120 s; `core::sim::BuildingTurret`).
-        let respawn_time = db
-            .prop_f32(&name, "RespawnTime")
-            .unwrap_or(ARMED_RESPAWN_TIME);
+        let fall = crate::turret_fall::fall_look(db, &name);
         if index == out.classes.len() {
             out.classes.push(name);
             out.geometry.push(None);
@@ -390,7 +382,7 @@ pub fn add_turrets(
         out.turrets.push(TurretDef {
             name: inst.name.clone(),
             instance: ii as u32,
-            respawn_time,
+            fall,
             rot: instance_rot(&inst.rotation).unwrap_or(core::vehicle::hover::quat_y(-spec.yaw)),
             spec,
         });
@@ -459,9 +451,15 @@ pub fn install(
     // mode-merged instances.
     crate::roster::add_stations(sim, &m.instances, &db, game == "bf2");
     crate::stations::install_collision(sim, m, map_dir, &db)?;
+    let common = crate::stations::load_common(m, map_dir)?;
     for t in &b.turrets {
         let sphere = building_sphere(&sim.collision, t.instance, t.spec.pos, t.rot);
-        sim.add_building_turret(t.spec.clone(), t.rot, sphere, t.instance, t.respawn_time);
+        let class = &b.classes[t.spec.class as usize];
+        let parts = match &t.fall.1 {
+            Some(g) => crate::turret_fall::collision_parts(m, map_dir, &common, g, class)?,
+            None => Vec::new(),
+        };
+        sim.add_building_turret(t.spec.clone(), t.rot, sphere, t.instance, (t.fall.0, parts));
     }
     // The hover numbers per class (card HOVR): `Sim::tick_hovers` moves
     // every pad vehicle whose class is a hover.

@@ -128,9 +128,17 @@ impl ReplayFrame {
         gpu.pose_doors(&walk.sim.doors);
         gpu.pose_turrets(&walk.sim, &walk.vehicle_seats);
         gpu.pose_stations(&walk.sim);
+        // A set viewer camera is not the chase camera: it sees through
+        // nothing.
+        let see = if v.cam_set {
+            game::camera_collide::SeeThrough::default()
+        } else {
+            walk.camera_see_through()
+        };
+        gpu.see_through(&see.props);
         let mut draws = gpu.view_draws(&walk.sim, walk.player);
         walk_draws(self.cube, walk, &mut draws, self.models);
-        draws.extend(self.vehicle_vis.draws(r, &walk.sim));
+        draws.extend(self.vehicle_vis.draws(r, &walk.sim, &see.vehicles));
         let skinned = self.vis.draws(walk);
         draws.extend(self.vis.weapon_draws(walk));
         draws.extend(self.fx.draws(self.quad, self.sprite, &cam));
@@ -252,6 +260,7 @@ fn append_events(csv: &mut String, tick: usize, events: &[core::sim::Event]) {
                     core::projectile::Target::Droid(i) => format!("d{i}"),
                     core::projectile::Target::Turret(i) => format!("t{i}"),
                     core::projectile::Target::Guided(i) => format!("g{i}"),
+                    core::projectile::Target::Building(i) => format!("b{i}"),
                 };
                 format!("{tick},repair,{},{target},{amount}\n", unit.index)
             }
@@ -274,6 +283,8 @@ fn append_events(csv: &mut String, tick: usize, events: &[core::sim::Event]) {
             Event::BoltExpired { struck, .. } => format!("{tick},expire,,,{}\n", *struck as u8),
             // Render-only, and the expire / hit line already records it.
             Event::Impact { .. } => continue,
+            // HUD-only (the reticle mark); the hit line records the hit.
+            Event::CriticalHit { .. } => continue,
             Event::Despawn { unit } => format!("{tick},despawn,{},,\n", unit.index),
             Event::Respawn { unit } => format!("{tick},respawn,{},,\n", unit.index),
             Event::Reload { unit, .. } => format!("{tick},reload,{},,\n", unit.index),
@@ -456,7 +467,7 @@ pub(super) fn run_bench(v: &ViewerArgs) -> Result<()> {
         gpu.pose_stations(&walk.sim);
         let mut draws = gpu.draws.clone();
         walk_draws(cube, &walk, &mut draws, models);
-        draws.extend(vehicle_vis.draws(&mut r, &walk.sim));
+        draws.extend(vehicle_vis.draws(&mut r, &walk.sim, &[]));
         let skinned = vis.draws(&walk);
         battle_draws = draws.len();
         skinned_draws = skinned.len();

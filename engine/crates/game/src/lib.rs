@@ -48,6 +48,7 @@ pub mod spawn_page;
 pub mod spawn_preview;
 pub mod squad_vis;
 pub mod stations;
+pub mod turret_fall;
 pub mod unit_probe;
 pub mod unlocks;
 pub mod vehicle_class;

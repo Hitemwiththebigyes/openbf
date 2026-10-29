@@ -12,8 +12,9 @@
 //! ticks 9390-9480, facing it). Since building turrets take damage
 //! (874e9de1) a fallen one was removed for good while its building still
 //! stood as before. The PS2 builds a fallen armed building again at full
-//! health after its `RespawnTime` (`analysis/re-build-zones.md` 0.3); so does
-//! the port now (`core::sim::BuildingTurret`).
+//! health after its `RespawnTime` (`analysis/re-build-zones.md` 0.3); the
+//! port builds it only with a fusion cutter (the maintainer 2026-10-28, card TBLD,
+//! `core::sim::BuildingTurret`).
 
 use core::sim::{buttons, PadState, Sim};
 use core::unit::{Controller, UnitHandle};
@@ -190,15 +191,12 @@ fn every_yav2_turret_is_entered_by_either_side_from_its_door() {
 }
 
 #[test]
-fn a_destroyed_yav2_turret_is_built_again_after_its_respawn_time() {
+fn a_destroyed_yav2_turret_stays_down_until_a_cutter_builds_it() {
     let Some(mut w) = world() else {
         return;
     };
     let vh = turrets(&w)[0];
     let pos = w.sim.vehicle(vh).unwrap().pos;
-    let max = w.sim.vehicle(vh).unwrap().health.max;
-    let respawn = w.sim.building_turrets[0].respawn_time;
-    assert_eq!(respawn, game::vehicle_pads::ARMED_RESPAWN_TIME);
     // An imperial bot mans it: a rebel player is refused (the turret is the
     // Empire's while he sits in it), an imperial one takes his seat.
     let bot = spawn(&mut w, CLASSES[0], 0, pos, Controller::Ai);
@@ -209,30 +207,31 @@ fn a_destroyed_yav2_turret_is_built_again_after_its_respawn_time() {
     assert!(w.sim.enter_vehicle(w.me[0], vh, 0));
     assert!(w.sim.unit(bot).unwrap().mount.is_none());
     w.sim.exit_vehicle(w.me[0]);
-    // Destroyed: nothing to enter until its RespawnTime has run.
+    // Destroyed: nothing to enter, and nothing comes back by itself (the maintainer
+    // 2026-10-28: only a fusion cutter fixes it; the PS2 regenerates it over
+    // its RespawnTime). The bot (a stormtrooper) carries no cutter.
     w.sim.destroy_vehicle(vh, None);
     assert!(w.sim.vehicle(vh).is_none());
-    let fell = w.sim.tick;
     for team in 0..2 {
         assert_eq!(walk_in(&mut w, vh, pos, team, 8), Some(false));
     }
-    let rebuilt = loop {
+    let fell = w.sim.tick;
+    while w.sim.tick < fell + 300 * 30 {
         w.sim.step(&idle());
-        if let Some((h, _)) = w
-            .sim
-            .alive_vehicles()
-            .find(|(_, v)| v.kind == VehicleKind::Turret && v.pos == pos)
-        {
-            break h;
-        }
-        assert!(w.sim.tick < fell + 200 * 30, "never built again");
-    };
-    let secs = (w.sim.tick - fell) as f32 / 30.0;
-    assert!(
-        (secs - respawn).abs() <= 1.0,
-        "built again {secs} s after it fell"
-    );
-    let v = w.sim.vehicle(rebuilt).unwrap();
+    }
+    assert!(w
+        .sim
+        .alive_vehicles()
+        .all(|(_, v)| v.kind != VehicleKind::Turret || v.pos != pos));
+    assert!(w.sim.building_down(w.sim.building_turrets[0].instance));
+    // A cutter's last shot builds it: neutral, empty, full, on its building.
+    let max = w.sim.building_turrets[0].spec.max_health;
+    w.sim.repair_building(0, max);
+    let (rebuilt, v) = w
+        .sim
+        .alive_vehicles()
+        .find(|(_, v)| v.kind == VehicleKind::Turret && v.pos == pos)
+        .expect("built");
     assert_eq!(v.health.cur, max);
     assert_eq!((v.team, v.seats[0].occupant), (None, None));
     let inst = w.sim.building_turrets[0].instance;

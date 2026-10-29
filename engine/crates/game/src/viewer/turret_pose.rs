@@ -521,9 +521,12 @@ impl super::SceneGpu {
     }
 
     /// The scene's draws as `viewer` sees them: [`SceneGpu::draws`] less
-    /// [`SceneGpu::hidden_for`].
+    /// [`SceneGpu::hidden_for`], with every fallen building turret's look in
+    /// place of its intact draws (card TBLD, `super::turret_fall`).
     pub fn view_draws(&self, sim: &core::sim::Sim, viewer: core::unit::UnitHandle) -> Vec<DrawCmd> {
-        self.station_view_draws(sim, self.hidden_for(sim, viewer))
+        let (mut hidden, fallen) = self.fallen_view(sim);
+        hidden.extend(self.hidden_for(sim, viewer));
+        self.station_view_draws(sim, hidden, fallen)
     }
 
     /// Pose drawn armed buildings at one `look` and `aim` (the port's yaw,

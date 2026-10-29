@@ -62,6 +62,19 @@ pub fn ps2_soldier_fovs(rules: core::soldier::GroundRules) -> (f32, f32) {
     }
 }
 
+/// The chase camera's (third-person, zoomed) FOVs in degrees: BF2's on every
+/// map - OURS, the one default camera of [`core::unit::camera_section`]
+/// (playtest 2026-10-28).
+pub fn chase_fovs() -> (f32, f32) {
+    ps2_soldier_fovs(core::soldier::GroundRules::Bf2)
+}
+
+/// The chase camera's vertical FOV (radians) on every map: BF2's measured
+/// 52.06 deg - OURS, as [`chase_fovs`]. [`ps2_fov_y`] keeps each game's.
+pub fn chase_fov_y() -> f32 {
+    ps2_fov_y("bf2")
+}
+
 /// The PS2 camera eases its projection scale S and its FOV toward their
 /// targets by exp(-25 dt) per update (`re-zoom.md` §5).
 pub const ZOOM_EASE_RATE: f32 = 25.0;
@@ -104,7 +117,7 @@ pub fn ps2_reticle_y(source_game: &str) -> f32 {
         core::soldier::GroundRules::Bf2 => PS2_TAN_HALF_FOV_Y_BF2,
     };
     ui::hud::reticle_y(
-        core::unit::camera_section(rules, Stance::Stand, false).tilt,
+        core::unit::ps2_camera_section(rules, Stance::Stand, false).tilt,
         t,
     )
 }
@@ -530,9 +543,19 @@ pub fn faction_row(faction: &str) -> usize {
     }
 }
 
-/// The point a wall pulls the chase camera in toward: this high above the
-/// soldier's feet (m). Ours (issue #36); the PS2's camera collision is unread.
-pub const CAMERA_PULL_BODY_Y: f32 = 1.0;
+/// The point a wall pulls the chase camera in toward, this high above the
+/// soldier's feet (m) in every stance: the PS2's own camera-collision
+/// origin, the section's fixed point (0, 1.5, 0) that no key writes
+/// (`re-aim-assist.md` §10.1, §10.6 step 4 [V]). Above his middle (issue
+/// #36's 1.0 m point took the camera down to the floor beside a droid,
+/// playtest 2026-10-28) and under his eye, so a close camera still shows
+/// him.
+pub const CAMERA_PULL_Y: f32 = 1.5;
+
+/// The soldier's body middle, this high above his feet (m; at most his eye
+/// point): the chase camera's second sight point, besides his eye, for the
+/// props it sees through (`crate::camera_collide`, ours).
+pub const CAMERA_SIGHT_BODY_Y: f32 = 1.0;
 
 /// A pull point that moved farther than this in a tick starts the camera's
 /// stored fraction afresh (m; B1 `FUN_001b58f0`'s 6400.0 on the squared
@@ -548,12 +571,17 @@ enum CamKind {
 }
 
 /// One frame's camera track: its kind, the point it is pulled in toward and
-/// the fraction of it clear of the world.
+/// the fraction of it clear of the world; what the camera passes (a
+/// gunner's building, a rider's vehicle) and the points it must see, for
+/// the see-through test (a soldier's eye and middle; else the target).
 #[derive(Debug, Clone, Copy)]
 struct Track {
     kind: CamKind,
     target: Vec3,
     raw: f32,
+    own_instance: Option<u32>,
+    own_vehicle: Option<core::vehicle::VehicleHandle>,
+    sights: [Vec3; 2],
 }
 
 pub struct WalkSim {
@@ -592,10 +620,6 @@ pub struct WalkSim {
     /// set with the pads (`crate::vehicle_pads::PadBuild::classes`); the
     /// HUD's target readout names a picked vehicle by it (card HTGT).
     pub vehicle_classes: Vec<String>,
-    /// The chase camera's PS2 vertical FOV (radians; visual only — the sim
-    /// never reads it). BF1's by default; `make_walk` sets the map's game's
-    /// with [`ps2_fov_y`].
-    pub fov_y_ps2: f32,
     /// The camera's projection scale S: 1.0 unzoomed, eased toward the zoom
     /// of the player's weapon each tick ([`WalkSim::step_tick`]). Visual
     /// only, like the FOV.
@@ -732,7 +756,6 @@ impl WalkSim {
             vehicle_engines: Vec::new(),
             vehicle_labels: Vec::new(),
             vehicle_classes: Vec::new(),
-            fov_y_ps2: ps2_fov_y("bf1"),
             zoom_s: 1.0,
             zoom_fov_mix: 0.0,
             cam_place: None,
@@ -1166,11 +1189,15 @@ impl WalkSim {
         }
         let me = &self.sim.units[self.player.index as usize];
         let ideal = me.ideal_camera(self.sim.ground_rules, self.sim.views());
-        let (_, position) = self.drawn_eye(me, &ideal);
-        // Walls pull the camera in toward the soldier's middle, not the look
-        // point above him, so he keeps his place on the screen (issue #36).
-        let body = me.soldier.pos + Vec3::Y * CAMERA_PULL_BODY_Y;
-        let (position, track) = self.settle_camera(CamKind::Soldier, body, position, None, None);
+        let (center, position) = self.drawn_eye(me, &ideal);
+        // A wall pulls the camera in toward the PS2's 1.5 m point: it keeps
+        // its view (pitch and yaw, the look along his aim) and never drops
+        // under that height to the floor at his feet (playtest 2026-10-28).
+        let pull = me.soldier.pos + Vec3::Y * CAMERA_PULL_Y;
+        let (position, mut track) =
+            self.settle_camera(CamKind::Soldier, pull, position, None, None);
+        let body = me.soldier.pos + Vec3::Y * CAMERA_SIGHT_BODY_Y.min(center.y - me.soldier.pos.y);
+        track.sights = [center, body];
         let cam = Camera {
             position,
             yaw: me.soldier.yaw,
@@ -1205,7 +1232,7 @@ impl WalkSim {
     }
 
     fn drawn_eye(&self, me: &core::unit::Unit, ideal: &core::unit::IdealCamera) -> (Vec3, Vec3) {
-        let sec = me.section(self.sim.ground_rules);
+        let sec = me.section();
         let Some((eye_y, offset)) = self.cam_place.filter(|_| !me.scoped()) else {
             return (ideal.center, ideal.position);
         };
@@ -1226,7 +1253,7 @@ impl WalkSim {
         if self.backdrop.is_some() || me.mount.is_some() || me.scoped() {
             return None;
         }
-        let sec = me.section(self.sim.ground_rules);
+        let sec = me.section();
         let to = (sec.eye_y, sec.offset);
         match self.cam_place {
             Some(from) if me.zoom.is_none() => Some(ease_camera_place(from, to, core::TICK_DT)),
@@ -1348,10 +1375,11 @@ impl WalkSim {
     }
 
     /// Pull a camera wanted at `desired` looking at `target` in along the
-    /// track until the world's models and the vehicles' hulls are
-    /// [`crate::camera_collide::CAMERA_RADIUS`] clear of it (`own_instance` /
-    /// `own_vehicle`, a gunner's building and a rider's vehicle, excepted;
-    /// a shorter track at once, a longer one at the PS2's return rate), then
+    /// track until the world's big models are
+    /// [`crate::camera_collide::CAMERA_RADIUS`] clear of it (`own_instance`,
+    /// a gunner's building, excepted; props and vehicles never pull, they
+    /// are seen through, [`WalkSim::camera_see_through`]; a shorter track at
+    /// once, a longer one at the PS2's return rate), then
     /// in short of the terrain sheet where the track crosses it
     /// (the sheet is a surface, met from above or below; a cutter's hole is
     /// none), then keep it [`CAMERA_TERRAIN_GAP`] off the sheet on the side
@@ -1366,30 +1394,24 @@ impl WalkSim {
         own_instance: Option<u32>,
         own_vehicle: Option<core::vehicle::VehicleHandle>,
     ) -> (Vec3, Track) {
-        // The world's drawn models and the vehicles: pull the camera in along
-        // the track line before flooring, so a wall behind the player
-        // shortens the track instead of putting the camera inside the room
-        // next door (`camera_collide`). A droid is cast where it stands now.
-        let live = |i: u32| {
-            self.sim
-                .stations
-                .iter()
-                .find(|s| s.instance == Some(i))
-                .map(|s| s.pose())
-        };
+        // The world's big drawn models: pull the camera in along the track
+        // line before flooring, so a wall behind the player shortens the
+        // track instead of putting the camera inside the room next door
+        // (`camera_collide`).
         let raw = if self.camera_blockers.is_empty() {
             1.0
         } else {
             self.camera_blockers
-                .fraction(target, desired, own_instance, live)
+                .fraction(target, desired, own_instance, |i| self.station_pose(i))
         };
-        let raw = raw.min(crate::camera_collide::hull_fraction(
-            &self.sim.collision,
+        let track = Track {
+            kind,
             target,
-            desired,
+            raw,
+            own_instance,
             own_vehicle,
-        ));
-        let track = Track { kind, target, raw };
+            sights: [target; 2],
+        };
         // In at once, back out at the PS2's rate (`step_cam_pull`).
         let f = if self.same_cam_track(&track) {
             raw.min(self.cam_pull)
@@ -1427,10 +1449,11 @@ impl WalkSim {
 
     /// The chase camera's vertical FOV: the PS2's, times the player's option.
     /// The PS2's is 2 atan(tan(FOV / 2) x 0.7666 / S) (`re-zoom.md` §5):
-    /// [`WalkSim::fov_y_ps2`] holds it for the third-person FOV at S = 1.
+    /// [`chase_fov_y`] is it for the third-person FOV at S = 1, on every map.
+    /// The seat cameras take it too (card VSEAT, PROVISIONAL).
     pub fn fov_y(&self) -> f32 {
         let k = self.fov_scale.clamp(FOV_SCALE_RANGE.0, FOV_SCALE_RANGE.1);
-        let mut fov = self.fov_y_ps2;
+        let mut fov = chase_fov_y();
         if self.zoom_s != 1.0 || self.zoom_fov_mix != 0.0 {
             let (third, first) = self.zoom_fovs();
             let half = |rad: f32| {
@@ -1451,7 +1474,7 @@ impl WalkSim {
     /// authored - `tur_bldg_recoilless_lg`'s 12.98 deg at zoom 3 against
     /// 13.0-13.5 fitted to the PS2's frame, `lead_tmp/vturz/fit_fov.py`).
     fn zoom_fovs(&self) -> (f32, f32) {
-        let soldier = ps2_soldier_fovs(self.sim.ground_rules);
+        let soldier = chase_fovs();
         let Some(m) = self.sim.unit(self.player).and_then(|u| u.mount) else {
             return soldier;
         };
@@ -1463,6 +1486,52 @@ impl WalkSim {
             .and_then(|s| s.first_person_fov)
             .unwrap_or(48.0);
         (soldier.0, first)
+    }
+
+    /// A droid's drawn pose by its manifest instance.
+    fn station_pose(&self, instance: u32) -> Option<Mat4> {
+        self.sim
+            .stations
+            .iter()
+            .find(|s| s.instance == Some(instance))
+            .map(|s| s.pose())
+    }
+
+    /// The props and vehicles the drawn chase camera sees through now (ours,
+    /// playtest 2026-10-28, `crate::camera_collide`): those between it and
+    /// the player's eye or body (a seat's or droid's camera: its target),
+    /// and those it stands in. Nothing for a camera the world does not pull
+    /// (the round's end, the backdrop, a zoomed turret).
+    pub fn camera_see_through(&self) -> crate::camera_collide::SeeThrough {
+        let (cam, Some(t)) = self.camera_track() else {
+            return Default::default();
+        };
+        let sights = t.sights;
+        let props = if self.camera_blockers.is_empty() {
+            Vec::new()
+        } else {
+            self.camera_blockers
+                .see_through(cam.position, &sights, t.own_instance, |i| {
+                    self.station_pose(i)
+                })
+        };
+        let alive = self
+            .sim
+            .vehicles
+            .iter()
+            .enumerate()
+            .filter(|(_, v)| v.alive);
+        let vehicles = crate::camera_collide::see_through_vehicles(
+            &self.sim.collision,
+            alive.map(|(i, v)| core::vehicle::VehicleHandle {
+                index: i as u32,
+                gen: v.gen,
+            }),
+            cam.position,
+            &sights,
+            t.own_vehicle,
+        );
+        crate::camera_collide::SeeThrough { props, vehicles }
     }
 
     /// Is the player's own body left out of the draw (the scope view,

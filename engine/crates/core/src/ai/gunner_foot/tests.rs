@@ -704,6 +704,82 @@ fn a_bot_does_not_fire_through_a_friend() {
     assert!(shots > 20, "{shots} shots");
 }
 
+/// Card TKFIX (OURS): a charge weapon (the bowcaster) shoots on the
+/// RELEASE, so a friend who steps into the line while the bot charges is
+/// covered at the release, not only at the press. Each time the bot has
+/// held its trigger four ticks, a friend is put on the line 5 m ahead and
+/// kept there for a second: no release leaves with him in the cone, no bolt lands on
+/// him, and the bot still fires once he has gone.
+#[test]
+fn a_charged_shot_is_not_released_into_a_friend() {
+    let _style = crate::ai::tests::all_stand();
+    use crate::sim::{Event, Sim};
+    use crate::unit::{Controller, UnitSpec};
+    let mut s = Sim::empty(5);
+    s.cheats.infinite_ammo = true;
+    s.weapon_classes[0].max_pressed_time = 1.0;
+    let shooter = s
+        .spawn(&UnitSpec {
+            controller: Controller::Ai,
+            ..UnitSpec::trooper(0, Vec3::ZERO)
+        })
+        .unwrap();
+    let enemy = s
+        .spawn(&UnitSpec::trooper(1, Vec3::new(0.0, 0.0, -14.0)))
+        .unwrap();
+    let away = Vec3::new(8.0, 0.0, -5.0);
+    let friend = s.spawn(&UnitSpec::trooper(0, away)).unwrap();
+    let (mut releases, mut through, mut friend_hits) = (0u32, 0u32, 0u32);
+    let (mut stay, mut held) = (0u32, 0u32);
+    for _ in 0..1800 {
+        let u = s.unit(shooter).unwrap();
+        held = if u.weapon.fire_cmd > 0 { held + 1 } else { 0 };
+        // A few ticks into the charge: the last release's bolt is gone.
+        if held == 4 && stay == 0 {
+            // On the line, in front of wherever the bot now stands.
+            let (dir, _, _) = u.aim_frame();
+            let at = u.soldier.pos + dir.with_y(0.0).normalize_or_zero() * 5.0;
+            s.unit_mut(friend).unwrap().soldier.pos = at;
+            stay = 30;
+        } else if stay > 0 {
+            stay -= 1;
+            if stay == 0 {
+                s.unit_mut(friend).unwrap().soldier.pos = away;
+            }
+        }
+        s.step(&[PadState::default()]);
+        s.unit_mut(enemy).unwrap().health.cur = 300.0;
+        s.unit_mut(friend).unwrap().soldier.vel = Vec3::ZERO;
+        let u = s.unit(shooter).unwrap();
+        if u.weapon.fire_cmd == -1 {
+            releases += 1;
+            let wc = &s.weapon_classes[u.weapon_class];
+            let blocked = friend_in_line(
+                &s,
+                shooter,
+                u,
+                u.muzzle(),
+                14.0,
+                LINE_SPREAD + u.weapon.yaw_spread(wc).max(u.weapon.pitch_spread(wc)),
+                None,
+            )
+            .is_some();
+            through += u32::from(blocked && stay > 0);
+        }
+        for e in &s.events {
+            if let Event::Hit {
+                shooter: a, victim, ..
+            } = *e
+            {
+                friend_hits += u32::from(a == shooter && victim == friend);
+            }
+        }
+    }
+    assert_eq!(friend_hits, 0, "charged bolts into the friend");
+    assert_eq!(through, 0, "releases with the friend in the cone");
+    assert!(releases > 4, "the bot still fires: {releases} releases");
+}
+
 /// Card HVYW (OURS): a missile's line of fire is cleared by what the
 /// shooter walks in the wind-up and what the friend walks until the
 /// rocket is where he is. A friend 2 m off the line 5 m ahead: standing,

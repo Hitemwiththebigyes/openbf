@@ -86,6 +86,16 @@ pub struct SceneGpu {
     /// until [`SceneGpu::pose_stations`] is called — the goldens never call
     /// it.
     pub stations: Vec<super::stations::StationDraw>,
+    /// Each world instance's draws (its manifest index; the model, its LOWD
+    /// and its far extension each push a range): what the chase camera's
+    /// see-through props fade ([`SceneGpu::see_through`]).
+    pub instance_draws: Vec<(u32, std::ops::Range<usize>)>,
+    /// The props drawn see-through now, by manifest index and opacity
+    /// (`crate::camera_collide`, set by [`SceneGpu::see_through`]).
+    pub(super) faded: Vec<(u32, f32)>,
+    /// Every building turret's intact draws and fallen look (card TBLD):
+    /// [`SceneGpu::view_draws`] swaps them while the sim has it down.
+    pub fallen: Vec<super::turret_fall::FallenDraw>,
     /// BF2's local lights the scene itself holds (card BPNT,
     /// `crate::point_light`): the authored ones and the EntityLights. The
     /// upload hands the renderer these plus the posts' at their starting
@@ -186,12 +196,41 @@ impl SceneGpu {
                 &mut self.doors,
                 &mut self.turrets,
                 &mut self.stations,
+                &mut self.instance_draws,
                 &mut self.speckle,
                 &before,
                 after.len(),
             );
+            for f in &mut self.fallen {
+                f.shift(&before, after.len());
+            }
         }
         Ok(())
+    }
+
+    /// Draw the props in `faded` (manifest index, opacity) see-through, as an
+    /// ordered dither (`render::Fade::see_through`; 0 hides one) and every
+    /// other world instance whole: the chase camera's props in its way
+    /// (`crate::camera_collide`, ours). A broken droid's wreck takes its
+    /// instance's opacity in [`SceneGpu::view_draws`].
+    pub fn see_through(&mut self, faded: &[(u32, f32)]) {
+        if faded.is_empty() && self.faded.is_empty() {
+            return;
+        }
+        let fade_of = |list: &[(u32, f32)], ii: u32| {
+            list.iter()
+                .find(|(i, _)| *i == ii)
+                .map(|&(_, o)| render::Fade::see_through(o))
+        };
+        for (ii, range) in &self.instance_draws {
+            let (was, now) = (fade_of(&self.faded, *ii), fade_of(faded, *ii));
+            if was != now {
+                for d in &mut self.draws[range.clone()] {
+                    d.fade = now;
+                }
+            }
+        }
+        self.faded = faded.to_vec();
     }
 }
 
@@ -207,6 +246,7 @@ fn reindex_after_splice(
     doors: &mut [DoorDraw],
     turrets: &mut [super::turret_pose::TurretDraw],
     stations: &mut [super::stations::StationDraw],
+    instances: &mut [(u32, std::ops::Range<usize>)],
     speckle: &mut Option<SpeckleAnim>,
     old: &std::ops::Range<usize>,
     new_len: usize,
@@ -234,6 +274,9 @@ fn reindex_after_splice(
         for (range, _) in &mut t.parts {
             *range = shift(range.start)..shift(range.end);
         }
+    }
+    for (_, range) in instances.iter_mut() {
+        *range = shift(range.start)..shift(range.end);
     }
     if let Some(s) = speckle {
         s.first.retain(|k| !old.contains(k));
@@ -267,6 +310,8 @@ struct PlacedModel<'a> {
     /// Card PWST: a droid's manifest index, translation and (its main
     /// model's) node rig.
     station: Option<(usize, Vec3, Option<&'a manifest::ManifestTurretRig>, bool)>,
+    /// A world instance's manifest index ([`SceneGpu::instance_draws`]).
+    instance: Option<usize>,
     color: Option<[f32; 4]>,
     fade: Option<render::Fade>,
     /// Metres nearer than which the draw is discarded — the far scene's
@@ -274,6 +319,9 @@ struct PlacedModel<'a> {
     near: Option<f32>,
     /// Card LOD: this draw's side of the far scene's model / LOWD switch.
     lod: Option<render::LodSwitch>,
+    /// Card TBLD: a building turret's manifest index, and whether this is
+    /// its fallen look (kept out of the scene's draws) or an intact draw.
+    building: Option<(usize, bool)>,
 }
 
 type ModelPart = (
@@ -798,7 +846,10 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
     let mut doors: Vec<DoorDraw> = Vec::new();
     let mut turrets: Vec<super::turret_pose::TurretDraw> = Vec::new();
     let mut stations: Vec<super::stations::StationDraw> = Vec::new();
+    let mut instance_draws: Vec<(u32, std::ops::Range<usize>)> = Vec::new();
     let wreck_models = crate::stations::wreck_models(scene)?;
+    let fallen_models = crate::turret_fall::fallen_models(scene)?;
+    let mut fallen: Vec<super::turret_fall::FallenDraw> = Vec::new();
     let path_props = scene
         .manifest
         .foliage
@@ -850,6 +901,8 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
         });
         // PWST: a droid turns whole, its rig's nodes by its own animation.
         let class = world.then(|| scene.resolve_class(&inst.class)).flatten();
+        // TBLD: a building turret, drawn as its fallen look while down.
+        let building = (world && fallen_models.contains_key(&ii)).then_some(ii);
         let station = class
             .filter(|c| c.base.eq_ignore_ascii_case(super::stations::STATION_BASE))
             .map(|c| {
@@ -878,11 +931,30 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
                 .and_then(|c| c.turret_rig.as_ref())
                 .map(|t| (ii, inst, t)),
             station,
+            instance: world.then_some(ii),
             color: None,
             fade: None,
             near: None,
             lod: lowd.map(|(_, s)| s.0),
+            building: building.map(|ii| (ii, false)),
         });
+        if let Some((ii, Some(model))) = building.map(|ii| (ii, fallen_models.get(&ii))) {
+            if let Some(model) = model.as_deref().and_then(|m| scene.meshes.get_key_value(m)) {
+                placed.push(PlacedModel {
+                    model: model.0,
+                    matrix: instance_matrix(inst.rotation, inst.translation),
+                    door: None,
+                    turret: None,
+                    station: None,
+                    instance: None,
+                    color: None,
+                    fade: None,
+                    near: None,
+                    lod: None,
+                    building: Some((ii, true)),
+                });
+            }
+        }
         if let Some(model) = wreck_models.get(&ii).filter(|_| station.is_some()) {
             placed.push(PlacedModel {
                 model,
@@ -890,10 +962,12 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
                 door: None,
                 turret: None,
                 station: Some((ii, Vec3::from(inst.translation), None, true)),
+                instance: None,
                 color: None,
                 fade: None,
                 near: None,
                 lod: None,
+                building: None,
             });
         }
         if let Some((lowd, sides)) = lowd {
@@ -903,10 +977,12 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
                 door: None,
                 turret: None,
                 station: station.map(|(i, at, _, dead)| (i, at, None, dead)),
+                instance: world.then_some(ii),
                 color: None,
                 fade: None,
                 near: None,
                 lod: Some(sides.1),
+                building: building.map(|ii| (ii, false)),
             });
         }
         // The far scene's LOWD extension (card UTAS, `analysis/re-far-lowd.md`
@@ -923,10 +999,12 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
                 door: None,
                 turret: None,
                 station: station.map(|(i, at, _, dead)| (i, at, None, dead)),
+                instance: world.then_some(ii),
                 color: None,
                 fade: None,
                 near: Some(near),
                 lod: lowd.map(|(_, s)| s.0),
+                building: building.map(|ii| (ii, false)),
             });
         }
     }
@@ -940,10 +1018,12 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
                 door: None,
                 turret: None,
                 station: None,
+                instance: None,
                 color: Some(f.color),
                 fade: f.fade,
                 near: None,
                 lod: None,
+                building: None,
             }),
     );
     // Card BPNT: each world model's sphere, in model space, for the local
@@ -1060,6 +1140,24 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
                 s.wreck.extend(draws.drain(whole_start..));
             }
         }
+        if let Some((ii, look)) = p.building {
+            let at = match fallen.iter().position(|f| f.instance == ii) {
+                Some(k) => k,
+                None => {
+                    fallen.push(super::turret_fall::FallenDraw {
+                        instance: ii,
+                        intact: Vec::new(),
+                        fallen: Vec::new(),
+                    });
+                    fallen.len() - 1
+                }
+            };
+            if look {
+                fallen[at].fallen.extend(draws.drain(whole_start..));
+            } else {
+                fallen[at].intact.push(whole_start..draws.len());
+            }
+        }
         if let (false, Some((ii, inst, rig))) = (turning.is_empty(), p.turret) {
             turrets.push(super::turret_pose::TurretDraw::new(
                 ii,
@@ -1076,6 +1174,9 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
                 model: m,
                 parts: moving,
             });
+        }
+        if let Some(ii) = p.instance.filter(|_| whole_start < draws.len()) {
+            instance_draws.push((ii as u32, whole_start..draws.len()));
         }
     }
 
@@ -1137,6 +1238,9 @@ pub fn upload_scene(r: &mut Renderer, scene: &Scene) -> Result<SceneGpu> {
         doors,
         turrets,
         stations,
+        instance_draws,
+        faded: Vec::new(),
+        fallen,
         lights: crate::point_light::scene_lights(scene),
         ground_lights: crate::point_light::ground_lights(scene),
         post_lights: scene.manifest.source_game == "bf2",

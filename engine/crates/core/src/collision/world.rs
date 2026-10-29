@@ -299,6 +299,9 @@ pub enum HullFilter {
     /// The vehicles' hulls but these (a live bolt's per-tick test, issue
     /// #41: a rider's bolt passes its own vehicle).
     HullsExcept([Option<VehicleHandle>; 2]),
+    /// This one vehicle's hull alone (the chase camera's see-through test,
+    /// `game::camera_collide`).
+    Only(VehicleHandle),
 }
 
 impl HullFilter {
@@ -312,6 +315,7 @@ impl HullFilter {
     pub fn hulls_only(self) -> Option<HullFilter> {
         match self {
             HullFilter::All | HullFilter::Hulls => Some(HullFilter::Hulls),
+            HullFilter::Only(h) => Some(HullFilter::Only(h)),
             HullFilter::Except(skip) | HullFilter::HullsExcept(skip) => {
                 Some(HullFilter::HullsExcept(skip))
             }
@@ -322,6 +326,7 @@ impl HullFilter {
     /// Does a query under this filter see a body owned by `owner`?
     pub fn admits(self, owner: Option<VehicleHandle>) -> bool {
         match (self, owner) {
+            (HullFilter::Only(h), owner) => owner == Some(h),
             (HullFilter::Hulls, owner) => owner.is_some(),
             (HullFilter::HullsExcept(skip), owner) => owner.is_some() && !skip.contains(&owner),
             (_, None) | (HullFilter::All, _) => true,
@@ -482,6 +487,24 @@ impl CollisionWorld {
         self.envelopes.sort_by_key(|(i, _)| *i);
         self.rebuild_broadphase();
         parts
+    }
+
+    /// An instance's live bodies as parts in the space of `pose` (the
+    /// instance's own matrix): what [`CollisionWorld::replace_instance`]
+    /// puts back. Bodies in no subset are left out.
+    pub fn instance_parts(&self, instance: u32, pose: glam::Mat4) -> Vec<HullPart> {
+        let inverse = pose.inverse();
+        self.bodies
+            .iter()
+            .filter(|b| b.instance == Some(instance) && b.layers != super::Layers::NONE)
+            .map(|b| HullPart {
+                local: inverse * b.to_world,
+                shape: b.shape.clone(),
+                layers: b.layers,
+                closed: b.closed,
+                hit_mult: b.hit_mult,
+            })
+            .collect()
     }
 
     /// Replace an instance's bodies with its authored wreck at the death pose.
@@ -650,7 +673,10 @@ impl CollisionWorld {
                 f(body);
             }
         };
-        let hulls_only = matches!(hulls, HullFilter::Hulls | HullFilter::HullsExcept(_));
+        let hulls_only = matches!(
+            hulls,
+            HullFilter::Hulls | HullFilter::HullsExcept(_) | HullFilter::Only(_)
+        );
         match self
             .grid
             .cells_for(self.generation, min_x, max_x, min_z, max_z)

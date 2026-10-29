@@ -186,7 +186,10 @@ impl Sim {
         let Some(r) = self.weapon_classes[d.weapon_class].remote.as_ref() else {
             return (PadState::default(), BotFlight::Home);
         };
-        let has_destruct = r.destruct.is_some() && d.charge.is_none();
+        // Card TKFIX (ours): no destruct with a friend on foot in its reach.
+        let has_destruct = r.destruct.is_some()
+            && d.charge.is_none()
+            && !crate::ai::friend_near_blast(self, d.team, d.pos, self.destruct_reach(d));
         let near = self.enemies_near(d.team, d.pos, BOT_BLAST);
         let u = &self.units[d.owner.index as usize];
         // (Hit on this tick or the last: the damage pass runs after this.)
@@ -246,10 +249,21 @@ impl Sim {
         } else {
             0.0
         };
+        // Card TKFIX (ours): no shot through a friend on foot, as a bot's.
         let fire = seen_target.is_some()
             && yaw_err.abs() < 0.15
             && dist <= max
-            && d.prev_buttons & buttons::FIRE == 0;
+            && d.prev_buttons & buttons::FIRE == 0
+            && !crate::ai::item_line_blocked(
+                self,
+                d.team,
+                d.muzzle(),
+                d.aim_frame(),
+                target,
+                d.blaster
+                    .yaw_spread(blaster)
+                    .max(d.blaster.pitch_spread(blaster)),
+            );
         let pad = PadState {
             ly: PadState::quantize(forward),
             rx: PadState::quantize(-yaw_err * 2.0),
@@ -258,6 +272,28 @@ impl Sim {
             ..PadState::default()
         };
         (pad, flight)
+    }
+
+    /// Card TKFIX: the farthest a droid's destruct hurts from where it is (m):
+    /// its burst, its own explosion, and its strike run's shells (their
+    /// scatter round the droid and their blast).
+    fn destruct_reach(&self, d: &Droid) -> f32 {
+        let Some(r) = self.weapon_classes[d.weapon_class].remote.as_ref() else {
+            return 0.0;
+        };
+        let x = r.destruct.as_ref();
+        let burst = x
+            .and_then(|x| x.burst.as_ref())
+            .map_or(0.0, |e| e.damage_outer);
+        let own = r.droid.explosion.as_ref().map_or(0.0, |e| e.damage_outer);
+        let salvo = x.and_then(|x| x.salvo.as_ref()).map_or(0.0, |s| {
+            let shell = self.weapon_classes[r.shell_index]
+                .ordnance
+                .explosion
+                .as_ref();
+            2.0 * s.spread + shell.map_or(0.0, |e| e.damage_outer)
+        });
+        burst.max(own).max(salvo)
     }
 
     fn droid_enemies(&self, d: &Droid) -> impl Iterator<Item = Vec3> + '_ {

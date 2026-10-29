@@ -366,6 +366,37 @@ fn a_bot_flies_its_droid_at_the_nearest_enemy_and_fires() {
     assert!(sim.unit(enemy).is_none_or(|u| u.health.cur < u.health.max));
 }
 
+/// Card TKFIX (ours): a bot's droid holds its fire while a friend of its
+/// team stands on the line to the enemy (here 2 m in front of him, on the
+/// droid's way in), as a bot's own gun does; its kills are the bot's, so a
+/// shot through him was a team kill.
+#[test]
+fn a_bots_droid_holds_fire_through_a_friend() {
+    let (mut sim, owner, weapon) = setup(false);
+    sim.unit_mut(owner).unwrap().controller = Controller::Ai;
+    let enemy = sim
+        .spawn(&UnitSpec::trooper(1, Vec3::new(5.0, 0.0, -25.0)))
+        .unwrap();
+    let friend = sim
+        .spawn(&UnitSpec::trooper(0, Vec3::new(5.0, 0.0, -23.0)))
+        .unwrap();
+    sim.unit_mut(owner).unwrap().ai.target = Some(enemy);
+    sim.launch_droid(owner.index as usize, weapon, 0.0);
+    let blaster = sim.weapon_classes[weapon]
+        .remote
+        .as_ref()
+        .unwrap()
+        .blaster_index;
+    let events = run(&mut sim, PadState::default(), 12.0);
+    let shots = events
+        .iter()
+        .filter(|e| matches!(e, Event::Shot { unit, weapon_class, .. } if *unit == owner && *weapon_class as usize == blaster))
+        .count();
+    assert_eq!(shots, 0, "shots with the friend on the line");
+    let f = sim.unit(friend).unwrap();
+    assert_eq!(f.health.cur, f.health.max);
+}
+
 /// Sprint held while flying changes nothing: not the droid, not the idle
 /// body, not its stamina.
 #[test]

@@ -342,7 +342,7 @@ pub(super) fn run(
                 }
                 st.charge_until = 0;
             } else if wc.max_pressed_time > 0.0 {
-                charge(sim, me, st, wc, &skill, want_fire, pad);
+                charge(sim, me, st, wc, &skill, want_fire, line.is_some(), pad);
             } else if wc.trigger_single {
                 // Card STTAP: a single-shot weapon fires on a fresh press
                 // only, so the bot TAPS it, by the PS2's own rule and not by
@@ -388,6 +388,13 @@ fn support_input(st: &mut AiState, pad: &mut PadState, input: Option<u32>) {
 /// Shared charge-release policy (STCHG, re-ai-difficulty §4.4): draw once
 /// at the press, hold until the deadline, then release for one tick.
 /// Callers clear the deadline when no target is seen, as on foot.
+///
+/// Card TKFIX (OURS, FFLN at the release): a charge weapon shoots when the
+/// trigger comes UP, so the press's FFLN check is not the shot's. While
+/// `friend_in_line` the trigger stays down past the deadline (the charge
+/// holds at full; it never fires on its own) and comes up once the line is
+/// clear.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn charge(
     sim: &Sim,
     me: UnitHandle,
@@ -395,6 +402,7 @@ pub(super) fn charge(
     wc: &WeaponClass,
     skill: &crate::skill::Skill,
     want_fire: bool,
+    friend_in_line: bool,
     pad: &mut PadState,
 ) {
     if want_fire && st.charge_until == 0 {
@@ -404,7 +412,7 @@ pub(super) fn charge(
         st.charge_until = sim.tick + (ticks.max(1.0) as u64);
     }
     if st.charge_until > 0 {
-        if sim.tick < st.charge_until {
+        if sim.tick < st.charge_until || friend_in_line {
             pad.buttons |= buttons::FIRE;
         } else {
             // The release edge: the trigger comes up THIS tick.
@@ -456,8 +464,97 @@ fn friend_in_line(
     late: Option<(f32, f32)>,
 ) -> Option<i8> {
     let (dir, right, _) = u.aim_frame();
+    let line = Line {
+        team: u.team,
+        me: Some(me),
+        eye,
+        dir,
+        right,
+        own: u.soldier.vel.length(),
+    };
+    friend_on_line(sim, &line, range, spread, late)
+}
+
+/// A line of fire for [`friend_on_line`]: whose it is (`me` is skipped; an
+/// item has no body in the way), where it starts and its aim frame, and how
+/// fast the shooter moves (a missile's wind-up).
+pub(crate) struct Line {
+    pub team: u8,
+    pub me: Option<UnitHandle>,
+    pub eye: Vec3,
+    pub dir: Vec3,
+    pub right: Vec3,
+    pub own: f32,
+}
+
+/// Card TKFIX (OURS, FFLN's rule carried to a bot's items): the auto-turret's
+/// and a bot-flown remote droid's gun hold their shot while a friend on foot
+/// is in the line of fire, as a soldier's does ([`friend_in_line`]). Their
+/// guns fire inside a wide cone round the target and a salvo, once started,
+/// runs on while the gun still swings, so both ends are asked: the gun's aim
+/// (`aim`, its look frame) and the line from `muzzle` to the target `at`.
+/// `spread` is the gun's own cone (radians); [`LINE_SPREAD`] is added here.
+pub(crate) fn item_line_blocked(
+    sim: &Sim,
+    team: u8,
+    muzzle: Vec3,
+    aim: (Vec3, Vec3, Vec3),
+    at: Vec3,
+    spread: f32,
+) -> bool {
+    let range = (at - muzzle).length();
+    let to = (at - muzzle).normalize_or_zero();
+    let side = to.cross(Vec3::Y).normalize_or_zero();
+    [(aim.0, aim.1), (to, side)]
+        .into_iter()
+        .any(|(dir, right)| {
+            let line = Line {
+                team,
+                me: None,
+                eye: muzzle,
+                dir,
+                right,
+                own: 0.0,
+            };
+            friend_on_line(sim, &line, range, LINE_SPREAD + spread, None).is_some()
+        })
+}
+
+/// Card TKFIX (OURS, RKEX's rule carried to a bot's droid): a unit of `team`
+/// on foot within `r` + [`BLAST_CLEAR`] of `at`, where a bot's droid would
+/// set off its destruct.
+pub(crate) fn friend_near_blast(sim: &Sim, team: u8, at: Vec3, r: f32) -> bool {
+    if r <= 0.0 {
+        return false;
+    }
+    let mut near: Vec<u32> = Vec::new();
+    sim.units_within(at, r + BLAST_CLEAR, &mut near);
+    near.iter().any(|&i| {
+        let o = &sim.units[i as usize];
+        o.team == team
+            && o.mount.is_none()
+            && o.alive
+            && o.capsule().center().distance(at) < r + BLAST_CLEAR
+    })
+}
+
+/// [`friend_in_line`]'s geometry, for any line of fire.
+fn friend_on_line(
+    sim: &Sim,
+    line: &Line,
+    range: f32,
+    spread: f32,
+    late: Option<(f32, f32)>,
+) -> Option<i8> {
+    let Line {
+        team,
+        me,
+        eye,
+        dir,
+        right,
+        own,
+    } = *line;
     let reach = range + LINE_PAST;
-    let own = u.soldier.vel.length();
     let mut best: Option<(f32, i8)> = None;
     // Card TEAM: a friend in the line stands within the line's reach and
     // its widest clearance of the eye, plus what a unit at
@@ -475,7 +572,7 @@ fn friend_in_line(
     sim.units_within(eye, bound, &mut near);
     for &i in &near {
         let (h, o) = (sim.handle(i as usize), &sim.units[i as usize]);
-        if h == me || o.team != u.team || o.mount.is_some() {
+        if Some(h) == me || o.team != team || o.mount.is_some() {
             continue;
         }
         let c = o.capsule();

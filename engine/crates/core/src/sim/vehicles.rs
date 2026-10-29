@@ -31,30 +31,7 @@ use crate::vehicle::{
 };
 use crate::vehicle_pad::{PadDef, VehiclePad, IDLE_CLASS_CHANGED, IDLE_OUTSIDE, PLAYER_MARGIN};
 use crate::weapon::DamageDesc;
-use glam::{Mat3, Mat4, Quat, Vec3};
-
-/// A map's building turret (card VTURB): its spawn, its building and its
-/// rebuild. A destroyed one is built again at full health `respawn_time`
-/// seconds after it fell: the PS2 regenerates a fallen armed building at
-/// MaxHealth / `RespawnTime` a second and builds it at full health
-/// (`analysis/re-build-zones.md` 0.3, BF1's gun turret 2.5 HP a second,
-/// measured; `re-turret-collision.md` 4.3). PROVISIONAL until card TBLD:
-/// while down it is no vehicle at all (no seat, no pool a fusion cutter
-/// could fill), and its building is drawn as it stood.
-#[derive(Clone, Debug)]
-pub struct BuildingTurret {
-    pub spec: VehicleSpec,
-    pub rot: Quat,
-    pub aim_sphere: Option<(Vec3, f32)>,
-    /// The placed instance whose bodies are its building.
-    pub instance: u32,
-    /// The class's `RespawnTime` (s; an armed building's default 120).
-    pub respawn_time: f32,
-    /// The turret standing now (dead while down).
-    pub handle: VehicleHandle,
-    /// The tick it is built again; `None` while it stands.
-    pub rebuild_at: Option<u64>,
-}
+use glam::{Mat3, Mat4, Vec3};
 
 /// The pad's spawn ray starts this far over the pad and ends as far under it
 /// (re-vehicle-rest §1: `*(0x66ef00)` = (0, 1, 0, 0) in RAM, both games).
@@ -608,11 +585,8 @@ impl Sim {
             }
         }
         self.remove_vehicle(h);
-        let now = self.tick;
-        if let Some(t) = self.building_turrets.iter_mut().find(|t| t.handle == h) {
-            let ticks = (t.respawn_time.max(0.0) * crate::TICK_HZ as f32).ceil() as u64;
-            t.rebuild_at = Some(now + ticks.max(1));
-        }
+        // A building turret falls to its wreck or pad (card TBLD).
+        self.fell_building_turret(h);
     }
 
     /// Remove a vehicle (the PS2 leaves no wreck, §6), releasing every rider
@@ -656,59 +630,6 @@ impl Sim {
         };
         v.instance = Some(instance);
         self.collision.bind_turret(instance, h);
-    }
-
-    /// Spawn a map's building turret ([`BuildingTurret`]: its spec, pose,
-    /// aim sphere, building and `RespawnTime`) and keep it, so that once
-    /// destroyed it is built again ([`Sim::rebuild_turrets`]).
-    pub fn add_building_turret(
-        &mut self,
-        spec: VehicleSpec,
-        rot: Quat,
-        aim_sphere: Option<(Vec3, f32)>,
-        instance: u32,
-        respawn_time: f32,
-    ) -> VehicleHandle {
-        let mut t = BuildingTurret {
-            spec,
-            rot,
-            aim_sphere,
-            instance,
-            respawn_time,
-            handle: VehicleHandle { index: 0, gen: 0 },
-            rebuild_at: None,
-        };
-        t.handle = self.stand_turret(&t);
-        self.building_turrets.push(t);
-        self.building_turrets[self.building_turrets.len() - 1].handle
-    }
-
-    fn stand_turret(&mut self, t: &BuildingTurret) -> VehicleHandle {
-        let h = self.spawn_vehicle(&t.spec);
-        if let Some(v) = self.vehicle_mut(h) {
-            v.rot = t.rot;
-            v.aim_sphere = t.aim_sphere;
-        }
-        self.bind_building(h, t.instance);
-        h
-    }
-
-    /// Step 7: every fallen building turret whose `RespawnTime` has run is
-    /// built again, neutral and empty at full health, on its building.
-    pub(crate) fn rebuild_turrets(&mut self) {
-        for i in 0..self.building_turrets.len() {
-            if self.building_turrets[i]
-                .rebuild_at
-                .is_none_or(|at| at > self.tick)
-            {
-                continue;
-            }
-            let t = self.building_turrets[i].clone();
-            let h = self.stand_turret(&t);
-            let t = &mut self.building_turrets[i];
-            t.handle = h;
-            t.rebuild_at = None;
-        }
     }
 
     /// Step 3a: every live vehicle whose class has [`hover::HoverParams`], in slot
@@ -1908,11 +1829,25 @@ mod tests {
             );
             s.bolts.push(b);
             let before = s.vehicle(v).unwrap().health.cur;
+            let mut critical = false;
             for _ in 0..4 {
                 s.step(&[PadState::default()]);
+                critical |= s.events.iter().any(|e| {
+                    matches!(e, Event::CriticalHit { shooter, victim, weapon_class }
+                        if *shooter == p
+                            && *victim == Target::Vehicle(v)
+                            && *weapon_class == bf2)
+                });
             }
-            before - s.vehicle(v).unwrap().health.cur
+            (before - s.vehicle(v).unwrap().health.cur, critical)
         };
+        // The critical-hit event (hitmark): the x4 hits that took health.
+        assert!(damage(4.0, true, Difficulty::Normal).1, "a human's x4");
+        assert!(!damage(1.0, true, Difficulty::Normal).1, "the hull: none");
+        assert!(!damage(4.0, false, Difficulty::Normal).1, "a bot's x1");
+        assert!(damage(4.0, false, Difficulty::Hard).1, "a bot's x4 on Hard");
+        assert!(!damage(0.0, true, Difficulty::Normal).1, "BF1's x0");
+        let damage = |mult, human, d| damage(mult, human, d).0;
         let plain = damage(1.0, true, Difficulty::Normal);
         assert_eq!(plain, 8.0, "the BF2 rifle's 80 x VehicleScale 0.1");
         assert_eq!(damage(4.0, true, Difficulty::Normal), 32.0);

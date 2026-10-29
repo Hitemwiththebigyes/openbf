@@ -243,7 +243,8 @@ impl super::SceneGpu {
     pub(super) fn station_view_draws(
         &self,
         sim: &core::sim::Sim,
-        hidden: Option<std::ops::Range<usize>>,
+        hidden: Vec<std::ops::Range<usize>>,
+        extra: Vec<DrawCmd>,
     ) -> Vec<DrawCmd> {
         let broken: Vec<_> = self
             .stations
@@ -254,7 +255,7 @@ impl super::SceneGpu {
                     .any(|s| s.instance == Some(d.instance as u32) && s.destroyed)
             })
             .collect();
-        if broken.is_empty() && hidden.is_none() {
+        if broken.is_empty() && hidden.is_empty() && extra.is_empty() {
             return self.draws.clone();
         }
         let mut ranges: Vec<_> = broken
@@ -280,12 +281,19 @@ impl super::SceneGpu {
                 .find(|s| s.instance == Some(d.instance as u32))
                 .unwrap()
                 .pose();
+            let fade = self
+                .faded
+                .iter()
+                .find(|(i, _)| *i as usize == d.instance)
+                .map(|&(_, o)| render::Fade::see_through(o));
             for wreck in &d.wreck {
                 let mut draw = *wreck;
                 draw.model = pose;
+                draw.fade = fade;
                 out.push(draw);
             }
         }
+        out.extend(extra);
         out
     }
 }

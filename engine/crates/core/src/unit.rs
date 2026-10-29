@@ -103,15 +103,26 @@ pub struct CameraSection {
 /// getter B1 FUN_001b58c0 / B2 FUN_001ce9b8).
 pub const SPLIT_TILT: f32 = 0.4;
 
-/// A soldier's camera section by game, stance and zoom, [V-RAM] §10.1's
-/// table (all player classes alike; the per-class exceptions - the BF1
-/// snowtrooper's zoom - are card CAMS's). A zoomed soldier takes the
+/// The chase camera's section by stance and zoom: BF2's on every map, BF1's
+/// included - OURS, a named deviation (playtest 2026-10-28: "let's
+/// standardize the bf2 camera angles and zoom and everything for default.
+/// All maps should appear the same way"). BF1's own section (stand 3.5 m
+/// back, tilt 5 deg) under its 48 deg FOV leaves the soldier's shins off the
+/// bottom of the frame (`analysis/camera-occlusion.md` §3).
+pub fn camera_section(stance: Stance, zoomed: bool) -> CameraSection {
+    ps2_camera_section(GroundRules::Bf2, stance, zoomed)
+}
+
+/// A soldier's camera section on the PS2 by game, stance and zoom, [V-RAM]
+/// §10.1's table (all player classes alike; the per-class exceptions - the
+/// BF1 snowtrooper's zoom - are card CAMS's): the record; the port plays
+/// [`camera_section`]. A zoomed soldier takes the
 /// stance's ZOOM section: over the right shoulder, the same in both games
 /// (`analysis/re-zoom.md` §5). Sprint is a section of its own on BF2; BF1 has no sprint, so
 /// its sprint section is OURS (the maintainer, 2026-10-04, FEEL_NOTES): the stand
 /// section moved back by BF2's own step, 0.8 m, so a sprint shows. Jump, roll
 /// and fall keep the stand section, the jets take the sprint's (PROVISIONAL).
-pub fn camera_section(rules: GroundRules, stance: Stance, zoomed: bool) -> CameraSection {
+pub fn ps2_camera_section(rules: GroundRules, stance: Stance, zoomed: bool) -> CameraSection {
     let bf1 = rules == GroundRules::Bf1;
     if zoomed {
         let (eye_y, y) = match stance {
@@ -435,9 +446,9 @@ impl Unit {
     }
 
     /// The camera section this unit takes now: the stance's, or its ZOOM
-    /// section while zoomed.
-    pub fn section(&self, rules: GroundRules) -> CameraSection {
-        camera_section(rules, self.soldier.stance, self.zoom.is_some())
+    /// section while zoomed ([`camera_section`], one table on every map).
+    pub fn section(&self) -> CameraSection {
+        camera_section(self.soldier.stance, self.zoom.is_some())
     }
 
     /// Is the view the scope's (zoomed on a `ZoomFirstPerson` weapon)?
@@ -481,7 +492,7 @@ impl Unit {
                 center: position,
             };
         }
-        let sec = self.section(rules);
+        let sec = self.section();
         let tilt = sec.tilt * if views > 1 { SPLIT_TILT } else { 1.0 };
         let (st, ct) = fmath::sin_cos(tilt);
         let forward = d * ct - up * st;
@@ -659,7 +670,30 @@ pub struct BoltPrims {
     pub scale: f32,
 }
 
+/// OURS (playtest 2026-10-28, BF1 Yavin 4: "I'd see the bullet hit the guy
+/// but nothing would happen"): how far behind the sim a human sees the
+/// soldiers he shoots at. The window draws the world blended between the
+/// last two ticks (`game::render_blend`) and his press is taken by the next
+/// tick, after everyone has moved: the body he aimed at is 1 to 2 ticks
+/// (60 fps: 1.5 to 2) behind the one the bolt meets - at a run 0.3 to 0.6 m,
+/// past the 0.35-0.4 m half width of the torso prims. The sweep takes back
+/// part of it: a tick's flight meets the soldiers where that tick left
+/// them, on average half a tick before the bolt gets there. A human's bolt
+/// (and his reticle's ray, `Sim::aim_hit`) meets each soldier this long ago
+/// along his velocity: the middle of what is left (0.5 to 2 ticks at
+/// 60 fps). The PS2 drew its last update with no blend. Bots' bolts meet
+/// the soldiers where they are.
+pub const HUMAN_SHOT_LAG: f32 = 1.25 * crate::TICK_DT;
+
 impl BoltPrims {
+    /// The same prims `by` away (a human's bolt, [`HUMAN_SHOT_LAG`]).
+    pub fn moved(self, by: Vec3) -> Self {
+        Self {
+            pos: self.pos + by,
+            ..self
+        }
+    }
+
     /// The prims' reach around `pos`: (lower corner, upper corner).
     pub fn bounds(&self) -> (Vec3, Vec3) {
         let r = 1.2 * self.scale.max(1.0);

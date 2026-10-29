@@ -484,6 +484,8 @@ impl Sim {
             let flying = self.controlled_droid(ph).is_some();
             if let Some(m) = self.magnet[slot].filter(|_| !p.mouse_aim() && !flying) {
                 unit_pads[ph.index as usize] = self.apply_assist(slot, ph, m, &p, dt);
+            } else {
+                self.assist_lead[slot] = None;
             }
             let steering = p.mouse_aim()
                 || PadState::axis(p.rx).abs() > super::input::MAGNET_STEER
@@ -954,7 +956,6 @@ impl Sim {
 
         // 7. Vehicle pads: follow the posts just updated, decay, spawn.
         self.tick_vehicle_pads(dt);
-        self.rebuild_turrets();
 
         // The grenades that have gone off are gone (card HOLD).
         if !self.hazards.is_empty() {
@@ -1038,7 +1039,7 @@ impl Sim {
         if u.scoped() {
             return a + d * SCOPE_AIM_LENGTH;
         }
-        let sec = u.section(self.ground_rules);
+        let sec = u.section();
         let start = a + d * (sec.offset.z + AIM_RAY_START);
         let mut best = AIM_RAY_LENGTH;
         // A terrain ray that starts under the ground reports no hit (§10.5
@@ -1058,14 +1059,48 @@ impl Sim {
             best = best.min(h.t);
         }
         let me = self.handle(i);
+        // A human sees the others `HUMAN_SHOT_LAG` behind (OURS, as his
+        // bolt's sweep meets them).
+        let lag = if matches!(u.controller, Controller::Player { .. }) {
+            crate::unit::HUMAN_SHOT_LAG
+        } else {
+            0.0
+        };
         for (h, o) in self.alive_units() {
             if h != me {
-                if let Some(t) = o.capsule().ray_hit(start, d, best) {
+                let mut cap = o.capsule();
+                cap.base -= o.soldier.vel * lag;
+                if let Some(t) = cap.ray_hit(start, d, best) {
                     best = best.min(t);
                 }
             }
         }
+        if best >= AIM_RAY_LENGTH {
+            if let Some(t) = self.beyond_reach(i, start, d) {
+                return start + d * t;
+            }
+        }
         start + d * best
+    }
+
+    /// OURS (playtest 2026-10-28, BF1 Yavin 4, "far away shooting"): when
+    /// the reticle's ray meets nothing within its reach and what the
+    /// reticle picks (`Sim::reticle_pick`: the cone's pick, a unit or a
+    /// vehicle) is past that reach, the shot is aimed at the point of the
+    /// ray abreast of the pick, not at the ray's far end. The PS2 aims at
+    /// the far end 65.5 m out (§10.5 item 2): the fire point is 0.51 m
+    /// (BF1) / 0.77 m (BF2) under the ray, so the bolt crosses the ray there
+    /// and climbs over it - 0.35 m at 100 m, 0.65 m at 150 m: a shot at the
+    /// chest of a soldier past 110 m flies over his head. Two lines of 480
+    /// on the PS2's screen; on today's it is most of a soldier. Within the
+    /// reach the PS2's rule stands. `None` without such a pick.
+    fn beyond_reach(&self, i: usize, start: Vec3, d: Vec3) -> Option<f32> {
+        let me = self.handle(i);
+        let slot = self.players.iter().position(|p| *p == Some(me))?;
+        let (pick, _) = self.reticle_pick.get(slot).copied().flatten()?;
+        let at = self.aim_candidate(pick)?.ctr;
+        let t = (at - start).dot(d);
+        (t > AIM_RAY_LENGTH).then_some(t)
     }
 
     /// The soldier's zoom routine (B1 `FUN_00204578`, B2 `FUN_0023ead8`,

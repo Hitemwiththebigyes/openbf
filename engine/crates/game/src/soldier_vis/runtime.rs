@@ -736,6 +736,44 @@ impl SoldierVisuals {
         out
     }
 
+    /// Unit `unit`'s drawn body this frame as world triangles (its skinned
+    /// mesh under the pose drawn), and its named bones in the world; `None`
+    /// when it is not drawn. A test's read of where the drawn body is.
+    #[allow(clippy::type_complexity)]
+    pub fn drawn_body(
+        &self,
+        walk: &WalkSim,
+        unit: usize,
+    ) -> Option<(Vec<[Vec3; 3]>, Vec<(String, Vec3)>)> {
+        let (_, sa, model, palette) = self.posed(walk).into_iter().find(|p| p.0 == unit)?;
+        let m = &sa.asset.mesh;
+        let skinned: Vec<Vec3> = m
+            .positions
+            .iter()
+            .zip(m.joints.iter().zip(&m.weights))
+            .map(|(p, (j, w))| {
+                let p = Vec3::from(*p);
+                (0..4)
+                    .filter(|&k| w[k] > 0.0)
+                    .map(|k| (model * palette[usize::from(j[k])]).transform_point3(p) * w[k])
+                    .sum()
+            })
+            .collect();
+        let tris = m
+            .indices
+            .chunks_exact(3)
+            .map(|t| [t[0], t[1], t[2]].map(|i| skinned[i as usize]))
+            .collect();
+        let sk = &sa.asset.skeleton;
+        let bones = (0..sk.names.len())
+            .map(|b| {
+                let at = (model * palette[b] * sk.global_bind[b]).transform_point3(Vec3::ZERO);
+                (sk.names[b].clone(), at)
+            })
+            .collect();
+        Some((tris, bones))
+    }
+
     /// Every unit drawn this frame and its model matrix (a test's and a
     /// census's read of who is drawn where).
     pub fn drawn(&self, walk: &WalkSim) -> Vec<(usize, Mat4)> {

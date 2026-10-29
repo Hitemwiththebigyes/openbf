@@ -304,11 +304,28 @@ pub fn all_discarded(cull: [f32; 2], cull_near: [f32; 2], near: f32, far: f32) -
 /// port draws it as an ORDERED DITHER in the draw's own pass (a 4×4 Bayer
 /// screen-door, `far_cull` in the shader), which keeps the opaque sort and
 /// the depth write — a stated deviation, PROVISIONAL.
+///
+/// `opacity` multiplies that alpha: 1 for the foliage; the chase camera's
+/// see-through props (`game::camera_collide`, ours) take a constant one
+/// through [`Fade::see_through`], 0 hiding the draw outright.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Fade {
     pub begin: f32,
     pub end: f32,
     pub near: f32,
+    pub opacity: f32,
+}
+
+impl Fade {
+    /// A constant `opacity` at every distance (no distance fade).
+    pub fn see_through(opacity: f32) -> Fade {
+        Fade {
+            begin: crate::mesh::NO_CULL,
+            end: crate::mesh::NO_CULL,
+            near: 0.0,
+            opacity: opacity.clamp(0.0, 1.0),
+        }
+    }
 }
 
 impl DrawCmd {

@@ -158,8 +158,21 @@ impl Sim {
         t.turn(c, dt, point.map_or((t.look, 0.0), |p| t.angles_to(p)));
         let wc = &self.weapon_classes[gun];
         let reach = wc.ai_range[2];
-        let fire =
-            t.fighting && point.is_some_and(|p| t.on_target(p) && p.distance(t.muzzle()) <= reach);
+        // Card TKFIX (ours): no shot through a friend on foot, as a bot's.
+        let fire = t.fighting
+            && point.is_some_and(|p| {
+                let spread = t.gun.yaw_spread(wc).max(t.gun.pitch_spread(wc));
+                t.on_target(p)
+                    && p.distance(t.muzzle()) <= reach
+                    && !crate::ai::item_line_blocked(
+                        self,
+                        t.team,
+                        t.muzzle(),
+                        t.aim_frame(),
+                        p,
+                        spread,
+                    )
+            });
         let mut shots = Vec::new();
         t.gun.update(
             dt,

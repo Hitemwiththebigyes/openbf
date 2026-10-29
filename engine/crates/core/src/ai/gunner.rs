@@ -125,7 +125,7 @@ pub(super) fn aim(
     if wc.max_pressed_time > 0.0 {
         if enemy.is_some() {
             let want_fire = shot && st.burst > 0 && sim.tick >= st.pause_until;
-            charge(sim, me, st, wc, &skill, want_fire, pad);
+            charge(sim, me, st, wc, &skill, want_fire, false, pad);
         } else {
             if wc.trigger_single {
                 tap(sim, me, st, wc, &skill, false);

@@ -91,6 +91,7 @@ mod behave;
 mod command;
 pub mod dfocus;
 mod draw;
+pub mod fix;
 mod gunner;
 mod gunner_foot;
 pub mod hover_drive;
@@ -122,8 +123,8 @@ pub use draw::{
     SALT_DROID, SALT_ERR_AXIS, SALT_ERR_DIR, SALT_FOLLOW, SALT_FORMATION, SALT_GRENADE, SALT_HOLD,
     SALT_NEED_GUNNER, SALT_REACT, SALT_STANCE, SALT_TAP,
 };
-pub(crate) use gunner_foot::release_blasts_own_side;
 pub use gunner_foot::yaw_toward;
+pub(crate) use gunner_foot::{friend_near_blast, item_line_blocked, release_blasts_own_side};
 pub use route::{first_leg, floor_walked};
 pub use state::{
     AiState, Behaviour, FightState, FlankState, HoldState, LostState, MoverState, NavTick,

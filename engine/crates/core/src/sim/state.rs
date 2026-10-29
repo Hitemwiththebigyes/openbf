@@ -209,6 +209,24 @@ pub enum Event {
         shooter: UnitHandle,
         victim: UnitHandle,
     },
+    /// A bolt's hit on a prim with a HitLocation factor over 1 that took
+    /// health: a soldier's head (beside its [`Event::Hit`]) or a vehicle's
+    /// critical prim, the x4 weak spot (beside its [`Event::VehicleHit`]).
+    /// The PS2's critical hit, which lights BF2's `hitCritical` reticle
+    /// flash for its shooter (`analysis/re-target-hud.md` §12: B2
+    /// `FUN_001dfb38` hands the factor to the shooter's hit timer
+    /// `FUN_00350558`). `victim` is a [`Target::Unit`] or a
+    /// [`Target::Vehicle`]; `weapon_class` indexes [`Sim::weapon_classes`].
+    /// The HUD keeps the flash to a sniper rifle on a head and a rocket
+    /// launcher on a vehicle (hitmark, the maintainer 2026-10-28).
+    ///
+    /// [`Target::Unit`]: crate::projectile::Target::Unit
+    /// [`Target::Vehicle`]: crate::projectile::Target::Vehicle
+    CriticalHit {
+        shooter: UnitHandle,
+        victim: crate::projectile::Target,
+        weapon_class: usize,
+    },
     /// Card DROIDDEATH (`analysis/re-droid-death.md`): a dead droid took the
     /// chunk death at its death block - after the [`Event::Kill`] (or
     /// [`Event::EnvDeath`]) of the same death, which the PS2 decides at the
@@ -664,9 +682,9 @@ pub struct Sim {
     /// the posts. Hashed last — and NOTHING at all when empty.
     pub vehicle_pads: Vec<crate::vehicle_pad::VehiclePad>,
     /// The map's building turrets (card VTURB, [`Sim::add_building_turret`]):
-    /// how each is spawned and bound, and when a fallen one is built again.
+    /// how each is spawned and bound, its fall and its rise (card TBLD).
     /// Hashed only while one is down.
-    pub building_turrets: Vec<super::vehicles::BuildingTurret>,
+    pub building_turrets: Vec<super::building_turrets::BuildingTurret>,
     /// Per vehicle CLASS (`Vehicle::class` indexes it), the hover numbers —
     /// `None` for a class nothing integrates (walkers, flyers, turrets).
     /// SETUP data like `weapon_classes`, NOT hashed. A vehicle whose class
@@ -735,6 +753,12 @@ pub struct Sim {
     pub assist_armed: bool,
     /// Aim-assist state per player slot (parallel to `players`).
     pub assist: Vec<AssistState>,
+    /// OURS: the aim assist's lead on the magnet (`core::aim_assist::Lead`);
+    /// off = the PS2's assist. Default on.
+    pub assist_lead_on: bool,
+    /// Per player slot (parallel to `players`): the magnet the lead follows
+    /// and its state; `None` while the slot has no assisted magnet.
+    pub assist_lead: Vec<Option<(super::input::AimTarget, crate::aim_assist::Lead)>>,
     /// Aim magnet per player slot (parallel to `players`): a unit, or a
     /// vehicle / building turret (card HTGT).
     pub magnet: Vec<Option<super::input::AimTarget>>,
@@ -1258,6 +1282,8 @@ impl Sim {
             assist_intensity: 1.0,
             assist_armed: true,
             assist: Vec::new(),
+            assist_lead_on: true,
+            assist_lead: Vec::new(),
             magnet: Vec::new(),
             reticle_pick: Vec::new(),
             events: Vec::new(),
@@ -1835,11 +1861,11 @@ impl Sim {
                 p.hash_into(&mut eat);
             }
         }
-        // A fallen building turret's rebuild tick: nothing while none is down.
+        // A fallen building turret's health: nothing while none is down.
         for (i, t) in self.building_turrets.iter().enumerate() {
-            if let Some(at) = t.rebuild_at {
+            if let Some(health) = t.down {
                 eat(&(i as u32).to_le_bytes());
-                eat(&at.to_le_bytes());
+                eat(&health.to_bits().to_le_bytes());
             }
         }
         // The items on the field (PWUP): nothing at all when there are none.
@@ -1896,6 +1922,20 @@ impl Sim {
             {
                 eat(&(slot as u64).to_le_bytes());
                 eat(&a.magnet_timer.to_bits().to_le_bytes());
+            }
+        }
+        // The lead's state (ours): nothing while no slot has one.
+        if self.assist_lead.iter().any(Option::is_some) {
+            eat(b"ASSIST_LEAD");
+            for (slot, (t, l)) in self
+                .assist_lead
+                .iter()
+                .enumerate()
+                .filter_map(|(k, a)| a.map(|a| (k, a)))
+            {
+                eat(&(slot as u64).to_le_bytes());
+                t.hash_into(&mut eat);
+                l.hash_into(&mut eat);
             }
         }
         // Warning identities and their allocator survive hazard compaction.

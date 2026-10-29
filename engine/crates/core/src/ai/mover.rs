@@ -424,8 +424,9 @@ pub(super) fn run(
     let walking = (pad.lx != 0 || pad.ly != 0 || steer == SteerPick::Ledge) && !mv.boarding;
     // Card BSTK: a bot flying its remote droid stands still on purpose (the
     // droid takes its pad, `Sim::droid_pads`): no window runs, so its stand
-    // is not a failed walk, and the last resort's watch waits.
-    let piloting = sim.controlled_droid(me).is_some();
+    // is not a failed walk, and the last resort's watch waits. The same for
+    // an engineer cutting its claimed turret back up (card TBLD).
+    let piloting = sim.controlled_droid(me).is_some() || super::fix::serve(sim, me, st).is_some();
     let mut failed = false;
     let mut lost_failed = false;
     match (ret, st.lost) {

@@ -5,7 +5,7 @@
 //! `acquire_magnet`, `apply_assist`, [`Sim::magnet_at`]). The replay, pad-slot and aim-assist tests live here.
 
 use super::state::Sim;
-use crate::aim_assist::{self, AssistEnv, Sticks};
+use crate::aim_assist::{self, AssistEnv, Lead, Sticks};
 use crate::collision::lead_point;
 use crate::perception;
 use crate::unit::UnitHandle;
@@ -206,17 +206,27 @@ impl AimTarget {
             AimTarget::Unit(_) => None,
         }
     }
+
+    pub(crate) fn hash_into(self, eat: &mut impl FnMut(&[u8])) {
+        let (tag, i, g) = match self {
+            AimTarget::Unit(h) => (0x55, h.index, h.gen),
+            AimTarget::Vehicle(h) => (0x56, h.index, h.gen),
+        };
+        eat(&[tag]);
+        eat(&i.to_le_bytes());
+        eat(&g.to_le_bytes());
+    }
 }
 
 /// What the acquisition and the assist read of a candidate.
-struct Candidate {
+pub(super) struct Candidate {
     /// The PS2's team nibble: `None` = team 0 (an empty vehicle, an unowned
     /// turret).
     team: Option<u8>,
     /// The object kind the weapon's `target_kind` tests ([`HealthType`]).
     kind: u32,
     /// The acquisition's bounds: centre and radius.
-    ctr: Vec3,
+    pub(super) ctr: Vec3,
     r: f32,
     /// Where the LOS ray aims.
     aim: Vec3,
@@ -265,7 +275,7 @@ impl Sim {
     /// vehicle's bounds are its `aim_sphere` (a building turret's building),
     /// else its blast sphere (card VDTH; PROVISIONAL: the PS2 takes the
     /// object's bounds box), centred in its frame.
-    fn aim_candidate(&self, t: AimTarget) -> Option<Candidate> {
+    pub(super) fn aim_candidate(&self, t: AimTarget) -> Option<Candidate> {
         match t {
             AimTarget::Unit(h) => {
                 let u = self.unit(h).filter(|u| u.cloak.visible())?;
@@ -406,7 +416,13 @@ impl Sim {
         let mut best = f32::MAX;
         if let Some((t, u)) = target.and_then(|t| Some((t, self.aim_candidate(t)?))) {
             let cone = angle + if fire_held { STICKY_WIDEN } else { 0.0 };
-            let s = cone_score(u.r, cone, er, pos, dir, u.ctr);
+            // OURS (the assist's lead): the held magnet is kept while its
+            // lead point is in the cone, where the reticle tracking it is.
+            let lead = match self.assist_lead.get(slot).copied().flatten() {
+                Some((held, l)) if held == t => l.offset,
+                _ => Vec3::ZERO,
+            };
+            let s = cone_score(u.r, cone, er, pos, dir, u.ctr + lead);
             if s >= 0.0 && live(t) && clear(&u) {
                 valid = passes(&u) && (u.ctr - pos).length() <= lor + u.r;
                 best = if steering { s } else { s * MAGNET_HOLD };
@@ -469,9 +485,53 @@ impl Sim {
         let (eye, fwd) = p.aim_ray(self.ground_rules, self.views());
         let cap = p.capsule();
         let center = t.assist_ctr;
-        let speed = self.weapon_classes[p.weapon_class].ordnance.velocity;
-        // Ballistic lead (FUN_0026d3f0, flat-fire branch — bolts have no gravity).
-        let lead = lead_point(center - eye, t.vel, speed).map(|rel| eye + rel);
+        let ord = &self.weapon_classes[p.weapon_class].ordnance;
+        let speed = ord.velocity;
+        let (lead, lead_vel) = if self.assist_lead_on {
+            // OURS (`core::aim_assist`'s lead): the low-passed velocity times
+            // the round's flight from where it leaves (the fire point, the
+            // scope point scoped), plus the drop a falling round makes up.
+            // The sweep meets the target where a tick left it: the flight's
+            // last tick is met where it began, on average half a tick short
+            // of the flight (term 1 carries the reticle along with the
+            // target through the tick's move); a soldier is met
+            // `HUMAN_SHOT_LAG` back, where the human sees him.
+            let ahead = -0.5 * crate::TICK_DT
+                - match m {
+                    AimTarget::Unit(_) => crate::unit::HUMAN_SHOT_LAG,
+                    AimTarget::Vehicle(_) => 0.0,
+                };
+            let from = if p.scoped() {
+                p.scope_point(self.ground_rules)
+            } else {
+                p.fire_point()
+            };
+            let fall = if ord.kind == crate::weapon::OrdKind::Shell {
+                ord.gravity * crate::weapon::SHELL_G
+            } else {
+                0.0
+            };
+            let mut l = match self.assist_lead[slot] {
+                Some((held, l)) if held == m => l,
+                _ => Lead::start(t.vel),
+            };
+            let eased = l.step(dt, t.vel, |v| {
+                lead_point(center - from, v, speed).map_or(Vec3::ZERO, |rel| {
+                    let secs = rel.length() / speed.max(1e-3);
+                    rel - (center - from) + v * ahead + Vec3::Y * (0.5 * fall * secs * secs)
+                })
+            });
+            self.assist_lead[slot] = Some((m, l));
+            (Some(center + l.offset), Some(t.vel + eased))
+        } else {
+            // Ballistic lead (FUN_0026d3f0, flat-fire branch — bolts have no
+            // gravity).
+            let lead = lead_point(center - eye, t.vel, speed).map(|rel| eye + rel);
+            (lead, None)
+        };
+        let Some(p) = self.unit(ph) else {
+            return *pad;
+        };
         // Sign bridge: aim_assist yaw stick is POSITIVE-LEFT (BF1 f2
         // semantics); our rx is positive-right.
         let mut sticks = Sticks {
@@ -496,6 +556,7 @@ impl Sim {
             lock_on_range: self.weapon_classes[p.weapon_class].lock_on_range,
             fire_held: pad.pressed(buttons::FIRE),
             armed: self.assist_armed,
+            lead_vel,
         };
         aim_assist::apply(
             dt,
@@ -531,7 +592,7 @@ impl Sim {
 mod tests {
     use super::*;
     use crate::sim::tests::{fire, flat_ground};
-    use crate::unit::UnitSpec;
+    use crate::unit::{Controller, UnitSpec};
     use glam::Vec3;
 
     fn demo_log() -> InputLog {
@@ -728,6 +789,45 @@ mod tests {
         let (mut s, p, _) = range(&[(1, Vec3::new(0.0, 0.0, -(120.0 + r + 1.0)))]);
         s.acquire_magnet(0, p, false);
         assert_eq!(s.reticle_pick[0], None);
+    }
+
+    /// OURS (sniper aim assist): the disc's sniper (LockOnRange 0) takes no
+    /// magnet; with the loader's override it takes an enemy at 50 m and at
+    /// 120 m, scoped and not, and none past its 128 m reach.
+    #[test]
+    fn a_sniper_rifle_takes_a_magnet_out_to_its_max_range() {
+        let r = (crate::unit::AIM_BOX_MAX - crate::unit::AIM_BOX_MIN).length() * 0.5;
+        let disc = crate::weapon::tests::disc_sniper(0.0);
+        let mut ours = disc.clone();
+        ours.give_sniper_assist();
+        for (class, dist, want) in [
+            (&disc, 50.0, false),
+            (&ours, 50.0, true),
+            (&ours, 120.0, true),
+            (&ours, 128.0 + r + 1.0, false),
+        ] {
+            for scoped in [false, true] {
+                let (mut s, p, o) = range(&[(1, Vec3::new(0.0, 0.0, -dist))]);
+                let w = s.unit(p).unwrap().weapon_class;
+                s.weapon_classes[w] = class.clone();
+                if scoped {
+                    s.units[p.index as usize].zoom = Some(crate::unit::Zoom {
+                        step: 1,
+                        value: 8.0,
+                        divisor: 8.0,
+                        scope: true,
+                    });
+                    assert!(s.unit(p).unwrap().scoped());
+                }
+                s.acquire_magnet(0, p, false);
+                assert_eq!(
+                    s.magnet[0],
+                    want.then_some(AimTarget::Unit(o[0])),
+                    "range {} at {dist} m scoped {scoped}",
+                    class.lock_on_range
+                );
+            }
+        }
     }
 
     /// The held magnet's cone widens by π/4 while FIRE is held: an enemy
@@ -1120,6 +1220,7 @@ mod tests {
         for speed in [0.0, 4.0, -4.0] {
             s.vehicles[v.index as usize].vel = Vec3::X * speed;
             s.assist[0] = Default::default();
+            s.assist_lead[0] = None;
             let pad = s.apply_assist(0, p, AimTarget::Vehicle(v), &fire(), 1.0 / 30.0);
             outputs.push(pad.rx);
         }
@@ -1183,5 +1284,153 @@ mod tests {
             "yaw {}",
             s.unit(p).unwrap().soldier.yaw
         );
+    }
+
+    /// What [`strafe`] measured.
+    struct Strafe {
+        hits: u32,
+        shots: u32,
+        /// The player's yaw after each tick.
+        yaws: Vec<f32>,
+        /// Ticks the reticle's pick (the HUD's colour and readout) was not
+        /// the runner.
+        unpicked: u32,
+        /// The runner's speed.
+        run: f32,
+    }
+
+    /// A runner `dist` m ahead crossing at his class's run speed and turning
+    /// about every `period` ticks, around the player's line; the player's
+    /// rifle firing a round of `speed` and `life`. The player holds his
+    /// sticks still, aimed at the runner's centre at the start, and taps
+    /// FIRE every 10 ticks for `ticks`. `lead`: the assist's lead on or off
+    /// (off = the PS2's assist).
+    fn strafe(lead: bool, dist: f32, speed: f32, life: f32, period: u32, ticks: u32) -> Strafe {
+        let (mut s, p, o) = range(&[(1, Vec3::new(0.0, 0.0, -dist))]);
+        s.assist_lead_on = lead;
+        let w = s.unit(p).unwrap().weapon_class;
+        s.weapon_classes[w].ordnance.velocity = speed;
+        s.weapon_classes[w].ordnance.life_span = life;
+        let e = o[0];
+        let run = s.unit(e).unwrap().consts.max_speed;
+        let u = &mut s.units[e.index as usize];
+        u.soldier.pos.x = -run * period as f32 * crate::TICK_DT * 0.5;
+        u.controller = Controller::Pacer {
+            vel: Vec3::X * run,
+            period,
+        };
+        u.health.cur = 1.0e9;
+        let (eye, _) = s.unit(p).unwrap().aim_ray(s.ground_rules, s.views());
+        let c = s.unit(e).unwrap().capsule().center() - eye;
+        let me = &mut s.units[p.index as usize].soldier;
+        me.yaw = crate::fmath::atan2(-c.x, -c.z);
+        me.pitch = crate::fmath::atan2(c.y, (c.x * c.x + c.z * c.z).sqrt());
+        let mut out = Strafe {
+            hits: 0,
+            shots: 0,
+            yaws: Vec::new(),
+            unpicked: 0,
+            run,
+        };
+        for k in 0..ticks {
+            let pad = if k % 10 == 0 {
+                fire()
+            } else {
+                PadState::default()
+            };
+            s.step(&[pad]);
+            for ev in &s.events {
+                match *ev {
+                    crate::sim::Event::Shot { unit, .. } if unit == p => out.shots += 1,
+                    crate::sim::Event::Hit { victim, .. } if victim == e => out.hits += 1,
+                    _ => {}
+                }
+            }
+            s.units[e.index as usize].health.cur = 1.0e9;
+            out.yaws.push(s.unit(p).unwrap().soldier.yaw);
+            if s.reticle_pick[0].map(|(t, _)| t) != Some(AimTarget::Unit(e)) {
+                out.unpicked += 1;
+            }
+        }
+        out
+    }
+
+    /// The ticks the reticle's turn changes sense (a wobble), counting only
+    /// turns over 0.1 mrad.
+    fn wobbles(yaws: &[f32]) -> usize {
+        let d: Vec<f32> = yaws
+            .windows(2)
+            .map(|w| w[1] - w[0])
+            .filter(|d| d.abs() > 1e-4)
+            .collect();
+        d.windows(2).filter(|w| w[0] * w[1] < 0.0).count()
+    }
+
+    /// The largest turn of the reticle in one tick (rad).
+    fn largest_step(yaws: &[f32]) -> f32 {
+        yaws.windows(2)
+            .map(|w| (w[1] - w[0]).abs())
+            .fold(0.0, f32::max)
+    }
+
+    /// The lead (ours, playtest 2026-10-28): a player holding his sticks
+    /// still on a runner crossing at run speed, tapping FIRE, hits far more
+    /// often than under the PS2's assist - a rifle's 80 m/s round and a
+    /// sniper's 2000 m/s one, at 30 and 60 m. (The disc snipers ship
+    /// LockOnRange 0; the loader's `WeaponClass::give_sniper_assist` gives
+    /// them a 128 m, 1° magnet; the 2000 m/s round here is the rifle's
+    /// magnet with a sniper's speed.) The runner
+    /// turns about every 5 s.
+    #[test]
+    fn the_lead_hits_a_crossing_runner_under_a_still_stick() {
+        for (name, speed, life, dist, floor) in [
+            ("rifle", 80.0, 1.5, 30.0, 0.6),
+            ("rifle", 80.0, 1.5, 60.0, 0.4),
+            ("sniper", 2000.0, 0.15, 30.0, 0.9),
+            ("sniper", 2000.0, 0.15, 60.0, 0.8),
+        ] {
+            let ps2 = strafe(false, dist, speed, life, 150, 600);
+            let ours = strafe(true, dist, speed, life, 150, 600);
+            println!(
+                "{name} at {dist} m, runner {} m/s: PS2 assist {}/{}, with the lead {}/{}",
+                ours.run, ps2.hits, ps2.shots, ours.hits, ours.shots
+            );
+            assert_eq!(ps2.shots, ours.shots, "{name} {dist}");
+            let share = ours.hits as f32 / ours.shots as f32;
+            assert!(share >= floor, "{name} at {dist} m: {share}");
+            assert!(
+                ours.hits >= ps2.hits * 2 + 10,
+                "{name} at {dist} m: {} vs {}",
+                ours.hits,
+                ps2.hits
+            );
+            assert_eq!(ours.unpicked, 0, "{name} {dist}: the HUD's pick held");
+        }
+    }
+
+    /// No jump when the runner turns about (every 1.5 s here): the reticle
+    /// never turns further in a tick than the runner's own swing across
+    /// that tick (his speed both ways) and the lead's easing
+    /// ([`aim_assist::LEAD_MAX_RATE`]) take it, and it changes the sense
+    /// of its turn only when he does (no wobble). The HUD's pick (the
+    /// reticle's colour and the target readout) stays the runner
+    /// throughout.
+    #[test]
+    fn the_reticle_does_not_jump_when_the_runner_turns_about() {
+        const PERIOD: u32 = 45;
+        const TICKS: u32 = 600;
+        for (speed, life, dist) in [(80.0, 1.5, 30.0), (80.0, 1.5, 60.0), (2000.0, 0.15, 30.0)] {
+            let ours = strafe(true, dist, speed, life, PERIOD, TICKS);
+            let bound = (2.0 * ours.run + aim_assist::LEAD_MAX_RATE) / dist * crate::TICK_DT;
+            let step = largest_step(&ours.yaws);
+            let turns = (TICKS / PERIOD) as usize;
+            println!(
+                "{speed} m/s round at {dist} m: largest step {step:.4} rad of {bound:.4}, {} wobbles for {turns} turns",
+                wobbles(&ours.yaws)
+            );
+            assert!(step <= bound, "{speed} at {dist} m: {step} > {bound}");
+            assert!(wobbles(&ours.yaws) <= turns + 1, "{speed} at {dist} m");
+            assert_eq!(ours.unpicked, 0, "{speed} at {dist} m: the HUD's pick held");
+        }
     }
 }

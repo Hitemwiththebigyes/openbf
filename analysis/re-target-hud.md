@@ -217,3 +217,67 @@ table (`common_bf2/locl/english.ron`; "Hailfire Tank", "Clone Trooper", "Bookcas
   with white; shieldName / disableShieldName.
 - Interpreter (`ui/src/hud_tree.rs`, `hud_draw.rs`): the BarBitmap flash (§5) and a group's Color multiplying its
   children (§6) — the second also moves the health / stamina bars (golden).
+
+## 12. The reticle's hit and critical-hit flashes (BF2) — hitmark, 2026-10-28 [V][M][D]
+Asked by the maintainer: "bf2 does a little red x when you get a good hit, maybe a sniper headshot too". Hops: the layout's
+reticle group → its two flash elements and their events → the publisher's last block → the hit timers' setter, its
+one caller (the damage function) and the countdown. Corpus B2 (grep only).
+- **The elements** [V] (`common_bf2/hud/1playerhud.ron`, group `player1reticule`): Model3D `player1reticule_hit`,
+  mesh `hud_main_reticule_hit`, Lighting 0, Scale 0.26, ZOrder 0, α 0.5, Color (1, 86, 213), ColorChangeRate 0.01,
+  **FadeHoldTime 0.33**, enabled by `player1.weapon1.target.hit`, coloured by `.target.hitColor`; Model3D
+  `player1reticule_criticalhit`, mesh `hud_main_reticule_criticalhit`, Scale 0.26, α 0.6, the same colour and rate,
+  **FadeHoldTime 0.6, FadeSustainTime 0.5, FadeOutTime 0.01**, enabled by `.target.hitCritical`, coloured by
+  `.target.hitColor`. Both sit in the group (α 0.65) over the reticle, both meshes baked
+  (`common_bf2/models/hud_main_reticule_{hit,criticalhit}.glb`, from INGAME.LVL).
+- **The shapes** [M] (the glb triangles plotted): `_hit` = three short arcs of a ring at 120° (the reticle's ring
+  broken in three); `_criticalhit` = three claws at 120° pointing in at the centre (a triangle of arrowheads round
+  the crosshair). **Neither is an X**: the "red X" remembered is most likely the critical-hit claws in the enemy red;
+  no X-shaped HUD mesh or texture was found (the INGAME `fx_` `headshot` effect is a different thing: a world-space
+  `com_sfx_flashball3` flash + `com_sfx_laser_orange` sparks at the hit point, spawned by `FUN_001e0580`
+  B2:91597–91630 for a factor > 1 on an enemy, `re-hitzones.md` §1).
+- **The sender** [V] `FUN_003b3398` B2:410434–410467 (*(decompiler detail omitted)*, every update, per weapon channel): t(r) =
+  `FUN_003505c0`(player, r) for the relations r = 1, 0, −1 = min(10 × timer[r], 1) (B2:346590), so non-zero while
+  that timer runs. If any is: the largest stored factor `FUN_003505f0`(player, r) (+0x178[r+1], B2:346597) of the
+  three > 1.0 → enable slot 0x14 (`hitCritical`), else slot 0x13 (`hit`); then slot 0x15 (`hitColor`) = white
+  (0x69bd98) unless a friend timer runs (relation +1) or an enemy one (−1): `FUN_0036d688`'s relation colour, i.e. the
+  `teamColor` words of §3 — **enemy (200, 100, 100) red**, friend (1, 86, 213) blue. Sent every update while the timer
+  runs; each send restarts the element's hold (fader, `re-hud.md` §2.1).
+- **The timer** [V] `FUN_00350558`(factor, player, victim team) (B2:346567–346580): r = the player's team table
+  (+0x138) relation byte at +0x84 + team; timer[r] (+0x16c + 4(r+1)) := **0.5 s** and factor[r] (+0x178) := factor
+  when the timer was 0 or the factor is larger. Countdown in the player update `FUN_0034cea8` (B2:343942–343954):
+  timer −= dt, floored at 0; at 0 the factor resets to 1.0 (ctor B2:343709–343712: timers 0, factors 1.0).
+- **When** [V] its one caller, the damage function `FUN_001dfb38` (B2:91482–91484): `if (alive-at-entry && damage
+  dealt)` (a local = the target's health flags bit 3, B2:91281; a local = health or shield taken > 0,
+  B2:91334/91380) and the damage's attacker record (a local[8] = desc[0], copied by `FUN_001e1758` B2:92230) is set:
+  *(decompiler detail omitted)*. The factor is the struck prim's from
+  `FUN_001e0580` (direct hits, B2:91666) and the no-prim one from `FUN_001e0900` (blasts, B2:91687 → 1.0).
+- **So the PS2 rule** [D]: every hit of the local player that takes health from a live target — any weapon, bolt or
+  blast, soldier, vehicle, turret, prop — flashes `hud_main_reticule_hit` in the target's relation colour, up for the
+  0.5 s timer then held 0.33 s (≈ 0.83 s); a hit with a factor > 1 — a soldier's head (×3, every class; a human's
+  always) or a vehicle's critical prim (×4) — flashes `hud_main_reticule_criticalhit` instead: 0.5 s of sends, hold
+  0.6 s, sustain 0.5 s at full alpha, out in 0.01 s (≈ 1.6 s). Drawn alpha = 0.6 × 0.65 (group) for the claws.
+- **BF1** [V absence, `re-target-hud.md` §8 item 2]: BF1's ELF holds none of BF2's `target.` event strings; its HUD is
+  code with no reticle hit flash found [H: not searched further]. The port draws BF2's HUD on both games' maps.
+- **Port (hitmark, the maintainer 2026-10-28, a named deviation)**: only the critical flash, and only for the two hits the
+  awards count (§3 of `re-hitzones.md`) — the maintainer: "do it only on headshots with a sniper, and hitting a vehicle weak
+  spot with a rocket launcher, because those count towards winning the award so the user will want visual
+  verification". (1) A **sniper rifle** (`WeaponClass::ai_distance_table`: no spread, single shot, ZoomMax ≥ 6) on a
+  soldier's head (×3). (2) A **rocket launcher** (`WeaponClass::rocket_launcher`) on a vehicle's critical prim (×4,
+  the class's `HitLocation`; BF2 only: 15 classes, e.g. the AT-TE, hailfire, spider walker, fighter tanks, AAT,
+  AT-ST, the AT-AT's neck). The rocket launchers: BF2 by the PS2's own key, `ScoreForMedalsType` 2 (demolition) —
+  `com_weap_inf_rocket_launcher` and `{rep,cis,all,imp}_weap_inf_rocket_launcher`, and the award / hero guided ones
+  (`*_weap_award_rocket_launcher`, `all_weap_hero_rocket_launcher`, which the port's class loader does not build
+  yet); not the EMP launcher (it writes −1), not the wrist rocket or the mortar. BF1 has no medal key, so by name:
+  `rep_weap_inf_rocket_launcher` and `{rep,cis,all,imp}_weap_inf_torpedo_launcher`. **BF1's vehicles have no weak
+  spot** (their only `HitLocation`s, `cis_tread_hailfire` and `rep_fly_vtrans`, are ×0), so on BF1 vehicles the
+  claws never light. The sim raises `Event::CriticalHit { shooter, victim: Target, weapon_class }` for every bolt
+  hit with a factor > 1 that took health — a head (`Target::Unit`) or a vehicle critical prim (`Target::Vehicle`);
+  a bot's under Hard has none (the level-3 gate). `game::event_feed` keeps the viewer's sniper-on-head and
+  rocket-on-vehicle ones as the 0.5 s timer and the relation colour (enemy red, friend blue, white for an empty
+  vehicle of no side); `ui::hud::feed` sends `hitColor` + `hitCritical` every frame it runs; the layout element does
+  the hold / sustain / fade. Splash never counts (the blast path's factor is 1, as on the PS2). The plain `hit` flash
+  (the three arcs) is not sent: pictures of it for the maintainer's call, enemy red after a body hit, unscoped on BF2 Kamino and
+  BF1 Tatooine beside the claws, from the ignored suite test `sniper_scope::hit_arc_pictures`
+  (`engine/artifacts/lead_tmp/hitmark/arc_*.png`; `HudView::send` puts the event past the model). To follow the
+  PS2 fully: send `hit` for every damaging hit and `hitCritical` for every factor > 1 regardless of weapon (one
+  predicate, `critical_mark` in `event_feed`).

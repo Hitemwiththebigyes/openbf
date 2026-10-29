@@ -382,7 +382,6 @@ fn gunner(
             .unwrap()
             .zoom = Some(value);
         // The camera's zoom eased all the way (a battle's after 0.3 s).
-        walk.fov_y_ps2 = game::walk::ps2_fov_y(&scene.manifest.source_game);
         walk.zoom_s = value;
         walk.zoom_fov_mix = 1.0;
         let cam = walk.camera();
@@ -503,5 +502,5 @@ fn ride_draws(
         drawn.first().map(|d| d.1.w_axis.truncate())
     );
     let mut vv = game::viewer::VehicleVisuals::load(r, scene, assets, &walk.vehicle_geometry);
-    Ok((vv.draws(r, &walk.sim), vis.draws(&walk)))
+    Ok((vv.draws(r, &walk.sim, &[]), vis.draws(&walk)))
 }

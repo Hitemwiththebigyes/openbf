@@ -1,31 +1,43 @@
-//! Playtest bug 2026-10-28: "standing in front of a healing droid, move the
-//! camera to go right behind the droid, it puts the camera inside of the
-//! droid" (`game::camera_collide`). On a baked BF1 Naboo battle the player
-//! is put in front of each kind of blocker, his back to it, and the chase
-//! camera swung behind it: the drawn camera must end outside the blocker by
-//! at least the near plane, on the player's side of it, with his body hidden
-//! when it comes into him; held still, it must not jitter.
+//! The chase camera against the world (`game::camera_collide`), playtest
+//! 2026-10-28: "standing near these things to heal up the camera would do
+//! weird things like go to the floor looking at my feet". On baked BF1
+//! battles (Yavin 4: Arena for the healing droid, Naboo for walls, props and
+//! a vehicle) the player is stood with his back to each kind of thing and
+//! the camera swung behind it:
+//! - a small prop (a health droid, a gun emplacement) or a vehicle never
+//!   pulls the camera: it stays at its normal distance, height and view, and
+//!   the thing is drawn see-through (hidden with the camera inside it);
+//! - a big wall pulls the camera in toward the PS2's 1.5 m point, never
+//!   behind the wall, with its view and at least that height (never at the
+//!   floor), and his body is hidden when it comes into him; held still, it
+//!   does not jitter.
+//!
 //! Data-gated: SKIP without the bake.
 use core::collision::{HullFilter, Layers};
 use core::sim::{buttons, PadState, Sim, SpawnStage};
 use game::assets::Scene;
-use game::camera_collide::{closest_on_triangle, BODY_HIDE_DIST, CAMERA_RADIUS, PULL_RETURN_RATE};
-use game::walk::{ClassVisual, TeamTemplate, WalkSim, CAMERA_PULL_BODY_Y};
+use game::camera_collide::{closest_on_triangle, BODY_HIDE_DIST, CAMERA_RADIUS};
+use game::walk::{ClassVisual, TeamTemplate, WalkSim, CAMERA_PULL_Y, CAMERA_SIGHT_BODY_Y};
 use glam::{Mat4, Vec3};
 
 type Tri = [Vec3; 3];
 
-fn battle() -> Option<(WalkSim, Scene)> {
+/// A BF1 conquest battle on `map` with the player spawned.
+fn battle(map: &str) -> Option<(WalkSim, Scene)> {
     let root = game::assets::baked_root();
-    let dir = root.join("bf1_nab1");
+    let dir = root.join(map);
     if !dir.join("manifest.ron").exists() {
-        eprintln!("SKIP: camera clip needs baked BF1 Naboo");
+        eprintln!("SKIP: camera clip needs baked {map}");
         return None;
     }
     let (scene, _) = game::assets::load_battle_scene(&dir, "con").unwrap();
-    let mission =
-        game::mission::MissionDef::load(&root.parent().unwrap().join("missions/bf1_nab1_con.ron"))
-            .unwrap();
+    let mission = game::mission::MissionDef::load(
+        &root
+            .parent()
+            .unwrap()
+            .join(format!("missions/{map}_con.ron")),
+    )
+    .unwrap();
     let factions = mission.factions();
     let sides = [factions[0].as_str(), factions[1].as_str()];
     let (rosters, _) =
@@ -58,7 +70,6 @@ fn battle() -> Option<(WalkSim, Scene)> {
     let mut walk = WalkSim::with_teams(sim, scene.heightfield(), Vec3::ZERO, templates, nav);
     scene.install_collision(&mut walk.sim);
     walk.camera_blockers = game::camera_collide::CameraBlockers::from_scene(&scene);
-    walk.fov_y_ps2 = game::walk::ps2_fov_y(&scene.manifest.source_game);
     let mut layout = game::layout::MapLayout::from_manifest(&scene.manifest);
     walk.sim.death_regions = layout.apply_mission(&mission).death_regions;
     walk.setup_conquest(&layout, [0, 0], true);
@@ -166,81 +177,62 @@ fn stand(walk: &mut WalkSim, feet: Vec3, facing: Vec3, pitch: f32) -> render::Ca
     walk.camera()
 }
 
-/// The player's ideal (unpulled) camera now.
-fn ideal(walk: &WalkSim) -> Vec3 {
+/// The player's ideal (unpulled) camera now: its position and pitch.
+fn ideal(walk: &WalkSim) -> (Vec3, f32) {
     let me = walk.sim.unit(walk.player).unwrap();
-    me.ideal_camera(walk.sim.ground_rules, walk.sim.views())
-        .position
+    let c = me.ideal_camera(walk.sim.ground_rules, walk.sim.views());
+    let pitch = c.forward.y.atan2(c.forward.with_y(0.0).length());
+    (c.position, pitch)
 }
 
-/// Ring the solid `tris` (centre `c`, standing floor `floor_y`) with the
-/// player, his back to it, and check every drawn camera. Returns how many
-/// placements had the ideal camera inside or behind the solid.
-fn swing_behind(
-    walk: &mut WalkSim,
-    what: &str,
-    c: Vec3,
-    floor_y: f32,
-    solid: impl Fn(&WalkSim) -> Vec<Tri>,
-) -> usize {
-    let mut blocked = 0;
-    let mut checked = 0;
-    for k in 0..12 {
-        let a = std::f32::consts::TAU * k as f32 / 12.0;
-        let out = Vec3::new(a.cos(), 0.0, a.sin());
-        let t0 = solid(walk);
-        let reach = t0
-            .iter()
-            .flatten()
-            .map(|p| (*p - c).dot(out))
-            .fold(0.0f32, f32::max);
-        for d in [0.35f32, 0.6, 1.0, 1.6, 2.4] {
-            for turn in [-0.5f32, 0.0, 0.5] {
-                for pitch in [-0.6f32, -0.2, 0.0, 0.35] {
-                    let feet = Vec3::new(c.x, floor_y, c.z) + out * (reach + d);
-                    let facing = Vec3::new(
-                        out.x * turn.cos() - out.z * turn.sin(),
-                        0.0,
-                        out.x * turn.sin() + out.z * turn.cos(),
-                    );
-                    let cam = stand(walk, feet, facing, pitch);
-                    let tris = solid(walk);
-                    let body = feet + Vec3::Y * CAMERA_PULL_BODY_Y;
-                    if clearance(body, &tris) < CAMERA_RADIUS {
-                        continue; // the soldier himself would stand in it
-                    }
-                    checked += 1;
-                    let want = ideal(walk);
-                    if clearance(want, &tris) < CAMERA_RADIUS || crosses(body, want, &tris) {
-                        blocked += 1;
-                    }
-                    let e = cam.position;
-                    let gap = clearance(e, &tris);
-                    let at = format!(
-                        "{what}: bearing {k}, {d} m out, turn {turn}, pitch {pitch}: \
-                         feet {feet:.2?} camera {e:.2?} ideal {want:.2?}"
-                    );
-                    assert!(gap >= cam.near, "{at}: {gap:.3} m from the {what}");
-                    assert!(!crosses(body, e, &tris), "{at}: behind the {what}");
-                    if e.distance(body) < BODY_HIDE_DIST {
-                        assert!(walk.player_body_hidden(), "{at}: the camera is in his body");
-                    }
-                }
-            }
-        }
-    }
-    eprintln!("{what}: {checked} placements, {blocked} with the ideal camera in or behind it");
-    assert!(checked > 100, "{what}: only {checked} placements");
-    blocked
+/// The track centre the camera is pulled toward: the eye point.
+fn centre(walk: &WalkSim) -> Vec3 {
+    let me = walk.sim.unit(walk.player).unwrap();
+    me.soldier.pos + Vec3::Y * me.section().eye_y
 }
 
-/// The reported case: a health droid (it turns: checked at its live pose).
+/// The point the camera is pulled in toward: the PS2's 1.5 m point.
+fn pull(walk: &WalkSim) -> Vec3 {
+    walk.soldier().pos + Vec3::Y * CAMERA_PULL_Y
+}
+
+/// Does no big world model stand between the pull point and the ideal
+/// camera?
+fn walls_clear(walk: &WalkSim) -> bool {
+    let (want, _) = ideal(walk);
+    walk.camera_blockers
+        .fraction(pull(walk), want, None, |_| None)
+        >= 1.0
+}
+
+/// A bearing's unit vector (12 around).
+fn bearing(k: usize) -> Vec3 {
+    let a = std::f32::consts::TAU * k as f32 / 12.0;
+    Vec3::new(a.cos(), 0.0, a.sin())
+}
+
+/// `out` turned by `turn` radians about +Y.
+fn turned(out: Vec3, turn: f32) -> Vec3 {
+    Vec3::new(
+        out.x * turn.cos() - out.z * turn.sin(),
+        0.0,
+        out.x * turn.sin() + out.z * turn.cos(),
+    )
+}
+
+/// The reported case, on BF1 Yavin 4: Arena: the player heals with his back
+/// against a health droid, the camera behind him in and behind the droid.
+/// The droid never pulls the camera in: it stays at its normal distance,
+/// above his head, looking where he looks (never at the floor), and the
+/// droid is drawn see-through - hidden while the camera is inside it. Held
+/// still for 2 s while the droid turns, nothing changes.
 #[test]
-fn the_camera_stays_out_of_a_health_droid() {
-    let Some((mut walk, scene)) = battle() else {
+fn the_healing_droid_never_pulls_the_camera_and_is_seen_through() {
+    let Some((mut walk, scene)) = battle("bf1_yav2") else {
         return;
     };
     let ii = instance(&scene, "com_item_healthrecharge");
+    assert_eq!(walk.camera_blockers.is_prop(ii as u32), Some(true));
     let c = Vec3::from(scene.manifest.instances[ii].translation);
     let s = walk
         .sim
@@ -248,24 +240,108 @@ fn the_camera_stays_out_of_a_health_droid() {
         .iter()
         .position(|s| s.instance == Some(ii as u32))
         .expect("the droid's station");
-    // Where it was placed, then turned a way along its idle spin.
+    let (mut checked, mut inside) = (0, 0);
+    let mut held = None;
     for yaw in [0.0f32, 0.9, 2.3] {
         walk.sim.stations[s].motion.yaw = yaw;
-        let what = format!("health droid at yaw {yaw}");
-        let blocked = swing_behind(&mut walk, &what, c, c.y, |w| {
-            tris(&scene, ii, Some(droid_pose(w, ii)))
-        });
+        for k in 0..12 {
+            let out = bearing(k);
+            let solid = tris(&scene, ii, Some(droid_pose(&walk, ii)));
+            let reach = solid
+                .iter()
+                .flatten()
+                .map(|p| (*p - c).dot(out))
+                .fold(0.0f32, f32::max);
+            for d in [0.3f32, 0.6, 1.0, 1.6, 2.2] {
+                for turn in [-0.4f32, 0.0, 0.4] {
+                    for pitch in [-0.4f32, -0.2, core::unit::SPAWN_PITCH, 0.0, 0.25, 0.45] {
+                        let feet = c + out * (reach + d);
+                        let cam = stand(&mut walk, feet, turned(out, turn), pitch);
+                        let (want, want_pitch) = ideal(&walk);
+                        let eye = centre(&walk);
+                        let in_the_way = clearance(want, &solid) < CAMERA_RADIUS
+                            || crosses(eye, want, &solid)
+                            || crosses(feet + Vec3::Y * CAMERA_SIGHT_BODY_Y, want, &solid);
+                        if !in_the_way || !walls_clear(&walk) {
+                            continue;
+                        }
+                        checked += 1;
+                        let at = format!(
+                            "droid yaw {yaw}, bearing {k}, {d} m out, turn {turn}, pitch \
+                             {pitch}: feet {feet:.2?} camera {:.2?} ideal {want:.2?}",
+                            cam.position
+                        );
+                        assert!(
+                            (cam.position.distance(eye) - want.distance(eye)).abs() < 0.01,
+                            "{at}: the droid pulled the camera in"
+                        );
+                        // Aiming up, the ideal camera itself drops under his
+                        // head (the PS2's own): its view is unchanged.
+                        if pitch <= 0.0 {
+                            assert!(cam.position.y > feet.y + 2.1, "{at}: under his head");
+                        }
+                        assert!(
+                            (cam.pitch - want_pitch).abs() < 1e-4,
+                            "{at}: the view tilts"
+                        );
+                        assert!(
+                            (cam.yaw - walk.soldier().yaw).abs() < 1e-5,
+                            "{at}: the view turns"
+                        );
+                        assert!(!walk.player_body_hidden(), "{at}: his body is hidden");
+                        let see = walk.camera_see_through();
+                        let got = see.props.iter().find(|(i, _)| *i == ii as u32);
+                        assert!(got.is_some(), "{at}: the droid is drawn whole: {see:?}");
+                        if clearance(cam.position, &solid) < CAMERA_RADIUS {
+                            inside += 1;
+                            assert_eq!(got.unwrap().1, 0.0, "{at}: inside it, it shows");
+                        }
+                        if held.is_none()
+                            && d == 0.3
+                            && turn == 0.0
+                            && pitch == core::unit::SPAWN_PITCH
+                        {
+                            held = Some((feet, out, pitch, cam.position));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    eprintln!("health droid: {checked} placements in the way, {inside} with the camera in it");
+    assert!(checked > 50 && inside > 10, "{checked} / {inside}");
+
+    // Healing, held still against it for 2 s while the droid turns.
+    let (feet, out, pitch, first) = held.expect("a placement against the droid");
+    stand(&mut walk, feet, out, pitch);
+    for tick in 0..60 {
+        walk.step_tick(&[PadState::default()]);
+        let u = walk.sim.unit_mut(walk.player).unwrap();
+        (u.soldier.pos, u.soldier.pitch) = (feet, pitch);
+        let cam = walk.camera();
         assert!(
-            blocked > 50,
-            "{what}: the swing must put the ideal camera into the droid"
+            cam.position.distance(first) < 0.02,
+            "tick {tick}: the camera moved {first:.2?} -> {:.2?}",
+            cam.position
+        );
+        assert!(
+            walk.camera_see_through()
+                .props
+                .iter()
+                .any(|(i, _)| *i == ii as u32),
+            "tick {tick}: the droid is drawn whole"
         );
     }
 }
 
-/// Walls and props: a ruin wall, a column (thin) and a Gungan head bunker.
+/// A wall behind the player (Naboo's ruin wall, Gungan head bunker and the
+/// tall ruin column, all big): the camera is pulled in, never behind the wall
+/// and clear of it by the near plane; it keeps its pitch and view, stays at
+/// the 1.5 m pull point's height or above (never down at the floor), and his
+/// body is hidden once it comes into him.
 #[test]
-fn the_camera_stays_out_of_walls_and_props() {
-    let Some((mut walk, scene)) = battle() else {
+fn a_wall_behind_the_player_pulls_the_camera_in_keeping_height_and_pitch() {
+    let Some((mut walk, scene)) = battle("bf1_nab1") else {
         return;
     };
     for class in [
@@ -274,6 +350,11 @@ fn the_camera_stays_out_of_walls_and_props() {
         "nab1_prop_gunganhead_bunker",
     ] {
         let ii = instance(&scene, class);
+        assert_eq!(
+            walk.camera_blockers.is_prop(ii as u32),
+            Some(false),
+            "{class}"
+        );
         let c = Vec3::from(scene.manifest.instances[ii].translation);
         let floor = walk
             .sim
@@ -281,188 +362,257 @@ fn the_camera_stays_out_of_walls_and_props() {
             .as_ref()
             .map_or(c.y, |h| h.height_at(c.x, c.z));
         let solid = tris(&scene, ii, None);
-        // The player stands at the terrain's height under its origin.
-        let blocked = swing_behind(&mut walk, class, c, floor, |_| solid.clone());
+        let (mut checked, mut pulled) = (0, 0);
+        for k in 0..12 {
+            let out = bearing(k);
+            let reach = solid
+                .iter()
+                .flatten()
+                .map(|p| (*p - c).dot(out))
+                .fold(0.0f32, f32::max);
+            for d in [0.35f32, 0.6, 1.0, 1.6, 2.4] {
+                for turn in [-0.5f32, 0.0, 0.5] {
+                    for pitch in [-0.6f32, -0.2, 0.0] {
+                        let feet = Vec3::new(c.x, floor, c.z) + out * (reach + d);
+                        let cam = stand(&mut walk, feet, turned(out, turn), pitch);
+                        let eye = pull(&walk);
+                        if clearance(eye, &solid) < CAMERA_RADIUS {
+                            continue; // he would stand in it
+                        }
+                        checked += 1;
+                        let (want, want_pitch) = ideal(&walk);
+                        let e = cam.position;
+                        if e.distance(eye) < want.distance(eye) - 0.05 {
+                            pulled += 1;
+                        }
+                        let at = format!(
+                            "{class}: bearing {k}, {d} m out, turn {turn}, pitch {pitch}: \
+                             feet {feet:.2?} camera {e:.2?} ideal {want:.2?}"
+                        );
+                        let gap = clearance(e, &solid);
+                        assert!(gap >= cam.near, "{at}: {gap:.3} m from it");
+                        assert!(!crosses(eye, e, &solid), "{at}: behind it");
+                        assert!(
+                            (cam.pitch - want_pitch).abs() < 1e-4,
+                            "{at}: the view tilts"
+                        );
+                        assert!((cam.yaw - walk.soldier().yaw).abs() < 1e-5, "{at}: turned");
+                        assert!(e.y >= eye.y - 1e-3, "{at}: under the 1.5 m point");
+                        assert!(
+                            e.distance(eye) <= want.distance(eye) + 1e-3,
+                            "{at}: pushed out"
+                        );
+                        if e.distance(eye) < BODY_HIDE_DIST {
+                            assert!(walk.player_body_hidden(), "{at}: the camera is in his body");
+                        }
+                    }
+                }
+            }
+        }
+        eprintln!("{class}: {checked} placements, {pulled} pulled in");
         assert!(
-            blocked > 20,
-            "{class}: the swing must put the ideal camera into it"
+            checked > 100 && pulled > 20,
+            "{class}: {checked} / {pulled}"
         );
     }
 }
 
-/// A building turret's gun emplacement, walked up to on foot.
+/// A gun emplacement (2.6 m across, a prop) between the camera and the
+/// player: it never pulls the camera in, and is drawn see-through whenever
+/// it stands in the camera's sight of his eye or body.
 #[test]
-fn the_camera_stays_out_of_a_building_turret() {
-    let Some((mut walk, scene)) = battle() else {
+fn a_prop_between_the_camera_and_the_player_is_seen_through() {
+    let Some((mut walk, scene)) = battle("bf1_nab1") else {
         return;
     };
     let ii = instance(&scene, "com_weap_gunturret");
-    assert!(
-        walk.sim
-            .vehicles
-            .iter()
-            .any(|v| v.instance == Some(ii as u32)),
-        "the gun turret is a building turret"
-    );
+    assert_eq!(walk.camera_blockers.is_prop(ii as u32), Some(true));
     let c = Vec3::from(scene.manifest.instances[ii].translation);
     let solid = tris(&scene, ii, None);
-    let blocked = swing_behind(&mut walk, "gun turret", c, c.y, |_| solid.clone());
-    assert!(blocked > 20, "the swing must put the ideal camera into it");
+    let (mut checked, mut seen) = (0, 0);
+    for k in 0..12 {
+        let out = bearing(k);
+        let reach = solid
+            .iter()
+            .flatten()
+            .map(|p| (*p - c).dot(out))
+            .fold(0.0f32, f32::max);
+        for d in [0.4f32, 1.0, 1.8] {
+            for pitch in [-0.4f32, -0.07, 0.2] {
+                let feet = c + out * (reach + d);
+                let cam = stand(&mut walk, feet, out, pitch);
+                let eye = centre(&walk);
+                let body = feet + Vec3::Y * CAMERA_SIGHT_BODY_Y;
+                if clearance(eye, &solid) < CAMERA_RADIUS || !walls_clear(&walk) {
+                    continue;
+                }
+                checked += 1;
+                let (want, _) = ideal(&walk);
+                let at = format!(
+                    "bearing {k}, {d} m out, pitch {pitch}: camera {:.2?}",
+                    cam.position
+                );
+                assert!(
+                    (cam.position.distance(eye) - want.distance(eye)).abs() < 0.01,
+                    "{at}: the emplacement pulled the camera in"
+                );
+                let e = cam.position;
+                let hides = crosses(e, eye, &solid)
+                    || crosses(e, body, &solid)
+                    || clearance(e, &solid) < CAMERA_RADIUS;
+                let see = walk.camera_see_through();
+                let got = see.props.iter().any(|(i, _)| *i == ii as u32);
+                if hides {
+                    seen += 1;
+                    assert!(got, "{at}: it hides him and is drawn whole");
+                }
+            }
+        }
+    }
+    eprintln!("gun emplacement: {checked} placements, {seen} with it in the way");
+    assert!(checked > 50 && seen > 20, "{checked} / {seen}");
 }
 
-/// A parked vehicle: its collision hull blocks the camera (ours; the PS2's
-/// camera mask has no vehicle layer).
+/// A parked vehicle: never pulls the camera in (ours: the PS2's camera mask
+/// has no vehicle layer either), and is drawn see-through while its hull
+/// stands between the camera and the player.
 #[test]
-fn the_camera_stays_out_of_a_vehicle() {
-    let Some((mut walk, _scene)) = battle() else {
+fn a_vehicle_is_seen_through_and_never_pulls() {
+    let Some((mut walk, _scene)) = battle("bf1_nab1") else {
         return;
     };
-    // A pad's tank or speeder, spawned on its pad.
+    // The tallest hull among the pads' classes but a walker's (its legs leave
+    // the sight lines clear; a speeder bike hides nothing), spawned on its
+    // pad.
     let has_hull = |class: u32| {
         walk.sim
             .hull_parts
             .get(class as usize)
             .is_some_and(|h| h.as_ref().is_some_and(|h| !h.is_empty()))
     };
-    let (pad, spec) = walk
+    let specs: Vec<_> = walk
         .sim
         .vehicle_pads
         .iter()
-        .find_map(|p| {
-            let c = p
-                .def
+        .flat_map(|p| {
+            p.def
                 .classes
                 .iter()
                 .flatten()
-                .find(|c| has_hull(c.spec.class))?;
-            Some((p.def.clone(), c.spec.clone()))
+                .filter(|c| {
+                    has_hull(c.spec.class) && c.spec.kind != core::vehicle::VehicleKind::Walker
+                })
+                .map(|c| {
+                    let mut spec = c.spec.clone();
+                    (spec.pos, spec.yaw) = (p.def.pos, p.def.yaw);
+                    spec
+                })
         })
-        .expect("a pad class with a hull on Naboo");
-    let mut spec = spec;
-    spec.pos = pad.pos;
-    spec.yaw = pad.yaw;
-    let vh = walk.sim.spawn_vehicle(&spec);
+        .collect();
+    assert!(!specs.is_empty(), "a pad class with a hull on Naboo");
+    let mut best: Option<(f32, core::vehicle::VehicleHandle)> = None;
+    for spec in &specs {
+        let h = walk.sim.spawn_vehicle(spec);
+        walk.step_tick(&[PadState::default()]);
+        let top = walk
+            .sim
+            .collision
+            .hull(h)
+            .iter()
+            .map(|b| b.aabb.max.y)
+            .fold(f32::MIN, f32::max);
+        let tall = top - walk.sim.vehicle(h).expect("spawned").pos.y;
+        match best {
+            Some((t, _)) if t >= tall => walk.sim.remove_vehicle(h),
+            _ => {
+                if let Some((_, old)) = best {
+                    walk.sim.remove_vehicle(old);
+                }
+                best = Some((tall, h));
+            }
+        }
+    }
+    let (tall, vh) = best.unwrap();
     walk.step_tick(&[PadState::default()]);
     let c = walk.sim.vehicle(vh).expect("spawned").pos;
+    eprintln!("vehicle: hull top {tall:.2} m over its origin");
     let hull_hit = |w: &WalkSim, o: Vec3, d: Vec3, len: f32| {
         w.sim
             .collision
-            .ray_with(o, d, len, Layers::ORDNANCE, HullFilter::Hulls)
-            .filter(|h| h.owner == Some(vh))
+            .ray_with(o, d, len, Layers::ORDNANCE, HullFilter::Only(vh))
             .map(|h| h.t)
     };
-    // 26 directions: how near the hull is to a point.
-    let dirs: Vec<Vec3> = (0..27)
-        .filter(|&i| i != 13)
-        .map(|i| {
-            Vec3::new(
-                (i % 3) as f32 - 1.0,
-                ((i / 3) % 3) as f32 - 1.0,
-                (i / 9) as f32 - 1.0,
-            )
-            .normalize()
-        })
-        .collect();
-    let near =
-        |w: &WalkSim, p: Vec3, len: f32| dirs.iter().any(|d| hull_hit(w, p, *d, len).is_some());
-    let (mut checked, mut blocked) = (0, 0);
+    let (mut checked, mut seen) = (0, 0);
     for k in 0..12 {
-        let a = std::f32::consts::TAU * k as f32 / 12.0;
-        let out = Vec3::new(a.cos(), 0.0, a.sin());
-        // The hull's reach along this bearing at the pull point's height,
-        // from outside in.
-        let from = c + Vec3::Y * CAMERA_PULL_BODY_Y + out * 20.0;
+        let out = bearing(k);
+        // The hull's reach along this bearing at his middle, from outside in.
+        let from = c + Vec3::Y * CAMERA_SIGHT_BODY_Y + out * 20.0;
         let reach = hull_hit(&walk, from, -out, 20.0).map_or(0.0, |t| 20.0 - t);
-        for d in [0.4f32, 0.8, 1.4, 2.2] {
-            for pitch in [-0.6f32, -0.2, 0.0, 0.35] {
+        for d in [0.4f32, 0.8, 1.4, 2.2, 3.0] {
+            for pitch in [-0.6f32, -0.2, 0.0, 0.3] {
                 let feet = c + out * (reach + d);
                 let cam = stand(&mut walk, feet, out, pitch);
-                let body = feet + Vec3::Y * CAMERA_PULL_BODY_Y;
-                if near(&walk, body, CAMERA_RADIUS) {
-                    continue; // the soldier would stand in the hull
+                let eye = centre(&walk);
+                if !walls_clear(&walk) {
+                    continue;
                 }
                 checked += 1;
+                let (want, _) = ideal(&walk);
                 let at = format!(
-                    "bearing {k}, {d} m out, pitch {pitch}: feet {feet:.2?} camera {:.2?}",
+                    "bearing {k}, {d} m out, pitch {pitch}: camera {:.2?}",
                     cam.position
                 );
-                let want = ideal(&walk);
-                let to = want - body;
-                if hull_hit(&walk, body, to.normalize(), to.length() + CAMERA_RADIUS).is_some()
-                    || near(&walk, want, CAMERA_RADIUS)
-                {
-                    blocked += 1;
+                assert!(
+                    (cam.position.distance(eye) - want.distance(eye)).abs() < 0.01,
+                    "{at}: the vehicle pulled the camera in"
+                );
+                let body = feet + Vec3::Y * CAMERA_SIGHT_BODY_Y;
+                let behind = [eye, body].iter().any(|&s| {
+                    let to = s - cam.position;
+                    hull_hit(&walk, cam.position, to.normalize(), to.length() - 0.5).is_some()
+                });
+                // The camera inside the hull: it meets the hull every way.
+                let inside = [
+                    Vec3::X,
+                    Vec3::NEG_X,
+                    Vec3::Y,
+                    Vec3::NEG_Y,
+                    Vec3::Z,
+                    Vec3::NEG_Z,
+                ]
+                .iter()
+                .all(|d| hull_hit(&walk, cam.position, *d, 30.0).is_some());
+                let got = walk
+                    .camera_see_through()
+                    .vehicles
+                    .into_iter()
+                    .find(|(h, _)| *h == vh);
+                if behind || inside {
+                    seen += 1;
+                    assert!(got.is_some(), "{at}: the hull hides him and is drawn whole");
                 }
-                let e = cam.position - body;
-                assert!(
-                    e.length() < 1e-3 || hull_hit(&walk, body, e.normalize(), e.length()).is_none(),
-                    "{at}: behind the hull"
-                );
-                assert!(
-                    !near(&walk, cam.position, cam.near),
-                    "{at}: the hull within {} m",
-                    cam.near
-                );
-                if e.length() < BODY_HIDE_DIST {
-                    assert!(walk.player_body_hidden(), "{at}: the camera is in his body");
+                if inside {
+                    assert_eq!(got.unwrap().1, 0.0, "{at}: inside the hull, it shows");
                 }
             }
         }
     }
-    eprintln!("vehicle: {checked} placements, {blocked} with the ideal camera in or behind it");
-    assert!(
-        checked > 50 && blocked > 20,
-        "{checked} placements, {blocked} blocked"
+    eprintln!(
+        "vehicle: {checked} placements, {seen} with the hull in the way or around the camera"
     );
+    assert!(checked > 50 && seen > 20, "{checked} / {seen}");
 }
 
-/// Held still in front of a turning droid for 3 s: the camera never pops
-/// back out faster than the PS2's return rate, stays out of the droid every
-/// tick, and in front of a still wall it does not move at all.
+/// Held still in front of a still wall that pulls the camera in, the camera
+/// does not move at all.
 #[test]
 fn the_pulled_in_camera_does_not_jitter() {
-    let Some((mut walk, scene)) = battle() else {
+    let Some((mut walk, scene)) = battle("bf1_nab1") else {
         return;
     };
-    let ii = instance(&scene, "com_item_healthrecharge");
-    let c = Vec3::from(scene.manifest.instances[ii].translation);
-    let out = Vec3::X;
-    let reach = tris(&scene, ii, Some(droid_pose(&walk, ii)))
-        .iter()
-        .flatten()
-        .map(|p| (*p - c).length())
-        .fold(0.0f32, f32::max);
-    stand(&mut walk, c + out * (reach + 0.4), out, -0.2);
-    let full = (ideal(&walk) - (walk.soldier().pos + Vec3::Y * CAMERA_PULL_BODY_Y)).length();
-    let mut last: Option<f32> = None;
-    let mut pulled = 0;
-    for tick in 0..90 {
-        walk.step_tick(&[PadState::default()]);
-        let body = walk.soldier().pos + Vec3::Y * CAMERA_PULL_BODY_Y;
-        let cam = walk.camera();
-        let len = cam.position.distance(body);
-        let gap = clearance(cam.position, &tris(&scene, ii, Some(droid_pose(&walk, ii))));
-        assert!(gap >= cam.near, "tick {tick}: {gap:.3} m from the droid");
-        if let Some(l) = last {
-            assert!(
-                len - l <= PULL_RETURN_RATE * core::TICK_DT * full + 1e-3,
-                "tick {tick}: the camera jumped out {l:.3} -> {len:.3}"
-            );
-        }
-        if len < full - 0.05 {
-            pulled += 1;
-        }
-        last = Some(len);
-    }
-    assert!(
-        pulled > 30,
-        "the droid must pull the camera in ({pulled} ticks)"
-    );
-
     let wall = instance(&scene, "nab1_prop_ruins1");
     let w = Vec3::from(scene.manifest.instances[wall].translation);
     let solid = tris(&scene, wall, None);
-    // The first bearing whose ideal camera the wall blocks.
     let floor = walk
         .sim
         .heightfield
@@ -470,8 +620,7 @@ fn the_pulled_in_camera_does_not_jitter() {
         .map_or(w.y, |h| h.height_at(w.x, w.z));
     let mut seen = Vec::new();
     for k in 0..12 {
-        let a = std::f32::consts::TAU * k as f32 / 12.0;
-        let out = Vec3::new(a.cos(), 0.0, a.sin());
+        let out = bearing(k);
         let reach = solid
             .iter()
             .flatten()
@@ -483,8 +632,8 @@ fn the_pulled_in_camera_does_not_jitter() {
             out,
             -0.2,
         );
-        let body = walk.soldier().pos + Vec3::Y * CAMERA_PULL_BODY_Y;
-        if clearance(body, &solid) > CAMERA_RADIUS && crosses(body, ideal(&walk), &solid) {
+        let eye = pull(&walk);
+        if clearance(eye, &solid) > CAMERA_RADIUS && crosses(eye, ideal(&walk).0, &solid) {
             for _ in 0..60 {
                 walk.step_tick(&[PadState::default()]);
                 seen.push(walk.camera().position);

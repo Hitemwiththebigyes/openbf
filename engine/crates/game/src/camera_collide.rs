@@ -11,26 +11,31 @@
 //! 0.15 above, and then approached at 0.75 per second (B1 `FUN_0019fd70`,
 //! [`ease_pull`]). The eye is the origin plus the track times that fraction.
 //!
-//! Ours (PROVISIONAL, playtest bug 2026-10-28, the camera inside a health
-//! droid):
-//! - The world is the scene's drawn triangles (every map instance; terrain
-//!   is `WalkSim::settle_camera`'s), not the `coll` bodies, and the cast is
-//!   a sphere of [`CAMERA_RADIUS`] swept along the track, exact against each
-//!   triangle — the PS2's five rays carry its near plane's 0.1 m rectangle,
-//!   the port keeps a wider margin. An instance AABB is only the broad
-//!   phase: Mos Eisley's buildings are concave, and their bounding boxes
-//!   swallow whole streets (measured: 2 of 6 sampled frames on the walk-demo
-//!   path had the camera jammed against the player's back in the open).
-//! - A health / ammo droid (`powerupstation`, an EntityBuilding on the PS2,
-//!   so in its camera's building layer) is cast at the pose it is drawn at:
-//!   it turns, and its static instance matrix is not where it stands.
-//! - Vehicle hulls block too, by the same sphere ([`hull_fraction`]; the
-//!   PS2's mask has no vehicle layer), the rider's own vehicle excepted.
-//!   Soldiers do not (they would shove the camera about as they run past).
-//! - No floor on the track: the old 25 % minimum put the camera inside
-//!   whatever stood right behind the player (the droid bug). When the camera
-//!   comes into the soldier, his body is hidden ([`BODY_HIDE_DIST`]) — the
-//!   PS2 ghosts him there (`re-muzzle-flash.md` §7, `sheet_bf1_L.png`).
+//! Ours (PROVISIONAL, playtest 2026-10-28: the camera inside a health droid,
+//! then "the camera goes to the floor looking at my feet" healing beside
+//! one; `analysis/camera-occlusion.md`):
+//! - Only BIG world geometry pulls the camera in: a map instance whose
+//!   model is more than [`PROP_MAX_FOOTPRINT`] across. Its drawn triangles
+//!   (not the `coll` bodies; terrain is `WalkSim::settle_camera`'s) are cast
+//!   as a sphere of [`CAMERA_RADIUS`] swept along the track, exact against
+//!   each triangle — the PS2's five rays carry its near plane's 0.1 m
+//!   rectangle, the port keeps a wider margin. An instance AABB is only the
+//!   broad phase: Mos Eisley's buildings are concave, and their bounding
+//!   boxes swallow whole streets.
+//! - SMALL props (health / ammo droids, gun emplacements, columns, lamps)
+//!   and every vehicle never pull the camera: while one stands in the
+//!   camera's sight of the player, or holds the camera, it is drawn
+//!   see-through ([`CameraBlockers::see_through`], [`see_through_vehicles`]:
+//!   an ordered dither at [`SEE_THROUGH_OPACITY`], hidden outright with the
+//!   camera inside it). They stay solid for the sim — this module is visual
+//!   only. A droid (`powerupstation`) is tested at the pose it is drawn at.
+//!   Soldiers neither pull nor fade.
+//! - A soldier's track runs from the PS2's own origin, 1.5 m above his feet
+//!   (`walk::CAMERA_PULL_Y`), to the ideal camera; the pulled-in camera
+//!   keeps the ideal's view (its pitch and yaw, the look along his aim), so
+//!   it never drops to the floor or turns to his feet. When it comes into
+//!   him, his body is hidden ([`BODY_HIDE_DIST`]) — the PS2 ghosts him there
+//!   (`re-muzzle-flash.md` §7) — and the view is his own, along the same aim.
 
 use crate::assets::Scene;
 use core::collision::{CollisionWorld, HullFilter, Layers};
@@ -46,12 +51,30 @@ use std::sync::Arc;
 pub const CAMERA_RADIUS: f32 = 0.35;
 /// The player's body is hidden while the drawn camera is closer than this to
 /// the point it is pulled in toward (m). PROVISIONAL (ours): the PS2 ghosts
-/// the trooper instead (`re-muzzle-flash.md` §7).
-pub const BODY_HIDE_DIST: f32 = 0.6;
+/// the trooper instead (`re-muzzle-flash.md` §7). At 1.2 m the 52 deg view
+/// spans 1.2 m top to bottom, too little to frame a 2 m soldier: his body
+/// would only wall the view off, so it goes and the view is his aim's.
+pub const BODY_HIDE_DIST: f32 = 1.2;
 /// The rate a pulled-in camera returns at (track fraction per second) and
 /// the rise it waits for (B1 `FUN_0019fd70`: `param_2 * 0.75`, `+ 0.15`).
 pub const PULL_RETURN_RATE: f32 = 0.75;
 pub const PULL_RETURN_STEP: f32 = 0.15;
+/// A map instance whose model is at most this wide (m, the larger of its two
+/// horizontal extents at its instance scale) is a PROP: it never pulls the
+/// camera in, it is drawn see-through. PROVISIONAL (ours): it takes the
+/// droids (1.4-1.9 m), the gun emplacements (2.4-3.1 m), columns, lamps and
+/// small trees, and leaves walls, doors, buildings and rocks (4.5 m up)
+/// solid (measured on BF1 NAB1 / YAV2, BF2 KAS2 / NAB2).
+pub const PROP_MAX_FOOTPRINT: f32 = 4.0;
+/// A see-through prop's opacity while it stands between the camera and the
+/// player (an ordered dither, `render::Fade::see_through`). PROVISIONAL.
+pub const SEE_THROUGH_OPACITY: f32 = 0.3;
+/// The sight lines' thickness (m): a sphere this size swept from the camera
+/// toward the player finds the props in the way.
+pub const SIGHT_RADIUS: f32 = 0.15;
+/// The sight lines stop this short of the player's points (m): a prop past
+/// them, or touching one, is not in the way.
+pub const SIGHT_END_GAP: f32 = 0.3;
 
 /// The PS2's stored track fraction one update on (B1 `FUN_0019fd70`): a
 /// smaller `raw` at once; a larger one only when it is 1.0 or more than
@@ -65,6 +88,15 @@ pub fn ease_pull(stored: f32, raw: f32, dt: f32) -> f32 {
     } else {
         stored
     }
+}
+
+/// What one frame's chase camera sees through: map props by manifest index
+/// and vehicles, each with its opacity (0 = hidden). The renderer draws them
+/// so (`viewer::SceneGpu::see_through`, `viewer::vehicles` `draws`).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SeeThrough {
+    pub props: Vec<(u32, f32)>,
+    pub vehicles: Vec<(VehicleHandle, f32)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -88,6 +120,17 @@ impl Aabb {
 
     fn is_empty(&self) -> bool {
         self.min.x > self.max.x
+    }
+
+    fn grown(&self, r: f32) -> Aabb {
+        Aabb {
+            min: self.min - Vec3::splat(r),
+            max: self.max + Vec3::splat(r),
+        }
+    }
+
+    fn contains(&self, p: Vec3) -> bool {
+        p.cmpge(self.min).all() && p.cmple(self.max).all()
     }
 
     /// World AABB of `local` transformed by `m` (bounds of the 8 corners).
@@ -283,6 +326,8 @@ struct Blocker {
     instance: u32,
     /// A droid: drawn at the pose `CameraBlockers::fraction`'s `live` gives.
     moves: bool,
+    /// At most [`PROP_MAX_FOOTPRINT`] across: drawn see-through, never pulls.
+    prop: bool,
 }
 
 /// World blockers for the chase camera. Visual only — never read by the sim,
@@ -350,21 +395,34 @@ impl CameraBlockers {
     }
 
     /// Pull `desired` toward `target` until the camera clears the scene's
-    /// static geometry by `CAMERA_RADIUS` (the gallery's framing).
+    /// static geometry by `CAMERA_RADIUS`, props included: the gallery's
+    /// framing, which draws nothing see-through.
     pub fn pull_in(&self, target: Vec3, desired: Vec3) -> Vec3 {
-        target + (desired - target) * self.fraction(target, desired, None, |_| None)
+        target + (desired - target) * self.fraction_of(target, desired, None, |_| None, true)
     }
 
     /// The fraction (0..=1) of the track `target -> desired` a sphere of
-    /// [`CAMERA_RADIUS`] travels before it touches a drawn triangle. `skip`
-    /// is passed through (a building turret's own building); `live` gives a
-    /// droid's drawn pose by its manifest instance (None: its placed one).
+    /// [`CAMERA_RADIUS`] travels before it touches a big model's drawn
+    /// triangle (props never pull, [`Self::see_through`]). `skip` is passed
+    /// through (a building turret's own building); `live` gives a droid's
+    /// drawn pose by its manifest instance (None: its placed one).
     pub fn fraction(
         &self,
         target: Vec3,
         desired: Vec3,
         skip: Option<u32>,
         live: impl Fn(u32) -> Option<Mat4>,
+    ) -> f32 {
+        self.fraction_of(target, desired, skip, live, false)
+    }
+
+    fn fraction_of(
+        &self,
+        target: Vec3,
+        desired: Vec3,
+        skip: Option<u32>,
+        live: impl Fn(u32) -> Option<Mat4>,
+        props: bool,
     ) -> f32 {
         let delta = desired - target;
         let len = delta.length();
@@ -374,33 +432,102 @@ impl CameraBlockers {
         let dir = delta / len;
         let mut t = len;
         for b in &self.blockers {
-            if Some(b.instance) == skip || !b.world.hits(target, dir, t, CAMERA_RADIUS) {
+            if (b.prop && !props)
+                || Some(b.instance) == skip
+                || !b.world.hits(target, dir, t, CAMERA_RADIUS)
+            {
                 continue;
             }
-            let inv = match b.moves.then(|| live(b.instance)).flatten() {
-                Some(pose) => pose.inverse(),
-                None => b.inv,
-            };
-            let o = inv.transform_point3(target);
-            let d = inv.transform_vector3(dir);
-            // Model units per metre along the track (1 for a rigid instance).
-            let k = d.length();
-            if k < 1e-6 {
-                continue;
-            }
-            let (d, r) = (d / k, CAMERA_RADIUS * b.scale);
-            for tri in b.mesh.indices.as_chunks::<3>().0 {
-                let [a, bb, c] = tri.map(|i| b.mesh.positions[i as usize]);
-                if let Some(hit) = sweep_sphere_tri(o, d, t * k, r, a, bb, c) {
-                    t = t.min(hit / k);
-                }
+            if let Some(hit) = b.sweep(b.pose_inv(&live), target, dir, t, CAMERA_RADIUS) {
+                t = t.min(hit);
             }
         }
         t / len
     }
+
+    /// The props to draw see-through for a camera at `eye` filming the
+    /// points `sights` (the player's eye and body), by manifest index: at 0
+    /// (hidden) when the camera is inside one's box grown by
+    /// [`CAMERA_RADIUS`], else at [`SEE_THROUGH_OPACITY`] when a sphere of
+    /// [`SIGHT_RADIUS`] swept from the camera to within [`SIGHT_END_GAP`] of
+    /// a sight point touches it. `skip` and `live` as [`Self::fraction`].
+    pub fn see_through(
+        &self,
+        eye: Vec3,
+        sights: &[Vec3],
+        skip: Option<u32>,
+        live: impl Fn(u32) -> Option<Mat4>,
+    ) -> Vec<(u32, f32)> {
+        let mut out = Vec::new();
+        for b in self.blockers.iter().filter(|b| b.prop) {
+            if Some(b.instance) == skip {
+                continue;
+            }
+            let pose = b.moves.then(|| live(b.instance)).flatten();
+            let near = pose.map_or(b.world, |m| Aabb::transformed(b.mesh.local, m));
+            if near.grown(CAMERA_RADIUS).contains(eye) {
+                out.push((b.instance, 0.0));
+                continue;
+            }
+            let inv = pose.map_or(b.inv, |m| m.inverse());
+            let blocks = sights.iter().any(|&s| {
+                let dist = s.distance(eye);
+                let len = dist - SIGHT_END_GAP;
+                if len <= 0.0 {
+                    return false;
+                }
+                let dir = (s - eye) / dist;
+                b.world.hits(eye, dir, len, SIGHT_RADIUS)
+                    && b.sweep(inv, eye, dir, len, SIGHT_RADIUS).is_some()
+            });
+            if blocks {
+                out.push((b.instance, SEE_THROUGH_OPACITY));
+            }
+        }
+        out
+    }
+
+    /// Is manifest instance `ii` a see-through prop (`None`: no blocker)?
+    pub fn is_prop(&self, ii: u32) -> Option<bool> {
+        self.blockers
+            .iter()
+            .find(|b| b.instance == ii)
+            .map(|b| b.prop)
+    }
 }
 
 impl Blocker {
+    /// World -> model at the pose `live` gives a droid, else the placed one.
+    fn pose_inv(&self, live: &impl Fn(u32) -> Option<Mat4>) -> Mat4 {
+        match self.moves.then(|| live(self.instance)).flatten() {
+            Some(pose) => pose.inverse(),
+            None => self.inv,
+        }
+    }
+
+    /// How far (m, within `len`) a sphere of `radius` at `from` moves along
+    /// `dir` (unit) before it touches this model, placed by `inv`
+    /// (world -> model).
+    fn sweep(&self, inv: Mat4, from: Vec3, dir: Vec3, len: f32, radius: f32) -> Option<f32> {
+        let o = inv.transform_point3(from);
+        let d = inv.transform_vector3(dir);
+        // Model units per metre along the track (1 for a rigid instance).
+        let k = d.length();
+        if k < 1e-6 {
+            return None;
+        }
+        let (d, r) = (d / k, radius * self.scale);
+        let mut best: Option<f32> = None;
+        for tri in self.mesh.indices.as_chunks::<3>().0 {
+            let [a, b, c] = tri.map(|i| self.mesh.positions[i as usize]);
+            let reach = best.map_or(len, |t| t) * k;
+            if let Some(hit) = sweep_sphere_tri(o, d, reach, r, a, b, c) {
+                best = Some(hit / k);
+            }
+        }
+        best
+    }
+
     fn new(mesh: Arc<TriMesh>, m: Mat4, instance: u32, moves: bool) -> Blocker {
         let world = if moves {
             // Every turn about the model's +Y: the widest reach from its axis
@@ -425,6 +552,10 @@ impl Blocker {
             .map(|v| inv.transform_vector3(v).length())
             .into_iter()
             .fold(0.0f32, f32::max);
+        // The model's horizontal extents at the instance's scale.
+        let ext = mesh.local.max - mesh.local.min;
+        let footprint =
+            (ext.x * m.x_axis.truncate().length()).max(ext.z * m.z_axis.truncate().length());
         Blocker {
             world,
             inv,
@@ -432,35 +563,60 @@ impl Blocker {
             mesh,
             instance,
             moves,
+            prop: footprint <= PROP_MAX_FOOTPRINT,
         }
     }
 }
 
-/// The fraction (0..=1) of the track `target -> desired` a sphere of
-/// [`CAMERA_RADIUS`] travels before it touches a vehicle's hull, `own`'s
-/// excepted (ours: the PS2's camera mask has no vehicle layer).
-pub fn hull_fraction(
+/// The vehicles to draw see-through for a camera at `eye` filming `sights`
+/// (ours: no vehicle pulls the camera in): [`CameraBlockers::see_through`]'s
+/// rule against each vehicle's collision hull, `own` (the rider's) excepted.
+pub fn see_through_vehicles(
     world: &CollisionWorld,
-    target: Vec3,
-    desired: Vec3,
+    vehicles: impl Iterator<Item = VehicleHandle>,
+    eye: Vec3,
+    sights: &[Vec3],
     own: Option<VehicleHandle>,
-) -> f32 {
-    let delta = desired - target;
-    let len = delta.length();
-    if len < 1e-4 {
-        return 1.0;
+) -> Vec<(VehicleHandle, f32)> {
+    let mut out = Vec::new();
+    for h in vehicles.filter(|h| Some(*h) != own) {
+        let bodies = world.hull(h);
+        if bodies.is_empty() {
+            continue;
+        }
+        let mut near = Aabb::empty();
+        for b in bodies {
+            near.add(b.aabb.min);
+            near.add(b.aabb.max);
+        }
+        if near.grown(CAMERA_RADIUS).contains(eye) {
+            out.push((h, 0.0));
+            continue;
+        }
+        let blocks = sights.iter().any(|&s| {
+            let dist = s.distance(eye);
+            let len = dist - SIGHT_END_GAP;
+            if len <= 0.0 {
+                return false;
+            }
+            let dir = (s - eye) / dist;
+            near.hits(eye, dir, len, SIGHT_RADIUS)
+                && world
+                    .ball_cast(
+                        eye,
+                        dir,
+                        len,
+                        SIGHT_RADIUS,
+                        Layers::ORDNANCE,
+                        HullFilter::Only(h),
+                    )
+                    .is_some()
+        });
+        if blocks {
+            out.push((h, SEE_THROUGH_OPACITY));
+        }
     }
-    let hulls = HullFilter::HullsExcept([own, None]);
-    world
-        .ball_cast(
-            target,
-            delta / len,
-            len,
-            CAMERA_RADIUS,
-            Layers::ORDNANCE,
-            hulls,
-        )
-        .map_or(1.0, |t| t / len)
+    out
 }
 
 #[cfg(test)]
@@ -605,14 +761,57 @@ mod tests {
     }
 
     /// A thin post 0.2 m beside the track: a ray along the centre misses it,
-    /// the swept sphere stops the camera at its radius from it.
+    /// the swept sphere stops at its radius from it.
     #[test]
     fn a_post_beside_the_track_stops_the_sphere() {
-        let b = one(post(0.2, -3.0), Mat4::IDENTITY, false);
-        let got = b.pull_in(Vec3::ZERO, Vec3::new(0.0, 0.0, -6.0));
+        let b = Blocker::new(post(0.2, -3.0), Mat4::IDENTITY, 7, false);
+        let dir = Vec3::NEG_Z;
+        let t = b
+            .sweep(b.inv, Vec3::ZERO, dir, 6.0, CAMERA_RADIUS)
+            .expect("the sphere meets the post");
+        let got = dir * t;
         assert!(got.z > -3.0, "{got:?}");
         let clear = post_clearance(&post(0.2, -3.0), got);
         assert!((clear - CAMERA_RADIUS).abs() < 1e-3, "{clear} {got:?}");
+    }
+
+    /// The playtest's ask (2026-10-28): a small prop between the camera and
+    /// the player never pulls the camera in; it is drawn see-through, and
+    /// hidden outright with the camera inside it. A prop beside the sight
+    /// line, or past the player, stays whole.
+    #[test]
+    fn a_small_prop_is_see_through_and_never_pulls() {
+        let b = one(post(0.2, -3.0), Mat4::IDENTITY, false);
+        assert_eq!(b.is_prop(7), Some(true));
+        assert_eq!(wall().is_prop(7), Some(false));
+        let (player, cam) = (Vec3::ZERO, Vec3::new(0.0, 0.0, -6.0));
+        let none = |_| None;
+        assert_eq!(
+            b.fraction(player, cam, None, none),
+            1.0,
+            "a prop never pulls"
+        );
+        // The gallery's framing still stops at it.
+        assert!(b.pull_in(player, cam).z > -3.0);
+        assert_eq!(
+            b.see_through(cam, &[player], None, none),
+            vec![(7, SEE_THROUGH_OPACITY)]
+        );
+        // The camera inside the post's box: hidden.
+        let inside = Vec3::new(0.2, 1.0, -3.0);
+        assert_eq!(b.see_through(inside, &[player], None, none), vec![(7, 0.0)]);
+        // Beside the sight line: whole.
+        let aside = Vec3::new(3.0, 0.0, -6.0);
+        assert!(b
+            .see_through(aside, &[Vec3::new(3.0, 0.0, 0.0)], None, none)
+            .is_empty());
+        // Past the player (0.2 m beyond his sight point): whole.
+        let lean = one(post(0.0, -0.2), Mat4::IDENTITY, false);
+        assert!(lean
+            .see_through(Vec3::new(0.0, 0.0, 6.0), &[player], None, none)
+            .is_empty());
+        // A skipped instance (a gunner's own building) is left alone.
+        assert!(b.see_through(cam, &[player], Some(7), none).is_empty());
     }
 
     fn post_clearance(m: &TriMesh, p: Vec3) -> f32 {

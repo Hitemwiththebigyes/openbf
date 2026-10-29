@@ -128,6 +128,21 @@ impl Sim {
                 }
             }
         }
+        // A fallen building turret (card TBLD): its wreck or pad takes the
+        // rebuild / build amount (`analysis/re-build-zones.md` 1-2). It is
+        // team 0 on the PS2: neutral to every cutter.
+        for (bi, t) in self.building_turrets.iter().enumerate() {
+            if t.down.is_none() || repair.health[t.repair_kind() as usize] <= 0.0 {
+                continue;
+            }
+            if let Some(score) =
+                self.repair_candidate(u, wc, t.sphere(), (None, Some(t.instance), HullFilter::All))
+            {
+                if best.is_none_or(|(old, _)| score < old) {
+                    best = Some((score, Target::Building(bi as u16)));
+                }
+            }
+        }
         best.map(|(_, target)| target)
     }
 
@@ -157,6 +172,13 @@ impl Sim {
                 v.health.cur =
                     (v.health.cur + repair.health[v.health.health_type as usize]).min(v.health.max);
                 (v.pos, v.health.cur - before)
+            }
+            Target::Building(bi) => {
+                let Some(t) = self.building_turrets.get(usize::from(bi)) else {
+                    return;
+                };
+                let (pos, amount) = (t.sphere().0, repair.health[t.repair_kind() as usize]);
+                (pos, self.repair_building(bi, amount))
             }
             Target::Unit(_)
             | Target::Mine(_)

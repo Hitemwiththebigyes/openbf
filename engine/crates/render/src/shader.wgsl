@@ -130,8 +130,8 @@ struct VsIn {
     @location(12) cull_near: vec2<f32>,
     // render::LightPath.
     @location(13) light: u32,
-    // render::Fade [begin, end, near], metres (render::mesh::NO_FADE = never).
-    @location(14) fade: vec3<f32>,
+    // render::Fade [begin, end, near] metres, opacity (render::mesh::NO_FADE = never).
+    @location(14) fade: vec4<f32>,
     // The point-light table records this instance takes, 0 = none.
     @location(15) lights: vec4<u32>,
 };
@@ -267,17 +267,19 @@ fn vs_main(in: VsIn) -> VsOut {
 // The terrain foliage's fade (`render::Fade`, analysis/re-foliage.md §6):
 // by the HORIZONTAL distance from the instance's origin to the eye, 1 up to
 // `begin`, linear to 0 at `end`, and max(d / near, 0.1)^2 nearer than `near`.
-// Per instance, as the PS2 computes it once per instance.
-fn fade_alpha(origin: vec3<f32>, f: vec3<f32>) -> f32 {
+// Per instance, as the PS2 computes it once per instance. Times the
+// instance's opacity (`f.w`): 1 for the foliage, a constant for the chase
+// camera's see-through props (`render::Fade::see_through`, ours).
+fn fade_alpha(origin: vec3<f32>, f: vec4<f32>) -> f32 {
     let d = length(origin.xz - globals.camera_pos.xz);
     if d > f.x {
-        return clamp((f.y - d) / max(f.y - f.x, 1e-6), 0.0, 1.0);
+        return clamp((f.y - d) / max(f.y - f.x, 1e-6), 0.0, 1.0) * f.w;
     }
     if f.z > 0.0 && d < f.z {
         let r = max(d / f.z, 0.1);
-        return r * r;
+        return r * r * f.w;
     }
-    return 1.0;
+    return f.w;
 }
 
 // The 4x4 Bayer threshold of a pixel, in (0, 1).

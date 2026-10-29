@@ -4,14 +4,14 @@ title: Buildable turrets get built: an unbuilt pad (state 2, health 0 of MaxHeal
 milestone: M2
 value: 4
 phase: build
-status: blocked
+status: review
 deps: TCOL
 files: engine/crates/core/src/vehicle.rs,engine/crates/core/src/sim/vehicles.rs,engine/crates/core/src/sim/seats.rs,engine/crates/game/src/vehicle_pads.rs,engine/crates/game/src/vehicle_class.rs,engine/crates/game/src/assets.rs,engine/crates/game/src/viewer/vehicles.rs,engine/crates/game/tests/suite/vehicle_pads.rs
 declares: sim; sweep
 needs: cloud prerequisites: restore baked turret maps/classes, missions and PS2 evidence; land TCOL body prerequisite; GPU battle-frame and full gates required
 effort:
-branch:
-resume: Cloud preflight 2026-10-24: no source implementation. 20/20 named inputs absent; scoped alternate search found none. TCOL body prerequisite is unlanded (now explicit deps). See reports/20261024_1016_card_TBLD.md and lead_tmp/tbld_cloud/. Restore inputs and verify TCOL part 1 landed, clear needs/set todo, start isolated checkout, write mutation-checked three-state referee, then implement and run pad census, battle pixels, sweep/CI/gates. Preserve BF1 built start and rider-death rule.
+branch: tbld
+resume: 2026-10-28 branch tbld (from playtest-20261028 a9962237): the fall look + collision, cutter repair/rebuild, no timed rebuild (the maintainer), engineer bots fix turrets with one claim a turret. NOT done here: BF2's buildable pads starting unbuilt and built by cutter (still not spawned, VTUR2), the hologram, the sweep census and the GPU battle-frame gate. See the 2026-10-28 section.
 created: 2026-09-30
 alpha: yes
 domain: vehicle
@@ -125,3 +125,48 @@ unbuilt too (BZONE1), and NAB1 is a showcase map.
   B2 `FUN_001e8498` -> `FUN_002f4e00`; BF1 `FUN_001c4ad0` -> `FUN_0023ac68`). The death also swaps the COLLISION:
   state 1 -> E+0x70 := K+0x388 (the destroyed model's `DestroyedCollisionMesh` + its prims), state 2 -> K+0x4d8 (the
   unbuilt mesh) (B2:93601-93636). Build this state machine after TCOL part 1 (the turret's bodies are then its own).
+
+## 2026-10-28 build (branch `tbld`; the maintainer's playtest ask)
+The maintainer: "When a turret is destroyed, the normal looking turrets should just show the little square on the ground, and not
+draw the turret. Other turrets like the hoth turrets or geonosis ... have destroyed looking looks ... When it has even 1
+health, it shows the normal intact look. The fusion cutter should be able to heal turrets like it can vehicles or
+health/ammo bots." Then (same day): "when a turret is destroyed it can only be fixed by a fusion cutter for all maps. It
+shouldn't magically heal itself after some set time. ... units with a fusion cutter when near a broken turret should have
+a higher chance to go fix it as its next objective ... Make sure that multiple engineers aren't given the objective of
+fixing the same turret at the same time though."
+
+### RE (tags per RULES 5)
+- [V] B2 `FUN_001e3638` B2:93584-93660 (read again): death with K+0x384 (`DestroyedGeometryName`) -> state 1, that model
+  and K+0x388 collision; none and K+0x4d4 (`UnbuiltGeometryName`) -> state 2, the unbuilt model and K+0x4d8; neither ->
+  state 1, model hidden and collision off (slot +0x50, `FUN_001690c8`; "hidden" is the doc's [O] reading of those two).
+- [V] B2 `FUN_001e3458` B2:93483-93492 (read again): "built" only when health >= MaxHealth with the state not 0. So a
+  destroyed turret at 1..max-1 is still destroyed; "even 1 health -> intact" holds for a turret that never fell.
+- [D] disc census (`assets_baked` classes, fnv keys): the little square is `com_prop_buildzone` (common bakes both games,
+  no `coll`), the unbuilt model of BF1 `com_weap_gunturret` and BF2 `tur_bldg_laser/_beam/...`. Wrecks: BF1 Hoth
+  `hoth_bldg_dish_turret_destroyed` / `hoth_bldg_hoth_turret_destroyed`, Geonosis `geo_bldg_geoturret_dest`, Bespin
+  `antiaircraft_chunk1`; BF2 the same Hoth / Geonosis wrecks, `com_bldg_chaingun_tripod_dest` / `_roof_dest`,
+  `antiaircraft_chunk1` (MYG1, KAS2), `fel1_weap_prop_turret_chunk`, `uta1_bldg_turret_destroyed`,
+  `yav_bldg_watchtower_hulk`. All baked with their collision; **no bake step is needed**. Neither model: BF2
+  `tur_weap_built_gunturret` (KAM1, COR1, NAB2), DEA1 `tur_bldg_mortar`, BF1 `yav_bldg_tower_turret`, `tat_bldg_barge_turret`.
+- [O][V] cutter (`re-build-zones.md` 2): BuildingHealth / BuildingRebuild / BuildingBuild = BF1 60 / 20 / 30, BF2
+  100 / 50 / 50, a shot per 0.5 s; BF1 carriers are the pilots (slot 3, channel 1), BF2 the engineers (slot 2,
+  channel 0) and the Jawas. A fallen turret also regenerates MaxHealth / RespawnTime on the PS2 [V B2:93789].
+
+### Built
+- core `sim/building_turrets.rs`: `TurretFall` (Wreck / Pad / Hidden), the fallen bodies swapped in at death
+  (`CollisionWorld::instance_parts` / `replace_instance`), `Sim::repair_building` (built at MaxHealth only),
+  `Target::Building` for the cutter (`sim/repair.rs`). **No regeneration** `[ours]` (the maintainer): `RespawnTime` is not read.
+- game `turret_fall.rs` (the class rule, its collision parts, the fallen model per instance), `viewer/turret_fall.rs`
+  (`SceneGpu::fallen`, swapped in `view_draws`). Deviation `[ours]`: a class with neither model drawn as
+  `com_weap_gunturret` falls to the pad (the PS2 hides it).
+- core `ai/fix.rs`: cutter carriers take the nearest broken turret within 50 m, one claim a turret, give up after 20 s
+  with no gain; walk, turn, cutter up, trigger.
+- Tests: core `building_turrets::tests` (3, mutation-checked: rise at > 0 fails all three); game suite `turret_fall` (6:
+  look + bodies on BF1 YAV2 / HOT1, BF2 KAM1 / HOT1 / GEO1; cutter rates; view swap (GPU); bots build one at a time
+  (claim mutation fails it); 300 s with no engineer stays down), `turret_enter` rewritten (stays down, cutter builds).
+- Stills: `engine/artifacts/lead_tmp/tbld/{bf1_yav2_gunturret,bf1_hot1_dish,bf2_kam1_gunturret,bf2_hot1_dish,bf2_geo1_geoturret}.png`
+  (example `turret_fall_stills`).
+
+### Open
+- BF2's 48 buildable pads still are not spawned (they could now start as down `Pad` turrets with health 0 and be
+  built by the same cutter and bots); the hologram; the sweep census of falls / rebuilds; gates.

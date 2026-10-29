@@ -441,6 +441,15 @@ impl HudView {
     }
 
     /// The sheets the last [`HudView::update`] drew from, in draw order.
+    /// Send one layout event straight to the HUD tree, past the model: for
+    /// a picture of an element the game does not light (hitmark's plain
+    /// `target.hit` arc, `analysis/re-target-hud.md` §12). The next
+    /// [`HudView::update`] lays it out.
+    pub fn send(&mut self, event: &str, value: ui::hud_tree::EventValue) {
+        let files = &self.mesh_files;
+        self.hud.send(event, value, &|n| files.contains_key(n));
+    }
+
     pub fn drawn_sheets(&self) -> impl Iterator<Item = &str> {
         self.batches.iter().map(|b| b.texture.as_str())
     }

@@ -585,7 +585,7 @@ impl App {
                 assist_intensity: settings.assist_intensity,
                 ai_alive_cap: settings.ai_alive_cap.unwrap_or(16),
                 fov_scale: k,
-                fov_deg: (game::walk::ps2_fov_y("bf2") * k).to_degrees(),
+                fov_deg: (game::walk::chase_fov_y() * k).to_degrees(),
                 music_volume: settings.music_volume,
                 mouse_sensitivity: settings.mouse_sensitivity,
                 invert_y: settings.invert_y,

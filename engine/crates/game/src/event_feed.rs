@@ -30,6 +30,11 @@
 //! the edge each hit on the viewer lights ([`ambush_edge`],
 //! [`EventFeed::take_ambush`]), drawn by `ui::hud_ambush`.
 //!
+//! The critical-hit flash (hitmark, `analysis/re-target-hud.md` §12): the
+//! viewer's sniper-rifle headshot, or his rocket launcher's hit on a
+//! vehicle's weak spot, lights BF2's `hitCritical` reticle mark
+//! ([`EventFeed::hit_critical`]).
+//!
 //! The statistics (§5, §9): kills less two per team kill, and BF2's points
 //! from its own table (PS2 RAM [M]) — see [`points`].
 //!
@@ -40,6 +45,7 @@
 //!   must not read them again.
 //! - **An identical line is one line** while the first is still up.
 
+use core::projectile::Target;
 use core::sim::{AimTarget, Event, Sim};
 use core::unit::UnitHandle;
 use core::vehicle::{SeatKind, VehicleKind};
@@ -49,6 +55,53 @@ use std::path::Path;
 use ui::hud::{message_color, HudMessage, HudStats, HudTarget};
 use ui::hud_ambush::Edge;
 use ui::hud_squad::{self, SquadCross};
+
+/// The PS2's hit timer: 0.5 s (B2 `FUN_00350558`), in sim ticks.
+pub const HIT_TIMER_TICKS: u64 = core::TICK_HZ as u64 / 2;
+
+/// Is weapon class `class` a sniper rifle - the AI sniper table's class
+/// (`WeaponClass::ai_distance_table`: no spread, single shot, zoom 6 or
+/// more)? Only these light the critical-hit flash on a head (hitmark: the maintainer
+/// 2026-10-28 asked for sniper headshots; the PS2 flashes every head hit).
+pub fn sniper_rifle(sim: &Sim, class: usize) -> bool {
+    sim.weapon_classes
+        .get(class)
+        .is_some_and(|w| w.ai_distance_table())
+}
+
+/// Is weapon class `class` an infantry rocket launcher
+/// (`WeaponClass::rocket_launcher`)? Only these light the critical-hit
+/// flash on a vehicle's weak spot (hitmark, the maintainer 2026-10-28: the hits
+/// BF2's demolition award counts).
+pub fn rocket_launcher(sim: &Sim, class: usize) -> bool {
+    sim.weapon_classes
+        .get(class)
+        .is_some_and(|w| w.rocket_launcher())
+}
+
+/// The mark's colour for the viewer's critical hit on `victim` with
+/// `class`, `None` for no mark: a sniper rifle on a soldier's head or a
+/// rocket launcher on a vehicle's weak spot. The PS2's `hitColor`
+/// (B2 `FUN_003b3398`, `re-target-hud.md` §12): friend blue, enemy red, and
+/// white for a target of no side (an empty vehicle). The slot is read dead
+/// or alive (the hit may have killed it).
+fn critical_mark(sim: &Sim, victim: Target, class: usize, my_team: u8) -> Option<[u8; 3]> {
+    use ui::hud::target_color::{ENEMY, FRIEND, NONE};
+    let team = match victim {
+        Target::Unit(h) if sniper_rifle(sim, class) => {
+            sim.units.get(h.index as usize).map(|u| u.team)
+        }
+        Target::Vehicle(h) if rocket_launcher(sim, class) => {
+            sim.vehicles.get(h.index as usize)?.team
+        }
+        _ => return None,
+    };
+    Some(match team {
+        None => NONE,
+        Some(t) if t == my_team => FRIEND,
+        Some(_) => ENEMY,
+    })
+}
 
 /// Names made per team: more AI than this on one team reuse them in turn.
 const BOT_NAMES: usize = 64;
@@ -330,6 +383,9 @@ pub struct EventFeed {
     /// The chevron edges the viewer's hits lit since the last
     /// [`EventFeed::take_ambush`] (card HATK).
     ambush: Vec<Edge>,
+    /// The viewer's last marked critical hit: its tick and the
+    /// victim's relation colour ([`EventFeed::hit_critical`]).
+    critical: Option<(u64, [u8; 3])>,
     /// What was said lately, and when (the one-line rule).
     recent: Vec<(String, u64)>,
     /// The tick whose events were already read.
@@ -376,6 +432,7 @@ impl EventFeed {
             texts,
             out: Vec::new(),
             ambush: Vec::new(),
+            critical: None,
             recent: Vec::new(),
             seen: None,
             owners: Vec::new(),
@@ -627,6 +684,15 @@ impl EventFeed {
                         }
                     }
                 }
+                Event::CriticalHit {
+                    shooter,
+                    victim,
+                    weapon_class,
+                } if shooter == viewer => {
+                    if let Some(color) = critical_mark(sim, victim, weapon_class, my_team) {
+                        self.critical = Some((tick, color));
+                    }
+                }
                 Event::EnvDeath { unit, .. } => {
                     if sim.units[unit.index as usize].is_player {
                         let name = self.unit_name(sim, unit);
@@ -760,6 +826,18 @@ impl EventFeed {
     /// The lines made since the last call, oldest first.
     pub fn take(&mut self) -> Vec<HudMessage> {
         std::mem::take(&mut self.out)
+    }
+
+    /// The critical-hit flash at `tick` (`HudModel::hit_critical`): the
+    /// victim's relation colour while the PS2's 0.5 s hit timer of the
+    /// viewer's last sniper-rifle headshot or rocket-launcher weak-spot hit
+    /// runs (B2 `FUN_00350558` sets it,
+    /// the player update `FUN_0034cea8` counts it down;
+    /// `analysis/re-target-hud.md` §12), else `None`.
+    pub fn hit_critical(&self, tick: u64) -> Option<[u8; 3]> {
+        self.critical
+            .filter(|&(at, _)| tick.saturating_sub(at) < HIT_TIMER_TICKS)
+            .map(|(_, c)| c)
     }
 
     /// The chevron edges lit since the last call (`HudModel::ambush`).
@@ -1233,6 +1311,143 @@ mod tests {
         assert_eq!(edges(&mut s, -FRAC_PI_2, me), []);
         assert_eq!(edges(&mut s, 0.0, mate), []);
         assert!(s.feed.take_ambush().is_empty(), "taken once");
+    }
+
+    /// Hitmark (`re-target-hud.md` §12): the player's critical hit with a
+    /// sniper rifle lights the mark for the PS2's 0.5 s hit timer, in the
+    /// victim's relation colour; a rifle's critical hit, another unit's, or
+    /// a plain body hit lights nothing.
+    #[test]
+    fn a_sniper_headshot_lights_the_critical_mark() {
+        let mut s = scene();
+        let (me, mate, rebel) = (s.me, s.mate, s.rebels[0]);
+        let sniper = core::weapon::WeaponClass {
+            yaw_spread: 0.0,
+            trigger_single: true,
+            zoom_max: 6.0,
+            ..core::weapon::WeaponClass::bf2_rifle()
+        };
+        assert!(!core::weapon::WeaponClass::bf2_rifle().ai_distance_table());
+        s.sim.weapon_classes = vec![core::weapon::WeaponClass::bf2_rifle(), sniper];
+        let (rifle, sniper) = (0, 1);
+        let crit = |shooter, victim, weapon_class| Event::CriticalHit {
+            shooter,
+            victim: Target::Unit(victim),
+            weapon_class,
+        };
+        let body = Event::Hit {
+            shooter: me,
+            victim: rebel,
+            damage: 50.0,
+            age: 0.1,
+            health_left: 250.0,
+            dir: Vec3::X,
+        };
+        happen(&mut s, &[body]);
+        assert_eq!(s.feed.hit_critical(s.sim.tick), None, "a body hit");
+        happen(&mut s, &[body, crit(me, rebel, rifle)]);
+        assert_eq!(s.feed.hit_critical(s.sim.tick), None, "a rifle headshot");
+        happen(&mut s, &[crit(rebel, me, sniper)]);
+        assert_eq!(s.feed.hit_critical(s.sim.tick), None, "a bot's headshot");
+        happen(&mut s, &[body, crit(me, rebel, sniper)]);
+        let at = s.sim.tick;
+        assert_eq!(
+            s.feed.hit_critical(at),
+            Some(ui::hud::target_color::ENEMY),
+            "a sniper headshot on an enemy"
+        );
+        assert!(s.feed.hit_critical(at + HIT_TIMER_TICKS - 1).is_some());
+        assert_eq!(s.feed.hit_critical(at + HIT_TIMER_TICKS), None, "0.5 s");
+        happen(&mut s, &[crit(me, mate, sniper)]);
+        assert_eq!(
+            s.feed.hit_critical(s.sim.tick),
+            Some(ui::hud::target_color::FRIEND),
+            "a team-mate's head: blue"
+        );
+    }
+
+    /// Hitmark: the player's rocket launcher on a vehicle's weak spot lights
+    /// the mark in the vehicle's relation colour (white for an empty one);
+    /// a sniper rifle or a rifle on the weak spot, the EMP launcher, a
+    /// rocket launcher on a soldier's head, or a bot's rocket on the weak
+    /// spot lights nothing.
+    #[test]
+    fn a_rocket_on_a_weak_spot_lights_the_critical_mark() {
+        use core::vehicle::{VehicleKind, VehicleSpec};
+        use core::weapon::WeaponClass;
+        let mut s = scene();
+        let (me, rebel) = (s.me, s.rebels[0]);
+        let my_team = s.sim.units[me.index as usize].team;
+        let spec = |team| VehicleSpec {
+            kind: VehicleKind::Hover,
+            class: 0,
+            home_team: Some(team),
+            neutral_when_empty: false,
+            spawn_pad: None,
+            pos: Vec3::ZERO,
+            yaw: 0.0,
+            max_health: 1000.0,
+            health_type: core::weapon::HealthType::Vehicle,
+            seats: vec![core::vehicle::SeatKind::Pilot],
+        };
+        let theirs = s.sim.spawn_vehicle(&spec(1 - my_team));
+        let ours = s.sim.spawn_vehicle(&spec(my_team));
+        let empty = s.sim.spawn_vehicle(&VehicleSpec {
+            neutral_when_empty: true,
+            ..spec(my_team)
+        });
+        let named = |name: &str, medals| WeaponClass {
+            name: name.into(),
+            medals_type: medals,
+            ..WeaponClass::bf2_rifle()
+        };
+        let sniper = WeaponClass {
+            yaw_spread: 0.0,
+            trigger_single: true,
+            zoom_max: 6.0,
+            ..named("com_weap_inf_sniper_rifle", Some(4))
+        };
+        s.sim.weapon_classes = vec![
+            named("com_weap_inf_rifle", Some(1)),
+            sniper,
+            named("rep_weap_inf_rocket_launcher", Some(2)),
+            named("rep_weap_inf_emp_launcher", Some(-1)),
+            named("all_weap_inf_torpedo_launcher", None),
+        ];
+        let (rifle, sniper, rocket, emp, bf1_rocket) = (0, 1, 2, 3, 4);
+        let crit = |shooter, victim, weapon_class| Event::CriticalHit {
+            shooter,
+            victim,
+            weapon_class,
+        };
+        let mark = |s: &mut Scene, e: Event| {
+            s.sim.tick += HIT_TIMER_TICKS;
+            happen(s, &[e]);
+            s.feed.hit_critical(s.sim.tick)
+        };
+        let enemy = Some(ui::hud::target_color::ENEMY);
+        let v = Target::Vehicle(theirs);
+        assert_eq!(mark(&mut s, crit(me, v, rocket)), enemy, "a rocket");
+        assert_eq!(mark(&mut s, crit(me, v, bf1_rocket)), enemy, "BF1's");
+        assert_eq!(
+            mark(&mut s, crit(me, Target::Vehicle(ours), rocket)),
+            Some(ui::hud::target_color::FRIEND),
+            "our own side's: blue"
+        );
+        assert_eq!(
+            mark(&mut s, crit(me, Target::Vehicle(empty), rocket)),
+            Some(ui::hud::target_color::NONE),
+            "an empty one, of no side: white"
+        );
+        assert_eq!(mark(&mut s, crit(me, v, rifle)), None, "a rifle");
+        assert_eq!(mark(&mut s, crit(me, v, sniper)), None, "a sniper rifle");
+        assert_eq!(mark(&mut s, crit(me, v, emp)), None, "the EMP launcher");
+        assert_eq!(mark(&mut s, crit(rebel, v, rocket)), None, "a bot's");
+        assert_eq!(
+            mark(&mut s, crit(me, Target::Unit(rebel), rocket)),
+            None,
+            "a rocket on a head"
+        );
     }
 
     /// A hit on the hover he pilots lights the edge in the HULL's frame (its

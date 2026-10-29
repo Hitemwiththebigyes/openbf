@@ -1528,6 +1528,66 @@ pub(crate) mod fixture {
         hud.advance(0.0);
         hud
     }
+
+    /// The 1-player reticle group's hit and critical-hit flashes as the
+    /// disc has them (`common_bf2/hud/1playerhud.ron`, `player1reticule`;
+    /// `re-target-hud.md` §12).
+    pub(crate) fn reticle_hud() -> Hud {
+        let ev = |k: &str| s(&format!("player1.weapon1.target.{k}"));
+        let flash = |name: &str, mesh: &str, own: Vec<HudNode>| {
+            let mut c = vec![
+                p("mesh", &[s(mesh)]),
+                p("Scale", &[n(0.26), n(0.26), n(0.26)]),
+                p("color", &[n(1.0), n(86.0), n(213.0)]),
+                p("colorchangerate", &[n(0.01)]),
+                p("eventcolor", &[ev("hitColor")]),
+            ];
+            c.extend(own);
+            node("model3d", &[s(name)], c)
+        };
+        let layout = HudLayout {
+            name: "1playerhud".into(),
+            nodes: vec![node(
+                "Group",
+                &[s("player1reticule")],
+                vec![
+                    p("eventposition", &[s("player1.weapon1.reticule.position")]),
+                    p("Position", &[n(0.5), n(0.410624), n(0.0), s("Viewport")]),
+                    p("alpha", &[n(0.65)]),
+                    p("eventenable", &[s("player1.weapon1.reticule.position")]),
+                    p("eventdisable", &[s("player1.weapon1.reticule.disable")]),
+                    flash(
+                        "player1reticule_hit",
+                        "hud_main_reticule_hit",
+                        vec![
+                            p("alpha", &[n(0.5)]),
+                            p("fadeholdtime", &[n(0.33)]),
+                            p("eventenable", &[ev("hit")]),
+                        ],
+                    ),
+                    flash(
+                        "player1reticule_criticalhit",
+                        "hud_main_reticule_criticalhit",
+                        vec![
+                            p("alpha", &[n(0.6)]),
+                            p("fadeholdtime", &[n(0.6)]),
+                            p("fadesustaintime", &[n(0.5)]),
+                            p("fadeouttime", &[n(0.01)]),
+                            p("eventenable", &[ev("hitCritical")]),
+                        ],
+                    ),
+                ],
+            )],
+        };
+        let none = HudLayout {
+            name: "none".into(),
+            nodes: vec![],
+        };
+        let mut hud = Hud::new(&layout, &none);
+        hud.send("initialize", super::EventValue::None, &|_| false);
+        hud.advance(0.0);
+        hud
+    }
 }
 
 #[cfg(test)]

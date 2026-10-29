@@ -938,6 +938,19 @@ pitch is 0.
 5. The spawn pitch −0.07 rad; split screen: tilt × 0.4.
 6. The camera collision of §10.6 step 4 against `game/src/camera_collide.rs` (PROVISIONAL today).
 
+Since 2026-10-28 (playtest; `analysis/camera-occlusion.md`, ours): every map plays BF2's soldier section and FOV
+(`core::unit::camera_section`; §10.1's table is `ps2_camera_section`), small props and vehicles are drawn
+see-through instead of pulling the camera in, and a wall pulls it toward step 4's 1.5 m point.
+
+Port deviations from §5 and §10 (2026-10-28, branch `aimfix`, `[ours]`; one line each in FEEL_NOTES): past the ray's
+reach the shot converges on the reticle's pick instead of item 2's far end (`Sim::beyond_reach`); a human's bolt and
+ray meet the soldiers 1.25 ticks back along their velocity, where the interpolated window drew them
+(`core::unit::HUMAN_SHOT_LAG`); §5's pull aims at a low-passed, eased lead point and term 1 rate-matches its motion in
+full whatever the move stick (`core::aim_assist::Lead`). Branch `sniperassist`: every disc sniper ships LockOnRange 0;
+the class loader gives a sniper rifle (`ZoomFirstPerson` and in the AI sniper table) LockOnRange = its MaxRange (128 m),
+its own LockOnAngle (1°), and TargetVehicle when its round hurts vehicles (BF2 only)
+(`core::weapon::WeaponClass::give_sniper_assist`); a mouse-aimed pad is still never pulled.
+
 ### 10.9 Checks, evidence, what stays [H]
 - **Check 1 (`re_check.py fn`)**: every B1 / B2 line cited in §10 lies in the function named —
   `engine/artifacts/lead_tmp/aima/checks.txt` (109 lines checked).

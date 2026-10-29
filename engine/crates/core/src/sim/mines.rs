@@ -208,7 +208,7 @@ impl Sim {
                     self.guided[k].health -= self.item_damage(damage, scales, ht, r.team, team);
                 }
             }
-            Target::Unit(_) | Target::Vehicle(_) | Target::Station(_) => {}
+            Target::Unit(_) | Target::Vehicle(_) | Target::Station(_) | Target::Building(_) => {}
         }
     }
 

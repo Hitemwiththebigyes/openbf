@@ -700,6 +700,7 @@ pub fn weapon_from_db(db: &ClassDb, weapon: &str) -> Result<WeaponClass> {
             index: usize::MAX,
         });
     }
+    w.give_sniper_assist();
     Ok(w)
 }
 

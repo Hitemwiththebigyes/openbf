@@ -755,6 +755,7 @@ fn from_props_reproduces_rifle_fixtures() {
                 ("ReloadSound", "com_weap_inf_reload_med"),
                 ("FireEmptySound", "com_weap_inf_ammo_empty"),
                 ("WeaponChangeSound", "com_weap_inf_equip_med"),
+                ("ScoreForMedalsType", "1"),
             ],
             &[],
         ),
@@ -854,4 +855,94 @@ fn ordnance_charge_points_blend_by_the_charge() {
     // No points, no emitter: the class's own numbers at any charge.
     let rifle = WeaponClass::bf1_rifle().ordnance;
     assert_eq!(rifle.charged(0.3).damage, rifle.max_damage);
+}
+
+/// A disc sniper as the loader parses it (BF1's: LockOnRange 0, LockOnAngle
+/// 1, MaxRange 128, a 2000 m/s bolt for 0.15 s), its round's VehicleScale
+/// `vehicle_scale` (BF1 0, BF2 0.1).
+pub(crate) fn disc_sniper(vehicle_scale: f32) -> WeaponClass {
+    let mut w = WeaponClass {
+        name: "all_weap_inf_sniperrifle".into(),
+        trigger_single: true,
+        zoom_max: 8.0,
+        zoom_min: 2.0,
+        zoom_turn_div: [2.0, 8.0],
+        zoom_first_person: true,
+        lock_on_range: 0.0,
+        ai_range: [20.0, 64.0, 128.0],
+        extreme_range: 300.0,
+        yaw_spread: 0.0,
+        pitch_spread: 0.0,
+        ..WeaponClass::bf1_rifle()
+    };
+    w.ordnance.velocity = 2000.0;
+    w.ordnance.life_span = 0.15;
+    w.ordnance.scales[3] = vehicle_scale;
+    w
+}
+
+/// OURS (sniper aim assist): a sniper rifle gets its MaxRange as the reach,
+/// keeps its 1° cone, and takes vehicles only when its round hurts them.
+#[test]
+fn a_sniper_rifle_gets_a_narrow_magnet_to_its_max_range() {
+    let mut bf1 = disc_sniper(0.0);
+    assert!(bf1.is_sniper_rifle());
+    bf1.give_sniper_assist();
+    assert_eq!(
+        (bf1.lock_on_range, bf1.lock_on_angle, bf1.extreme_range),
+        (128.0, DEG, 300.0)
+    );
+    assert_eq!((bf1.target_team, bf1.target_kind & 0x1f), (1, 0b111));
+    let mut bf2 = disc_sniper(0.1);
+    bf2.give_sniper_assist();
+    assert_eq!(bf2.target_kind & 0x1f, 0b1111);
+    // The AI's kinds are its own.
+    assert_eq!(bf2.ai_target_kind, disc_sniper(0.1).ai_target_kind);
+    // No MaxRange, no LockOnAngle, a short bolt: the fallbacks, and the
+    // cone at least as long as the reach.
+    let mut bare = WeaponClass {
+        ai_range: [0.0; 3],
+        lock_on_angle: 0.0,
+        extreme_range: 22.5,
+        ..disc_sniper(0.0)
+    };
+    bare.give_sniper_assist();
+    assert_eq!(
+        (bare.lock_on_range, bare.lock_on_angle, bare.extreme_range),
+        (
+            SNIPER_LOCK_ON_RANGE,
+            SNIPER_LOCK_ON_ANGLE,
+            SNIPER_LOCK_ON_RANGE
+        )
+    );
+}
+
+/// Every other weapon is left as parsed: the rifles, a scope weapon outside
+/// the sniper table (the bowcaster: ZoomMax 5), an unscoped one in it, and a
+/// sniper that authors its own LockOnRange.
+#[test]
+fn give_sniper_assist_leaves_other_weapons_alone() {
+    let bowcaster = WeaponClass {
+        zoom_max: 5.0,
+        ..disc_sniper(0.0)
+    };
+    let unscoped = WeaponClass {
+        zoom_first_person: false,
+        ..disc_sniper(0.0)
+    };
+    let authored = WeaponClass {
+        lock_on_range: 40.0,
+        ..disc_sniper(0.0)
+    };
+    for w in [
+        WeaponClass::bf1_rifle(),
+        WeaponClass::bf2_rifle(),
+        bowcaster,
+        unscoped,
+        authored,
+    ] {
+        let mut after = w.clone();
+        after.give_sniper_assist();
+        assert_eq!(after, w, "{}", w.name);
+    }
 }

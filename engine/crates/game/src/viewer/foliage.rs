@@ -83,6 +83,7 @@ pub fn fade(mesh: &ManifestFoliageMesh) -> Option<render::Fade> {
         begin: mesh.distance,
         end: mesh.distance * FADE_END,
         near: mesh.near_fade,
+        opacity: 1.0,
     })
 }
 

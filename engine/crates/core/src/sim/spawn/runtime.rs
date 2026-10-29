@@ -685,6 +685,7 @@ impl Sim {
     pub fn sync_slot_tables(&mut self) {
         let n = self.players.len();
         self.assist.resize(n, AssistState::default());
+        self.assist_lead.resize(n, None);
         self.magnet.resize(n, None);
         self.reticle_pick.resize(n, None);
         self.spawn_choice.resize(n, 0);

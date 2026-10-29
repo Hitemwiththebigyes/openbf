@@ -381,7 +381,7 @@ impl Renderer {
                 light: draws[i].light as u32 | crate::affine::layer_bit(draws[i].layer),
                 fade: draws[i]
                     .fade
-                    .map_or(mesh::NO_FADE, |f| [f.begin, f.end, f.near]),
+                    .map_or(mesh::NO_FADE, |f| [f.begin, f.end, f.near, f.opacity]),
                 lights: draw_lights[i],
             }
         }));

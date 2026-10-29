@@ -287,7 +287,7 @@ impl Frames {
         let eye = w.pos + (-fwd * 16.0 + right * 9.0 + Vec3::Y * 6.0) * k;
         let cam = game::viewer::look_at(eye, w.pos + Vec3::Y * 3.0 * k);
         let mut draws = self.gpu.draws.clone();
-        draws.extend(self.vis.draws(&mut self.r, sim));
+        draws.extend(self.vis.draws(&mut self.r, sim, &[]));
         self.r
             .render_frame(&cam, &draws, &[], self.gpu.clear, None)
             .map_err(|e| anyhow::anyhow!("render: {e}"))?;

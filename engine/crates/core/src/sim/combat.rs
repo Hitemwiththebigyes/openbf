@@ -32,7 +32,9 @@ impl Sim {
     /// this tick. The map and the terrain were asked at the press: they do
     /// not move. A rider of a vehicle whose hull the bolt passes is passed
     /// too (a gun's own crew). Cost: one prim list a tick, a box test per bolt and
-    /// soldier, and a hull-only ray per bolt.
+    /// soldier, and a hull-only ray per bolt. A human's bolt meets each soldier
+    /// [`crate::unit::HUMAN_SHOT_LAG`] back along his velocity (OURS: where
+    /// the window drew him).
     pub(super) fn sweep_bolts(&mut self, dt: f32) {
         if self.bolts.is_empty() {
             return;
@@ -43,13 +45,15 @@ impl Sim {
             crate::unit::BoltPrims,
             Vec3,
             Vec3,
+            Vec3,
         );
         let units: Vec<Body> = self
             .alive_units()
             .map(|(h, u)| {
                 let p = u.bolt_prims();
                 let (min, max) = p.bounds();
-                (h, u.mount.map(|m| m.vehicle), p, min, max)
+                let back = -u.soldier.vel * crate::unit::HUMAN_SHOT_LAG;
+                (h, u.mount.map(|m| m.vehicle), p, min, max, back)
             })
             .collect();
         let (world, bolts) = (&self.collision, &mut self.bolts);
@@ -69,15 +73,20 @@ impl Sim {
                 _ => [None; 2],
             };
             let mut mult = 1.0;
-            for (h, rides, prims, min, max) in &units {
+            for (h, rides, prims, min, max, back) in &units {
+                let by = if b.shooter_is_player {
+                    *back
+                } else {
+                    Vec3::ZERO
+                };
                 if *h == b.owner
                     || (rides.is_some() && crew.contains(rides))
-                    || max.cmplt(lo).any()
-                    || min.cmpgt(hi).any()
+                    || (*max + by).cmplt(lo).any()
+                    || (*min + by).cmpgt(hi).any()
                 {
                     continue;
                 }
-                if let Some((t, zone)) = prims.hit(from, dir, reach) {
+                if let Some((t, zone)) = prims.moved(by).hit(from, dir, reach) {
                     reach = t;
                     hit = Some(Target::Unit(*h));
                     mult = if zone == crate::unit::HitZone::Head {
@@ -200,13 +209,22 @@ impl Sim {
                 let ff = self.friendly_fire_scale;
                 // No tier multiplies a bot's bolt into a human (card DRETIRE,
                 // The maintainer 2026-10-28: D12's ×1.15 / ×1.3 retired).
-                let mult = self.buff_scale(Some(b.owner), h) * self.hit_scale(b);
+                let scale = self.hit_scale(b);
+                let critical = scale > 1.0;
+                let mult = self.buff_scale(Some(b.owner), h) * scale;
                 let v = self.unit_mut(h).unwrap();
                 let damage = if invincible {
                     0.0
                 } else {
                     v.health.take_damage(&desc, mult, friendly, ff)
                 };
+                if critical && damage > 0.0 {
+                    self.events.push(Event::CriticalHit {
+                        shooter: b.owner,
+                        victim: Target::Unit(h),
+                        weapon_class: b.weapon_class,
+                    });
+                }
                 if self
                     .units
                     .get(b.owner.index as usize)
@@ -266,7 +284,7 @@ impl Sim {
                 });
                 self.push_impact(b, surface, Some(vh));
                 let scale = self.hit_scale(b);
-                self.damage_vehicle_by(
+                let damage = self.damage_vehicle_by(
                     vh,
                     &desc,
                     scale,
@@ -274,6 +292,15 @@ impl Sim {
                     Some(b.team),
                     Some(b.vel.normalize_or_zero()),
                 );
+                // A critical prim's x4 (the weak spot) that took health:
+                // the critical hit, as a head's (hitmark).
+                if scale > 1.0 && damage > 0.0 {
+                    self.events.push(Event::CriticalHit {
+                        shooter: b.owner,
+                        victim: Target::Vehicle(vh),
+                        weapon_class: b.weapon_class,
+                    });
+                }
                 self.bolt_explodes(b);
             }
             Hit::Target(
@@ -311,7 +338,9 @@ impl Sim {
                 self.damage_station(s, &desc, 1.0, Some(b.owner), Some(b.team));
                 self.bolt_explodes(b);
             }
-            Hit::Terrain | Hit::World | Hit::Water => {
+            // A fallen building turret's bodies are plain world bodies: no
+            // round is ever a hit on one; were it, it is a wall.
+            Hit::Terrain | Hit::World | Hit::Water | Hit::Target(Target::Building(_)) => {
                 self.events.push(Event::BoltExpired {
                     pos: b.end,
                     struck: true,
@@ -1038,6 +1067,10 @@ mod tests {
         // ahead of his feet) or his chest (the torso, 1.15 m), by a human or
         // a bot of team 1: the damage it does.
         fn shot(human: bool, d: Difficulty, y: f32) -> f32 {
+            struck(human, d, y).0
+        }
+        // The damage and whether the hit raised `Event::CriticalHit`.
+        fn struck(human: bool, d: Difficulty, y: f32) -> (f32, bool) {
             let (mut s, p, t) = duel();
             s.difficulty = d;
             // Card DTEAM: the duel's human stands on team 0; one counted on
@@ -1072,12 +1105,30 @@ mod tests {
                     Event::Hit { damage, .. } => Some(*damage),
                     _ => None,
                 }) {
-                    return d;
+                    let critical = s.events.iter().any(|ev| {
+                        matches!(ev, Event::CriticalHit { shooter, victim, weapon_class: 0 }
+                            if *shooter == p && *victim == Target::Unit(t))
+                    });
+                    return (d, critical);
                 }
             }
             panic!("no hit (human {human}, {d:?}, y {y})");
         }
         let (head, chest) = (1.65, 1.15);
+        // The critical-hit event (the reticle's `hitCritical`, hitmark):
+        // the x3 head hit only.
+        assert!(
+            struck(true, Difficulty::Normal, head).1,
+            "a human's headshot"
+        );
+        assert!(
+            !struck(true, Difficulty::Normal, chest).1,
+            "a body shot: none"
+        );
+        assert!(
+            !struck(false, Difficulty::Normal, head).1,
+            "a bot's x1 headshot is no critical hit"
+        );
         let body = shot(true, Difficulty::Normal, chest);
         assert!(body > 0.0);
         // The PS2's x3, not the constant (a test of the rule, not of itself).

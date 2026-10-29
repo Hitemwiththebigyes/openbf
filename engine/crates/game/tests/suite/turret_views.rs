@@ -49,7 +49,6 @@ fn world(map: &str, factions: [&str; 2]) -> Option<World> {
     let t = game::walk::TeamTemplate::default_trooper();
     let mut walk = game::walk::WalkSim::with_teams(sim, None, Vec3::ZERO, [t.clone(), t], None);
     walk.vehicle_seats = build.seats.clone();
-    walk.fov_y_ps2 = game::walk::ps2_fov_y(&scene.manifest.source_game);
     Some(World { scene, walk, build })
 }
 
@@ -648,9 +647,8 @@ fn fixture_walk(first: Option<f32>) -> game::walk::WalkSim {
         "authored key survives parsing"
     );
     let mut sim = core::sim::Sim::empty(1);
-    // Sim::empty defaults to BF2 ground rules (65 deg third-person FOV);
-    // WalkSim's fov_y_ps2 defaults to BF1's. Pick BF1 for both, as world()
-    // does from the manifest, so the zoom eases from 48 deg (VTZT).
+    // A BF1 map, as world() does from the manifest; the chase camera's
+    // third-person FOV is BF2's 65 deg on every map (VTZT).
     sim.ground_rules = core::soldier::GroundRules::Bf1;
     let mut weapon = core::weapon::WeaponClass::bf1_rifle();
     weapon.zoom_min = 3.0;
@@ -694,7 +692,6 @@ fn fixture_walk(first: Option<f32>) -> game::walk::WalkSim {
     let t = game::walk::TeamTemplate::default_trooper();
     let mut walk = game::walk::WalkSim::with_teams(sim, None, Vec3::ZERO, [t.clone(), t], None);
     walk.vehicle_seats = vec![ring];
-    walk.fov_y_ps2 = game::walk::ps2_fov_y("bf1");
     assert!(walk.sim.seat_unit(walk.player, h, 0));
     walk.step_tick(&[PadState::default()]);
     walk

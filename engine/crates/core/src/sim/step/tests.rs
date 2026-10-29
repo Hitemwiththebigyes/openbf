@@ -899,14 +899,15 @@ fn one_shot(s: &mut Sim) -> ((Vec3, Vec3), Vec3, Vec3, Vec3) {
 }
 
 /// Card AIMA, the PS2's numbers (`re-aim-assist.md` §10.2-10.3, [V-RAM]):
-/// a soldier spawns at pitch -0.07; standing, the aim origin A is 2.1043 m
-/// (BF1) / 2.3543 m (BF2) above the feet, the ideal camera looks 5 / 10
-/// degrees below the aim, and the fire point F is 1.5828 m up, 0.060 m to
-/// the right and 0.2424 m ahead.
+/// a soldier spawns at pitch -0.07; standing, the aim origin A is 2.3543 m
+/// above the feet and the ideal camera looks 10 degrees below the aim -
+/// BF2's on every map (ours since the playtest of 2026-10-28; the PS2's BF1
+/// has 2.1043 m and 5 degrees, `unit::ps2_camera_section`) - and the fire
+/// point F is 1.5828 m up, 0.060 m to the right and 0.2424 m ahead.
 #[test]
 fn the_aim_origin_camera_and_fire_point_are_the_ps2s() {
     for (rules, a_y, cam_deg) in [
-        (GroundRules::Bf1, 2.1043, -9.011),
+        (GroundRules::Bf1, 2.3543, -14.011),
         (GroundRules::Bf2, 2.3543, -14.011),
     ] {
         let s = aim_sim(rules, crate::unit::SPAWN_PITCH, None);
@@ -931,13 +932,14 @@ fn the_aim_origin_camera_and_fire_point_are_the_ps2s() {
         // The ray leaves the camera's own position along the aim.
         assert!((a - cam.position).cross(d).length() < 1e-4);
     }
-    // Split screen: 0.4 of the tilt (BF1 2 deg).
+    // Split screen: 0.4 of the tilt (4 deg).
     let s = aim_sim(GroundRules::Bf1, 0.0, None);
     let cam = s.units[0].ideal_camera(GroundRules::Bf1, 2);
-    assert!((cam.forward.y.asin().to_degrees() + 2.0).abs() < 0.01);
+    assert!((cam.forward.y.asin().to_degrees() + 4.0).abs() < 0.01);
 }
 
-/// Card AIMA, the wall test (BF1's table, the spread off). Within the
+/// Card AIMA, the wall test (on a BF1 map, which plays BF2's camera table
+/// since 2026-10-28; the spread off). Within the
 /// ray's reach the bolt goes to the reticle's point; past it the bolt is
 /// aimed at the ray's far end; a wall nearer than the ray's start is not
 /// seen (the PS2's blind spot) and the bolt lands under the reticle.
@@ -957,7 +959,8 @@ fn a_humans_bolt_goes_where_the_reticles_ray_hits() {
     assert!((h.z + 20.0).abs() < 1e-3, "H is on the wall: {h:?}");
     assert!(miss < 0.05);
 
-    // 80 m out: H is the ray's end, 65.5 m from A.
+    // 80 m out: H is the ray's end, 65.2 m from A (the 3.2 m track and the
+    // AIM_RAY_START and AIM_RAY_LENGTH past it).
     let mut s = aim_sim(rules, 0.05, Some((80.0, 1.0)));
     let ((a, d), h, f, dir) = one_shot(&mut s);
     let over = at(f, dir, 80.0).y - at(a, d, 80.0).y;
@@ -965,22 +968,22 @@ fn a_humans_bolt_goes_where_the_reticles_ray_hits() {
         "wall 80 m: |H - A| {:.3}, the bolt {over:.4} m over the ray's point",
         (h - a).length()
     );
-    assert!(((h - a).length() - 65.5).abs() < 1e-3);
-    assert!((0.0..0.15).contains(&over), "{over}");
+    assert!(((h - a).length() - 65.2).abs() < 1e-3);
+    assert!((0.0..0.2).contains(&over), "{over}");
 
-    // 5 m from the feet: inside the ray's 5.5 m start.
-    let mut s = aim_sim(rules, 0.05, Some((5.0, 0.2)));
+    // 4.8 m from the feet (0.2 m thick): before the ray's 5.2 m start.
+    let mut s = aim_sim(rules, 0.05, Some((4.8, 0.2)));
     let ((a, d), h, f, dir) = one_shot(&mut s);
-    let under = at(a, d, 5.0).y - at(f, dir, 5.0).y;
+    let under = at(a, d, 4.8).y - at(f, dir, 4.8).y;
     println!(
-        "wall 5 m: |H - A| {:.3}, the bolt {under:.4} m under the ray's point",
+        "wall 4.8 m: |H - A| {:.3}, the bolt {under:.4} m under the ray's point",
         (h - a).length()
     );
     assert!(
-        ((h - a).length() - 65.5).abs() < 1e-3,
+        ((h - a).length() - 65.2).abs() < 1e-3,
         "the wall is not seen"
     );
-    assert!((0.45..0.55).contains(&under), "{under}");
+    assert!((0.65..0.75).contains(&under), "{under}");
 
     // The default pitch: the bolt goes to the floor under the reticle,
     // not into the floor near the feet.
@@ -1305,10 +1308,9 @@ fn the_zoomed_camera_is_the_ps2s() {
         s.step(&[pad(buttons::ZOOM)]);
         let (eye, tilt) = rel(&s);
         println!("{rules:?}: unzoomed {plain:?}, first zoomed tick eye {eye}, tilt {tilt:.3}");
-        let want = match rules {
-            GroundRules::Bf1 => (Vec3::new(0.0, 2.348, 3.457), 5.0),
-            GroundRules::Bf2 => (Vec3::new(0.0, 2.575, 3.105), 10.0),
-        };
+        // The unzoomed camera is BF2's on both (ours; the PS2's BF1 stands
+        // at (0, 2.348, 3.457), 5 deg under the aim).
+        let want = (Vec3::new(0.0, 2.575, 3.105), 10.0);
         assert!(near(plain.0, want.0) && (plain.1 - want.1).abs() < 0.01);
         assert!(near(eye, Vec3::new(0.400, 2.216, 2.769)), "{eye}");
         assert!((tilt - 3.5).abs() < 0.01);

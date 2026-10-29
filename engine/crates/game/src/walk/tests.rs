@@ -1,10 +1,12 @@
 use super::*;
 use core::sim::buttons;
 
+/// Both games take BF2's sections (ours, playtest 2026-10-28): 3.2 m
+/// standing, 4.0 m sprinting.
 #[test]
 fn sprint_camera_eases_in_and_out_in_both_games() {
     use core::soldier::GroundRules;
-    for (rules, standing, sprinting) in [(GroundRules::Bf1, 3.5, 4.3), (GroundRules::Bf2, 3.2, 4.0)]
+    for (rules, standing, sprinting) in [(GroundRules::Bf1, 3.2, 4.0), (GroundRules::Bf2, 3.2, 4.0)]
     {
         let mut w = WalkSim::new(1, Vec3::ZERO, Some(flat_ground()));
         w.sim.ground_rules = rules;
@@ -63,30 +65,36 @@ fn faction_rows_cover_the_four_mains_and_default_to_locals() {
     assert_eq!(super::faction_row("wookiee"), 4);
 }
 
-/// The PS2's measured vertical FOVs (FINDINGS F5), and the option scales
-/// the chase camera's angle within its range and cap.
+/// The PS2's measured vertical FOVs (FINDINGS F5); the chase camera takes
+/// BF2's on every map (ours, playtest 2026-10-28), and the option scales it
+/// within its range and cap.
 #[test]
-fn chase_camera_takes_the_ps2_vertical_fov() {
+fn chase_camera_takes_bf2s_vertical_fov_on_every_map() {
+    use core::soldier::GroundRules;
     let deg = |r: f32| r.to_degrees();
     assert!((deg(ps2_fov_y("bf1")) - 37.69).abs() < 0.01);
     assert!((deg(ps2_fov_y("BF2")) - 52.06).abs() < 0.01);
-    let mut w = WalkSim::new(1, Vec3::ZERO, Some(flat_ground()));
-    w.fov_y_ps2 = ps2_fov_y("bf2");
-    assert_eq!(w.camera().fov_y, ps2_fov_y("bf2"));
-    w.fov_scale = 1.5;
-    assert!((w.camera().fov_y - 1.5 * ps2_fov_y("bf2")).abs() < 1e-6);
-    w.fov_scale = 9.0;
-    assert_eq!(w.camera().fov_y, MAX_FOV_Y);
-    w.fov_scale = 0.0;
-    assert!((w.camera().fov_y - FOV_SCALE_RANGE.0 * ps2_fov_y("bf2")).abs() < 1e-6);
+    assert_eq!(chase_fov_y(), ps2_fov_y("bf2"));
+    for rules in [GroundRules::Bf1, GroundRules::Bf2] {
+        let mut w = WalkSim::new(1, Vec3::ZERO, Some(flat_ground()));
+        w.sim.ground_rules = rules;
+        assert_eq!(w.camera().fov_y, chase_fov_y());
+        w.fov_scale = 1.5;
+        assert!((w.camera().fov_y - 1.5 * chase_fov_y()).abs() < 1e-6);
+        w.fov_scale = 9.0;
+        assert_eq!(w.camera().fov_y, MAX_FOV_Y);
+        w.fov_scale = 0.0;
+        assert!((w.camera().fov_y - FOV_SCALE_RANGE.0 * chase_fov_y()).abs() < 1e-6);
+    }
 }
 
 /// Card ZOOM acceptance 4, the camera's half (`analysis/re-zoom.md` §5):
 /// S after n ticks of a zoom z is z + (1 - z) exp(-25 n dt) - the PS2's
 /// rows 1.848, 2.217, 2.377 for the rifle - the settled vertical FOV is
-/// 15.55 deg in BF1 and 24.24 deg in BF2 (the base FOV eased 65 -> 70
-/// deg), the camera stands at the ZOOM section, the reticle stays on the
-/// aim ray, and the zoom out comes back to the plain FOV exactly.
+/// BF2's 24.24 deg on every map (the base FOV eased 65 -> 70 deg; the PS2's
+/// BF1 settles at 15.55 from 48 deg, ours plays BF2's camera there too), the
+/// camera stands at the ZOOM section, the reticle stays on the aim ray, and
+/// the zoom out comes back to the plain FOV exactly.
 #[test]
 fn the_zoom_eases_the_projection_as_the_ps2_does() {
     use core::sim::buttons;
@@ -96,12 +104,11 @@ fn the_zoom_eases_the_projection_as_the_ps2_does() {
         ..Default::default()
     };
     for (game, rules, settled, first) in [
-        ("bf1", GroundRules::Bf1, 15.55, 20.92),
+        ("bf1", GroundRules::Bf1, 24.24, 31.16),
         ("bf2", GroundRules::Bf2, 24.24, 31.16),
     ] {
         let mut w = WalkSim::new(1, Vec3::ZERO, Some(flat_ground()));
         w.sim.ground_rules = rules;
-        w.fov_y_ps2 = ps2_fov_y(game);
         let plain = w.camera();
         w.step_tick(&[pad(buttons::ZOOM)]);
         let cam = w.camera();
@@ -156,19 +163,21 @@ fn the_zoom_eases_the_projection_as_the_ps2_does() {
 }
 
 /// Card AIMA: the chase camera looks the section's tilt below the aim
-/// and the reticle sits where the aim ray goes on screen - line 178.5 of
-/// 480 on a BF1 map, 153.35 on a BF2 map (`re-aim-assist.md` §10.4), at
-/// every pitch; a wider FOV option moves it toward the centre.
+/// and the reticle sits where the aim ray goes on screen, at every pitch; a
+/// wider FOV option moves it toward the centre. The PS2 draws it on line
+/// 178.5 of 480 on a BF1 map and 153.35 on a BF2 map (`re-aim-assist.md`
+/// §10.4); the port plays BF2's camera on every map, so 153.35 on both.
 #[test]
 fn the_reticle_sits_where_the_aim_ray_goes_on_screen() {
     use core::soldier::GroundRules;
-    for (game, rules, line, cam_deg) in [
-        ("bf1", GroundRules::Bf1, 178.5, -9.011),
-        ("bf2", GroundRules::Bf2, 153.35, -14.011),
+    for (game, rules, ps2_line) in [
+        ("bf1", GroundRules::Bf1, 178.5),
+        ("bf2", GroundRules::Bf2, 153.35),
     ] {
+        assert!((ps2_reticle_y(game) * 480.0 - ps2_line).abs() < 0.5);
+        let (line, cam_deg) = (153.35, -14.011);
         let mut w = WalkSim::new(1, Vec3::ZERO, Some(flat_ground()));
         w.sim.ground_rules = rules;
-        w.fov_y_ps2 = ps2_fov_y(game);
         let cam = w.camera();
         let y = w.reticle_y() * 480.0;
         println!(
@@ -178,7 +187,6 @@ fn the_reticle_sits_where_the_aim_ray_goes_on_screen() {
         );
         assert!((cam.pitch.to_degrees() - cam_deg).abs() < 0.01);
         assert!((y - line).abs() < 0.5, "{game}: line {y}");
-        assert!((ps2_reticle_y(game) * 480.0 - line).abs() < 0.5);
         for pitch in [-0.3, 0.2, 0.6] {
             w.sim.units[w.player.index as usize].soldier.pitch = pitch;
             let y = w.reticle_y() * 480.0;
@@ -187,6 +195,72 @@ fn the_reticle_sits_where_the_aim_ray_goes_on_screen() {
         w.fov_scale = 1.3;
         assert!(w.reticle_y() * 480.0 > line + 5.0);
     }
+}
+
+/// Playtest 2026-10-28: "the bf1 default camera seems to be cutting off the
+/// players units feet [...] All maps should appear the same way". A BF1 and
+/// a BF2 map frame the soldier alike: for every stance, zoomed or not, the
+/// same camera offset from his feet, view and FOV - BF2's (3.2 m back and
+/// 10 deg under the aim standing, 52.06 deg). Standing on flat ground with
+/// the spawn pitch, his feet are inside the frame's bottom edge (the PS2's
+/// BF1 camera, 3.5 m back, 5 deg, 37.69 deg, left them out by 6 deg).
+#[test]
+fn bf1_and_bf2_maps_frame_the_soldier_alike() {
+    use core::soldier::{GroundRules, Stance};
+    let frame = |rules, stance| {
+        let mut w = WalkSim::new(1, Vec3::ZERO, Some(flat_ground()));
+        w.sim.ground_rules = rules;
+        let me = &mut w.sim.units[w.player.index as usize];
+        me.soldier.stance = stance;
+        me.soldier.pitch = core::unit::SPAWN_PITCH;
+        let sec = me.section();
+        assert_eq!(sec, core::unit::camera_section(stance, false));
+        let cam = w.camera();
+        (
+            cam.position - w.soldier().pos,
+            cam.pitch,
+            cam.yaw,
+            cam.fov_y,
+        )
+    };
+    for stance in [Stance::Stand, Stance::Crouch, Stance::Prone, Stance::Sprint] {
+        let (a, b) = (
+            frame(GroundRules::Bf1, stance),
+            frame(GroundRules::Bf2, stance),
+        );
+        assert_eq!(a, b, "{stance:?}: BF1 {a:?} BF2 {b:?}");
+        assert_eq!(
+            core::unit::camera_section(stance, false),
+            core::unit::ps2_camera_section(GroundRules::Bf2, stance, false)
+        );
+        assert_eq!(
+            core::unit::camera_section(stance, true),
+            core::unit::ps2_camera_section(GroundRules::Bf2, stance, true)
+        );
+    }
+    let (off, pitch, _, fov) = frame(GroundRules::Bf1, Stance::Stand);
+    assert!((fov.to_degrees() - 52.06).abs() < 0.01);
+    // The feet's angle under the view axis against the frame's half height.
+    let feet_down = off.y.atan2(off.with_y(0.0).length()) + pitch;
+    assert!(
+        feet_down < fov * 0.5,
+        "feet {:.2} deg under the axis, frame half {:.2}",
+        feet_down.to_degrees(),
+        (fov * 0.5).to_degrees()
+    );
+    // The PS2's BF1 numbers leave them out.
+    let ps2 = core::unit::ps2_camera_section(GroundRules::Bf1, Stance::Stand, false);
+    let aim_down = -core::unit::SPAWN_PITCH + ps2.tilt;
+    let (h, back) = (
+        ps2.eye_y + ps2.offset.z * aim_down.sin(),
+        ps2.offset.z * aim_down.cos(),
+    );
+    let bf1_feet = h.atan2(back) - aim_down;
+    assert!(
+        bf1_feet > ps2_fov_y("bf1") * 0.5,
+        "{}",
+        bf1_feet.to_degrees()
+    );
 }
 
 /// Flat ground at y = 0 over ±2 km. A sim with NO heightfield now floors at

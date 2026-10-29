@@ -501,6 +501,10 @@ pub struct AiState {
     /// only when it differs from the default (a bot that never held a
     /// scoped rifle), after `arm`.
     pub snipe: SnipeBook,
+    /// Card TBLD: the broken turret a cutter carrier fixes
+    /// ([`super::fix::FixState`]) — hashed only when it differs from the
+    /// default, after `snipe`.
+    pub fix: super::fix::FixState,
     /// Card TEAM: the role the team board gave the bot ([`RoleState`],
     /// `super::team::board`) — hashed only when it differs from the
     /// default, after `snipe`.
@@ -1579,6 +1583,7 @@ impl Default for AiState {
             charge_until: 0,
             arm: ArmState::default(),
             snipe: SnipeBook::default(),
+            fix: super::fix::FixState::default(),
             role: RoleState::default(),
             flank: FlankState::default(),
             droid_rest: 0,
@@ -1705,6 +1710,9 @@ impl AiState {
         }
         if self.snipe != SnipeBook::default() {
             self.snipe.hash_into(eat);
+        }
+        if self.fix != super::fix::FixState::default() {
+            self.fix.hash_into(eat);
         }
         if self.role != RoleState::default() {
             self.role.hash_into(eat);

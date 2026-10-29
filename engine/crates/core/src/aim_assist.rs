@@ -16,6 +16,24 @@
 //! The intensity slider (PLAN §Movement & feel, an openbf addition) scales
 //! the two PULL terms only; the 0.5 slowdown stays authentic at slider 1.0
 //! and blends toward 1.0 (no slowdown) at slider 0.
+//!
+//! OURS, the lead (playtest 2026-10-28, BF1 Yavin 4: "the magnetic aim
+//! assist [...] absolutely sucks when the guy you're shooting is actively
+//! moving"; [`Lead`], [`AssistEnv::lead_vel`]). On the PS2 term 2 pulls a
+//! share of the angle toward the lead point each frame and term 1 tracks
+//! the target's motion only as far as the player pushes his own move stick,
+//! so a player holding still on a runner trails him: at 30 m with a 80 m/s
+//! rifle the pull closes 40 % a tick and the reticle sits about half a metre
+//! behind the lead point; at 60 m it closes 5 % and never catches it. Ours:
+//! the lead point is the target's centre plus its velocity, low-passed over
+//! [`LEAD_VEL_TAU`], times the round's flight time, and that offset eases
+//! in over [`LEAD_EASE_TAU`] at most [`LEAD_MAX_RATE`]; term 1 rate-matches
+//! the lead point's sideways motion (the target's own, plus the offset's
+//! easing) in full, whatever the move stick, gated as term 2 is (`armed`).
+//! So a runner who turns about is followed as he goes, and the lead swings
+//! to his other side at no more than [`LEAD_MAX_RATE`]: the reticle's path
+//! bends, it never jumps. The slowdown, term 2's gain, timer and fall-off
+//! and the player's own-motion share of term 1 are the PS2's.
 
 use glam::Vec3;
 
@@ -70,12 +88,64 @@ pub struct AssistEnv {
     pub fire_held: bool,
     /// Term-3 gate: SP Auto Aim option / MP host "aimassist" setting.
     pub armed: bool,
+    /// OURS (the module doc's lead): the velocity of the point the pull aims
+    /// at (the target's, plus its lead offset's easing), which term 1
+    /// rate-matches in full; `None` = the PS2's term 1.
+    pub lead_vel: Option<Vec3>,
 }
 
 /// Persistent per-controller state (ctrl+0x30 in BF1).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AssistState {
     pub magnet_timer: f32,
+}
+
+/// OURS: the time constant of the lead's low-pass on the target's velocity
+/// (s): a runner who turns about swings the lead over about this long.
+pub const LEAD_VEL_TAU: f32 = 0.25;
+/// OURS: the time constant the lead offset eases toward its goal with (s).
+pub const LEAD_EASE_TAU: f32 = 0.1;
+/// OURS: the fastest the lead offset moves (m/s): a new magnet's lead
+/// grows in, never at once.
+pub const LEAD_MAX_RATE: f32 = 10.0;
+
+/// OURS (the module doc's lead): one player slot's lead on its magnet - the
+/// target's low-passed velocity and the offset from its centre the pull
+/// aims at. A new magnet starts from its velocity as it is and no offset.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Lead {
+    pub vel: Vec3,
+    pub offset: Vec3,
+}
+
+impl Lead {
+    pub fn start(vel: Vec3) -> Self {
+        Lead {
+            vel,
+            offset: Vec3::ZERO,
+        }
+    }
+
+    /// One tick of `dt`: low-pass the velocity toward `vel`, then ease the
+    /// offset toward `goal(low-passed velocity)` (the velocity times the
+    /// round's flight time, and the drop a falling round makes up). Returns
+    /// the offset's own velocity this tick.
+    pub fn step(&mut self, dt: f32, vel: Vec3, goal: impl FnOnce(Vec3) -> Vec3) -> Vec3 {
+        self.vel += (vel - self.vel) * (dt / (LEAD_VEL_TAU + dt));
+        let want = goal(self.vel);
+        let ease = (want - self.offset) * (dt / (LEAD_EASE_TAU + dt));
+        let ease = ease.clamp_length_max(LEAD_MAX_RATE * dt);
+        self.offset += ease;
+        ease / dt
+    }
+
+    pub(crate) fn hash_into(&self, eat: &mut impl FnMut(&[u8])) {
+        for v in [self.vel, self.offset] {
+            for c in v.to_array() {
+                eat(&c.to_bits().to_le_bytes());
+            }
+        }
+    }
 }
 
 /// One tick of FUN_0025fea8, given a valid magnet target. `intensity` = 1.0
@@ -97,11 +167,20 @@ pub fn apply(dt: f32, sticks: &mut Sticks, env: &AssistEnv, st: &mut AssistState
         None => env.turn_rate,
     };
 
-    // Term 1: velocity tracking (yaw only, rate-matched, no dt).
-    let rel_vel = env.self_vel - env.target_vel;
-    let lat_vel = rel_vel.dot(env.lat);
+    // Term 1: velocity tracking (yaw only, rate-matched, no dt). With the
+    // lead (ours), the target's own motion is taken out of it and matched in
+    // full, the player's own share left as the PS2's.
     let fwd_dist = (env.target_center - env.self_pos).dot(env.aim_fwd);
-    let track = (sticks.move_mag.abs() * w * GAIN * lat_vel) / (fwd_dist * r);
+    let track = match env.lead_vel.filter(|_| env.armed) {
+        None => {
+            let lat_vel = (env.self_vel - env.target_vel).dot(env.lat);
+            (sticks.move_mag.abs() * w * GAIN * lat_vel) / (fwd_dist * r)
+        }
+        Some(v) => {
+            let own = sticks.move_mag.abs() * GAIN * env.self_vel.dot(env.lat);
+            w * (own - v.dot(env.lat)) / (fwd_dist * r)
+        }
+    };
     sticks.yaw += track.clamp(-1.0, 1.0) * intensity;
 
     // Term 2 timer: refilled while fire is held, if armed.
@@ -153,6 +232,7 @@ mod tests {
             lock_on_range: 50.0,
             fire_held: false,
             armed: false,
+            lead_vel: None,
         }
     }
 
@@ -282,5 +362,61 @@ mod tests {
         };
         apply(DT, &mut s, &e, &mut AssistState::default(), 0.0);
         assert_eq!((s.yaw, s.pitch), (0.4, 0.6));
+    }
+
+    /// The lead (ours): the offset grows in from nothing at no more than
+    /// LEAD_MAX_RATE, settles on its goal, and a velocity that turns about
+    /// swings it over the low-pass rather than at once.
+    #[test]
+    fn the_lead_eases_in_and_swings_smoothly() {
+        let flight = 0.4;
+        let mut l = Lead::start(Vec3::X * 7.0);
+        let mut last = l.offset;
+        for _ in 0..60 {
+            let rate = l.step(DT, Vec3::X * 7.0, |v| v * flight);
+            assert!((l.offset - last).length() <= LEAD_MAX_RATE * DT + 1e-6);
+            assert!((rate * DT - (l.offset - last)).length() < 1e-6);
+            last = l.offset;
+        }
+        assert!((l.offset.x - 2.8).abs() < 0.01, "settled: {}", l.offset);
+        // He turns about: one tick later the lead has barely moved, and it
+        // never steps further than the cap.
+        l.step(DT, Vec3::X * -7.0, |v| v * flight);
+        assert!(l.offset.x > 2.4, "no flip: {}", l.offset);
+        last = l.offset;
+        for _ in 0..60 {
+            l.step(DT, Vec3::X * -7.0, |v| v * flight);
+            assert!((l.offset - last).length() <= LEAD_MAX_RATE * DT + 1e-6);
+            last = l.offset;
+        }
+        assert!((l.offset.x + 2.8).abs() < 0.05, "swung: {}", l.offset);
+    }
+
+    /// With the lead's velocity, term 1 matches the target's crossing in
+    /// full with the move stick at rest (the PS2's needs the move stick),
+    /// and leaves the PS2's own-motion share alone.
+    #[test]
+    fn term_one_with_the_lead_tracks_a_crossing_target_at_rest() {
+        let mut e = env();
+        e.armed = true;
+        e.target_vel = Vec3::X * 5.0;
+        let still = Sticks {
+            move_mag: 0.0,
+            yaw: 0.0,
+            pitch: 0.0,
+        };
+        let mut ps2 = still;
+        apply(DT, &mut ps2, &e, &mut AssistState::default(), 1.0);
+        assert_eq!(ps2.yaw, 0.0, "the PS2's term 1 needs the move stick");
+        e.lead_vel = Some(Vec3::X * 5.0);
+        let mut ours = still;
+        apply(DT, &mut ours, &e, &mut AssistState::default(), 1.0);
+        // −5 / (20 × 5): the target's whole angular rate, turning right.
+        assert!((ours.yaw + 0.05).abs() < EPS, "yaw {}", ours.yaw);
+        // Unarmed (Auto Aim off): the PS2's term 1.
+        e.armed = false;
+        let mut off = still;
+        apply(DT, &mut off, &e, &mut AssistState::default(), 1.0);
+        assert_eq!(off.yaw, 0.0);
     }
 }
