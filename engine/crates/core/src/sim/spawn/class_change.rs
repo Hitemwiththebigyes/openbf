@@ -156,7 +156,7 @@ impl Sim {
         let back = memory.iter().find(|m| m.class == class).cloned();
 
         let old = &self.units[i];
-        let base = self.difficulty_of(team).base_skill();
+        let base = self.bot_skill(team);
         let spec = self.classes[usize::from(team.min(1))][usize::from(class)].spec(
             team,
             old.soldier.pos,

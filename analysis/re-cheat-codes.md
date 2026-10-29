@@ -289,11 +289,38 @@ Mapping of the authentic set onto the registry:
 | `80s` | (new, render) | force soldier LOD model. |
 | `at` | (new, fx) | needs `AddHitEffect` support in the weapon class; only the Wampa uses it. |
 | `alias` | no-op | PS2 GS post-filter. |
-`infinite_stamina`, `infinite_jet_fuel`, `all_awards` have **no PS2
+`infinite_stamina` (which since 2026-10-28 also keeps a jet class's fuel full; the separate jet-fuel cheat was removed), `all_awards` have **no PS2
 counterpart** (BF2 or BF1) — keep them as openbf extensions and label them so.
 Persistence: flags live for the process, never saved to the profile, not reset
 by mission restart or return-to-shell; in a network session `sos`/`ammo`/`80s`
 must refuse to toggle and `at` must not apply.
+
+## Port (openbf, card CHEAT2)
+
+Typed while paused on the pausing player's D-pad (keyboard: the arrow keys),
+exactly as §2: U = Up (dot), D = Down (dash), L = Left (end of letter),
+R = Right (submit). A recognised word plays `shell_menu_accept` and toggles.
+The pause menu's rows drive the same flags.
+
+| Word | Cheat | Morse | D-pad sequence | Origin |
+|---|---|---|---|---|
+| `sos` | invincibility | `... --- ...` | U U U L D D D L U U U L R | PS2 |
+| `ammo` | infinite ammo: the reserve never goes down; the clip empties and reloads for free | `.- -- -- ---` | U D L D D L D D L D D D L R | PS2 |
+| `clip` | no reloading: the clip stays full, shots draw from the reserve, then the clip, to 0 | `-.-. .-.. .. .--.` | D U D U L U D U U L U U L U D D U L R | `[ours]` |
+| `run` | infinite stamina | `.-. ..- -.` | U D U L U U D L D U L R | `[ours]` |
+| `all` | unlock all classes (every class costs 0 points) | `.- .-.. .-..` | U D L U D U U L U D U U L R | `[ours]` |
+| `cheat` | all five above on (or all off, if all five are on) | `-.-. .... . .- -` | D U D U L U U U U L U L U D L D L R | `[ours]` |
+
+`ammo` + `clip` together: nothing is drawn and nothing reloads (fire forever).
+They apply to player units only, on foot and in vehicle seats. `hud`, `slow`,
+`80s`, `at`, `alias` keep their §6 behaviour.
+
+`[ours]` lifetime (a named deviation from the PS2's power-off): the flags stay on
+across missions, playlist maps and restarts, and all go off (with `hud` and
+`slow`) when the player returns to the main menu or quits; never saved to the
+profile. The Morse buffers themselves are never reset, as on the PS2. While
+paused, D-pad Left/Right never reach the menu rows (outside the Respawn popup),
+so typing a word cannot step a slider; Up/Down still move the cursor.
 
 ## 7. Open questions
 * Are there `FUN_001df640` callers with `argument 3 = 0` (kills that ignore

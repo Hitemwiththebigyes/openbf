@@ -23,7 +23,7 @@ use crate::spawn_draw::{
     screen_at, Anchor, HELP_DROP, HELP_TEXT, ICON, ICON_GAP, MAP_FONT, SAFE_X, SMALL_FONT,
     TITLE_PIECES,
 };
-use crate::stats::{Page, StatsScreens, MEDALS_LEFT, SHOWN};
+use crate::stats::{Page, StatsScreens, SHOWN};
 use glam::Mat4;
 
 /// The titles' font (`ifs.stats.*title` texts, gamefont_medium [V] the
@@ -155,6 +155,15 @@ const MEDAL_COUNT_X: [f32; 2] = [166.4, 401.6];
 const MEDAL_LEVEL_RIGHT: [f32; 2] = [248.0, 483.2];
 const MEDAL_LEVEL_W: f32 = 48.8;
 const MEDAL_CURSOR_X: [f32; 2] = [24.8, 251.6];
+/// `[ours]` A row's name squeezed to fit before the count (the medals'
+/// names all fit; the unlockable classes' longest do not).
+const MEDAL_NAME_W: f32 = 104.0;
+/// `[ours]` The career box's wedges when the unlocks' page is there: the
+/// Team Stats list's, at the box's centre, the down one on the box's bottom
+/// border, the up one beside the heading.
+const CAREER_WEDGE_X: f32 = 256.8;
+const CAREER_UP_WEDGE: [f32; 3] = [27.2, 160.6, 175.5];
+const CAREER_DOWN_WEDGE: [f32; 3] = [30.7, 306.2, 316.2];
 const MEDAL_CURSOR_Y: [f32; 2] = [-0.7, 17.0];
 const INFO_AT: (f32, f32) = (31.2, 317.1);
 const INFO_PITCH: f32 = 14.93;
@@ -417,12 +426,17 @@ impl Ctx<'_> {
 
     /// The two scroll wedges of a list centred at `cx`.
     fn wedges(&mut self, s: &Screen, cx: f32) {
+        self.wedge(s, cx, UP_WEDGE, false);
+        self.wedge(s, cx, DOWN_WEDGE, true);
+    }
+
+    /// One wedge: two mirrored halves of `listbox_topbot_more`, `down`
+    /// flipped.
+    fn wedge(&mut self, s: &Screen, cx: f32, [hw, y0, y1]: [f32; 3], down: bool) {
         let tex = "listbox_topbot_more";
-        for ([hw, y0, y1], flip) in [(UP_WEDGE, false), (DOWN_WEDGE, true)] {
-            let (v0, v1) = if flip { (1.0, 0.0) } else { (0.0, 1.0) };
-            self.sheet(s, [cx - hw, y0, cx, y1], [0.0, v0, 1.0, v1], tex, 1.0);
-            self.sheet(s, [cx, y0, cx + hw, y1], [1.0, v0, 0.0, v1], tex, 1.0);
-        }
+        let (v0, v1) = if down { (1.0, 0.0) } else { (0.0, 1.0) };
+        self.sheet(s, [cx - hw, y0, cx, y1], [0.0, v0, 1.0, v1], tex, 1.0);
+        self.sheet(s, [cx, y0, cx + hw, y1], [1.0, v0, 0.0, v1], tex, 1.0);
     }
 
     fn personal_stats(&mut self, s: &Screen, st: &StatsScreens, size: [f32; 2]) {
@@ -462,7 +476,12 @@ impl Ctx<'_> {
             let kx = self.fit(value, KX_PAGE, CAREER_VALUE_W);
             self.stats_text(s, TEXT_FONT, value, at, HAlign::Right, kx, YELLOW);
         }
-        let head = &st.texts.career_medals;
+        let view = c.view_of(st.medal);
+        let (head, rows) = if view.unlocks {
+            (&st.texts.career_unlocks, &c.unlocks)
+        } else {
+            (&st.texts.career_medals, &c.medals)
+        };
         self.stats_text(
             s,
             TEXT_FONT,
@@ -472,12 +491,18 @@ impl Ctx<'_> {
             KX_PAGE,
             YELLOW,
         );
-        let split = MEDALS_LEFT.min(c.medals.len());
-        for (k, m) in c.medals.iter().enumerate() {
+        if c.views().len() > 1 {
+            match view.unlocks {
+                true => self.wedge(s, CAREER_WEDGE_X, CAREER_UP_WEDGE, false),
+                false => self.wedge(s, CAREER_WEDGE_X, CAREER_DOWN_WEDGE, true),
+            }
+        }
+        let split = view.left;
+        for (k, m) in rows.iter().enumerate() {
             let (col, line) = if k < split { (0, k) } else { (1, k - split) };
             let dx = LIST_DX * col as f32;
             let top = MEDAL_TOP + CAREER_PITCH * line as f32;
-            let on = k == st.medal;
+            let on = view.start + k == st.medal;
             if on {
                 let r = [
                     MEDAL_CURSOR_X[0] + dx,
@@ -489,7 +514,8 @@ impl Ctx<'_> {
             }
             let (text, number) = if on { (BLUE, BLUE) } else { (WHITE, YELLOW) };
             let at = (MEDAL_NAME_X[col], top);
-            self.stats_text(s, TEXT_FONT, &m.name, at, HAlign::Left, KX_PAGE, text);
+            let kx = self.fit(&m.name, KX_PAGE, MEDAL_NAME_W);
+            self.stats_text(s, TEXT_FONT, &m.name, at, HAlign::Left, kx, text);
             let at = (MEDAL_COUNT_X[col], top);
             let n = m.count.to_string();
             self.stats_text(s, TEXT_FONT, &n, at, HAlign::Center, KX_PAGE, number);
@@ -497,7 +523,7 @@ impl Ctx<'_> {
             let kx = self.fit(&m.level, KX_PAGE, MEDAL_LEVEL_W);
             self.stats_text(s, TEXT_FONT, &m.level, at, HAlign::Right, kx, text);
         }
-        if let Some(m) = c.medals.get(st.medal) {
+        if let Some(m) = c.row(st.medal) {
             let lines = self.wrap(&m.info, INFO_W, KX_INFO);
             for (k, line) in lines.iter().enumerate() {
                 let at = (INFO_AT.0, INFO_AT.1 + INFO_PITCH * k as f32);
@@ -601,6 +627,7 @@ mod tests {
                         ..Default::default()
                     })
                     .collect(),
+                unlocks: Vec::new(),
             },
         )
     }
@@ -723,5 +750,47 @@ mod tests {
             .sum();
         assert_eq!(quads, 27);
         assert!(sheets(&f).contains(&"listbox_cursor"));
+        assert!(!sheets(&f).contains(&"listbox_topbot_more"), "no unlocks");
+    }
+
+    /// Card UNLK3: with unlocks the box has a down wedge on the medals' page
+    /// and an up one on the unlocks' page, whose heading and rows it draws.
+    #[test]
+    fn the_unlocks_page_draws() {
+        let mut st = screens();
+        st.page = Page::Career;
+        st.texts.career_medals = "MEDALSHEAD".into();
+        st.texts.career_unlocks = "UNLOCKSHEAD".into();
+        st.career.unlocks = (0..8)
+            .map(|i| Medal {
+                name: format!("U{i}"),
+                ..Default::default()
+            })
+            .collect();
+        let wedges = |st: &StatsScreens| {
+            let f = frame(st);
+            f.batches
+                .iter()
+                .filter(|b| b.texture == "listbox_topbot_more")
+                .map(|b| b.count / 6)
+                .sum::<u32>()
+        };
+        assert_eq!(wedges(&st), 2, "one wedge, two halves");
+        st.medal = 9;
+        assert_eq!(wedges(&st), 2);
+        let f = frame(&st);
+        let cursor_y = f
+            .batches
+            .iter()
+            .filter(|b| b.texture == "listbox_cursor")
+            .flat_map(|b| {
+                f.indices[b.first as usize..(b.first + b.count) as usize]
+                    .iter()
+                    .map(|i| f.verts[*i as usize].pos[1])
+            })
+            .fold(f32::MAX, f32::min);
+        // The first row's cursor, as the medals' first (at 640 × 480).
+        let want = (MEDAL_TOP + MEDAL_CURSOR_Y[0]) * 480.0 / 448.0;
+        assert!((cursor_y - want).abs() < 1.0, "{cursor_y} {want}");
     }
 }

@@ -13,11 +13,12 @@
 //! ALL/IMP/REP/CIS + INGAME (com_inf_default lives there).
 //!
 //! What is PROVISIONAL here is labelled at its definition: the DEFAULT class
-//! lists, the `label` rule, and `jet` having no physics behind it.
+//! lists, the `label` rule, and the `jet` route flag (no bot jets yet).
 
 mod mines;
 mod remotes;
 mod turrets;
+pub use remotes::{BLASTER_HUD, DESTRUCT_HUD};
 
 use crate::classdb::{ClassDb, WeaponSlot};
 use crate::mission::MissionDef;
@@ -86,12 +87,17 @@ pub struct ClassRoster {
     /// The class's override textures ([`class_skins`], card USKN).
     pub skins: ClassSkins,
     /// `JetJump > 0` — a jump/jet pack (BF1 dark trooper 21.0, BF2 jettrooper
-    /// 5.0). There is NO jet physics this phase: the only consumer is the
-    /// planning graph, which keeps `Arc::JET_JUMP` routes off a jetless
-    /// soldier (`core::unit::UnitSpec::jet`).
+    /// 5.0). The planning graph's flag only: it keeps `Arc::JET_JUMP` routes
+    /// off a jetless soldier (`core::unit::UnitSpec::jet`). The jet physics
+    /// (card JETP) run off `consts`; bots do not jet yet, and limiting this
+    /// flag to `SoldierConstants::has_jet` (the Jedi out) is card JETP2's.
     pub jet: bool,
+    /// The jet's effect and engine sounds ([`jet_look`], card JETP2).
+    pub jet_look: JetLook,
     /// What the class drops when it dies ([`drop_entries`], card PWUP).
     pub drops: Vec<DropEntry>,
+    /// The droid's chunk death ([`chunk_death`], card DROIDDEATH).
+    pub chunk: Option<core::unit::ChunkDeath>,
     /// Mission minimum (`AddUnitClass` count / `SetupTeams` slot min).
     pub min: u32,
     /// Mission maximum — BF2 only.
@@ -435,6 +441,63 @@ pub fn sound_key(db: &ClassDb, class: &str, key: &str) -> Option<String> {
     (!v.is_empty()).then(|| v.to_owned())
 }
 
+/// A soldier class's jet look and sound (card JETP2, `analysis/re-jetpack.md`
+/// §8): `JetEffect` (the effect a jet stance carries) and the class's
+/// engine block - `EngineSound` (the parameterized loop), `TurnOnSound`,
+/// `TurningOffSound`, `TurnOffSound` and `TurnOffTime` (the engine
+/// component's 3.0 when unset; every jet class on both discs authors 0.0).
+/// Presentation only: the sim never reads it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct JetLook {
+    pub effect: Option<String>,
+    pub engine: Option<String>,
+    pub turn_on: Option<String>,
+    pub turning_off: Option<String>,
+    pub turn_off: Option<String>,
+    pub turn_off_time: f32,
+}
+
+impl Default for JetLook {
+    fn default() -> Self {
+        Self {
+            effect: None,
+            engine: None,
+            turn_on: None,
+            turning_off: None,
+            turn_off: None,
+            turn_off_time: crate::engine_sound::TURN_OFF_TIME,
+        }
+    }
+}
+
+impl JetLook {
+    /// Has the class an engine block worth running (a loop or a one-shot)?
+    pub fn sounds(&self) -> bool {
+        self.engine.is_some() || self.turn_on.is_some() || self.turn_off.is_some()
+    }
+}
+
+/// [`JetLook`] of `class` through its base chain. Only a class with a jet
+/// (`JetFuelRechargeRate` > 0, `SoldierConstants::has_jet`) or a hover
+/// (`JetType hover`: Vader, the Emperor) gets one: a Jedi's double jump is
+/// no jet stance and the PS2's other `EngineSound` readers are vehicles.
+pub fn jet_look(db: &ClassDb, class: &str) -> JetLook {
+    let c = SoldierConstants::from_props(&ClassSrc { db, class });
+    if !c.has_jet() && !c.jet_hover {
+        return JetLook::default();
+    }
+    JetLook {
+        effect: sound_key(db, class, "JetEffect"),
+        engine: sound_key(db, class, "EngineSound"),
+        turn_on: sound_key(db, class, "TurnOnSound"),
+        turning_off: sound_key(db, class, "TurningOffSound"),
+        turn_off: sound_key(db, class, "TurnOffSound"),
+        turn_off_time: db
+            .prop_f32(class, "TurnOffTime")
+            .unwrap_or(crate::engine_sound::TURN_OFF_TIME),
+    }
+}
+
 /// A soldier class's voice ([`crate::walk::Cries`]): the sound property
 /// each of its cry, call and squad-talk keys names through its base chain,
 /// and its `LowHealthThreshold`.
@@ -583,6 +646,10 @@ pub fn weapon_hud(db: &ClassDb, weapon: &str) -> crate::walk::WeaponHud {
             .prop(weapon, "IconTexture")
             .map(clean)
             .filter(|i| !i.is_empty()),
+        droid: (db.engine_base(weapon) == Some("remote"))
+            .then(|| remotes::droid_hud(db, weapon))
+            .flatten()
+            .map(Box::new),
     }
 }
 
@@ -1118,6 +1185,25 @@ fn impact_explosion<'a>(db: &'a ClassDb, ordnance: &str) -> Option<&'a str> {
 /// class chain.
 pub const PUSH_SPARES_THE_LIVING: &[&str] = &["com_weap_inf_bulldog_exp"];
 
+/// A soldier class's chunk death (card DROIDDEATH, `analysis/re-droid-death.md`
+/// §1-§2): only a class with chunk geometry (`ChunkGeometryName` in its
+/// chain: the CIS soldier droids of both discs) has one, with its
+/// `ChunkFrequency` (BF2's ctor default -1.0 when unset: only a mark bursts
+/// it) and its `ExplosionName` class.
+pub fn chunk_death(db: &ClassDb, class: &str) -> Option<core::unit::ChunkDeath> {
+    db.prop(class, "ChunkGeometryName")
+        .map(str::trim)
+        .filter(|g| !g.is_empty())?;
+    Some(core::unit::ChunkDeath {
+        frequency: db.prop_f32(class, "ChunkFrequency").unwrap_or(-1.0),
+        explosion: db
+            .prop(class, "ExplosionName")
+            .map(str::trim)
+            .filter(|n| !n.is_empty())
+            .and_then(|n| explosion_class(db, n)),
+    })
+}
+
 fn explosion_class(db: &ClassDb, name: &str) -> Option<ExplosionClass> {
     let e = db.resolve(name.trim())?;
     let mut x = ExplosionClass::from_props(&ClassSrc { db, class: e });
@@ -1411,6 +1497,79 @@ pub fn item_pool(game: &str, map: &str) -> usize {
         .map_or(core::sim::ITEM_POOL_DEFAULT, |(_, n)| *n)
 }
 
+/// BF2's jet rules on every map (the maintainer, 2026-10-28; card JETP, a
+/// named deviation `[ours]`): a BF1 class keeps its own disc numbers, and the
+/// keys BF1 never authors - `JetAcceleration` and the `ControlSpeed jet` row
+/// (re-jetpack.md §2.1) - come from BF2's class of the same role
+/// (re-jetpack.md §2.2, §12). Rows: (BF1 class, its BF2 twin,
+/// JetAcceleration, the jet row or None for the ctor default 0.3 / 0.3 / 1.0).
+/// The Geonosian is a local class the bake does not carry, so it has no row.
+/// `tests/suite/roster.rs` holds the numbers to the BF2 twins' baked classes.
+pub const BF1_JET_BORROW: &[(&str, &str, f32, Option<[f32; 3]>)] = &[
+    (
+        "rep_inf_jet_trooper",
+        "rep_inf_ep2_jettrooper",
+        30.0,
+        Some([1.5, 1.25, 1.25]),
+    ),
+    ("imp_inf_dark_trooper", "imp_inf_dark_trooper", 10.0, None),
+    (
+        "imp_inf_dark_troopersnow",
+        "imp_inf_dark_trooper",
+        10.0,
+        None,
+    ),
+];
+
+/// A soldier class's movement constants through its chain: the props, the
+/// jet's class data ([`jet_class_data`]) and whether a channel-0 weapon is a
+/// lightsaber (a `melee` weapon; re-jetpack.md §3.3).
+pub fn soldier_constants(db: &ClassDb, class: &str) -> SoldierConstants {
+    let mut c = SoldierConstants::from_props(&ClassSrc { db, class });
+    jet_class_data(db, class, &mut c);
+    c.saber = db.weapon_slots(class).iter().any(|s| {
+        s.channel == 0
+            && db
+                .resolve(&s.weapon)
+                .and_then(|w| db.engine_base(w))
+                .is_some_and(|b| b.eq_ignore_ascii_case("melee"))
+    });
+    c
+}
+
+/// The class data `SoldierConstants::from_props` cannot read alone: the
+/// `ControlSpeed jet` row, child-most first (the PS2 applies each class's
+/// rows over its parent's, one stance at a time), and on a BF1 disc the
+/// [`BF1_JET_BORROW`] numbers.
+fn jet_class_data(db: &ClassDb, class: &str, c: &mut SoldierConstants) {
+    let h = crate::classdb::fnv1a_lowercase("ControlSpeed");
+    let row = db.chain(class).into_iter().find_map(|def| {
+        def.props
+            .iter()
+            .filter(|p| p.0 == h)
+            .filter_map(|p| SoldierConstants::control_row(&p.1))
+            .find(|(name, _)| name.eq_ignore_ascii_case("jet"))
+            .map(|(_, r)| r)
+    });
+    if let Some(r) = row {
+        c.jet_control = r;
+    }
+    if db.is_bf2() {
+        return;
+    }
+    if let Some(&(_, _, accel, row)) = BF1_JET_BORROW
+        .iter()
+        .find(|(bf1, ..)| bf1.eq_ignore_ascii_case(class))
+    {
+        if db.prop(class, "JetAcceleration").is_none() {
+            c.jet_acceleration = accel;
+        }
+        if let Some(r) = row {
+            c.jet_control = r;
+        }
+    }
+}
+
 impl ClassRoster {
     /// One class through its ODF chain, or the reason it cannot be fielded.
     pub fn build(db: &ClassDb, class: &str, min: u32, max: Option<u32>) -> Result<ClassRoster> {
@@ -1423,7 +1582,6 @@ impl ClassRoster {
                 db.engine_base(class)
             ));
         }
-        let src = ClassSrc { db, class };
         let donor = WEAPON_DONORS
             .iter()
             .find(|d| d.class.eq_ignore_ascii_case(class));
@@ -1496,7 +1654,7 @@ impl ClassRoster {
                     capitalise(&unit_type)
                 }
             });
-        let mut consts = SoldierConstants::from_props(&src);
+        let mut consts = soldier_constants(db, class);
         if let Some(g) = db.prop(class, "GeometryName") {
             let g = g.trim();
             if let Some((_, v)) = AIM_SIZE.iter().find(|(m, _)| m.eq_ignore_ascii_case(g)) {
@@ -1528,12 +1686,22 @@ impl ClassRoster {
                 .map_or(0, |v| crate::classdb::fnv1a_lowercase(v.trim())),
             cries: cries(db, class),
             jet: db.prop_f32(class, "JetJump").is_some_and(|j| j > 0.0),
+            jet_look: jet_look(db, class),
             drops: drop_entries(db, class),
+            chunk: chunk_death(db, class),
             min,
             max,
+            // `[ours]` (card UNLK1): BF1's specials take their BF2
+            // counterpart's cost (BF1 authors none).
             unlock_points: db
                 .prop_f32(class, "PointsToUnlock")
-                .map_or(0, |p| p.max(0.0) as u32),
+                .map(|p| p.max(0.0) as u32)
+                .or_else(|| {
+                    (!db.is_bf2())
+                        .then(|| crate::unlocks::bf1_cost(class))
+                        .flatten()
+                })
+                .unwrap_or(0),
         })
     }
 
@@ -1548,6 +1716,7 @@ impl ClassRoster {
     ) -> UnitClass {
         UnitClass {
             drops,
+            chunk: self.chunk.clone(),
             consts: self.consts,
             max_health: self.max_health,
             health_type: self.health_type,

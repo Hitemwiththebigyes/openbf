@@ -121,6 +121,11 @@ pub struct CommandPost {
     /// BF1 has no such key — every post keeps the default, a uniform draw.
     /// Never changes after setup, so it is not part of the hash.
     pub ai_spawn_weight: f32,
+    /// Card MAIS: `AICanCaptureCP(post, team, false)` - bit `t` set: team
+    /// `t`'s bots do not count in this post's capture (BF2 `cp+0x80`,
+    /// `FUN_003573f8`; re-cp-capture.md 4). Set from the mission, never
+    /// changed after setup, so it is not part of the hash.
+    pub ai_capture_ban: u8,
 }
 
 /// The `AISpawnWeight` a post is constructed with (BF2; a command walker's
@@ -153,7 +158,13 @@ impl CommandPost {
             neutral: 0.0,
             nav_hub: None,
             ai_spawn_weight: AI_SPAWN_WEIGHT_DEFAULT,
+            ai_capture_ban: 0,
         }
+    }
+
+    /// Card MAIS: may team `team`'s bots not capture this post?
+    pub fn ai_no_capture(&self, team: u8) -> bool {
+        team < 8 && self.ai_capture_ban >> team & 1 != 0
     }
 
     /// One tick given the per-team headcount of counting units inside the

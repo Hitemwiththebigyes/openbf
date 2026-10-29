@@ -67,6 +67,20 @@ pub fn apply_menu_action(
     }
 }
 
+/// The rows' share of a paused frame's edges: D-pad Left/Right are the
+/// Morse letter and word keys (card CHEAT2), so they never step a row;
+/// the Respawn popup keeps them. Up/Down move the cursor, as on the PS2.
+pub fn rows_input(input: ui::menu::MenuInput, respawn_confirm: bool) -> ui::menu::MenuInput {
+    if respawn_confirm {
+        return input;
+    }
+    ui::menu::MenuInput {
+        left: false,
+        right: false,
+        ..input
+    }
+}
+
 /// The pause menu's click for one frame (menuref "In battle" and its sound
 /// table): Triangle resumes with the exit click, or in the Respawn popup
 /// cancels with the cancel click; Cross on No cancel, on any other row
@@ -138,5 +152,48 @@ mod tests {
         );
         assert_eq!(pause_sound(false, down, 0, 1, &[]), Some(MenuSound::Select));
         assert_eq!(pause_sound(false, cross, 3, 3, &[]), None);
+    }
+
+    /// Card CHEAT2: typing Morse never steps a slider; Up/Down still move.
+    #[test]
+    fn left_and_right_never_reach_the_rows() {
+        let model = ui::menu::MenuModel {
+            cheats: core::sim::Cheats::default().entries().to_vec(),
+            ..Default::default()
+        };
+        let rows = ui::menu::rows(&model);
+        let fov = rows.iter().position(|r| *r == ui::menu::Row::Fov).unwrap();
+        let at_fov = ui::menu::MenuModel {
+            cursor: fov,
+            fov_scale: 1.0,
+            ..model.clone()
+        };
+        for (left, right) in [(true, false), (false, true)] {
+            let input = MenuInput {
+                left,
+                right,
+                ..Default::default()
+            };
+            let (cursor, actions) = ui::menu::navigate(&at_fov, rows_input(input, false));
+            assert_eq!((cursor, actions.len()), (fov, 0));
+        }
+        let up = rows_input(
+            MenuInput {
+                up: true,
+                ..Default::default()
+            },
+            false,
+        );
+        assert_eq!(ui::menu::navigate(&at_fov, up).0, fov - 1);
+        // The Respawn popup still flips No/Yes with them.
+        let popup = ui::menu::MenuModel {
+            respawn_confirm: true,
+            ..model
+        };
+        let right = MenuInput {
+            right: true,
+            ..Default::default()
+        };
+        assert_eq!(ui::menu::navigate(&popup, rows_input(right, true)).0, 1);
     }
 }

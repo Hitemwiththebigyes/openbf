@@ -411,3 +411,225 @@ fn utapaus_baked_walker_record_reads_the_rams_factors() {
     }
     assert!(rec.layers.iter().all(|l| l.delay == 0.8));
 }
+
+/// Card JETP2: the baked `rep_inf_Jetpack_engine_parameterized` (one layer,
+/// BF2 KAS; BF1's is the same): speed -> pitch 0.9..1.0, acceleration ->
+/// gain 0.4 at 0, 0.5 under -0.1.
+fn jet_record() -> EngineSound {
+    EngineSound {
+        name_hash: fnv1a_lowercase("rep_inf_Jetpack_engine_parameterized"),
+        level: 0,
+        layers: vec![EngineLayer {
+            sound: fnv1a_lowercase("rep_inf_Jetpack_engine_parameterized"),
+            delay: 0.0,
+            deviation: 0.0,
+            graphs: vec![
+                EngineGraph {
+                    parameter: "speed".into(),
+                    target: "Pitch".into(),
+                    points: vec![(0.0, 0.9), (1.0, 1.0)],
+                },
+                EngineGraph {
+                    parameter: "acceleration".into(),
+                    target: "Gain".into(),
+                    points: vec![(-0.1, 0.5), (0.0, 0.4), (0.1, 0.5), (1.0, 1.0)],
+                },
+            ],
+        }],
+    }
+}
+
+fn jet_look(turn_off_time: f32) -> crate::roster::JetLook {
+    crate::roster::JetLook {
+        effect: Some("rep_sfx_jetpack".into()),
+        engine: Some("rep_inf_Jetpack_engine_parameterized".into()),
+        turn_on: Some("rep_weap_jetpack_turnon".into()),
+        turning_off: None,
+        turn_off: Some("rep_weap_jetpack_turnoff".into()),
+        turn_off_time,
+    }
+}
+
+/// One tick of one soldier: (jetting, speed) -> the loop's voices and the
+/// one-shots.
+fn jet_tick(
+    e: &mut EngineSounds,
+    look: &crate::roster::JetLook,
+    rec: &EngineSound,
+    jetting: bool,
+    speed: f32,
+) -> (Vec<Voice>, Vec<JetShotKind>) {
+    let m = JetMotion {
+        unit: 3,
+        gen: 1,
+        jetting,
+        pos: Vec3::new(1.0, 2.0, 3.0),
+        vel: Vec3::X * speed,
+        health: 1.0,
+        look,
+    };
+    let mut out = Vec::new();
+    let record = |h: u32, _: &[u32]| (h == rec.name_hash).then_some(rec);
+    e.tick_jets(std::iter::once(m), &record, &mut out);
+    let kinds = e.take_jet_shots().into_iter().map(|s| s.kind).collect();
+    (out, kinds)
+}
+
+/// Turn-on at the jet's start, the loop while it is on, the turn-off at
+/// every end (a tap, empty fuel or a landing: all leave the jet stance, and
+/// the PS2 runs the turn-off on any update outside it - B1:117778-117783,
+/// `FUN_00366318`), with no run-down: every jet class's `TurnOffTime` is 0.
+#[test]
+fn a_jet_turns_on_loops_and_turns_off_at_every_end() {
+    let rec = jet_record();
+    let look = jet_look(0.0);
+    let mut e = EngineSounds::default();
+    let (v, s) = jet_tick(&mut e, &look, &rec, false, 0.0);
+    assert!(v.is_empty() && s.is_empty(), "standing: nothing");
+    for flight in 0..3 {
+        let (v, s) = jet_tick(&mut e, &look, &rec, true, 0.0);
+        assert_eq!(s, [JetShotKind::TurnOn], "flight {flight}");
+        assert_eq!(v.len(), 1);
+        assert!(v[0].soldier && v[0].vehicle == 3);
+        assert_eq!(v[0].pos, Vec3::new(1.0, 2.0, 3.0));
+        // At rest: pitch 0.9, gain 0.4 (acceleration 0 - 0 / dt).
+        assert!(near(v[0].pitch_factor, 0.9) && near(v[0].gain_factor, 0.4));
+        for _ in 0..20 {
+            let (v, s) = jet_tick(&mut e, &look, &rec, true, 8.0);
+            assert!(s.is_empty());
+            assert_eq!(v.len(), 1, "the loop runs while he jets");
+            // |v| 8 m/s: pitch 1.0; previous - speed / dt is about -232:
+            // the gain graph's left end, 0.5 (the walker's slip).
+            assert!(near(v[0].pitch_factor, 1.0) && near(v[0].gain_factor, 0.5));
+            assert!(near(v[0].speed, 8.0));
+        }
+        // The end (whatever ended it): turn-off at once, the loop gone.
+        let (v, s) = jet_tick(&mut e, &look, &rec, false, 8.0);
+        assert_eq!(s, [JetShotKind::TurnOff], "flight {flight}");
+        assert!(v.is_empty());
+        assert!(!e.jet(3).unwrap().on);
+        let (v, s) = jet_tick(&mut e, &look, &rec, false, 0.0);
+        assert!(v.is_empty() && s.is_empty());
+    }
+}
+
+/// With a `TurnOffTime` (none of the disc's jet classes has one): the loop
+/// runs down that long, then `TurnOffSound`; jetting again inside it turns
+/// on again.
+#[test]
+fn a_run_down_ends_with_the_turn_off_and_a_restart_turns_on() {
+    let rec = jet_record();
+    let look = crate::roster::JetLook {
+        turning_off: Some("x_turning_off".into()),
+        ..jet_look(1.0)
+    };
+    let mut e = EngineSounds::default();
+    assert_eq!(
+        jet_tick(&mut e, &look, &rec, true, 5.0).1,
+        [JetShotKind::TurnOn]
+    );
+    let (v, s) = jet_tick(&mut e, &look, &rec, false, 5.0);
+    assert_eq!(s, [JetShotKind::TurningOff]);
+    assert_eq!(v.len(), 1, "running down");
+    assert_eq!(
+        jet_tick(&mut e, &look, &rec, true, 5.0).1,
+        [JetShotKind::TurnOn]
+    );
+    assert_eq!(
+        jet_tick(&mut e, &look, &rec, false, 5.0).1,
+        [JetShotKind::TurningOff]
+    );
+    let mut ends = Vec::new();
+    for t in 0..40 {
+        let (v, s) = jet_tick(&mut e, &look, &rec, false, 5.0);
+        if !s.is_empty() {
+            assert!(v.is_empty());
+            ends.push((t, s));
+        }
+    }
+    // Timer 0 at the run-down's start, +1/30 an update: 1.0 s reached on
+    // the 30th update after it.
+    assert_eq!(ends.len(), 1, "{ends:?}");
+    assert_eq!(ends[0].1, [JetShotKind::TurnOff]);
+    assert!((28..=30).contains(&ends[0].0), "{ends:?}");
+}
+
+/// A soldier who respawns (a new generation) starts with his engine off;
+/// a class without jet sounds is skipped.
+#[test]
+fn a_new_life_starts_off_and_a_jetless_class_has_no_engine() {
+    let rec = jet_record();
+    let look = jet_look(0.0);
+    let mut e = EngineSounds::default();
+    jet_tick(&mut e, &look, &rec, true, 0.0);
+    let m = JetMotion {
+        unit: 3,
+        gen: 2,
+        jetting: false,
+        pos: Vec3::ZERO,
+        vel: Vec3::ZERO,
+        health: 1.0,
+        look: &look,
+    };
+    let record = |_: u32, _: &[u32]| Some(&rec);
+    let mut out = Vec::new();
+    e.tick_jets(std::iter::once(m), &record, &mut out);
+    assert!(out.is_empty() && e.take_jet_shots().is_empty());
+    let none = crate::roster::JetLook::default();
+    let (v, s) = jet_tick(&mut EngineSounds::default(), &none, &rec, true, 0.0);
+    assert!(v.is_empty() && s.is_empty());
+}
+
+/// The baked jet classes of both games name the engine block and its
+/// sounds the map banks hold (re-jetpack.md §2.2): data-gated.
+#[test]
+fn baked_jet_classes_name_baked_sounds() {
+    let root = crate::assets::baked_root();
+    if !root.join("classes").exists() {
+        eprintln!("SKIP: no class bake");
+        return;
+    }
+    let mut rows = 0;
+    for (game, map, classes, rifleman) in [
+        (
+            "bf2",
+            "bf2_kas2",
+            &["rep_inf_ep3_jettrooper", "imp_inf_dark_trooper"][..],
+            "rep_inf_ep3_rifleman",
+        ),
+        (
+            "bf1",
+            "bf1_kas2",
+            &["rep_inf_jet_trooper", "imp_inf_dark_trooper"][..],
+            "rep_inf_clone_trooper",
+        ),
+    ] {
+        let db = crate::roster::load_classdb(&root.join("classes"), game, &["rep", "imp"]).unwrap();
+        let Some(lib) = crate::sounds::SoundLib::load(&root.join(map)) else {
+            eprintln!("SKIP: no {map} sounds");
+            continue;
+        };
+        for class in classes {
+            let j = crate::roster::jet_look(&db, class);
+            assert_eq!(j.turn_off_time, 0.0, "{class}");
+            assert_eq!(j.turn_on.as_deref(), Some("rep_weap_jetpack_turnon"));
+            assert_eq!(j.turn_off.as_deref(), Some("rep_weap_jetpack_turnoff"));
+            for n in [&j.turn_on, &j.turn_off].into_iter().flatten() {
+                assert!(lib.has(n), "{map} {class}: {n}");
+            }
+            let engine = j.engine.as_deref().unwrap();
+            assert_eq!(engine, "rep_inf_Jetpack_engine_parameterized");
+            let rec = lib
+                .engine(fnv1a_lowercase(engine), &[])
+                .expect("the record");
+            assert_eq!(rec.layers.len(), 1);
+            assert!(lib.has(engine), "the layer's loop");
+            assert!(j.effect.is_some(), "{class}");
+            rows += 1;
+        }
+        if db.resolve(rifleman).is_some() {
+            assert_eq!(crate::roster::jet_look(&db, rifleman), Default::default());
+        }
+    }
+    println!("{rows} jet classes checked");
+}

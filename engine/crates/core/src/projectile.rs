@@ -199,7 +199,25 @@ impl Bolt {
             std::iter::empty(),
         );
         b.hulls = hulls;
+        b.pass_own_building();
         b
+    }
+
+    /// A rider's round leaves his own building turret: the press ray met
+    /// his turret's building (a body [`building_hit`] names as the turret)
+    /// where the hull filter skips his vehicle, so it is a wall the round
+    /// stops on, as before the building took damage, not a hit on his own
+    /// turret.
+    pub fn pass_own_building(&mut self) {
+        let skip = match self.hulls {
+            HullFilter::Except(s) | HullFilter::HullsExcept(s) => s,
+            _ => return,
+        };
+        if let Hit::Target(Target::Vehicle(v)) = self.hit {
+            if skip.contains(&Some(v)) {
+                self.hit = Hit::World;
+            }
+        }
     }
 
     /// Spawn with the predictive raycast: candidates = terrain + the given
@@ -257,10 +275,7 @@ impl Bolt {
                 best_t = h.t;
                 hit = match h.owner {
                     Some(v) => Hit::Target(Target::Vehicle(v)),
-                    None => h
-                        .instance
-                        .and_then(|i| world.station(i))
-                        .map_or(Hit::World, |s| Hit::Target(Target::Station(s))),
+                    None => building_hit(world, h.instance),
                 };
             }
         }
@@ -326,4 +341,20 @@ impl Bolt {
         }
         over
     }
+}
+
+/// What a press ray that met a map body (no hull owner) struck: a station's
+/// body is the station, a building turret's body is the turret
+/// (`CollisionWorld::bind_turret`; the PS2 damages the armed building,
+/// `analysis/re-turret-collision.md` 3.1), anything else the world.
+fn building_hit(world: &CollisionWorld, instance: Option<u32>) -> Hit {
+    let Some(i) = instance else {
+        return Hit::World;
+    };
+    if let Some(s) = world.station(i) {
+        return Hit::Target(Target::Station(s));
+    }
+    world
+        .turret(i)
+        .map_or(Hit::World, |v| Hit::Target(Target::Vehicle(v)))
 }

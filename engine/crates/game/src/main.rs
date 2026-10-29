@@ -28,7 +28,7 @@
 //!     --time-limit <minutes>      conquest time limit; at expiry more
 //!                                 tickets wins, a tie is a draw (default Off)
 //!     --events <file.csv>         with --walk-replay: dump sim events
-//!     --cheat <list>              dev cheats: invincible,ammo (comma list)
+//!     --cheat <list>              dev cheats: invincible,ammo,clip,run,all (comma list)
 //!     --spawn x,z                 explicit walk spawn (otherwise mission/post start)
 //!     --headless                  no window; render offscreen
 //!     --capture-frame <out.png>   headless-render one frame to PNG
@@ -439,8 +439,11 @@ fn parse_cheats(s: &str) -> Result<core::sim::Cheats> {
         match item {
             "invincible" | "god" => c.invincible = true,
             "ammo" | "infinite_ammo" => c.infinite_ammo = true,
+            "clip" | "no_reload" => c.no_reload = true,
+            "run" | "stamina" => c.infinite_stamina = true,
+            "all" | "classes" => c.all_classes = true,
             "awards" => c.all_awards = true,
-            other => bail!("unknown cheat: {other} (invincible, ammo, awards)"),
+            other => bail!("unknown cheat: {other} (invincible, ammo, clip, run, all, awards)"),
         }
     }
     Ok(c)

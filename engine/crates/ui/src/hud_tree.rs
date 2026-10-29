@@ -514,6 +514,9 @@ pub struct Elem {
     pub is_segment: bool,
     // Text.
     pub text: String,
+    /// `Text("key")`: the text key the layout gives, localised by
+    /// [`Hud::set_texts`].
+    pub key: Option<String>,
     pub font: String,
     pub h_align: HAlign,
     pub v_align: VAlign,
@@ -533,6 +536,7 @@ pub struct Elem {
 
 impl Elem {
     fn new(name: String, kind: Kind, parent: Option<usize>) -> Self {
+        let is_text = kind == Kind::Text;
         Self {
             name,
             lines: (kind == Kind::MultiLineText).then(Box::default),
@@ -580,7 +584,15 @@ impl Elem {
             segment: None,
             is_segment: false,
             text: String::new(),
-            font: String::new(),
+            key: None,
+            // A Text without `TextFont` draws in the ctor's default,
+            // `gamefont_tiny` (B2 D:405704 `FUN_005a90a8(.., DAT_0060c794)`,
+            // ELF word 0x46f060d5 = the key hash of "gamefont_tiny" [V]).
+            font: if is_text {
+                DEFAULT_FONT.to_owned()
+            } else {
+                String::new()
+            },
             h_align: HAlign::Left,
             v_align: VAlign::Top,
             text_scale: [1.0, 1.0],
@@ -650,6 +662,9 @@ pub struct Hud {
     /// The spawn screen up this frame (`crate::spawn_draw`, card SSELB);
     /// `None` draws none.
     pub spawn: Option<crate::spawn_draw::SpawnPage>,
+    /// The sniper scope's overlay this frame (`crate::hud_scope`); `None`
+    /// draws none.
+    pub scope: Option<crate::hud_scope::ScopeView>,
     /// The shell's page up this frame and whether its movie has a frame
     /// (`crate::shell_ps2`, card BSHLA); it draws alone.
     pub shell: Option<(crate::shell_ps2::ShellMenus, bool)>,
@@ -661,8 +676,16 @@ pub struct Hud {
     /// Per font: each glyph's pen advance in texels (what a MultiLineText
     /// wraps its words by). Empty until [`Hud::set_fonts`].
     advances: HashMap<String, HashMap<u32, f32>>,
+    /// Seconds of HUD time, wrapped at [`CLOCK_WRAP`]: what a scrolling mesh
+    /// part's UVs move by (`crate::hud_draw`).
     pub clock: f32,
 }
+
+/// `[ours]` [`Hud::clock`] wraps here so the f32 never grows coarse. A BF2
+/// UV scroll is a whole number of 1/255 repeats per second (the MTRL's
+/// bytes over 255, `mungefs::model::Segment::uv_scroll`), so every one is a
+/// whole number of repeats at 255 s and the wrap is seamless.
+pub const CLOCK_WRAP: f32 = 255.0;
 
 fn num(n: &HudNode, i: usize) -> Option<f32> {
     match n.args.get(i) {
@@ -742,6 +765,9 @@ fn v_align(s: Option<&str>) -> VAlign {
     }
 }
 
+/// The font a Text draws in without `TextFont`.
+pub const DEFAULT_FONT: &str = "gamefont_tiny";
+
 fn kind_of(name: &str) -> Option<Kind> {
     Some(match name {
         "group" => Kind::Group,
@@ -771,6 +797,7 @@ impl Hud {
             capture: None,
             ambush: Default::default(),
             spawn: None,
+            scope: None,
             shell: None,
             instant: None,
             stats: None,
@@ -901,6 +928,7 @@ impl Hud {
                 "angleend" => e.angle_end = num(c, 0).unwrap_or(0.0),
                 "numsegments" => e.segments = num(c, 0).unwrap_or(0.0).max(0.0) as u32,
                 "circular" => e.circular = num(c, 0).unwrap_or(1.0) != 0.0,
+                "text" => e.key = text(c, 0).map(str::to_owned),
                 "textfont" => e.font = text(c, 0).unwrap_or_default().to_ascii_lowercase(),
                 "textalignment" => {
                     e.h_align = h_align(text(c, 0));
@@ -957,6 +985,16 @@ impl Hud {
                 "fadeintime" => ml.fade_in = num(p, 0).unwrap_or(0.0),
                 "fadeouttime" => ml.fade_out = num(p, 0).unwrap_or(0.0),
                 _ => {}
+            }
+        }
+    }
+
+    /// Localise every `Text("key")` by `look`; a key it lacks prints raw,
+    /// as the PS2's `FUN_005ac980` does (`re-hud.md` §2.3).
+    pub fn set_texts(&mut self, look: &dyn Fn(&str) -> Option<String>) {
+        for e in &mut self.elems {
+            if let Some(key) = &e.key {
+                e.text = look(key).unwrap_or_else(|| key.clone());
             }
         }
     }
@@ -1222,7 +1260,7 @@ impl Hud {
     /// One frame of fades, colour easing and pulses (`re-hud.md` §2.1 [V]:
     /// `FUN_0039da30`).
     pub fn advance(&mut self, dt: f32) {
-        self.clock += dt;
+        self.clock = (self.clock + dt).rem_euclid(CLOCK_WRAP);
         self.ambush.advance(dt);
         for e in &mut self.elems {
             e.fader.advance(dt);

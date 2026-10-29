@@ -758,6 +758,11 @@ pub fn draw(hud: &Hud, art: &HudArt, size: [f32; 2]) -> HudFrame {
         }
         None => true,
     };
+    // The sniper scope (`crate::hud_scope`): under the tree, so the target
+    // readout and the reticle stay over it.
+    if let Some(v) = hud.scope.as_ref().filter(|_| tree) {
+        ctx.scope(v, size);
+    }
     let mut order: Vec<usize> = if tree { hud.roots.clone() } else { Vec::new() };
     order.reverse();
     order.sort_by_key(|c| std::cmp::Reverse(hud.elems[*c].z_order));
@@ -952,6 +957,27 @@ mod tests {
         assert_eq!(uv(&hud), [0.25, 0.5]);
         hud.advance(0.5);
         assert_eq!(uv(&hud), [0.0, 0.0]);
+    }
+
+    /// PR #61 review fix 6: the HUD clock wraps, and a disc-rate scroll
+    /// (k/255 repeats a second) moves across the wrap as on any frame.
+    #[test]
+    fn the_hud_clock_wraps_without_a_scroll_jump() {
+        let wrap = crate::hud_tree::CLOCK_WRAP;
+        let mut hud = bar_hud();
+        hud.clock = wrap - 0.01;
+        let dt = 0.02;
+        for rate in [-200.0 / 255.0, -1.0, 3.0 / 255.0] {
+            let mut h = bar_hud();
+            h.clock = hud.clock;
+            let before = (rate * h.clock).rem_euclid(1.0);
+            h.advance(dt);
+            assert!((0.0..wrap).contains(&h.clock), "{}", h.clock);
+            let moved = ((rate * h.clock).rem_euclid(1.0) - before).rem_euclid(1.0);
+            let want = (rate * dt).rem_euclid(1.0);
+            let d = (moved - want).abs();
+            assert!(d.min(1.0 - d) < 1e-3, "rate {rate}: {moved} vs {want}");
+        }
     }
 
     #[test]

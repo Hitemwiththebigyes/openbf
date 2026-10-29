@@ -15,9 +15,16 @@
 //!   per sim tick; its [`Voice`]s are what `SoundLib::loop_voices` plays and
 //!   what the `SOUND_LOG` referee lists.
 //!
-//! Not here (card VSN2): `TurnOnSound` / `TurnOffSound`, walker steps, the
-//! turret whir, collision. Flyers, the droideka and the jet pack feed the
-//! same component on the PS2 (§4) and are not fed here.
+//! - [`EngineSounds::tick`] also runs a jet soldier's engine (card JETP2,
+//!   `analysis/re-jetpack.md` §8, re-vehicle-sounds.md §3-§4): on in a jet
+//!   stance, fed |v| in m/s and `previous - speed / dt` like the walker,
+//!   with the class's `TurnOnSound` at the turn-on and `TurnOffSound` when
+//!   the run-down ends ([`JetShot`]) - on every jet's end: a tap, empty
+//!   fuel, a landing, a death.
+//!
+//! Not here (card VSN2): the vehicles' `TurnOnSound` / `TurnOffSound`, walker
+//! steps, the turret whir, collision. Flyers and the droideka feed the same
+//! component on the PS2 (§4) and are not fed here.
 
 use crate::classdb::{fnv1a_lowercase, ClassDb};
 use crate::walk::WalkSim;
@@ -251,8 +258,11 @@ impl Instance {
 /// One playing layer of one vehicle's engine, this tick.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Voice {
-    /// The vehicle's index in `Sim::vehicles`.
+    /// The vehicle's index in `Sim::vehicles`, or the soldier's in
+    /// `Sim::units` for a jet ([`Voice::soldier`]).
     pub vehicle: u32,
+    /// A jet soldier's engine (card JETP2), not a vehicle's.
+    pub soldier: bool,
     pub layer: u8,
     /// The record's name and the layer's sound property.
     pub record: u32,
@@ -269,6 +279,10 @@ pub struct Voice {
 pub struct EngineSounds {
     /// By vehicle index: the vehicle's generation and its instance.
     instances: HashMap<u32, (u32, Instance)>,
+    /// By unit index: the soldier's generation and his jet's instance.
+    jets: HashMap<u32, (u32, Instance)>,
+    /// The jets' one-shots since the last [`EngineSounds::take_jet_shots`].
+    shots: Vec<JetShot>,
     seed: u32,
     /// The battle's sound sub-levels, best first (`crate::foley::sublevels`).
     levels: Vec<u32>,
@@ -357,6 +371,7 @@ impl EngineSounds {
                 let (gain_factor, pitch_factor) = factors(l, &e.1.inputs);
                 out.push(Voice {
                     vehicle: i,
+                    soldier: false,
                     layer: k as u8,
                     record: hash,
                     sound: l.sound,
@@ -369,8 +384,161 @@ impl EngineSounds {
         }
         // A destroyed vehicle's engine stops at once.
         self.instances.retain(|i, _| live.contains(i));
+        let soldiers = walk.sim.units.iter().enumerate().map(|(k, u)| JetMotion {
+            unit: k as u32,
+            gen: u.gen,
+            jetting: u.alive && u.soldier.stance.jetting(),
+            pos: u.soldier.pos,
+            vel: u.soldier.vel,
+            health: if u.health.max > 0.0 {
+                u.health.cur / u.health.max
+            } else {
+                1.0
+            },
+            look: &walk.teams[usize::from(u.team).min(1)]
+                .class(u.spec.class)
+                .jet_look,
+        });
+        self.tick_jets(soldiers, &record, out);
         count
     }
+
+    /// Step the jet soldiers' engines by one sim tick (card JETP2): the
+    /// PS2's soldier calls of the engine component (BF1 `FUN_00209540`
+    /// B1:118809-118823 on at the jet's start; `FUN_00205cc8`
+    /// B1:117352-117376 the update, B1:117778-117783 the turn-off outside
+    /// stance 7; BF2 `FUN_002476a0` B2:162611-162623, `FUN_00240bf8`
+    /// B2:160196, `FUN_00239ad8` -> `FUN_0044ce98`). The loop's layers go
+    /// to `out`; the turn-on / turning-off / turn-off one-shots to
+    /// [`EngineSounds::take_jet_shots`].
+    pub fn tick_jets<'a, 'b>(
+        &mut self,
+        soldiers: impl Iterator<Item = JetMotion<'b>>,
+        record: &impl Fn(u32, &[u32]) -> Option<&'a EngineSound>,
+        out: &mut Vec<Voice>,
+    ) {
+        let mut live = Vec::new();
+        for s in soldiers {
+            if !s.look.sounds() {
+                continue;
+            }
+            let hash = s.look.engine.as_deref().map(fnv1a_lowercase);
+            let rec = hash.and_then(|h| record(h, &self.levels));
+            let layers = rec.map_or(&[][..], |r| &r.layers[..]);
+            let e = self.jets.entry(s.unit).or_default();
+            if e.0 != s.gen {
+                *e = (s.gen, Instance::default());
+            }
+            live.push(s.unit);
+            let (was_on, was_off) = (e.1.on, e.1.turning_off);
+            let m = Motion {
+                piloted: s.jetting,
+                speed: s.vel.length(),
+                health: s.health,
+                ..Motion::default()
+            };
+            let seed = &mut self.seed;
+            e.1.update(
+                core::TICK_DT,
+                Drive::Walker,
+                s.look.turn_off_time,
+                &m,
+                layers,
+                || {
+                    *seed = seed.wrapping_mul(0x0019_660D).wrapping_add(0x3C6E_F35F);
+                    (*seed >> 8) as f32 / 16_777_216.0
+                },
+            );
+            let mut shot = |kind: JetShotKind, name: &Option<String>| {
+                if let Some(n) = name {
+                    self.shots.push(JetShot {
+                        unit: s.unit,
+                        kind,
+                        name: n.clone(),
+                        pos: s.pos,
+                    });
+                }
+            };
+            // On from off, or back on while running down (re-vehicle-sounds
+            // §3.3): `TurnOnSound`.
+            if e.1.on && !e.1.turning_off && (!was_on || was_off) {
+                shot(JetShotKind::TurnOn, &s.look.turn_on);
+            }
+            // The run-down's start (§3.5): `TurningOffSound` (no jet class
+            // authors one), then at `TurnOffTime` - 0.0 for every jet class,
+            // so in the same update - `TurnOffSound` and the loop stops.
+            if was_on && !was_off && (e.1.turning_off || !e.1.on) {
+                shot(JetShotKind::TurningOff, &s.look.turning_off);
+            }
+            if was_on && !e.1.on {
+                shot(JetShotKind::TurnOff, &s.look.turn_off);
+            }
+            let (Some(rec), Some(hash), true) = (rec, hash, e.1.on) else {
+                continue;
+            };
+            for (k, l) in rec
+                .layers
+                .iter()
+                .enumerate()
+                .filter(|(k, _)| e.1.started[*k])
+            {
+                let (gain_factor, pitch_factor) = factors(l, &e.1.inputs);
+                out.push(Voice {
+                    vehicle: s.unit,
+                    soldier: true,
+                    layer: k as u8,
+                    record: hash,
+                    sound: l.sound,
+                    pos: s.pos,
+                    gain_factor,
+                    pitch_factor,
+                    speed: e.1.inputs.speed,
+                });
+            }
+        }
+        self.jets.retain(|i, _| live.contains(i));
+    }
+
+    /// The jets' one-shots since the last call, in order.
+    pub fn take_jet_shots(&mut self) -> Vec<JetShot> {
+        std::mem::take(&mut self.shots)
+    }
+
+    /// A soldier's jet engine, if it has one running (tests, the referee).
+    pub fn jet(&self, unit: u32) -> Option<&Instance> {
+        self.jets.get(&unit).map(|e| &e.1)
+    }
+}
+
+/// One soldier's view for [`EngineSounds::tick_jets`].
+#[derive(Clone, Copy, Debug)]
+pub struct JetMotion<'a> {
+    /// The unit's index in `Sim::units`, and its generation.
+    pub unit: u32,
+    pub gen: u32,
+    /// Alive and in a jet stance (`Stance::jetting`).
+    pub jetting: bool,
+    pub pos: Vec3,
+    pub vel: Vec3,
+    /// Health / max health.
+    pub health: f32,
+    pub look: &'a crate::roster::JetLook,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JetShotKind {
+    TurnOn,
+    TurningOff,
+    TurnOff,
+}
+
+/// A jet's one-shot: the sound property's name, at the soldier.
+#[derive(Clone, Debug, PartialEq)]
+pub struct JetShot {
+    pub unit: u32,
+    pub kind: JetShotKind,
+    pub name: String,
+    pub pos: Vec3,
 }
 
 #[cfg(test)]

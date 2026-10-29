@@ -426,7 +426,9 @@ fn option_ranges_steps_and_defaults() {
     o.adjust(Opt::AiDifficulty, 1, 1);
     assert_eq!(o.difficulty, 3);
     o.adjust(Opt::AiDifficulty, -1, 10);
-    assert_eq!(o.difficulty, 2);
+    assert_eq!(o.difficulty, 1, "clamped at Easy");
+    o.adjust(Opt::AiDifficulty, 1, 10);
+    assert_eq!(o.difficulty, DIFFICULTY_LEVELS, "clamped at Elite");
     o.adjust(Opt::ConMult, 1, 1);
     assert_eq!(o.con_mult, 110);
     o.adjust(Opt::ConMult, 1, 10);
@@ -722,6 +724,46 @@ fn lists_scroll_one_row_and_page_eight() {
     m.focus_command(Cmd::Remove);
     m.step(cross(), 0.0);
     assert_eq!(m.play_list.at, 3);
+}
+
+/// The maintainer, 2026-10-28 (a named deviation from the PS2's Normal <-> Elite
+/// toggle): the AI Difficulty row offers exactly the port's four tiers, in
+/// order, a step per press from the lowest to the highest.
+#[test]
+fn the_ai_difficulty_row_offers_exactly_four_tiers() {
+    let t = IaTexts::new(&|_, e| e.to_owned());
+    let mut o = SessionOptions {
+        difficulty: 1,
+        ..SessionOptions::default()
+    };
+    let name = |o: &SessionOptions| -> String {
+        t.option(Opt::AiDifficulty, o)
+            .into_iter()
+            .map(|x| match x {
+                Piece::Text(s) => s,
+                Piece::Left => "<".into(),
+                Piece::Right => ">".into(),
+            })
+            .collect()
+    };
+    let mut seen = vec![name(&o)];
+    for _ in 0..6 {
+        o.adjust(Opt::AiDifficulty, 1, 1);
+        let n = name(&o);
+        if seen.last() != Some(&n) {
+            seen.push(n);
+        }
+    }
+    assert_eq!(
+        seen,
+        [
+            "AI Difficulty Level: < Easy >",
+            "AI Difficulty Level: < Normal >",
+            "AI Difficulty Level: < Hard >",
+            "AI Difficulty Level: < Elite >",
+        ]
+    );
+    assert_eq!(DIFFICULTY_LEVELS, 4);
 }
 
 /// menuref §9.1.5: the session options outlive leaving the screen.

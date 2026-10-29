@@ -50,6 +50,9 @@ windowed renderer cannot read its frame back, so the picture is the maintainer's
   recover with its failed-window count, ...) and, for a bot going round an obstacle, `ROUND side +1/-1, nearest N m,
   allowance X of 10 s` (the side it committed to, the nearest its walk has been to its aim point since, how much of
   the progress window's allowance is spent; `at a RIM` = none). An older file has neither, and the digest says so.
+  Since schema 9 (card WHY) a file keeps each bot's last reasons: why it entered each behaviour and why each walk
+  failed (`wall`, `rim`, `body`, `round_spent`, `ledge`, `no_gain`, `off_graph`, ... with the leg's arc); `--unit <id>`
+  prints them and a troubled bot's line carries its last four.
 - **When the maintainer reports a noise ("a terrible sound", "static", "it crackled when X fired"): read the SOUNDS rows first**
   (card SNDB; a schema 3 file). The digest ends with every one-shot the mixer was handed in the last 10 s (`--sounds`:
   all 60 s) - seconds before F9, the property's name, gain (the level by distance included), pitch, metres from his
@@ -72,6 +75,14 @@ windowed renderer cannot read its frame back, so the picture is the maintainer's
   reading. A dead unit's trail ends at its death (`trails[].tick`), not at the header's `trail_tick`.
 - The file is plain JSON with short keys; its `legend` block says what each key means, `names` resolves the class,
   post, weapon, vehicle and body indices. `python3 -c "import json; ..."` works when the digest is not enough.
+- **Match log (card DPRX)**: beside the 60 s ring, dev mode also writes one compact file per battle with the
+  player's WHOLE round - every shot, every hit dealt or taken, kills, deaths, spawns (class), position / stance /
+  stick 6 times a second, each enemy he comes to see (for time to first hit), the result, the tickets and every
+  cheat that was on at any tick: `engine/artifacts/playtest/matches/<YYYYmmdd-HHMMSS>_<map>.jsonl` (the black
+  box's folder; `OPENBF_MATCHLOG=0` turns only it off), written at the outcome or on quit. `python3
+  scripts/human_profile.py show <log>` prints the player's profile (K/D, kills/min, accuracy, sight-to-hit, life,
+  movement) and refuses a log with cheats on; `calibrate <log>...` fits the sweep's human proxy to it
+  (`core::ai::proxy`, card DPRX). The snapshot's `session` block (schema 10) is the same tally in brief.
 - It is dev scaffolding and goes away when the game is playable for real: one module, `engine/crates/game/src/blackbox.rs`
   (its row type, `game/src/unit_probe.rs`, stays — the sweep's `UNIT_SAMPLES` shares it). On with dev mode, which is on by
   default (`OPENBF_DEV=0` turns both off); `OPENBF_BLACKBOX=0` turns only the black box off.

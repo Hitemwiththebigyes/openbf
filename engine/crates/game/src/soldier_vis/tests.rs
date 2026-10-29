@@ -73,6 +73,7 @@ fn team(classes: &[(&str, Option<&str>, Option<&str>)]) -> TeamTemplate {
             cries: Default::default(),
             anim: Default::default(),
             skins: Default::default(),
+            jet_look: Default::default(),
         })
         .collect();
     t
@@ -1075,6 +1076,41 @@ fn a_thrown_soldier_is_drawn_over_his_position() {
     }
     if cases > 0 {
         assert_eq!(cases, 8);
+    }
+}
+
+/// Card JETP2: a hovering jet trooper's jet frame is his drawn
+/// `bone_ribcage`: up the spine, on his back, about 1.3-1.6 m over his feet.
+#[test]
+fn a_jet_rides_the_drawn_ribcage() {
+    let root = crate::assets::baked_root();
+    for game in ["bf1", "bf2"] {
+        let geometry = "rep_inf_jettrooper";
+        if !root
+            .join(format!("side_{game}/soldiers/{geometry}.glb"))
+            .exists()
+        {
+            eprintln!("skip: no {game} {geometry} bake");
+            continue;
+        }
+        let t = team(&[("jet", Some(geometry), None)]);
+        let mut vis = SoldierVisuals::load_cpu(&root, game, &[t.clone(), t]);
+        let mut w = WalkSim::new(1, Vec3::new(5.0, 20.0, -3.0), None);
+        let p = w.player.index as usize;
+        w.sim.units[p].soldier.stance = core::soldier::Stance::Hover;
+        for _ in 0..10 {
+            w.sim.tick += 1;
+            vis.update(&w, core::TICK_DT);
+        }
+        let s = &w.sim.units[p].soldier;
+        let frames = vis.jet_frames(&w);
+        assert_eq!(frames.len(), w.sim.units.len());
+        let m = frames[p].expect("a jet frame");
+        let at = m.w_axis.truncate() - s.pos;
+        assert!((1.2..1.7).contains(&at.y), "{game}: {at}");
+        assert!(at.x.hypot(at.z) < 0.4, "{game}: {at}");
+        let up = m.x_axis.truncate().normalize();
+        assert!(up.y > 0.7, "{game}: x runs up the spine: {up}");
     }
 }
 

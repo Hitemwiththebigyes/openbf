@@ -378,11 +378,15 @@ pub const TELL_RADIUS: f32 = 20.0;
 /// while the bot walks its own way (a told record holds nobody on a
 /// position), and never fired at until `me` sees it ([`fireable`]). The
 /// bot's own record of the same enemy is never overwritten.
-/// Friends in unit-index order, their records in slot order; a tier without
-/// [`Tier::tell`] is told nothing. Runs after [`scan`] in the same think.
+/// Friends in unit-index order, their records in slot order. Every tier
+/// tells (the design's column was every tier but Easy, removed 2026-10-28).
+/// A told record keeps no bot on a position (`ai::behave`): before that
+/// rule a told enemy held a bot standing at its fight spot while its friends
+/// saw him - BF2 Coruscant's foot time in 20 s spells within 2 m 11.7 ->
+/// 21.1 % (8 seeds), with it 9.4 %. Runs after [`scan`] in the same think.
 /// Returns the records made or refreshed.
-pub fn tell(sim: &Sim, me: UnitHandle, st: &mut AiState, tier: Tier) -> u8 {
-    let Some(u) = sim.unit(me).filter(|_| tier.tell) else {
+pub fn tell(sim: &Sim, me: UnitHandle, st: &mut AiState) -> u8 {
+    let Some(u) = sim.unit(me) else {
         return 0;
     };
     let feet = u.soldier.pos;
@@ -418,6 +422,19 @@ fn restart_tracker(st: &mut AiState) {
     st.aim_dir = Vec3::ZERO;
     st.aim_vel = Vec3::ZERO;
     st.err_pos = Vec3::ZERO;
+}
+
+/// Card DFOCUS: make `h` (a contact the unit holds) its target now, past
+/// the interval and the hysteresis, as a new target is taken. Returns true
+/// when it was another target before.
+pub fn take_target(st: &mut AiState, h: UnitHandle, tick: u64) -> bool {
+    if st.target == Some(h) || contact_of(st, h).is_none() {
+        return false;
+    }
+    st.target = Some(h);
+    st.last_switch = tick;
+    restart_tracker(st);
+    true
 }
 
 /// The slot for `h`: its own, else a free one, else the one whose record is
@@ -513,7 +530,7 @@ pub fn choose_target_with(
     let scale = view_distance(Stance::Stand, tier.view_mult);
     let score = |c: &Contact| -> f32 {
         let d = (c.last_pos - eye).length();
-        let human = sim.unit(c.handle).is_some_and(|o| o.is_player);
+        let human = sim.unit(c.handle).is_some_and(|o| o.is_human());
         let base = (200.0 - 100.0 * d / scale) * if human { tier.pressure } else { 1.0 };
         if c.seen_now {
             // Card HVYW (OURS): a bot with a launcher prefers the vehicle.
@@ -603,6 +620,7 @@ mod tests {
         s.spawn(&UnitSpec::trooper(1, p)).unwrap()
     }
 
+    /// Normal's columns (Easy's are the same): view ×1.0, 9 reaction ticks.
     fn normal() -> Tier {
         Difficulty::Normal.tier()
     }
@@ -717,9 +735,9 @@ mod tests {
         close(view_distance(Stance::Stand, 1.0), 49.0);
         close(view_distance(Stance::Crouch, 1.0), 46.0);
         close(view_distance(Stance::Prone, 1.0), 35.5);
-        // The tiers scale it: Easy 0.8, Normal 1.0, Hard 1.25, Elite 1.5.
+        // The tiers scale it: Easy and Normal 1.0, Hard 1.25, Elite 1.5.
         for (d, mult) in [
-            (Difficulty::Easy, 0.8),
+            (Difficulty::Easy, 1.0),
             (Difficulty::Normal, 1.0),
             (Difficulty::Hard, 1.25),
             (Difficulty::Elite, 1.5),
@@ -738,9 +756,31 @@ mod tests {
         enemy_at(&mut s, Vec3::new(0.0, 0.0, -48.0));
         let mut st = AiState::default();
         assert_eq!(scan(&s, a, &mut st, normal()).0, 1, "48 m < 49 m");
-        // Easy sees the same enemy 10 m closer only.
-        let mut st = AiState::default();
-        assert_eq!(scan(&s, a, &mut st, Difficulty::Easy.tier()).0, 0);
+    }
+
+    /// Card MAIS: the mission's `SetAIViewMultiplier` shortens every bot's
+    /// sight, on top of its tier's: Dagobah's 0.35 at Normal is 17 m, so an
+    /// enemy 30 m off is not seen; at Hard (x 1.25, 21 m) one 20 m off is.
+    #[test]
+    fn the_missions_view_multiplier_shortens_every_bots_sight() {
+        let seen = |s: &Sim, a| {
+            let mut st = AiState::default();
+            think(s, a, &mut st);
+            st.contacts.iter().flatten().any(|c| c.seen_now)
+        };
+        let (mut s, a) = watcher(3);
+        enemy_at(&mut s, Vec3::new(0.0, 0.0, -30.0));
+        assert!(seen(&s, a), "30 m < 49 m");
+        s.mission_ai.set_view_mult(0.35);
+        assert!((s.ai_tier(0).view_mult - 0.35).abs() < 1e-6);
+        assert!(!seen(&s, a), "30 m > 17 m");
+        let (mut s, a) = watcher(3);
+        enemy_at(&mut s, Vec3::new(0.0, 0.0, -20.0));
+        s.mission_ai.set_view_mult(0.35);
+        assert!(!seen(&s, a), "20 m > 17 m at Normal");
+        s.difficulty = Difficulty::Hard;
+        assert!((s.ai_tier(0).view_mult - 1.25 * 0.35).abs() < 1e-6);
+        assert!(seen(&s, a), "20 m < 21 m at Hard");
     }
 
     /// A contact is kept for MEMORY_TICKS after the last sighting and cleared
@@ -800,7 +840,7 @@ mod tests {
     }
 
     /// A first sighting is not a shot: the tier's reaction time must pass
-    /// first (`reaction_ticks`, PROVISIONAL). Normal is 9 ticks (0.3 s).
+    /// first (`reaction_ticks`, PROVISIONAL). Easy and Normal are 9 ticks (0.3 s).
     #[test]
     fn a_first_sighting_only_fires_after_the_reaction_time() {
         let (mut s, a) = watcher(13);
@@ -911,11 +951,7 @@ mod tests {
 
     /// Card TEAM (bot design 4.1): what a friend within 20 m sees is heard -
     /// at the friend's point, its reaction counted from now - and nothing is
-    /// passed on from 20.5 m, from a memory, or at Easy.
-    fn telling() -> Tier {
-        assert!(normal().tell, "Normal tells (the design's column)");
-        normal()
-    }
+    /// passed on from 20.5 m or from a memory.
 
     #[test]
     fn a_friend_within_twenty_metres_passes_on_what_it_sees() {
@@ -923,40 +959,35 @@ mod tests {
             let (s, a, e, _) = told_scene(friend, seen);
             let mut st = AiState::default();
             assert_eq!(scan(&s, a, &mut st, tier), (0, 0), "not seen, not heard");
-            let n = tell(&s, a, &mut st, tier);
+            let n = tell(&s, a, &mut st);
             (n, contact_of(&st, e))
         };
-        let (n, c) = told(Vec3::new(15.0, 0.0, 0.0), true, telling());
+        let (n, c) = told(Vec3::new(15.0, 0.0, 0.0), true, normal());
         let c = c.expect("told");
         assert_eq!(n, 1);
         assert!(c.heard && c.told && !c.seen_now, "heard, told, not seen");
         assert_eq!(c.last_pos, Vec3::new(0.0, 0.9, 30.0), "the friend's point");
         assert_eq!(c.first_seen, 5, "the reaction counts from the telling");
         assert_eq!(
-            told(Vec3::new(19.5, 0.0, 0.0), true, telling()).0,
+            told(Vec3::new(19.5, 0.0, 0.0), true, normal()).0,
             1,
             "19.5 m"
         );
         assert_eq!(
-            told(Vec3::new(20.5, 0.0, 0.0), true, telling()),
+            told(Vec3::new(20.5, 0.0, 0.0), true, normal()),
             (0, None),
             "20.5 m"
         );
         assert_eq!(
-            told(Vec3::new(15.0, 0.0, 0.0), false, telling()),
+            told(Vec3::new(15.0, 0.0, 0.0), false, normal()),
             (0, None),
             "a memory"
         );
-        // The design's column (section 7): every tier but Easy.
-        for (d, n) in [
-            (Difficulty::Easy, 0),
-            (Difficulty::Normal, 1),
-            (Difficulty::Hard, 1),
-            (Difficulty::Elite, 1),
-        ] {
+        // Every tier tells (the design's column was every tier but Easy).
+        for d in Difficulty::ALL {
             assert_eq!(
                 told(Vec3::new(15.0, 0.0, 0.0), true, d.tier()).0,
-                n,
+                1,
                 "{d:?}"
             );
         }
@@ -979,13 +1010,13 @@ mod tests {
         };
         let mut st = AiState::default();
         st.contacts[0] = Some(own);
-        assert_eq!(tell(&s, a, &mut st, telling()), 0, "its own record stands");
+        assert_eq!(tell(&s, a, &mut st), 0, "its own record stands");
         assert_eq!(contact_of(&st, e), Some(own));
         // Its own memory lapses; then the friend's sight is told.
         s.tick = 2 + MEMORY_TICKS + 1;
-        scan(&s, a, &mut st, telling());
+        scan(&s, a, &mut st, normal());
         assert_eq!(contact_of(&st, e), None, "forgotten");
-        assert_eq!(tell(&s, a, &mut st, telling()), 1);
+        assert_eq!(tell(&s, a, &mut st), 1);
         assert!(contact_of(&st, e).is_some_and(|c| c.told));
         // Seen, it is the unit's own again.
         see(&mut st, e, s.tick + 1, Vec3::new(0.0, 0.9, 30.0));
@@ -1136,7 +1167,7 @@ mod tests {
     /// The PRESSURE weight (decision 3): at Hard a human is worth ×1.3, so a
     /// farther human outscores a nearer bot; at Normal (×1.0) it does not.
     #[test]
-    fn the_pressure_weight_prefers_a_farther_human_at_hard() {
+    fn the_pressure_weight_prefers_a_farther_human_at_elite() {
         let pick = |tier: Tier| {
             let mut s = Sim::empty(29);
             s.heightfield = Some(ground());

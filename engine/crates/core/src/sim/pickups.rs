@@ -261,9 +261,11 @@ impl Sim {
             if self.dispense_pickup(i, class, shot.charge) {
                 continue;
             }
+            // Both ammo cheats: the use was never drawn, so nothing to give back.
+            let (infinite, no_reload) = self.ammo_cheats(i);
             let u = &mut self.units[i];
             let wc = &self.weapon_classes[class];
-            if wc.infinite_ammo() || (self.cheats.infinite_ammo && u.is_player) {
+            if wc.infinite_ammo() || (infinite && no_reload) {
                 continue;
             }
             let state = match held_slot {

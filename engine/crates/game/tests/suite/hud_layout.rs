@@ -717,9 +717,26 @@ fn the_domination_countdown_shows_victory_in_or_defeat_in() {
         ron::from_str(&std::fs::read_to_string(common.join(f)).unwrap()).unwrap()
     };
     let mut hud = ui::hud_tree::Hud::new(&read("1playerhud.ron"), &read("hudtransforms.ron"));
+    // The labels over the numbers, from BF2's text table.
+    let locl: manifest::hud::HudLocl =
+        ron::from_str(&std::fs::read_to_string(common.join("../locl/english.ron")).unwrap())
+            .unwrap();
+    hud.set_texts(&|key| locl.get(manifest::hud::locl_key(key)).map(str::to_owned));
     let (win, lose) = (
         hud.find("victorytimer").unwrap(),
         hud.find("defeattimer").unwrap(),
+    );
+    let label = |name: &str| hud.elems[hud.find(name).unwrap()].text.to_ascii_uppercase();
+    assert_eq!(
+        [label("victorytext"), label("defeattext")],
+        ["VICTORY IN", "DEFEAT IN"]
+    );
+    ui::hud::place_countdown_labels(&mut hud);
+    let pos = |name: &str| hud.elems[hud.find(name).unwrap()].pos;
+    assert_eq!(
+        pos("defeattext"),
+        pos("victorytext"),
+        "both labels over the number"
     );
     let shown = |hud: &ui::hud_tree::Hud, i: usize| hud.elems[i].fader.state != 0;
     let mut m = ui::hud::HudModel {

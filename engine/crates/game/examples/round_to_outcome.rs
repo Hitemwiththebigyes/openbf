@@ -90,7 +90,12 @@
 //! say about their leg. `STUCK_CENSUS=1` lists every ALIVE unit whose
 //! `Route::stuck_run` exceeds 5,000 ticks at the last tick (`STUCK_CENSUS=<n>`,
 //! n ≥ 2, sets another threshold), with a per-map summary, and names the unit
-//! that set the map's `stuck_max` (tracked after every tick). It goes to
+//! that set the map's `stuck_max` (tracked after every tick) and what it was
+//! doing then (card BSTK: `foot`, `seated` or `droid`), and (card WHY) the
+//! round's failed walks by code (`failed walks N [wall .. recycled ..]`,
+//! `core::ai::why::FAILS`: a window's failure and what came of it; card
+//! ARCM: the arcs closed to a bot, the arcs a team shunned, the legs drawn
+//! round one and the legs that kept one for want of another way). It goes to
 //! STDERR, after every worker has joined and in map order, so STDOUT is
 //! byte-identical with and without it and two censuses `cmp` like two sweeps.
 //! It only READS the sim — every query is one the AI or the verbose dump
@@ -235,6 +240,15 @@
 //! line.) `scripts/sweep_seeds.py` sums them per map and lists the spots
 //! (6 m cells); a spot recycled on two seeds goes on the card that owns it.
 //!
+//! Card UNSN: a stalled bot no human sees is moved on to a hub past its
+//! failing link instead (`core::ai::unseen`); each move is the same defect,
+//! one line with where it stood (`from`, the spot to close), where it went
+//! and the hub there:
+//!
+//! ```text
+//! relocate <key>: seed S tick T unit U team X from (x,y,z) to (x,y,z) locus Hh D m
+//! ```
+//!
 //! `floor_dy` reads a ROOF over the hub as its floor, so each recycle on a
 //! leg has a second line against the floors the routing itself uses (card
 //! STLVL): the leg hub's resolved floor (`Sim::nav_floor`; `-` unresolved),
@@ -290,6 +304,13 @@
 //! `tactician <key>: queries Q ceiling C (p %)`: the Tactician's queries and
 //! those in which a candidate with cover from the target passed its filters
 //! (B12's ceiling: the bar is the lower of 20 % and half of it).
+//!
+//! Then (card HYST) `hyst <key>: flips F kept K | wakes hit H near N seen S |
+//! wake changes [why n ...]`: positions replaced by another on one think,
+//! queries whose winner did not beat the position held by the margin, the
+//! early thinks by what woke them, and the behaviour changes those thinks
+//! made by their WHY code; `tfunnel`'s last column, `x-closing`, is the
+//! covered candidates the closing filter took.
 //!
 //! `HIT_CENSUS=1` (card REACT) adds `fire <key>: under-fire-s N | slow p % |
 //! spell3 p % | fight-s N slow p % spell3 p % | bursts B lived L moved M (p %)
@@ -347,6 +368,50 @@
 //! it with `--example blackbox_read -- <file>`. The recorder only reads the
 //! sim: the round's result and hash are the same with it on.
 //! `BLACKBOX_TIMING=1` prints what it cost per tick and per write.
+//!
+//! ## Droid census — `DROID_CENSUS`
+//! `DROID_CENSUS=1` (card DROIDAI) prints one `droids <key>:` line: the bots'
+//! remote droid launches per carrier-minute, the share made with the body
+//! exposed, the share of carrier time spent flying, and how the droids ended
+//! (`DroidCensus`).
+//! `BLACKBOX_ON=end` writes at the round's end (card DPRX: with a proxy,
+//! the file's `session` block is the proxy's whole-round tally, the input
+//! `scripts/human_profile.py` reads).
+//!
+//! ## The human proxy and the difficulty check (card DPRX)
+//! Run settings, all optional (stderr only: stdout is unchanged with them):
+//! - `SWEEP_TEAMS=<t0>:<t1>` sets each team's tier (`Sim::team_difficulty`);
+//! - `SWEEP_NOFILL=1` vacates slot 0 without the filler bot (16 v 16);
+//! - `SWEEP_ERA=cw` reads `missions/<key>_con_cw.ron` where there is one;
+//! - `SWEEP_MISSION_DIR=<dir>` reads the missions from another folder (the
+//!   faction-swap copies of a balance run);
+//! - `SWEEP_PROXY=<team>:<average|good>[,skill=N][,reaction=TICKS]
+//!   [,view=X][,circles=0|1][,strafe=P][,roll=P][,move=P][,grenade=P]`
+//!   makes the first bot of `<team>` on foot after the opening wave a HUMAN
+//!   PROXY (`core::ai::proxy`): the sim treats it as a human for every
+//!   human-only rule, it plays with that strength's fixed profile (the
+//!   `key=value` items override single fields: the calibration loop's knobs),
+//!   and it keeps the flag through its deaths.
+//!
+//! `MATCHLOG_DIR=<dir>` with a proxy writes the proxy's match log
+//! (`game::matchlog`, the file the windowed game writes for its player) as
+//! `<dir>/<map>_s<seed>.jsonl` at the round's end: the calibration loop's
+//! input for the proxy side (`scripts/human_profile.py`).
+//!
+//! Every round then prints one `round` line to stderr:
+//! `round <map> s<seed> <tier> winner <0|1|-> margin <t1 - t0> tickets a/b`
+//! and, with a proxy, `proxy <team> <strength> kills K deaths D shots S hits
+//! H acc A life_s L` (its tally is `game::blackbox::session`'s: the same
+//! definitions as a human's black box).
+//!
+//! `round_to_outcome --difficulty-check [--strength good|average]
+//! [--seeds N] [--tiers easy,normal,...] [--ticks N] [map ...]` runs, per
+//! tier, every map with the proxy on team 0 and on team 1 for seeds 1..=N
+//! (the map's side bias cancels in the average; it is never corrected), and
+//! prints per tier the proxy team's wins, mean margin, the proxy's K/D and
+//! accuracy, and PASS / FAIL against `core::ai::proxy::TARGETS`. It plays 16
+//! v 16 (slot 0 vacated, no filler; `SWEEP_NOFILL=0` keeps the filler). Without
+//! maps it runs [`CHECK_MAPS`]. `SWEEP_THREADS` (default 8) rounds at once.
 //!
 //! ## Animation census — `ANIM_CENSUS`
 //! `ANIM_CENSUS=1` (card ANIML) runs every soldier's animator beside the
@@ -406,10 +471,118 @@ macro_rules! outln {
     ($out:expr, $($arg:tt)*) => {{ let _ = writeln!($out, $($arg)*); }};
 }
 
-/// `missions/<key>_con.ron`, when the generator wrote one for this map.
+/// Card DPRX: one round's run settings (module header). Read from the
+/// environment, except in `--difficulty-check`, which sets them per round
+/// on the worker's thread ([`CFG`]).
+#[derive(Clone)]
+struct Cfg {
+    difficulty: core::skill::Difficulty,
+    teams: [Option<core::skill::Difficulty>; 2],
+    nofill: bool,
+    era_cw: bool,
+    mission_dir: Option<std::path::PathBuf>,
+    /// The proxy's team, profile and strength label.
+    proxy: Option<(u8, core::ai::proxy::Profile, String)>,
+}
+
+impl Cfg {
+    fn from_env() -> Cfg {
+        let var = |k: &str| std::env::var(k).ok();
+        let tier = |s: &str| core::skill::Difficulty::parse(s);
+        let teams = var("SWEEP_TEAMS")
+            .and_then(|v| {
+                let (a, b) = v.split_once(':')?;
+                Some([tier(a), tier(b)])
+            })
+            .unwrap_or([None, None]);
+        Cfg {
+            difficulty: var("SWEEP_DIFFICULTY")
+                .and_then(|v| tier(&v))
+                .unwrap_or_default(),
+            teams,
+            nofill: var("SWEEP_NOFILL").is_some_and(|v| v != "0"),
+            era_cw: var("SWEEP_ERA").as_deref() == Some("cw"),
+            mission_dir: var("SWEEP_MISSION_DIR").map(std::path::PathBuf::from),
+            proxy: var("SWEEP_PROXY").and_then(|v| match parse_proxy(&v) {
+                Ok(p) => Some(p),
+                Err(e) => {
+                    eprintln!("SWEEP_PROXY={v}: {e}; no proxy");
+                    None
+                }
+            }),
+        }
+    }
+}
+
+/// `<team>:<strength>[,key=value...]` (module header).
+fn parse_proxy(v: &str) -> Result<(u8, core::ai::proxy::Profile, String), String> {
+    let (team, rest) = v.split_once(':').ok_or("want <team>:<strength>")?;
+    let team: u8 = team
+        .trim()
+        .parse()
+        .ok()
+        .filter(|t| *t < 2)
+        .ok_or("team 0 or 1")?;
+    let mut items = rest.split(',');
+    let name = items.next().unwrap_or("").trim();
+    let strength = core::ai::proxy::Strength::parse(name).ok_or("strength average|good")?;
+    let mut p = strength.profile();
+    let mut label = strength.label().to_owned();
+    for it in items {
+        let (k, x) = it.split_once('=').ok_or(format!("{it}: want key=value"))?;
+        let f: f32 = x
+            .trim()
+            .parse()
+            .map_err(|_| format!("{it}: not a number"))?;
+        match k.trim() {
+            "skill" => p.skill = f as u8,
+            "reaction" => p.reaction_ticks = f as u64,
+            "view" => p.view_mult = f,
+            "circles" => p.circles = f != 0.0,
+            "strafe" => p.react[0] = f,
+            "roll" => p.react[1] = f,
+            "move" => p.react[2] = f,
+            "grenade" => p.grenade = f,
+            _ => return Err(format!("{k}: unknown key")),
+        }
+        label.push(',');
+        label.push_str(it.trim());
+    }
+    Ok((team, p, label))
+}
+
+thread_local! {
+    /// The settings of the round this thread plays ([`Cfg`]).
+    static CFG: std::cell::RefCell<Cfg> = std::cell::RefCell::new(Cfg::from_env());
+}
+
+fn cfg() -> Cfg {
+    CFG.with(|c| c.borrow().clone())
+}
+
+/// The maps `--difficulty-check` runs without a list: the GCW conquest maps
+/// card DPRX's balance run found nearest to even (bots only, Normal, both
+/// faction orders).
+const CHECK_MAPS: [&str; 3] = ["bf1_yav2", "tat1", "bf1_nab2"];
+
+/// The mission the sweep plays on `key`: `missions/<key>_con.ron` (or the
+/// `_con_cw` one under `SWEEP_ERA=cw`), from `SWEEP_MISSION_DIR` when set.
+fn mission_path(key: &str) -> std::path::PathBuf {
+    let c = cfg();
+    let dir = c.mission_dir.unwrap_or_else(|| {
+        std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../missions"))
+    });
+    let cw = dir.join(format!("{key}_con_cw.ron"));
+    if c.era_cw && cw.exists() {
+        cw
+    } else {
+        dir.join(format!("{key}_con.ron"))
+    }
+}
+
+/// [`mission_path`]'s mission, when the generator wrote one for this map.
 fn mission_for(key: &str, out: &mut String) -> Option<game::mission::MissionDef> {
-    let dir = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../missions"));
-    let path = dir.join(format!("{key}_con.ron"));
+    let path = mission_path(key);
     if !path.exists() {
         return None;
     }
@@ -437,6 +610,45 @@ struct MapReport {
     text: String,
     census: String,
     stats: Option<MapStats>,
+    /// Card DPRX: the round's result and the proxy's tally.
+    round: Option<RoundResult>,
+}
+
+/// One round's result (card DPRX): the winner, the margin (team 1's
+/// tickets left minus team 0's) and, with a proxy, its team and tally.
+#[derive(Clone)]
+struct RoundResult {
+    winner: Option<u8>,
+    margin: i64,
+    proxy: Option<(u8, game::blackbox::session::Session)>,
+}
+
+impl RoundResult {
+    /// The `round` line (module header).
+    fn line(&self, key: &str, seed: u32, tickets: (u32, u32), label: &str) -> String {
+        let mut s = format!(
+            "round {key} s{seed} {} winner {} margin {} tickets {}/{}",
+            sweep_difficulty().label(),
+            self.winner.map_or("-".to_owned(), |w| w.to_string()),
+            self.margin,
+            tickets.0,
+            tickets.1
+        );
+        if let Some((team, m)) = &self.proxy {
+            let lives = m.lives.len().max(1) as f32;
+            s.push_str(&format!(
+                "  proxy {team} {label} kills {} deaths {} shots {} hits {} acc {:.3} life_s {:.1}",
+                m.kills,
+                m.deaths,
+                m.shots,
+                m.hits,
+                m.hits as f32 / m.shots.max(1) as f32,
+                m.alive_ticks as f32 / core::TICK_HZ as f32 / lives
+            ));
+        }
+        s.push('\n');
+        s
+    }
 }
 
 /// Card WAI: `n (class piloted/alive …)` — the live walkers with a bot at
@@ -471,13 +683,27 @@ fn walker_pilots(sim: &core::sim::Sim, classes: &[String]) -> String {
     format!("{total} ({})", list.join(", "))
 }
 
-/// `SWEEP_DIFFICULTY` (env): which tier the whole sweep runs at. Anything
-/// unparseable falls back to the default and is reported in the header.
+/// `SWEEP_DIFFICULTY` (env): which tier the whole sweep runs at
+/// (`easy|normal|hard|elite`). Anything unparseable (`legendary` too) falls
+/// back to the default (Normal) and is reported in the header.
 fn sweep_difficulty() -> core::skill::Difficulty {
-    std::env::var("SWEEP_DIFFICULTY")
-        .ok()
-        .and_then(|v| core::skill::Difficulty::parse(&v))
-        .unwrap_or_default()
+    cfg().difficulty
+}
+
+/// `SWEEP_HUMAN_TEAM` (env, card DTEAM): `0` or `1` counts one stand-in human
+/// on that team for the per-team bot rule (`Sim::extra_humans`; no unit is
+/// changed, so only the DTEAM rows move). `1,1` or `0,1` count one per
+/// entry. Unset: none.
+fn sweep_human_team() -> [u8; 2] {
+    let mut n = [0u8; 2];
+    if let Ok(v) = std::env::var("SWEEP_HUMAN_TEAM") {
+        for t in v.split(',').filter_map(|t| t.trim().parse::<usize>().ok()) {
+            if let Some(c) = n.get_mut(t) {
+                *c += 1;
+            }
+        }
+    }
+    n
 }
 
 /// Is slot 0 a BOT this run (the maintainer's decision 2, 2026-09-03)? `SWEEP_SLOT0`
@@ -706,6 +932,129 @@ impl Fire {
             self.hits[2],
             pct(self.hits[2], self.hits[1]),
             self.longest as f64 / 30.0,
+        )
+    }
+}
+
+/// `DROID_CENSUS` (env, card DROIDAI): what the bots do with their remote
+/// droids. Per map, one `droids <key>:` line:
+/// - `carrier-min`: minutes of bots alive on foot holding a remote weapon;
+/// - `launches` and `/carrier-min`: bot droid throws;
+/// - `exposed`: launches made with an enemy within 20 m of the body, or one
+///   within 60 m with a line of sight to it (card DROIDAI's own test, measured
+///   the same on every branch);
+/// - `flying`: the share of carrier time the bot spent flying its droid (its
+///   body standing), and the mean flight;
+/// - `hit-flying`: body hits taken while flying; `died-flying`: carriers
+///   killed while flying;
+/// - `ends`: how the bots' droids ended (destroyed / expired / destruct /
+///   owner died).
+#[derive(Default)]
+struct DroidCensus {
+    carrier: u64,
+    flying: u64,
+    flights: u64,
+    launches: u64,
+    exposed: u64,
+    hit_flying: u64,
+    died_flying: u64,
+    ends: [u64; 4],
+    was_flying: std::collections::HashSet<(u32, u32)>,
+}
+
+impl DroidCensus {
+    fn exposed(sim: &core::sim::Sim, u: &core::unit::Unit) -> bool {
+        let body = u.capsule().center();
+        sim.alive_units().any(|(_, e)| {
+            e.team != u.team && {
+                let d2 = e.soldier.pos.distance_squared(u.soldier.pos);
+                d2 <= 20.0 * 20.0
+                    || (d2 <= 60.0 * 60.0 && core::perception::los(sim, e.muzzle(), body))
+            }
+        })
+    }
+
+    fn observe(&mut self, sim: &core::sim::Sim) {
+        use core::sim::Event;
+        let bot = |h: core::unit::UnitHandle| {
+            sim.unit(h)
+                .filter(|u| !u.is_player && u.controller == core::unit::Controller::Ai)
+        };
+        let mut now = std::collections::HashSet::new();
+        for (h, u) in sim.alive_units() {
+            if u.is_player || u.controller != core::unit::Controller::Ai || u.mount.is_some() {
+                continue;
+            }
+            let carries = u
+                .held
+                .iter()
+                .any(|w| sim.weapon_classes[w.class].remote.is_some());
+            if !carries {
+                continue;
+            }
+            self.carrier += 1;
+            if sim.controlled_droid(h).is_some() {
+                self.flying += 1;
+                now.insert((h.index, h.gen));
+                if !self.was_flying.contains(&(h.index, h.gen)) {
+                    self.flights += 1;
+                }
+            }
+        }
+        for ev in &sim.events {
+            match ev {
+                Event::Throw {
+                    unit, weapon_class, ..
+                } if sim.weapon_classes[*weapon_class as usize].remote.is_some() => {
+                    if let Some(u) = bot(*unit) {
+                        self.launches += 1;
+                        self.exposed += u64::from(Self::exposed(sim, u));
+                    }
+                }
+                Event::Hit { victim, .. }
+                    if self.was_flying.contains(&(victim.index, victim.gen)) =>
+                {
+                    self.hit_flying += 1;
+                }
+                Event::Kill { victim, .. }
+                    if self.was_flying.contains(&(victim.index, victim.gen)) =>
+                {
+                    self.died_flying += 1;
+                }
+                Event::DroidGone { end, .. } => {
+                    self.ends[*end as usize] += 1;
+                }
+                _ => {}
+            }
+        }
+        self.was_flying = now;
+    }
+
+    fn line(&self, key: &str) -> String {
+        let min = self.carrier as f64 / 1800.0;
+        let per = |n: u64| if min > 0.0 { n as f64 / min } else { 0.0 };
+        let pct = |a: u64, b: u64| {
+            if b > 0 {
+                100.0 * a as f64 / b as f64
+            } else {
+                0.0
+            }
+        };
+        format!(
+            "droids {key}: carrier-min {min:.1} | launches {} ({:.2}/carrier-min) | exposed {} ({:.0} %) | flying {:.1} % of carrier time, {} flights, mean {:.1} s | hit-flying {} died-flying {} | ends destroyed {} expired {} destruct {} owner-died {}\n",
+            self.launches,
+            per(self.launches),
+            self.exposed,
+            pct(self.exposed, self.launches),
+            pct(self.flying, self.carrier),
+            self.flights,
+            if self.flights > 0 { self.flying as f64 / 30.0 / self.flights as f64 } else { 0.0 },
+            self.hit_flying,
+            self.died_flying,
+            self.ends[0],
+            self.ends[1],
+            self.ends[2],
+            self.ends[3],
         )
     }
 }
@@ -1186,6 +1535,26 @@ impl Recycles {
     fn observe(&mut self, key: &str, seed: u32, sim: &core::sim::Sim) {
         use core::sim::{DeathCause, Event};
         for ev in &sim.events {
+            // Card UNSN: a stalled bot moved on unseen in place of its
+            // recycle: the same defect, listed with both spots and the hub.
+            if let Event::Relocated { unit, from, to } = ev {
+                let (tag, hub, _) = locus_of(sim, *to);
+                outln!(
+                    self.0,
+                    "relocate {key}: seed {seed} tick {} unit {} team {} from ({:.1},{:.1},{:.1}) to ({:.1},{:.1},{:.1}) locus {tag}{hub} {:.1} m",
+                    sim.tick,
+                    unit.index,
+                    sim.units.get(unit.index as usize).map_or(0, |u| u.team),
+                    from.x,
+                    from.y,
+                    from.z,
+                    to.x,
+                    to.y,
+                    to.z,
+                    (*to - *from).length(),
+                );
+                continue;
+            }
             let Event::EnvDeath {
                 unit,
                 cause: DeathCause::Stalled,
@@ -2399,7 +2768,9 @@ impl HeadlessBox {
         );
         // The sweep's mission (`mission_for`), when the map has one.
         if mission_for(key, &mut String::new()).is_some() {
-            meta.mission = format!("{key}_con.ron");
+            meta.mission = mission_path(key)
+                .file_name()
+                .map_or_else(String::new, |f| f.to_string_lossy().into_owned());
         }
         let bb = game::blackbox::BlackBox::start(
             true,
@@ -2447,6 +2818,9 @@ impl HeadlessBox {
                     }
                 }
             }
+            Some("end") if w.sim.outcome.is_some() => {
+                hit = Some(("end: the round's outcome".to_owned(), None));
+            }
             Some("stuck") if hit.is_none() => {
                 hit = w
                     .sim
@@ -2472,6 +2846,18 @@ impl HeadlessBox {
                 snap.frames.last().map_or(0, |f| f.units.len()),
             );
         }
+    }
+
+    /// Card DPRX: the proxy's profile in the file's environment list, so a
+    /// dry run's file says what it measured.
+    fn proxy_note(&mut self, p: &core::ai::proxy::Profile, label: &str) {
+        self.bb.note_env(
+            "SWEEP_PROXY",
+            &format!(
+                "{label} (skill {} reaction {} view {} circles {} react {:?} grenade {})",
+                p.skill, p.reaction_ticks, p.view_mult, p.circles, p.react, p.grenade
+            ),
+        );
     }
 
     /// `BLACKBOX_TIMING`: the recorder's cost per tick over the round.
@@ -3102,6 +3488,10 @@ struct LongestRun {
     gen: u32,
     tick: u64,
     pos: glam::Vec3,
+    /// Card BSTK: what the unit was doing when it set the record: `droid`
+    /// (flying its remote droid), `seated` (in a vehicle or turret seat) or
+    /// `foot`.
+    doing: &'static str,
 }
 
 impl LongestRun {
@@ -3115,6 +3505,13 @@ impl LongestRun {
                     gen: h.gen,
                     tick,
                     pos: u.soldier.pos,
+                    doing: if sim.controlled_droid(h).is_some() {
+                        "droid"
+                    } else if u.mount.is_some() {
+                        "seated"
+                    } else {
+                        "foot"
+                    },
                 };
             }
         }
@@ -3398,13 +3795,14 @@ fn stuck_census(
     let n0 = rows.iter().filter(|r| r.1 == 0).count();
     outln!(
         out,
-        "census {key}: {} alive units stuck > {threshold} ticks of {} alive (team0 {n0}, team1 {}); longest run {} by unit {} gen {} at tick {} pos ({:.1},{:.1},{:.1}); nav_stats.stuck_max {}",
+        "census {key}: {} alive units stuck > {threshold} ticks of {} alive (team0 {n0}, team1 {}); longest run {} by unit {} gen {} ({}) at tick {} pos ({:.1},{:.1},{:.1}); nav_stats.stuck_max {}",
         rows.len(),
         alive.len(),
         rows.len() - n0,
         longest.run,
         longest.unit,
         longest.gen,
+        longest.doing,
         longest.tick,
         longest.pos.x,
         longest.pos.y,
@@ -3420,6 +3818,23 @@ fn stuck_census(
             .map(|(i, n, _)| format!("{i}:{n}"))
             .collect::<Vec<_>>()
             .join(" ")
+    );
+    // Card WHY: the round's failed walks by code (`NavStats::fails`).
+    let fails = &sim.nav_stats.fails;
+    outln!(
+        out,
+        "census {key}: failed walks {} [{}]; arcs closed {} shunned {} legs round {} kept {}",
+        fails.iter().sum::<u64>(),
+        core::ai::why::FAILS
+            .iter()
+            .zip(fails)
+            .map(|(w, n)| format!("{} {n}", w.tag()))
+            .collect::<Vec<_>>()
+            .join(" "),
+        sim.nav_stats.arcs_closed,
+        sim.nav_stats.arcs_shunned,
+        sim.nav_stats.shun_round,
+        sim.nav_stats.shun_kept,
     );
     if rows.is_empty() {
         out.push_str(&lines);
@@ -3507,6 +3922,7 @@ fn run_map(
                 text: out,
                 census: String::new(),
                 stats: None,
+                round: None,
             };
         }
     };
@@ -3541,8 +3957,12 @@ fn run_map(
     let mut sim = core::sim::Sim::empty(seed);
     // The sweep runs ONE tier per run so the acceptance can compare them:
     // `SWEEP_DIFFICULTY=hard target/release/examples/round_to_outcome …`.
-    // Default Normal — the tier every earlier sweep implicitly measured.
+    // Default Normal — the tier every earlier sweep implicitly measured (for
+    // part of 2026-10-28 it was called Hard; its numbers never changed).
     sim.difficulty = sweep_difficulty();
+    sim.extra_humans = sweep_human_team();
+    // Card DPRX: `SWEEP_TEAMS`, a tier per team.
+    sim.team_difficulty = cfg().teams;
     // BF1 maps have no 10 m omni in the AI's view cone (RE §9.1).
     sim.omni_radius = core::sim::omni_radius_for(&scene.manifest.source_game);
     scene.install_water(&mut sim);
@@ -3677,8 +4097,13 @@ fn run_map(
     scene.install_collision(&mut w.sim);
     if let Some(a) = &applied {
         w.sim.death_regions = a.death_regions.clone();
+        w.sim.fly_ceiling = a.fly_ceiling;
     }
     w.add_posts(&layout);
+    // The mission's AI settings (card MAIS), its capture bans by post.
+    if let Some(m) = &mission {
+        m.apply_ai(&mut w.sim);
+    }
     // The vehicle spawn pads (card VPAD): the vehicles are in the sim state
     // (and its hash); bots board, drive, fire from seats and leave them.
     // They go in before the opening
@@ -3698,7 +4123,16 @@ fn run_map(
             Vec::new()
         }
     };
+    // Card DTEAM: the idle human seated in slot 0 (team 0) for the opening
+    // wave is not one of this sweep's humans when slot 0 becomes a bot just
+    // below; one counted on team 1 cancels him (the rule reads only the
+    // difference), so the wave's bots take the rows the round has after.
+    let seated = w.sim.extra_humans;
+    if slot0_is_bot() {
+        w.sim.extra_humans[1] += 1;
+    }
     w.opening_wave([16, 16], true);
+    w.sim.extra_humans = seated;
     // Slot 0 becomes a BOT (the maintainer's decision 2, 2026-09-03; `SWEEP_SLOT0`
     // switches it back). `WalkSim` seats a player there because the game does,
     // and this referee never presses a button: the idle human stands on its
@@ -3707,7 +4141,7 @@ fn run_map(
     // un-spawned and refilled through the ordinary AI path, so team 0 fields
     // the same COUNT of units it did, all of them fighting.
     if slot0_is_bot() {
-        if let Some((pos, yaw)) = w.sim.vacate_player_slot(0) {
+        if let Some((pos, yaw)) = w.sim.vacate_player_slot(0).filter(|_| !cfg().nofill) {
             let filled = if w.sim.classes[0].is_empty() {
                 // No class table (the built-in-trooper fallback above): the
                 // team template, exactly as `setup_conquest` spawns its AI.
@@ -3736,12 +4170,70 @@ fn run_map(
         }
     }
 
+    // Card DPRX: `SWEEP_PROXY`, the first bot of its team on foot (lowest
+    // slot) after the opening wave and slot 0's fill; its tally is the black
+    // box's session tally, a human's definitions.
+    let proxy_cfg = cfg().proxy;
+    let mut proxy: Option<(usize, game::blackbox::session::Tally)> =
+        proxy_cfg.as_ref().and_then(|(team, profile, _)| {
+            let h = w
+                .sim
+                .alive_units()
+                .find(|(_, u)| {
+                    u.team == *team
+                        && u.controller == core::unit::Controller::Ai
+                        && !u.is_player
+                        && u.mount.is_none()
+                })
+                .map(|(h, _)| h)?;
+            w.sim.set_proxy(h, Some(*profile));
+            Some((h.index as usize, game::blackbox::session::Tally::default()))
+        });
+    if proxy_cfg.is_some() && proxy.is_none() {
+        outln!(
+            out,
+            "{key:10} SWEEP_PROXY: no bot on foot to make the proxy"
+        );
+    }
+    // `MATCHLOG_DIR`: the proxy's whole-round match log.
+    let mut matchlog = proxy
+        .as_ref()
+        .zip(std::env::var_os("MATCHLOG_DIR"))
+        .map(|((i, _), dir)| {
+            let dir = std::path::PathBuf::from(dir);
+            let mut meta = game::blackbox::Meta::for_run(
+                key,
+                "con",
+                &scene.manifest.source_game,
+                seed,
+                sweep_difficulty().label(),
+            );
+            meta.mission = mission_path(key)
+                .file_name()
+                .map_or_else(String::new, |f| f.to_string_lossy().into_owned());
+            let cw = w
+                .teams
+                .iter()
+                .any(|t| t.faction == "rep" || t.faction == "cis");
+            let mut log = game::matchlog::MatchLog::start(
+                &meta,
+                &w,
+                *i as u32,
+                "proxy",
+                if cw { "cw" } else { "gcw" },
+                &dir,
+            );
+            log.set_path(dir.join(format!("{key}_s{seed}.jsonl")));
+            log
+        });
+
     let idle = [PadState::default()];
     let mut t = 0u64;
     let mut longest = LongestRun::default();
     let mut noprog = NoProgress::default();
     let mut deaths = deaths_on().then(Deaths::default);
     let mut shots = std::env::var_os("SWEEP_SHOTS").map(|_| Shots::default());
+    let mut droid_census = std::env::var_os("DROID_CENSUS").map(|_| DroidCensus::default());
     // `ANIM_CENSUS` (card ANIML): the soldiers' animators run beside the
     // round, without a renderer, and are counted.
     let mut anim = std::env::var_os("ANIM_CENSUS").map(|_| {
@@ -3761,6 +4253,9 @@ fn run_map(
     let mut bot_samples = BotSamples::new(key, seed);
     let mut heavy = HeavyCensus::new(key, seed);
     let mut blackbox = HeadlessBox::new(key, seed, &scene, &w);
+    if let (Some(b), Some((_, profile, label))) = (blackbox.as_mut(), proxy_cfg.as_ref()) {
+        b.proxy_note(profile, label);
+    }
     let mut obst = Obst::new(key, seed, &scene, &w.sim);
     let mut rim_log = std::env::var_os("RIM_LOG").map(|_| RimLog::default());
     let mut profile = level_profile(key, &w.sim);
@@ -3855,6 +4350,12 @@ fn run_map(
     while t < max_ticks && w.sim.outcome.is_none() {
         w.step_tick(&idle);
         t += 1;
+        if let Some((i, tally)) = proxy.as_mut() {
+            tally.tick(&w.sim, Some((*i, "proxy")));
+        }
+        if let Some(m) = matchlog.as_mut() {
+            m.tick(&w.sim, (0, 0));
+        }
         // Scratch observer (VBAIL local validation, EXIT_WATCH=1, stderr only):
         // every AI hover/walker exit by unit generation + tick + vehicle, and
         // every world death of that unit generation within 90 ticks of it.
@@ -4122,6 +4623,9 @@ fn run_map(
         }
         if let Some(s) = shots.as_mut() {
             s.observe(&w.sim);
+        }
+        if let Some(d) = droid_census.as_mut() {
+            d.observe(&w.sim);
         }
         if let Some((vis, c, h)) = anim.as_mut() {
             vis.update_with(&w, core::TICK_DT, Some(c));
@@ -4708,13 +5212,35 @@ fn run_map(
                 "passed",
                 "x-drop",
                 "x-ray",
-                "scored-no-pick"
+                "scored-no-pick",
+                "x-closing"
             ]
             .iter()
             .zip(ns.tpos_funnel)
             .map(|(k, v)| format!("{k} {v}"))
             .collect::<Vec<_>>()
             .join(" ")
+        ));
+        // Card HYST: positions replaced on one think, kept by the margin,
+        // and the early thinks with the behaviour changes they made.
+        let wake_why: Vec<String> = ns
+            .wake_why
+            .iter()
+            .enumerate()
+            .filter(|(_, n)| **n != 0)
+            .map(|(i, n)| {
+                let tag = core::ai::why::CHANGES.get(i).map_or("?", |w| w.tag());
+                format!("{tag} {n}")
+            })
+            .collect();
+        census.push_str(&format!(
+            "hyst {key}: flips {} kept {} | wakes hit {} near {} seen {} | wake changes [{}]\n",
+            ns.tpos_flips,
+            ns.tpos_kept,
+            ns.wakes[0],
+            ns.wakes[1],
+            ns.wakes[2],
+            wake_why.join(" "),
         ));
     }
     if let Some(f) = &fire {
@@ -4729,6 +5255,9 @@ fn run_map(
     if let Some(s) = shots.as_mut() {
         census.push_str(&s.line(key, &w.sim));
     }
+    if let Some(d) = &droid_census {
+        census.push_str(&d.line(key));
+    }
     if let Some((_, c, h)) = &anim {
         census.push_str(&c.report(key));
         census.push_str(&h.report(key));
@@ -4740,6 +5269,31 @@ fn run_map(
     if let Some(r) = &rim_log {
         census.push_str(&r.text);
     }
+    if let Some(m) = matchlog.as_mut() {
+        let why = if w.sim.outcome.is_some() {
+            "outcome"
+        } else {
+            "quit"
+        };
+        if let Some(p) = m.write(&w.sim, why) {
+            eprintln!("matchlog: wrote {}", p.display());
+        }
+    }
+    let round = RoundResult {
+        winner: w.sim.outcome,
+        margin: i64::from(w.sim.battle.teams[1].tickets())
+            - i64::from(w.sim.battle.teams[0].tickets()),
+        proxy: proxy.map(|(i, tally)| (w.sim.units[i].team, tally.out)),
+    };
+    census.push_str(&round.line(
+        key,
+        seed,
+        (
+            w.sim.battle.teams[0].tickets(),
+            w.sim.battle.teams[1].tickets(),
+        ),
+        proxy_cfg.as_ref().map_or("", |p| p.2.as_str()),
+    ));
     MapReport {
         text: out,
         census,
@@ -4747,6 +5301,7 @@ fn run_map(
             finished: w.sim.outcome.is_some(),
             stuck_max: w.sim.nav_stats.stuck_max,
         }),
+        round: Some(round),
     }
 }
 
@@ -4761,6 +5316,194 @@ fn lower_median(v: &[u16]) -> String {
     }
 }
 
+/// Card DPRX: `--difficulty-check` (module header). One round per (tier,
+/// map, proxy side, seed), `SWEEP_THREADS` at once; the verdict per tier
+/// against `core::ai::proxy::TARGETS`.
+fn difficulty_check(maps: &[(String, String, std::path::PathBuf)], args: &[String]) {
+    use core::ai::proxy::{passes, target, Strength};
+    use core::skill::Difficulty;
+    let mut strength = Strength::Good;
+    let mut seeds = 8u32;
+    let mut ticks = 60_000u64;
+    let mut tiers: Vec<Difficulty> = Difficulty::ALL.to_vec();
+    let mut only: Vec<String> = Vec::new();
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        let mut val = || it.next().cloned().unwrap_or_default();
+        match a.as_str() {
+            "--strength" => strength = Strength::parse(&val()).unwrap_or(Strength::Good),
+            "--seeds" => seeds = val().parse().unwrap_or(8),
+            "--ticks" => ticks = val().parse().unwrap_or(60_000),
+            "--tiers" => {
+                tiers = val().split(',').filter_map(Difficulty::parse).collect();
+            }
+            m => only.push(m.to_owned()),
+        }
+    }
+    if only.is_empty() {
+        only = CHECK_MAPS.iter().map(|s| (*s).to_owned()).collect();
+    }
+    let selected: Vec<(&str, &Path)> = only
+        .iter()
+        .filter_map(|o| {
+            maps.iter()
+                .find(|(k, _, _)| k == o)
+                .map(|(k, _, p)| (k.as_str(), p.as_path()))
+        })
+        .collect();
+    if selected.len() != only.len() {
+        eprintln!("difficulty check: some of {only:?} are not baked maps");
+    }
+    // 16 v 16: slot 0 is vacated without a filler (team 0 would field 17),
+    // unless `SWEEP_NOFILL=0` asks for the filler.
+    let base = Cfg {
+        nofill: std::env::var("SWEEP_NOFILL").as_deref() != Ok("0"),
+        ..Cfg::from_env()
+    };
+    // (tier, map, side, seed)
+    let mut jobs: Vec<(Difficulty, usize, u8, u32)> = Vec::new();
+    for &d in &tiers {
+        for m in 0..selected.len() {
+            for side in [0u8, 1] {
+                for seed in 1..=seeds {
+                    jobs.push((d, m, side, seed));
+                }
+            }
+        }
+    }
+    let threads = std::env::var("SWEEP_THREADS")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(8)
+        .clamp(1, jobs.len().max(1));
+    eprintln!(
+        "difficulty check: proxy {} (PROVISIONAL profile {:?}), tiers {:?}, {} maps x 2 sides x {seeds} seeds, {} rounds on {threads} threads",
+        strength.label(),
+        strength.profile(),
+        tiers.iter().map(|d| d.label()).collect::<Vec<_>>(),
+        selected.len(),
+        jobs.len()
+    );
+    let next = AtomicUsize::new(0);
+    let done = AtomicUsize::new(0);
+    let results: Mutex<Vec<Option<RoundResult>>> = Mutex::new(vec![None; jobs.len()]);
+    std::thread::scope(|s| {
+        for _ in 0..threads {
+            s.spawn(|| loop {
+                let k = next.fetch_add(1, Ordering::Relaxed);
+                if k >= jobs.len() {
+                    break;
+                }
+                let (d, m, side, seed) = jobs[k];
+                let (key, path) = selected[m];
+                CFG.with(|c| {
+                    *c.borrow_mut() = Cfg {
+                        difficulty: d,
+                        proxy: Some((side, strength.profile(), strength.label().to_owned())),
+                        ..base.clone()
+                    };
+                });
+                let report = run_map(key, path, ticks, seed, false, None);
+                eprint!(
+                    "{}",
+                    report
+                        .census
+                        .lines()
+                        .filter(|l| l.starts_with("round "))
+                        .map(|l| format!("{l}\n"))
+                        .collect::<String>()
+                );
+                let n = done.fetch_add(1, Ordering::Relaxed) + 1;
+                if n.is_multiple_of(16) {
+                    eprintln!("difficulty check: {n}/{}", jobs.len());
+                }
+                results.lock().expect("check results")[k] = report.round;
+            });
+        }
+    });
+    let results = results.into_inner().expect("check results");
+    println!(
+        "difficulty check: proxy {} (PROVISIONAL), both sides of each map, seeds 1..={seeds}",
+        strength.label()
+    );
+    println!(
+        "{:7} {:>6} {:>12} {:>7} {:>11} {:>8} {:>6} {:>6} {:>6}  verdict",
+        "tier", "rounds", "proxy wins", "rate", "target", "margin", "K/D", "acc", "life_s"
+    );
+    let mut all_pass = true;
+    for &d in &tiers {
+        let (mut wins, mut n, mut margin) = (0u32, 0u32, 0i64);
+        let (mut k, mut de, mut sh, mut hi, mut alive, mut lives) =
+            (0u32, 0u32, 0u32, 0u32, 0u64, 0usize);
+        let mut per_map: Vec<String> = Vec::new();
+        for (m, (key, _)) in selected.iter().enumerate() {
+            let mut side_w = [0u32; 2];
+            let mut side_n = [0u32; 2];
+            let mut side_m = [0i64; 2];
+            for (j, r) in jobs.iter().zip(&results) {
+                if j.0 != d || j.1 != m {
+                    continue;
+                }
+                let Some(r) = r else { continue };
+                let side = j.2;
+                let own = if side == 1 { r.margin } else { -r.margin };
+                let won = r.winner == Some(side);
+                side_w[side as usize] += u32::from(won);
+                side_n[side as usize] += 1;
+                side_m[side as usize] += own;
+                wins += u32::from(won);
+                n += 1;
+                margin += own;
+                if let Some((_, s)) = &r.proxy {
+                    k += s.kills;
+                    de += s.deaths;
+                    sh += s.shots;
+                    hi += s.hits;
+                    alive += s.alive_ticks;
+                    lives += s.lives.len();
+                }
+            }
+            per_map.push(format!(
+                "    {key:10} proxy on t0 {}/{} ({:+.1})  on t1 {}/{} ({:+.1})",
+                side_w[0],
+                side_n[0],
+                side_m[0] as f64 / f64::from(side_n[0].max(1)),
+                side_w[1],
+                side_n[1],
+                side_m[1] as f64 / f64::from(side_n[1].max(1)),
+            ));
+        }
+        let (lo, hi_t) = target(d);
+        let ok = passes(d, wins, n);
+        all_pass &= ok;
+        let band = if hi_t >= 1.0 {
+            format!(">={:.0}%", lo * 100.0)
+        } else {
+            format!("{:.0}-{:.0}%", lo * 100.0, hi_t * 100.0)
+        };
+        println!(
+            "{:7} {:>6} {:>12} {:>6.1}% {:>11} {:>+8.1} {:>6.2} {:>6.3} {:>6.1}  {}",
+            d.label(),
+            n,
+            format!("{wins}/{n}"),
+            100.0 * f64::from(wins) / f64::from(n.max(1)),
+            band,
+            margin as f64 / f64::from(n.max(1)),
+            f64::from(k) / f64::from(de.max(1)),
+            f64::from(hi) / f64::from(sh.max(1)),
+            alive as f64 / core::TICK_HZ as f64 / lives.max(1) as f64,
+            if ok { "PASS" } else { "FAIL" }
+        );
+        for l in per_map {
+            println!("{l}");
+        }
+    }
+    println!(
+        "difficulty check: {}",
+        if all_pass { "ALL PASS" } else { "FAIL" }
+    );
+}
+
 fn main() {
     let dir = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets_baked"));
     let maps = game::assets::discover_maps(dir);
@@ -4769,6 +5512,11 @@ fn main() {
             "no baked maps under {} — run scripts/rebake.sh",
             dir.display()
         );
+        return;
+    }
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("--difficulty-check") {
+        difficulty_check(&maps, &args[1..]);
         return;
     }
     let max_ticks: u64 = std::env::args()
@@ -4784,6 +5532,9 @@ fn main() {
     // The tier goes to STDERR so the per-map result lines the acceptance
     // diffs stay exactly what they were.
     eprintln!("sweep difficulty: {}", sweep_difficulty().label());
+    if sweep_human_team() != [0, 0] {
+        eprintln!("sweep stand-in humans per team: {:?}", sweep_human_team());
+    }
     eprintln!(
         "sweep slot 0: {}",
         if slot0_is_bot() { "bot" } else { "idle player" }

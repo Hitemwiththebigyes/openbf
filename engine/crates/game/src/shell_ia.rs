@@ -6,26 +6,28 @@
 use std::path::Path;
 use ui::shell::{Game, IaTexts, InstantAction, Mode, SessionOptions};
 
-/// The profile's tier as Session Options' `iDifficulty` (1 Easy, 2 Normal,
-/// 3 = the PS2's level 3, shown "Elite": `ifs.difficulty.hard`); `[ours]`
-/// the port's own Elite tier shows as 3 too.
-pub fn ps2_difficulty(d: core::skill::Difficulty) -> i32 {
+/// The profile's tier as Session Options' AI Difficulty level: 1 Easy,
+/// 2 Normal, 3 Hard, 4 Elite (`ui::shell::SessionOptions::difficulty`;
+/// `[ours]`, the PS2's row offers only its Normal and Elite).
+pub fn ia_level(d: core::skill::Difficulty) -> i32 {
     use core::skill::Difficulty::*;
     match d {
         Easy => 1,
         Normal => 2,
-        Hard | Elite => 3,
+        Hard => 3,
+        Elite => 4,
     }
 }
 
-/// Session Options' level back as the port's tier (3 = Hard, the PS2's
-/// level 3).
+/// Session Options' level back as the port's tier (out of range: the
+/// nearest end).
 pub fn port_difficulty(level: i32) -> core::skill::Difficulty {
     use core::skill::Difficulty::*;
     match level {
-        1 => Easy,
+        ..=1 => Easy,
+        2 => Normal,
         3 => Hard,
-        _ => Normal,
+        _ => Elite,
     }
 }
 
@@ -56,7 +58,7 @@ pub fn instant_action(
             .map_or_else(|| english.to_owned(), |t| t.trim_end().to_owned())
     });
     let options = SessionOptions {
-        difficulty: ps2_difficulty(difficulty),
+        difficulty: ia_level(difficulty),
         ..Default::default()
     };
     InstantAction::new(maps, texts, options)
@@ -66,13 +68,21 @@ pub fn instant_action(
 mod tests {
     use super::*;
 
+    /// The Instant Action row offers exactly the four tiers, one level
+    /// each, in order.
     #[test]
-    fn the_tiers_round_trip_through_the_ps2_levels() {
-        use core::skill::Difficulty::*;
-        for d in [Easy, Normal, Hard] {
-            assert_eq!(port_difficulty(ps2_difficulty(d)), d);
+    fn the_four_tiers_round_trip_through_the_rows_levels() {
+        use core::skill::Difficulty;
+        let levels = Difficulty::ALL.map(ia_level);
+        assert_eq!(levels, [1, 2, 3, 4]);
+        assert_eq!(*levels.last().unwrap(), ui::shell::DIFFICULTY_LEVELS);
+        for d in Difficulty::ALL {
+            assert_eq!(port_difficulty(ia_level(d)), d);
         }
-        assert_eq!(ps2_difficulty(Elite), 3);
+        assert_eq!(
+            ia_level(Difficulty::default()),
+            ui::shell::SessionOptions::default().difficulty
+        );
     }
 
     /// The real bake (skips without one): every baked map in the list under

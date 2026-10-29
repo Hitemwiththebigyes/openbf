@@ -153,11 +153,13 @@ if want side; then
   # Note both discs' REP/CIS and ALL/IMP are baked: a BF1 map's clone-wars
   # mission fields BF1 SIDE/REP + SIDE/CIS classes and a BF2 map's GCW
   # mission fields BF2 SIDE/ALL + SIDE/IMP ones.
+  # BF1 has BF2's throw on every map: BF2_ANIMS lends BF2's rifle throw clips
+  # to every BF1 soldier (bake::soldier::BORROWED_THROW, card GTHRW).
   A1="$B1/COMMON/ENG/COMMON.LVL"
-  "$BAKE" soldier "$B1/SIDE/ALL.LVL" all_inf_marksperson,all_inf_marksperson_snow,all_inf_pilot,all_inf_snowtrooper,all_inf_soldier,all_inf_trooperfleet,all_inf_wookie "$OUT/side_bf1" "$A1"
-  "$BAKE" soldier "$B1/SIDE/IMP.LVL" imp_inf_atatpilot,imp_inf_atstpilot,imp_inf_darktrooper,imp_inf_pilot,imp_inf_scout,imp_inf_shocktrooper,imp_inf_snowtrooper,imp_inf_stormtrooper "$OUT/side_bf1" "$A1"
-  "$BAKE" soldier "$B1/SIDE/REP.LVL" rep_inf_arctrooper,rep_inf_jettrooper,rep_inf_pilot,rep_inf_trooper "$OUT/side_bf1" "$A1"
-  "$BAKE" soldier "$B1/SIDE/CIS.LVL" cis_inf_bdroid,cis_inf_sbdroid "$OUT/side_bf1" "$A1"
+  BF2_ANIMS="$B2/INGAME.LVL" "$BAKE" soldier "$B1/SIDE/ALL.LVL" all_inf_marksperson,all_inf_marksperson_snow,all_inf_pilot,all_inf_snowtrooper,all_inf_soldier,all_inf_trooperfleet,all_inf_wookie "$OUT/side_bf1" "$A1"
+  BF2_ANIMS="$B2/INGAME.LVL" "$BAKE" soldier "$B1/SIDE/IMP.LVL" imp_inf_atatpilot,imp_inf_atstpilot,imp_inf_darktrooper,imp_inf_pilot,imp_inf_scout,imp_inf_shocktrooper,imp_inf_snowtrooper,imp_inf_stormtrooper "$OUT/side_bf1" "$A1"
+  BF2_ANIMS="$B2/INGAME.LVL" "$BAKE" soldier "$B1/SIDE/REP.LVL" rep_inf_arctrooper,rep_inf_jettrooper,rep_inf_pilot,rep_inf_trooper "$OUT/side_bf1" "$A1"
+  BF2_ANIMS="$B2/INGAME.LVL" "$BAKE" soldier "$B1/SIDE/CIS.LVL" cis_inf_bdroid,cis_inf_sbdroid "$OUT/side_bf1" "$A1"
   # BF2 SIDE gets the PC-stock tier too, from the matching PC side LVL.
   # This is where the proportional gain is biggest: a first-person weapon
   # sheet is 128x64 on the PS2 and 512x256 on the PC.
@@ -324,6 +326,10 @@ if want maps; then
     "$BAKE" map "$B2/$p.LVL" "$d" "${PC_ARG[@]}"
     [ -f "$B2/LOAD/$(basename "$p").LVL" ] && "$BAKE" loadscreen "$B2/LOAD/$(basename "$p").LVL" "$d"
   done
+  # Card COVR: BF1 Yavin Temple takes BF2 Yavin Temple's Cover hints (same
+  # graph; bake::donor::DONORS). After both are baked; run again it replaces
+  # its own hints.
+  "$BAKE" donor-hints "$OUT"
 fi
 if want beep; then
   echo "== BF1 loading beep =="

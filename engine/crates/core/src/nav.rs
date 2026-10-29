@@ -1130,6 +1130,19 @@ impl NavGraph {
         m: Mover,
         on_floor: &dyn Fn(u16) -> bool,
     ) -> Option<Hop> {
+        self.route_bfs_avoiding(cur, dest, m, on_floor, &|_| false)
+    }
+
+    /// [`NavGraph::route_bfs`] over the arcs `shun` does not name (card
+    /// ARCM: the arcs a bot or its team found it cannot walk).
+    pub fn route_bfs_avoiding(
+        &self,
+        cur: u16,
+        dest: u16,
+        m: Mover,
+        on_floor: &dyn Fn(u16) -> bool,
+        shun: &dyn Fn(u16) -> bool,
+    ) -> Option<Hop> {
         if cur == dest || self.hub(cur).is_none() || self.hub(dest).is_none() {
             return None;
         }
@@ -1145,7 +1158,7 @@ impl NavGraph {
         while let Some(h) = queue.pop_front() {
             for &ai in &self.adj[h as usize] {
                 let arc = self.arcs[ai as usize];
-                if !arc.allows(m) {
+                if !arc.allows(m) || shun(ai) {
                     continue;
                 }
                 let o = arc.other(h);

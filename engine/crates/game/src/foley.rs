@@ -475,7 +475,8 @@ impl Foley {
 
             // The stance functions' slots (§4.5): every soldier's.
             if s.stance != prev {
-                let air = |x| matches!(x, Stance::Jump | Stance::Fall);
+                let air =
+                    |x| matches!(x, Stance::Jump | Stance::Fall | Stance::Jet | Stance::Hover);
                 match s.stance {
                     Stance::Jump => start(row.jump),
                     Stance::Roll => start(row.roll),

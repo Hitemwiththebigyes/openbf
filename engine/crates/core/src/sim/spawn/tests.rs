@@ -63,7 +63,7 @@ fn a_respawned_bot_re_derives_the_tiers_skill() {
     let mut ai = UnitSpec::trooper(1, Vec3::new(0.0, 0.0, -20.0));
     ai.controller = Controller::Ai;
     let h = s.spawn(&ai).unwrap();
-    assert_eq!(s.unit(h).unwrap().skill, 8);
+    assert_eq!(s.unit(h).unwrap().skill, 14);
     // Kill it, raise the tier, and let the respawn loop rebuild the slot.
     let i = h.index as usize;
     s.units[i].alive = false;
@@ -96,6 +96,7 @@ fn class_w(min: u32, max: Option<u32>, weapon_class: usize) -> crate::unit::Unit
         jet: false,
         capture_posts: true,
         drops: crate::sim::DropTable::default(),
+        chunk: None,
         min,
         max,
         unlock_points: 0,

@@ -276,7 +276,7 @@ impl App {
     /// profile's tier, saved.
     fn keep_session_prefs(&mut self, options: &ui::shell::SessionOptions) {
         let now = self.profile.settings.difficulty;
-        if game::shell_ia::ps2_difficulty(now) == options.difficulty {
+        if game::shell_ia::ia_level(now) == options.difficulty {
             return;
         }
         self.profile.settings.difficulty = game::shell_ia::port_difficulty(options.difficulty);

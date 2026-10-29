@@ -165,6 +165,15 @@ pub fn each(walk: &WalkSim, ears: Vec3, mut play: impl FnMut(&str, Vec3)) {
                 let x = setup.and_then(|b| b.as_ref()?.explosion.as_ref());
                 boom(x.map(|x| &x.look), *pos, &mut play);
             }
+            // Card DROIDDEATH: the burst's explosion class authors no
+            // SoundProperty on either disc; the noise heard is the droid's
+            // DeathSound, started by the kill (`cries`).
+            Event::DroidBurst {
+                pos, team, class, ..
+            } => {
+                let x = walk.sim.burst_explosion(*team, *class);
+                boom(x.map(|x| &x.look), *pos, &mut play);
+            }
             Event::StationDestroyed { class, pos, .. } => {
                 let x = walk
                     .sim
@@ -447,6 +456,8 @@ pub fn order_line_sound(side: &str, kind: u8) -> String {
 /// the PS2's per-ear split in, `Start::ears`), `name` the property's name where
 /// the map's `sounds/names.ron` has it (else its hash), `unit` the foley
 /// sound's unit (-1 for an event), `dist` metres from the listener.
+/// Card JETP2: a `jet` row per jet one-shot (`name|TurnOn` / `TurnOff`,
+/// `unit` the soldier) and the jets' loops among the `engine` rows.
 /// Card VSND, once a second: an `engine` row per playing engine layer -
 /// `name` is `<record>/<layer>/<gain factor>/<pitch factor>/<speed sent>`,
 /// `unit` the vehicle - and one `engines` row, `name` `<pilot seats occupied>/<engines
@@ -499,6 +510,20 @@ pub fn sound_names(
     for e in walk.vehicle_engines.iter().flatten() {
         let hash = crate::classdb::fnv1a_lowercase(&e.record);
         names.entry(hash).or_insert_with(|| e.record.clone());
+    }
+    // And the jet classes' (card JETP2).
+    for t in &walk.teams {
+        for c in &t.classes {
+            let j = &c.jet_look;
+            for n in [&j.engine, &j.turn_on, &j.turning_off, &j.turn_off]
+                .into_iter()
+                .flatten()
+            {
+                names
+                    .entry(crate::classdb::fnv1a_lowercase(n))
+                    .or_insert_with(|| n.clone());
+            }
+        }
     }
     // So are the stations' (card PWST).
     for c in &walk.sim.station_classes {
@@ -623,6 +648,12 @@ impl SoundLog {
             let n = self
                 .engines
                 .tick(walk, |h, l| lib.engine(h, l), &mut voices);
+            // Card JETP2: a `jet` row per jet one-shot, `name|TurnOn` /
+            // `TurningOff` / `TurnOff`, `unit` the soldier.
+            for j in self.engines.take_jet_shots() {
+                let d = (j.pos - ears).length();
+                let _ = writeln!(csv, "{tick},jet,{}|{:?},{},{d:.1}", j.name, j.kind, j.unit);
+            }
             if tick.is_multiple_of(core::TICK_HZ as usize) {
                 let name = |h: u32| {
                     let n = self.names.get(&h).cloned();

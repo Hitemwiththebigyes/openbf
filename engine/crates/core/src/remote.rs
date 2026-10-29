@@ -5,11 +5,42 @@ use crate::weapon::{
 use glam::{Mat3, Quat, Vec3};
 
 pub const RADIUS: f32 = 0.35;
-pub const ENERGY_MAX: f32 = 100.0;
+/// [ours] Every droid lasts 90 s from launch, both games, all maps (the PS2:
+/// BF1 40 s of health drain, BF2 about 58.8 s of energy drain).
+pub const LIFETIME: f32 = 90.0;
 pub const GRAVITY: f32 = 9.8;
 pub const PROBE: f32 = 10.0;
+// [ours] The bots' droid rules (card DROIDAI, `analysis/re-remote-droid.md`
+// §7). A bot launches from cover into a fight it is not in, flies a while,
+// then goes in itself.
+/// A flying bot hands back after this long with no enemy near its droid (s).
 pub const BOT_RECALL: f32 = 10.0;
+/// The droid looks for an enemy to shoot within this of itself (m).
 pub const BOT_RANGE: f32 = 40.0;
+/// Any enemy this close to the body and the bot fights with its own gun (m).
+pub const BOT_NEAR: f32 = 20.0;
+/// The fight a droid is sent into: an enemy the bot (or its team, through
+/// what friends tell it) knows of within this of the body. Also how far an
+/// enemy's sight of the body counts as exposure (m).
+pub const BOT_FIGHT: f32 = 60.0;
+/// No launch for this long after the body was hit (s).
+pub const BOT_HIT_QUIET: f32 = 3.0;
+/// The chance a bot that may launch does, drawn once per [`BOT_ROLL`] window.
+pub const BOT_CHANCE: f32 = 0.25;
+/// The window of one launch draw (s).
+pub const BOT_ROLL: f32 = 2.0;
+/// No new launch for this long after a flight ends (s).
+pub const BOT_REST: f32 = 30.0;
+/// The longest a bot flies before it goes in itself (s).
+pub const BOT_FLIGHT: f32 = 30.0;
+/// An enemy this close to the body with sight of it ends the flight (m).
+pub const BOT_GUARD: f32 = 15.0;
+/// Enemies within this of the droid are "among" it, for the destruct (m).
+pub const BOT_BLAST: f32 = 8.0;
+/// The destruct goes off among this many enemies...
+pub const BOT_CROWD: usize = 2;
+/// ...or among one with the droid's health under this share.
+pub const BOT_LOW: f32 = 0.3;
 
 pub fn look_frame(yaw: f32, pitch: f32) -> (Vec3, Vec3, Vec3) {
     let (sy, cy) = crate::fmath::sin_cos(yaw);
@@ -31,10 +62,21 @@ pub fn tilted(up: Vec3, yaw: f32) -> Quat {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DroidEnd {
+    /// Shot down: its explosion goes off.
     Destroyed,
+    /// [ours] Its 90 s ran out: it vanishes quietly and control returns.
     Expired,
+    /// The self-destruct: its explosion plus the salvo or burst.
     Destruct,
-    Recalled,
+    /// [ours] Its owner died: it vanishes quietly.
+    OwnerDied,
+}
+
+impl DroidEnd {
+    /// Whether this ending sets off the droid's explosion.
+    pub fn explodes(self) -> bool {
+        matches!(self, DroidEnd::Destroyed | DroidEnd::Destruct)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -51,6 +93,7 @@ pub struct DroidClass {
     pub level_spring: f32,
     pub level_damp: f32,
     pub max_health: f32,
+    /// The disc's drains, read but not applied: the clock is [`LIFETIME`].
     pub add_health: f32,
     pub energy_restore: f32,
     pub health_type: HealthType,
@@ -122,20 +165,6 @@ impl DroidClass {
             explosion: None,
             geometry: name(src, "GeometryName"),
         }
-    }
-
-    pub fn lifetime(&self) -> f32 {
-        let health = if self.add_health < 0.0 {
-            self.max_health / -self.add_health
-        } else {
-            f32::INFINITY
-        };
-        let energy = if self.energy_restore < 0.0 {
-            ENERGY_MAX / -self.energy_restore
-        } else {
-            f32::INFINITY
-        };
-        health.min(energy)
     }
 }
 
@@ -245,7 +274,8 @@ impl RemoteWeapon {
 
     pub fn end_explosions(&self, end: DroidEnd) -> impl Iterator<Item = &ExplosionClass> {
         let burst = self.end_burst(end).and_then(|x| x.burst.as_ref());
-        self.droid.explosion.iter().chain(burst)
+        let own = self.droid.explosion.as_ref().filter(|_| end.explodes());
+        own.into_iter().chain(burst)
     }
 }
 
@@ -262,7 +292,6 @@ pub struct Droid {
     pub up: Vec3,
     pub up_vel: Vec3,
     pub health: f32,
-    pub energy: f32,
     pub age: f32,
     pub controlled: bool,
     pub idle: f32,
@@ -296,7 +325,6 @@ impl Droid {
             up: Vec3::Y,
             up_vel: Vec3::ZERO,
             health: remote.droid.max_health,
-            energy: ENERGY_MAX,
             age: 0.0,
             controlled: remote.take_control,
             idle: 0.0,
@@ -367,13 +395,16 @@ impl Droid {
         self.pos += self.vel * dt;
     }
 
-    pub fn drain(&mut self, c: &DroidClass, dt: f32) -> Option<DroidEnd> {
+    /// Seconds of its [`LIFETIME`] left.
+    pub fn time_left(&self) -> f32 {
+        (LIFETIME - self.age).max(0.0)
+    }
+
+    /// [ours] Age one tick: `Expired` on the tick it reaches [`LIFETIME`].
+    /// Health does not drain.
+    pub fn age_by(&mut self, dt: f32) -> Option<DroidEnd> {
         self.age += dt;
-        self.health = (self.health + c.add_health * dt).min(c.max_health);
-        if c.energy_restore != 0.0 {
-            self.energy = (self.energy + c.energy_restore * dt).min(ENERGY_MAX);
-        }
-        (self.health <= 0.0 || self.energy <= 0.0).then_some(DroidEnd::Expired)
+        (self.age >= LIFETIME - dt * 0.5).then_some(DroidEnd::Expired)
     }
 
     pub(crate) fn hash_into(&self, eat: &mut impl FnMut(&[u8])) {
@@ -391,7 +422,6 @@ impl Droid {
             self.yaw,
             self.pitch,
             self.health,
-            self.energy,
             self.age,
             self.idle,
             self.charge.unwrap_or(-1.0),

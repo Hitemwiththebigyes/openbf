@@ -462,6 +462,8 @@ pub const CHATTER_KEY_MAX: f32 = 0.999;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum LoopSource {
     Engine(u32, u8),
+    /// A jet soldier's engine layer (card JETP2), by unit index.
+    Jet(u32, u8),
     Guided(u64, u8),
     Repair(core::unit::UnitHandle, usize),
 }
@@ -998,7 +1000,8 @@ impl SoundLib {
             .map_or(1.0, |b| b.1)
     }
 
-    /// Play this tick's engine layers: a voice per (vehicle, layer), started
+    /// Play this tick's engine layers: a voice per (vehicle or jet soldier,
+    /// layer), started
     /// when the layer first plays in range, set to its gain, rate and pan
     /// over one tick, stopped when the layer is no longer listed.
     pub fn loop_voices(
@@ -1010,7 +1013,11 @@ impl SoundLib {
         let mut live = std::collections::HashSet::new();
         for v in voices {
             let request = LoopRequest {
-                source: LoopSource::Engine(v.vehicle, v.layer),
+                source: if v.soldier {
+                    LoopSource::Jet(v.vehicle, v.layer)
+                } else {
+                    LoopSource::Engine(v.vehicle, v.layer)
+                },
                 sound: v.sound,
                 pos: v.pos,
                 gain: v.gain_factor,
@@ -1020,8 +1027,9 @@ impl SoundLib {
                 live.insert(request.source);
             }
         }
-        self.loops
-            .retain(|k, _| !matches!(k, LoopSource::Engine(..)) || live.contains(k));
+        self.loops.retain(|k, _| {
+            !matches!(k, LoopSource::Engine(..) | LoopSource::Jet(..)) || live.contains(k)
+        });
     }
 
     pub fn guided_loops(

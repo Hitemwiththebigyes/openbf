@@ -9,6 +9,7 @@ use crate::ai::state::{
     AiState, Behaviour, FightState, HoldState, LostState, MoverState, NavTick, SteerPick, Walk,
     WalkAsk,
 };
+use crate::ai::why::Why;
 use crate::ai::{
     CIRCLE_PAUSE, CORNER_ARRIVE, DODGE_COOLDOWN, FIGHT_BEYOND, GIVE_UP_AFTER, HOLD_ARRIVE,
     HOLD_CLOSE, HOLD_COMMIT, HOLD_QUIET, HOLD_RANGE, HOLD_STRAFE, LOST_RECYCLE, RETURN_ARRIVE,
@@ -26,8 +27,28 @@ use super::position::{fight_position, hazard_flee, react, react_ok, ring_walk, s
 use super::Tick;
 
 /// Produce this tick's pad for AI unit `me`, and say what it had to fall back
-/// on (diagnostics only — see [`NavTick`]).
+/// on (diagnostics only — see [`NavTick`]). Card WHY: the reason for a change
+/// of behaviour, and a failed walk's, go into the bot's log
+/// ([`crate::ai::why::log`]). Card UNSN: a recycle becomes an unseen move
+/// when one is safe ([`crate::ai::unseen`]).
 pub fn think(sim: &Sim, me: UnitHandle, st: &mut AiState) -> (PadState, NavTick) {
+    let (was, cp) = (st.behaviour, st.target_cp);
+    let (pad, mut nt) = chain(sim, me, st);
+    // Card UNSN: a bot on the level given up for going nowhere is moved on
+    // where no human sees it, else recycled.
+    if nt.stalled != 0 && nt.recycle == 0 {
+        if let Some(to) = crate::ai::unseen::spot(sim, me, st) {
+            nt.stalled = 0;
+            nt.relocate = Some(to.to_array().map(f32::to_bits));
+            crate::ai::unseen::reset(st, sim.tick);
+        }
+    }
+    crate::ai::why::log(st, sim.tick, was, cp, &nt);
+    (pad, nt)
+}
+
+/// One tick of the priority chain ([`think`]).
+fn chain(sim: &Sim, me: UnitHandle, st: &mut AiState) -> (PadState, NavTick) {
     let mut nt = NavTick::default();
     st.walk = WalkAsk::default();
     let Some(u) = sim.unit(me) else {
@@ -37,13 +58,23 @@ pub fn think(sim: &Sim, me: UnitHandle, st: &mut AiState) -> (PadState, NavTick)
     let eye = u.muzzle();
     let wc = &sim.weapon_classes[u.weapon_class];
 
-    let tier = sim.difficulty_of(u.team).tier();
+    let tier = sim.unit_tier(u);
     // This unit's own skill vector, under the tier's overrides (D1/D9). It is
-    // DERIVED per think, never stored: `Unit.skill` is the state.
-    let skill = sim.difficulty_of(u.team).skill_at(u.skill);
+    // DERIVED per think, never stored: `Unit.skill` is the state. A proxy's
+    // is its profile's (card DPRX, `Sim::skill_of`).
+    let skill = sim.skill_of(u);
 
-    let thinking = sim.tick >= st.next_think;
+    // Card HYST: a hit, a near miss or a new enemy in sight since the last
+    // think brings the next one forward (`crate::ai::wake`).
+    st.wake |= crate::ai::wake::events(sim, me, u, st);
+    let woken = st.wake != 0 && sim.tick >= st.last_think + crate::ai::wake::GAP;
+    let thinking = sim.tick >= st.next_think || woken;
     if thinking {
+        if sim.tick < st.next_think {
+            nt.wake = st.wake;
+        }
+        st.wake = 0;
+        st.last_think = sim.tick;
         // Card MOVR: the think's PHASE is the unit's index (the design's
         // "one think rate everywhere, the phase by unit index"), not the tick
         // it spawned on: a wave that spawns together does not think together.
@@ -54,11 +85,16 @@ pub fn think(sim: &Sim, me: UnitHandle, st: &mut AiState) -> (PadState, NavTick)
         // omniscient unit list, which is what `ENGAGE_RANGE` + `visible` did.
         let (held, heard) = perception::scan(sim, me, st, tier);
         // Card TEAM: then what the friends near by see.
-        nt.told = perception::tell(sim, me, st, tier);
+        nt.told = perception::tell(sim, me, st);
         nt.acquired = u8::from(match super::man::arc_of(sim, u) {
             Some(holds) => perception::choose_target_with(sim, me, st, tier, holds),
             None => perception::choose_target(sim, me, st, tier),
         });
+        // Card DFOCUS: a holder of a human's token at Hard / Elite makes him
+        // its target (`crate::ai::dfocus`).
+        if let Some(h) = crate::ai::dfocus::pick(sim, me, st) {
+            nt.acquired |= u8::from(perception::take_target(st, h, sim.tick));
+        }
         nt.contacts = held;
         nt.heard = heard;
         // Card UCALL: hearing that made a record while no enemy is in sight
@@ -327,7 +363,11 @@ pub fn think(sim: &Sim, me: UnitHandle, st: &mut AiState) -> (PadState, NavTick)
     // walking is XZ and the gun is levelled while travelling — so it takes the
     // unit's own y and costs no ground query.
     let corner = st.route.and_then(|r| r.corner());
+    // Card DFOCUS: a focuser that lost sight of its human walks to where he
+    // was last seen, when that is near (`dfocus::push`).
+    let push = crate::ai::dfocus::push(sim, me, st, pos).filter(|_| st.cmd.is_none());
     let goal: Option<Vec3> = match (st.route, st.cmd) {
+        _ if push.is_some() => push,
         // On an arc leg, along the arc's line (`leg_point`) — but not while
         // the steering is going round something (`slide`): a wall on the line
         // is passed by leaving the line, and pulling back to it flipped the
@@ -463,6 +503,7 @@ pub fn think(sim: &Sim, me: UnitHandle, st: &mut AiState) -> (PadState, NavTick)
         }
         WalkAsk::LEG if ring.is_some() => at_ring.map(|p| (p, RING_ARRIVE)),
         WalkAsk::LEG if spot.is_some() => at_spot.map(|p| (p, RING_ARRIVE)),
+        WalkAsk::LEG if push.is_some() && goal == push => push.map(|p| (p, CORNER_ARRIVE)),
         WalkAsk::LEG => match (st.route, st.cmd) {
             (_, Some(_)) => None,
             (Some(r), None) => r.is_last().then_some((r.waypoint, CORNER_ARRIVE)),
@@ -729,23 +770,47 @@ pub fn think(sim: &Sim, me: UnitHandle, st: &mut AiState) -> (PadState, NavTick)
         st.mv.recover = 0;
     }
     let was = st.behaviour;
-    st.behaviour = match moved.walk {
-        _ if ret.is_some() => Behaviour::Recover,
-        _ if flee.is_some() => Behaviour::Evade,
-        _ if item.is_some() => Behaviour::Pickup,
-        _ if super::snipe::holds(st, holding) => Behaviour::Overwatch,
-        // Card TEAM: on its guard position (the Cover role).
-        _ if holding.is_some_and(|h| guard_post(sim, st) == Some(h.spot)) => Behaviour::Guard,
-        _ if holding.is_some() || ring.is_some() => Behaviour::Fight,
-        _ if walk_kind == WalkAsk::BOARD || boarding.is_some() => Behaviour::Board,
-        _ if st.cmd.is_some() => Behaviour::Follow,
-        Walk::Arrived if post.is_some() && defending => Behaviour::Guard,
-        Walk::Arrived if post.is_some() => Behaviour::Capture,
-        _ if hold || (fight.is_some() && free) => Behaviour::Fight,
-        Walk::Idle => Behaviour::None,
-        _ if st.mv.recover > 0 => Behaviour::Recover,
-        _ => Behaviour::Travel,
+    // Card WHY: each link names why it runs; a fight by what put the target
+    // there (a hit in the last second, a seen one, else the memory).
+    let hit = u
+        .last_hit
+        .is_some_and(|(_, t)| sim.tick.saturating_sub(t) < u64::from(crate::TICK_HZ));
+    let fought = match () {
+        _ if hit => Why::Hit,
+        _ if enemy.is_some() => Why::Seen,
+        _ => Why::Memory,
     };
+    let why;
+    (st.behaviour, why) = match moved.walk {
+        _ if ret.is_some() => (Behaviour::Recover, Why::OffLevel),
+        _ if flee.is_some() => (Behaviour::Evade, Why::Grenade),
+        _ if item.is_some() => (Behaviour::Pickup, Why::Pickup),
+        _ if super::snipe::holds(st, holding) => (Behaviour::Overwatch, Why::SnipeSpot),
+        // Card TEAM: on its guard position (the Cover role).
+        _ if holding.is_some_and(|h| guard_post(sim, st) == Some(h.spot)) => {
+            (Behaviour::Guard, Why::GuardSpot)
+        }
+        _ if holding.is_some() || ring.is_some() => (Behaviour::Fight, fought),
+        _ if walk_kind == WalkAsk::BOARD || boarding.is_some() => (Behaviour::Board, Why::Claim),
+        _ if st.cmd.is_some() => (Behaviour::Follow, Why::Order),
+        Walk::Arrived if post.is_some() && defending => (Behaviour::Guard, Why::Arrived),
+        Walk::Arrived if post.is_some() => (Behaviour::Capture, Why::Arrived),
+        _ if hold || (fight.is_some() && free) => (Behaviour::Fight, fought),
+        Walk::Idle => (Behaviour::None, Why::Idle),
+        // (The log names the failure that put it there.)
+        _ if st.mv.recover > 0 => (Behaviour::Recover, Why::None),
+        _ => (
+            Behaviour::Travel,
+            match was {
+                Behaviour::Fight => Why::TargetLost,
+                Behaviour::Evade => Why::Safe,
+                Behaviour::Recover => Why::Recovered,
+                Behaviour::Board => Why::ClaimEnded,
+                _ => Why::SetOut,
+            },
+        ),
+    };
+    nt.why = why;
     // Card UTALK: the trooper agent's two talking points (B1 `FUN_0024b7a0`
     // 165905: it starts away from its goal; `FUN_0024baf0` 166190: it finds
     // itself at the goal - re-squad-orders.md 5). The port's trooper is the
@@ -810,7 +875,11 @@ fn recover(sim: &Sim, st: &mut AiState, nt: &mut NavTick) {
         super::ride::give_up(sim, st, nt);
     } else if let (Some(cp), None) = (st.target_cp, st.cmd) {
         st.mv.give_up = cp + 1;
+    } else {
+        return;
     }
+    // Card WHY: the goal given up is this failure's outcome.
+    nt.failed(Why::GaveUp);
 }
 
 /// Card HOLD: hub `hub` has just been reached: a hold that has run out is

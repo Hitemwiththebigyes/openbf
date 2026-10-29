@@ -48,7 +48,7 @@ fn duel(name: &str, weapon: usize, dist: f32, victim_hp: f32) {
                     cum += damage;
                     println!(
                         "{name},{tick},{time:.3},hit,{damage:.1},{:.1},{cum:.1},{:.1}",
-                        age * speed,
+                        age.max(0.0) * speed,
                         hp(&s, t)
                     );
                 }
@@ -93,7 +93,7 @@ fn ai_duel(dist: f32, seed: u32) {
                     hits += 1;
                     println!(
                         "{name},{tick},{time:.3},hit,{damage:.1},{:.1},,",
-                        age * 80.0
+                        age.max(0.0) * 80.0
                     );
                 }
                 Event::Kill { victim, .. } => {

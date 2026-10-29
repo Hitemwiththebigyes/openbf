@@ -145,6 +145,8 @@ pub fn vehicle_camera(
     (target, Camera { position, ..cam })
 }
 
+/// A flown guided rocket's camera (card GUIDED): the class's track centre
+/// and offset in the rocket's frame.
 pub fn guided_camera(
     r: &core::guided::GuidedRocket,
     c: &core::guided::GuidedClass,
@@ -162,6 +164,24 @@ pub fn guided_camera(
     }
 }
 
+/// `[ours]` The remote droid's chase offset (maintainer, 2026-10-28: "3rd
+/// person ... like the rest of the game"): the camera sits this far from
+/// the track centre in the tilted view frame (x right, y up, z back), as the
+/// soldier's CAMERASECTION offset does: straight back at the eye point's
+/// height, as the soldier's stand section (0, 0, 3.5 BF1 / 3.2 BF2) is.
+/// Picked so the 0.5 m probe droid sits in the lower middle of the frame,
+/// under the reticle and clear of it, about where the soldier stands. The
+/// disc's own `TrackOffset` (0, -0.25, 1.5 BF1 / 1.8 BF2,
+/// `analysis/re-remote-droid.md` §3; how the PS2 applies it is untraced)
+/// is read (`DroidClass::track_offset`) and not used.
+pub const DROID_CHASE: Vec3 = Vec3::new(0.0, 0.0, 2.2);
+
+/// A flown remote droid's chase camera as `(target, camera)`, before the
+/// world pulls it in: the target is the disc's `EyePointOffset` above the
+/// droid (0.5 m), the view the droid's aim pitched down by its `TiltValue`
+/// (5°), the camera [`DROID_CHASE`] from the target in that tilted frame,
+/// so it swings round the droid as it pitches, like the soldier's
+/// (`core::unit::Unit::ideal_camera`).
 pub fn droid_camera(
     d: &core::remote::Droid,
     c: &core::remote::DroidClass,
@@ -174,8 +194,10 @@ pub fn droid_camera(
         ..Camera::default()
     };
     let target = d.pos + Vec3::Y * c.eye_offset.y;
-    let o = c.track_offset;
-    let position = target - cam.forward() * o.z + Vec3::Y * o.y + cam.right() * o.x;
+    let (fwd, right) = (cam.forward(), cam.right());
+    let up = right.cross(fwd);
+    let o = DROID_CHASE;
+    let position = target + right * o.x + up * o.y - fwd * o.z;
     (target, Camera { position, ..cam })
 }
 
@@ -223,6 +245,22 @@ pub struct WeaponHud {
     /// The class's `IconTexture` (BF1's HUD sheet), for a weapon with no BF2
     /// mesh to show.
     pub icon: Option<String>,
+    /// A remote weapon's droid: what the rows show while it flies.
+    pub droid: Option<Box<DroidHud>>,
+}
+
+/// The weapon rows while a remote droid flies: the droid's own channel-0
+/// and channel-1 weapons, as the PS2 publishes the controlled entity's
+/// weapons (`analysis/re-remote-droid.md` §8).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct DroidHud {
+    /// Row 1: the blaster (`WEAPONSECTION 1`, channel 0).
+    pub blaster: WeaponHud,
+    /// Row 2: the self-destruct (channel 1).
+    pub destruct: Option<WeaponHud>,
+    /// The destruct's count: `WeaponAmmo` clips x `RoundsPerClip`; `None` =
+    /// infinite.
+    pub destruct_rounds: Option<u32>,
 }
 
 /// One class's VISUAL side, index-aligned with `Sim::classes[team]` (the
@@ -256,6 +294,8 @@ pub struct ClassVisual {
     pub anim: crate::animator::ClassAnim,
     /// The class's override textures (card USKN).
     pub skins: crate::roster::ClassSkins,
+    /// The jet's effect and engine sounds (card JETP2).
+    pub jet_look: crate::roster::JetLook,
 }
 
 /// A soldier class's two cries (card UCRY, `analysis/re-unit-chatter.md`
@@ -327,6 +367,7 @@ impl ClassVisual {
             cries: c.cries.clone(),
             anim: c.anim.clone(),
             skins: c.skins.clone(),
+            jet_look: c.jet_look.clone(),
         }
     }
 
@@ -423,6 +464,7 @@ impl TeamTemplate {
                 cries: Default::default(),
                 anim: Default::default(),
                 skins: Default::default(),
+                jet_look: Default::default(),
             }],
         }
     }
@@ -492,6 +534,28 @@ pub fn faction_row(faction: &str) -> usize {
 /// soldier's feet (m). Ours (issue #36); the PS2's camera collision is unread.
 pub const CAMERA_PULL_BODY_Y: f32 = 1.0;
 
+/// A pull point that moved farther than this in a tick starts the camera's
+/// stored fraction afresh (m; B1 `FUN_001b58f0`'s 6400.0 on the squared
+/// distance, B1:59356).
+const CAM_PULL_SNAP_M: f32 = 80.0;
+
+/// Which camera the world pulls in ([`WalkSim::cam_pull`]'s owner).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CamKind {
+    Soldier,
+    Seat,
+    Droid,
+}
+
+/// One frame's camera track: its kind, the point it is pulled in toward and
+/// the fraction of it clear of the world.
+#[derive(Debug, Clone, Copy)]
+struct Track {
+    kind: CamKind,
+    target: Vec3,
+    raw: f32,
+}
+
 pub struct WalkSim {
     pub sim: Sim,
     pending_class_kills: std::collections::BTreeMap<String, u32>,
@@ -500,7 +564,7 @@ pub struct WalkSim {
     /// Pending menu input, retained across render frames with no sim tick.
     respawn_requested: bool,
     pub teams: [TeamTemplate; 2],
-    /// World boxes the chase camera must not enter (visual only — never read
+    /// The models the chase camera must stay out of (visual only — never read
     /// by the sim, so it cannot affect determinism). Set by the caller once
     /// the scene is loaded; empty = terrain-only camera flooring.
     pub camera_blockers: CameraBlockers,
@@ -540,6 +604,14 @@ pub struct WalkSim {
     /// its first-person one (1), the zoomed view's.
     pub zoom_fov_mix: f32,
     pub cam_place: Option<(f32, Vec3)>,
+    /// The camera collision's stored track fraction (B1 `FUN_0019fd70`,
+    /// [`crate::camera_collide::ease_pull`]): stepped each tick, it lets a
+    /// pulled-in camera return slowly. Visual only.
+    pub cam_pull: f32,
+    /// Which camera [`WalkSim::cam_pull`] belongs to and its pull point at
+    /// the last tick: another camera, or a point moved over 80 m, starts
+    /// from its own fraction (the PS2 snaps past 80 m, B1:59356).
+    cam_pull_track: Option<(CamKind, Vec3)>,
     /// The player's FOV option (profile `Settings::fov_scale`), clamped to
     /// [`FOV_SCALE_RANGE`]; 1.0 = the PS2's framing.
     pub fov_scale: f32,
@@ -664,6 +736,8 @@ impl WalkSim {
             zoom_s: 1.0,
             zoom_fov_mix: 0.0,
             cam_place: None,
+            cam_pull: 1.0,
+            cam_pull_track: None,
             fov_scale: 1.0,
             voice: None,
             music: None,
@@ -1000,6 +1074,7 @@ impl WalkSim {
         self.zoom_s = ease(self.zoom_s, zoom.map_or(1.0, |z| z.value));
         self.zoom_fov_mix = ease(self.zoom_fov_mix, if zoom.is_some() { 1.0 } else { 0.0 });
         self.cam_place = self.next_cam_place();
+        self.step_cam_pull();
         // The squad's answers to this tick's orders join the voice queue;
         // the units' combat calls wait for the sound bank's gates
         // (`Commander::gate_calls`).
@@ -1061,26 +1136,33 @@ impl WalkSim {
     }
 
     pub fn camera(&self) -> Camera {
+        self.camera_track().0
+    }
+
+    /// The drawn camera, and for a camera the world pulls in, which one it
+    /// is, its pull point and its track's clear fraction this frame.
+    fn camera_track(&self) -> (Camera, Option<Track>) {
         // The end of the round stands on its camera shot (BF1, issue #33).
         if let Some(shot) = self.round_end.as_ref().and_then(|r| r.shot) {
-            return Camera {
+            let cam = Camera {
                 fov_y: self.fov_y(),
                 ..shot.camera()
             };
+            return (cam, None);
         }
         if let Some(b) = &self.backdrop {
-            return b.camera();
+            return (b.camera(), None);
         }
         if let Some(r) = self.sim.controlled_guided(self.player) {
             if let Some(c) = self.sim.guided_class(r) {
-                return guided_camera(r, c, self.fov_y());
+                return (guided_camera(r, c, self.fov_y()), None);
             }
         }
-        if let Some(cam) = self.droid_camera() {
-            return cam;
+        if let Some(got) = self.droid_camera() {
+            return got;
         }
-        if let Some(cam) = self.seat_camera() {
-            return cam;
+        if let Some(got) = self.seat_camera() {
+            return got;
         }
         let me = &self.sim.units[self.player.index as usize];
         let ideal = me.ideal_camera(self.sim.ground_rules, self.sim.views());
@@ -1088,13 +1170,38 @@ impl WalkSim {
         // Walls pull the camera in toward the soldier's middle, not the look
         // point above him, so he keeps his place on the screen (issue #36).
         let body = me.soldier.pos + Vec3::Y * CAMERA_PULL_BODY_Y;
-        Camera {
-            position: self.settle_camera(body, position),
+        let (position, track) = self.settle_camera(CamKind::Soldier, body, position, None, None);
+        let cam = Camera {
+            position,
             yaw: me.soldier.yaw,
             pitch: core::fmath::atan2(ideal.forward.y, ideal.forward.with_y(0.0).length()),
             fov_y: self.fov_y(),
             ..Camera::default()
-        }
+        };
+        (cam, Some(track))
+    }
+
+    /// One tick of the camera collision's stored fraction
+    /// ([`WalkSim::cam_pull`]).
+    fn step_cam_pull(&mut self) {
+        let Some(track) = self.camera_track().1 else {
+            self.cam_pull = 1.0;
+            self.cam_pull_track = None;
+            return;
+        };
+        self.cam_pull = if self.same_cam_track(&track) {
+            crate::camera_collide::ease_pull(self.cam_pull, track.raw, core::TICK_DT)
+        } else {
+            track.raw
+        };
+        self.cam_pull_track = Some((track.kind, track.target));
+    }
+
+    fn same_cam_track(&self, track: &Track) -> bool {
+        self.cam_pull_track.is_some_and(|(kind, target)| {
+            kind == track.kind
+                && target.distance_squared(track.target) <= CAM_PULL_SNAP_M * CAM_PULL_SNAP_M
+        })
     }
 
     fn drawn_eye(&self, me: &core::unit::Unit, ideal: &core::unit::IdealCamera) -> (Vec3, Vec3) {
@@ -1192,22 +1299,21 @@ impl WalkSim {
         0.5 - 0.5 * clip.y / clip.w
     }
 
-    fn droid_camera(&self) -> Option<Camera> {
+    fn droid_camera(&self) -> Option<(Camera, Option<Track>)> {
         let d = self.sim.controlled_droid(self.player)?;
         let (target, cam) = droid_camera(d, self.sim.droid_class(d)?, self.fov_y());
-        Some(Camera {
-            position: self.settle_camera(target, cam.position),
-            ..cam
-        })
+        let (position, track) =
+            self.settle_camera(CamKind::Droid, target, cam.position, None, None);
+        Some((Camera { position, ..cam }, Some(track)))
     }
 
     /// The player's seat camera, when the player rides (card VSEAT). A
     /// building turret's gunner is in third person always, the camera on the
     /// gun's look; zoomed (card VTURZ) it is [`turret_scope_camera`].
-    fn seat_camera(&self) -> Option<Camera> {
+    fn seat_camera(&self) -> Option<(Camera, Option<Track>)> {
         if self.sim.seat_zoom(self.player).is_some() {
             let look = self.sim.seat_look(self.player)?;
-            return Some(turret_scope_camera(&look, self.fov_y()));
+            return Some((turret_scope_camera(&look, self.fov_y()), None));
         }
         let m = self.sim.unit(self.player)?.mount?;
         let v = self.sim.vehicle(m.vehicle)?;
@@ -1229,26 +1335,68 @@ impl WalkSim {
             gun_look
         };
         let (target, cam) = vehicle_camera(v, seat, look, self.fov_y());
-        Some(Camera {
-            position: self.settle_camera(target, cam.position),
-            ..cam
-        })
+        // A building turret's camera passes its own building, as its aim
+        // ray does (`Sim::aim_point`); a rider's, his own vehicle's hull.
+        let (position, track) = self.settle_camera(
+            CamKind::Seat,
+            target,
+            cam.position,
+            v.instance,
+            Some(m.vehicle),
+        );
+        Some((Camera { position, ..cam }, Some(track)))
     }
 
-    /// Pull a camera at `position` looking at `target` in out of the world
-    /// boxes, then in short of the terrain sheet where the track crosses it
+    /// Pull a camera wanted at `desired` looking at `target` in along the
+    /// track until the world's models and the vehicles' hulls are
+    /// [`crate::camera_collide::CAMERA_RADIUS`] clear of it (`own_instance` /
+    /// `own_vehicle`, a gunner's building and a rider's vehicle, excepted;
+    /// a shorter track at once, a longer one at the PS2's return rate), then
+    /// in short of the terrain sheet where the track crosses it
     /// (the sheet is a surface, met from above or below; a cutter's hole is
     /// none), then keep it [`CAMERA_TERRAIN_GAP`] off the sheet on the side
     /// it is on. It never moves through the sheet: BF2 GEO1's hangar is 31 m
     /// under uncut terrain, and its entrance deck lies in a cutter's hole
     /// beside the hill, where a floor alone lifted the camera onto the hill.
-    fn settle_camera(&self, target: Vec3, mut position: Vec3) -> Vec3 {
-        // Buildings: pull the camera in along the track line before flooring,
-        // so a wall behind the player shortens the track instead of putting
-        // the camera inside the room next door.
-        if !self.camera_blockers.is_empty() {
-            position = self.camera_blockers.pull_in(target, position);
-        }
+    fn settle_camera(
+        &self,
+        kind: CamKind,
+        target: Vec3,
+        desired: Vec3,
+        own_instance: Option<u32>,
+        own_vehicle: Option<core::vehicle::VehicleHandle>,
+    ) -> (Vec3, Track) {
+        // The world's drawn models and the vehicles: pull the camera in along
+        // the track line before flooring, so a wall behind the player
+        // shortens the track instead of putting the camera inside the room
+        // next door (`camera_collide`). A droid is cast where it stands now.
+        let live = |i: u32| {
+            self.sim
+                .stations
+                .iter()
+                .find(|s| s.instance == Some(i))
+                .map(|s| s.pose())
+        };
+        let raw = if self.camera_blockers.is_empty() {
+            1.0
+        } else {
+            self.camera_blockers
+                .fraction(target, desired, own_instance, live)
+        };
+        let raw = raw.min(crate::camera_collide::hull_fraction(
+            &self.sim.collision,
+            target,
+            desired,
+            own_vehicle,
+        ));
+        let track = Track { kind, target, raw };
+        // In at once, back out at the PS2's rate (`step_cam_pull`).
+        let f = if self.same_cam_track(&track) {
+            raw.min(self.cam_pull)
+        } else {
+            raw
+        };
+        let mut position = target + (desired - target) * f;
         if let Some(h) = &self.sim.heightfield {
             let track = position - target;
             let len = track.length();
@@ -1274,7 +1422,7 @@ impl WalkSim {
                 };
             }
         }
-        position
+        (position, track)
     }
 
     /// The chase camera's vertical FOV: the PS2's, times the player's option.
@@ -1320,7 +1468,19 @@ impl WalkSim {
     /// Is the player's own body left out of the draw (the scope view,
     /// `re-zoom.md` §5)?
     pub fn player_body_hidden(&self) -> bool {
-        self.sim.unit(self.player).is_some_and(|u| u.scoped())
+        self.sim.unit(self.player).is_some_and(|u| u.scoped()) || self.camera_in_body()
+    }
+
+    /// Has the world pulled the chase camera into the soldier
+    /// ([`crate::camera_collide::BODY_HIDE_DIST`] from his pull point)? His
+    /// body is hidden then (the PS2 ghosts him).
+    pub fn camera_in_body(&self) -> bool {
+        match self.camera_track() {
+            (cam, Some(t)) if t.kind == CamKind::Soldier => {
+                cam.position.distance(t.target) < crate::camera_collide::BODY_HIDE_DIST
+            }
+            _ => false,
+        }
     }
 
     /// Placeholder soldier visual: a stance-height box standing on the ground

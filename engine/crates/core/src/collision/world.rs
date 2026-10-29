@@ -371,6 +371,9 @@ pub struct CollisionWorld {
     /// test.
     hulls: Vec<Hull>,
     stations: std::collections::BTreeMap<u32, u16>,
+    /// The building turrets: a placed instance whose bodies are a live
+    /// turret's building (`Sim::bind_building`).
+    turrets: std::collections::BTreeMap<u32, VehicleHandle>,
 }
 
 impl CollisionWorld {
@@ -413,6 +416,7 @@ impl CollisionWorld {
             envelopes,
             hulls: Vec::new(),
             stations: std::collections::BTreeMap::new(),
+            turrets: std::collections::BTreeMap::new(),
         }
     }
 
@@ -429,6 +433,24 @@ impl CollisionWorld {
     /// Resolve a collision instance to its station, if it is a service droid.
     pub fn station(&self, instance: u32) -> Option<u16> {
         self.stations.get(&instance).copied()
+    }
+
+    /// Make a placed instance's bodies a building turret's building: a hit on
+    /// one is a hit on the turret (`analysis/re-turret-collision.md` 1.2, 3.1:
+    /// the PS2's ray tests the armed building's own bodies and damages it).
+    pub fn bind_turret(&mut self, instance: u32, turret: VehicleHandle) {
+        self.turrets.insert(instance, turret);
+    }
+
+    /// Release a building turret's instance (its turret is gone): its bodies
+    /// are plain map bodies again.
+    pub fn unbind_turret(&mut self, turret: VehicleHandle) {
+        self.turrets.retain(|_, v| *v != turret);
+    }
+
+    /// Resolve a collision instance to its building turret, if it is one.
+    pub fn turret(&self, instance: u32) -> Option<VehicleHandle> {
+        self.turrets.get(&instance).copied()
     }
 
     /// Register swept rotation envelopes and return body-local transforms.

@@ -61,6 +61,14 @@
 //! Repeated failed windows at one place (`PIN_FAILS`, `PIN_ROAM`) first
 //! try RETW's floor walk to the leg waypoint, else recycle. Recycling is a
 //! last resort: the sweep records every use and repeated spots are defects.
+//! Card UNSN (`unseen`, D23): a bot on the level that would be recycled is
+//! moved to a hub past its failing link instead while no human can see it
+//! or the spot; every move is counted as the same defect.
+//! Card ARCM (`arcm`, D20): an arc whose walk failed twice running, or on
+//! which the bot went back and forth, is closed to it for 60 s and counted
+//! against its team; `route::plan_leg` draws round closed and shunned arcs
+//! while another way exists. Card WHY (`why`): every failed walk and every
+//! behaviour change carries a reason code (diagnostic only).
 //!
 //! Fighting (`behave`, `tactic`, `skill::Tier`): the Tactician's position
 //! takes priority; fallback fighters stand clear of others or circle within
@@ -76,10 +84,12 @@
 //! endgame (`HOLD_ENDGAME`) no Tactician position or sniper spot is taken.
 
 mod abilities;
+pub mod arcm;
 mod arsenal;
 mod avoid;
 mod behave;
 mod command;
+pub mod dfocus;
 mod draw;
 mod gunner;
 mod gunner_foot;
@@ -87,6 +97,7 @@ pub mod hover_drive;
 mod items;
 pub mod man;
 mod mover;
+pub mod proxy;
 mod ride;
 mod route;
 pub mod snipe;
@@ -95,7 +106,11 @@ mod state;
 mod steer;
 pub mod tactic;
 pub mod team;
+pub mod tokn;
+pub mod unseen;
+pub mod wake;
 pub mod walker_drive;
+pub mod why;
 
 pub(crate) use abilities::input as ability_input;
 pub use arsenal::vehicle_bonus;
@@ -104,7 +119,7 @@ pub use behave::think;
 pub use command::CmdState;
 pub use draw::{
     route_rand, stance_hold, unit_dir, unit_rand, unit_unit, SALT_BURST, SALT_CHARGE, SALT_DODGE,
-    SALT_ERR_AXIS, SALT_ERR_DIR, SALT_FOLLOW, SALT_FORMATION, SALT_GRENADE, SALT_HOLD,
+    SALT_DROID, SALT_ERR_AXIS, SALT_ERR_DIR, SALT_FOLLOW, SALT_FORMATION, SALT_GRENADE, SALT_HOLD,
     SALT_NEED_GUNNER, SALT_REACT, SALT_STANCE, SALT_TAP,
 };
 pub(crate) use gunner_foot::release_blasts_own_side;
@@ -477,11 +492,11 @@ pub const RING_SNAP: f32 = 10.0;
 /// stands (m): a circle does not back away.
 pub const RING_BACK: f32 = 2.0;
 /// The share of the bots whose fixed style is "stand and shoot" (the rest
-/// circle), Easy first, then every other difficulty: the PS2's weights for
-/// codes 2 and 3 with under 5 m of open ground round the bot, where zig-zag
-/// and flank are not drawn (74-93 % of its combat rows; re-soldier-ai 4.4)
-/// — Easy 3 : 1, Normal and Elite 1 : 1.
-pub const STAND_SHARE: [f32; 2] = [0.75, 0.5];
+/// circle), every tier: the PS2's weights for codes 2 and 3 with under 5 m
+/// of open ground round the bot, where zig-zag and flank are not drawn
+/// (74-93 % of its combat rows; re-soldier-ai 4.4) — the PS2's Normal
+/// and Elite 1 : 1. (The PS2's Easy 3 : 1 went with the port's old skill-8 Easy, 2026-10-28.)
+pub const STAND_SHARE: f32 = 0.5;
 /// A third of the standers crouch (attack mode 2: `n % 3 == 1`).
 pub const STAND_CROUCH: f32 = 1.0 / 3.0;
 /// OURS (the maintainer, 2026-10-05: "everyone stops in their tracks which puts them
@@ -519,13 +534,6 @@ pub const ROLL_LANE: f32 = 1.0;
 pub const REACT_STEP: f32 = 7.0;
 /// The floor of the charge-release draw `U(0.15, charge_hi)` (RE §4.4).
 pub const CHARGE_MIN: f32 = 0.15;
-/// D13: the AI presses ROLL_STANCE only once this long has passed in the
-/// current stance. It is not a tuning knob — it MIRRORS the soldier's own
-/// gate (`soldier::Soldier::step`, the stance-cycle arm), and it has to,
-/// because the cycle is edge-triggered: a press the soldier drops still
-/// leaves `prev_buttons` set, so the next tick's press is not an edge and the
-/// unit would change stance exactly once in its life.
-pub const STANCE_TAP_DELAY: f32 = 0.5;
 
 // ---------------------------------------------------------------------------
 // Card VAI: vehicles (`ride`). Which bot boards what, and when it gets out,
@@ -607,7 +615,8 @@ pub const MAN_NO_TARGET: u64 = 10 * crate::TICK_HZ as u64;
 pub const MAN_LONG: u64 = 45 * crate::TICK_HZ as u64;
 /// ...with no shot fired in the last this-many ticks (20 s).
 pub const MAN_NO_SHOT: u64 = 20 * crate::TICK_HZ as u64;
-/// Exit 3: the turret under this share of its health.
+/// A turret under this share of its health is not boarded (no longer an
+/// exit: the low-health bail-out was dropped, the maintainer 2026-10-28).
 pub const MAN_LOW_HEALTH: f32 = 0.3;
 /// Exit 4: the endgame - a team down to [`HOLD_ENDGAME`] tickets, or the
 /// gunner's own team down to this many living units.

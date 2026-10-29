@@ -69,17 +69,17 @@ impl Sim {
     /// BF2: think each living unit's [`crate::unit::AimBlock`] - a bot's
     /// every 5th tick, phased by its index, a human's every tick (card
     /// CLSE2, `analysis/re-soldier-ai.md` 18.1). The decay and the floor are
-    /// the skill of who shoots at the unit: the tier's one base skill here
-    /// (OURS: the PS2 keeps a skill per team and moves it by auto-balance);
-    /// under a per-team tier (card ARVS) the other side's.
+    /// the skill of who shoots at the unit: the other side's bots' (OURS: the
+    /// PS2 keeps a skill per team and moves it by auto-balance), its per-team
+    /// tier (card ARVS) or its DTEAM row (`Sim::enemy_skill_of`).
     fn aim_blocks(&mut self) {
         if self.ground_rules != crate::soldier::GroundRules::Bf2 {
             return;
         }
-        let skills = [0u8, 1, 2].map(|t| self.enemy_difficulty_of(t).skill());
+        let skills = [0u8, 1, 2].map(|t| self.enemy_skill_of(t));
         let tick = self.tick;
         for (i, u) in self.units.iter_mut().enumerate() {
-            let period = if u.is_player {
+            let period = if u.is_human() {
                 1
             } else {
                 crate::unit::AimBlock::PERIOD
@@ -231,6 +231,8 @@ impl Sim {
         self.aim_blocks();
         // 1a''. Card TEAM: the team board's roles, before the thinks.
         crate::ai::team::board(self);
+        // 1a'''. Card TOKN: the human players' hit tokens, before the thinks.
+        crate::ai::tokn::deal(self);
         let mut ai_updates: Vec<(usize, AiState, PadState, ai::NavTick)> = Vec::new();
         // Card TEAM: the unit grid answers "who is near" for the thinks, which
         // read a sim no one moves until the write-back.
@@ -245,6 +247,8 @@ impl Sim {
         self.unit_grid.clear();
         self.ai_wall_ms = ai_t0.elapsed().as_secs_f32() * 1000.0;
         let mut recycled: Vec<(usize, DeathCause)> = Vec::new();
+        // Card UNSN: the bots moved on unseen this tick, and where to.
+        let mut relocated: Vec<(usize, Vec3)> = Vec::new();
         // Card TPOS: positions taken this tick, granted in unit-index order.
         let mut granted: Vec<glam::Vec3> = Vec::new();
         // WGCAL/WGOUT/WGNXT: wait-start, first and later post departures.
@@ -296,6 +300,8 @@ impl Sim {
             } else if nt.stalled != 0 {
                 recycled.push((i, DeathCause::Stalled));
                 self.nav_stats.flank_stalled += u64::from(self.units[i].ai.flank.route.is_some());
+            } else if let Some(b) = nt.relocate {
+                relocated.push((i, Vec3::from_array(b.map(f32::from_bits))));
             }
             if self.units[i].mount.is_some() {
                 self.nav_stats.ai_drive_ticks += 1;
@@ -305,6 +311,22 @@ impl Sim {
             self.nav_stats.straight_fallbacks += u64::from(nt.straight);
             self.nav_stats.flank_legs += u64::from(nt.flank);
             self.nav_stats.stuck_max = self.nav_stats.stuck_max.max(nt.stuck_run);
+            // Card ARCM: a closing counts against the arc for the team.
+            if let Some(a) = nt.closed_arc {
+                self.nav_stats.arcs_closed += 1;
+                let team = self.units[i].team;
+                if self.note_arc_closed(team, a, i as u32) {
+                    self.nav_stats.arcs_shunned += 1;
+                }
+            }
+            self.nav_stats.shun_round += u64::from(nt.shun_round);
+            self.nav_stats.tokn_aimed_off += u64::from(nt.tokn_off);
+            self.nav_stats.shun_kept += u64::from(nt.shun_kept);
+            for w in ai::why::fail_codes(&nt) {
+                if let Some(n) = w.fail_index().and_then(|i| self.nav_stats.fails.get_mut(i)) {
+                    *n += 1;
+                }
+            }
             self.nav_stats.detoured_legs += u64::from(nt.detoured);
             self.nav_stats.blocked_ticks += u64::from(nt.blocked);
             self.nav_stats.level_rejected += u64::from(nt.level_rejected);
@@ -324,6 +346,25 @@ impl Sim {
             }
             for (n, f) in self.nav_stats.tpos_funnel.iter_mut().zip(nt.tpos_funnel) {
                 *n += u64::from(f);
+            }
+            self.nav_stats.tpos_flips += u64::from(nt.tpos_hyst & ai::tactic::HY_FLIP != 0);
+            self.nav_stats.tpos_kept += u64::from(nt.tpos_hyst & ai::tactic::HY_KEPT != 0);
+            // Card HYST: the early thinks, and what they changed (the WHY
+            // log's row of this tick, if the think wrote one).
+            if nt.wake != 0 {
+                for (b, n) in self.nav_stats.wakes.iter_mut().enumerate() {
+                    *n += u64::from(nt.wake >> b & 1);
+                }
+                if let Some(r) = self.units[i]
+                    .ai
+                    .why
+                    .last()
+                    .filter(|r| r.tick == self.tick && !r.failed)
+                {
+                    if let Some(n) = self.nav_stats.wake_why.get_mut(r.why as usize) {
+                        *n += 1;
+                    }
+                }
             }
             self.nav_stats.tpos_ev[16] += u64::from(
                 nt.tpos_query == 2 && nt.tpos_ev & crate::ai::tactic::EV_PICK_COVERED == 0,
@@ -384,6 +425,7 @@ impl Sim {
             let h = self.handle(i);
             self.kill_environment(h, cause);
         }
+        self.relocate_unseen(relocated);
         for (pilot, vehicle, seated) in wait_calls {
             // Recycled units and stale seating tenures cannot issue a call.
             if self.unit(pilot).is_some_and(|u| {
@@ -473,6 +515,10 @@ impl Sim {
             }
             if corpse {
                 self.death_block(i);
+                // A droid's burst took the body out of the world (DROIDDEATH).
+                if !self.units[i].body {
+                    continue;
+                }
             }
             if self.units[i].mount.is_some() {
                 self.ride(i, pad_i);
@@ -524,13 +570,23 @@ impl Sim {
                     stepped = Some(self.units[i].soldier.grounded);
                     let rules = self.ground_rules;
                     let look = self.units[i].look_scale();
+                    // The jet's taps are a human's (card JETP; bots: JETP2).
+                    let env = crate::soldier::AirEnv {
+                        ceiling: self.fly_ceiling,
+                        human: self.units[i].is_player,
+                    };
                     self.units[i]
                         .soldier
-                        .step_looking(dt, pad_i, &consts, rules, look);
+                        .step_looking(dt, pad_i, &consts, rules, look, env);
                     let u = &mut self.units[i];
                     if stamina_cheat && u.is_player {
                         u.soldier.energy = consts.energy_bar;
                         u.soldier.energy_depleted = false;
+                    }
+                    // The stamina cheat also keeps a player's jet tank full - a
+                    // class with a jet only, so it gives no rifleman a jet.
+                    if stamina_cheat && u.is_player && consts.has_jet() {
+                        u.soldier.fuel = 1.0;
                     }
                 }
             }
@@ -567,13 +623,8 @@ impl Sim {
             // the feet. With the whole step a jump mantled a ledge 0.6 m over
             // its apex.
             let s0 = &self.units[i].soldier;
-            let in_air = !s0.grounded
-                && matches!(
-                    s0.stance,
-                    crate::soldier::Stance::Jump
-                        | crate::soldier::Stance::Fall
-                        | crate::soldier::Stance::Thrown
-                );
+            // (The jets too, card JETP: `Stance::airborne`.)
+            let in_air = !s0.grounded && s0.stance.airborne();
             if !self.collision.is_empty() {
                 let drop = if in_air { STEP_HEIGHT - AIR_STEP } else { 0.0 };
                 let low = |c: Capsule| Capsule {
@@ -610,7 +661,14 @@ impl Sim {
             // probing from the feet then misses the ramp above them.
             if let Some(was_grounded) = stepped {
                 let s1 = &self.units[i].soldier;
-                let rising = s1.stance == crate::soldier::Stance::Jump && s1.vel.y > 0.0;
+                // A jet going up rises too (card JETP): a hover over a deck
+                // does not snap onto it while it climbs.
+                let rising = matches!(
+                    s1.stance,
+                    crate::soldier::Stance::Jump
+                        | crate::soldier::Stance::Jet
+                        | crate::soldier::Stance::Hover
+                ) && s1.vel.y > 0.0;
                 // The ground query keeps the whole step in the air (a
                 // floor the feet dipped under within the tick's move is
                 // still found), except for a face too steep to stand on
@@ -763,10 +821,12 @@ impl Sim {
             if self.cloak_input(i, None, fire_held, blocked) {
                 continue;
             }
+            let (infinite_ammo, no_reload) = self.ammo_cheats(i);
             let input = FireInput {
                 held: fire_held,
                 blocked,
-                infinite_ammo: self.cheats.infinite_ammo && self.units[i].is_player,
+                infinite_ammo,
+                no_reload,
                 // Phase C D9: the AI sniper distance table's yaw term, chosen
                 // by this unit's own `think` this tick from its range to its
                 // target (`analysis/re-ai-sniper.md` §2). A player's is
@@ -780,11 +840,8 @@ impl Sim {
             // 2). Ours is written once per fire tick, which has the same
             // effect — `spread_mult` is only read when a shot adds spread
             // (`weapon.rs`, `spread_per_shot`). A player keeps 1.0.
-            let ai_spread_mult = (self.units[i].controller == Controller::Ai).then(|| {
-                self.difficulty_of(self.units[i].team)
-                    .skill_at(self.units[i].skill)
-                    .spread_mult
-            });
+            let ai_spread_mult = (self.units[i].controller == Controller::Ai)
+                .then(|| self.skill_of(&self.units[i]).spread_mult);
             let fire_empty;
             let reload_started = {
                 let wc = &self.weapon_classes[wc_idx];
@@ -798,7 +855,7 @@ impl Sim {
                 // What refuses a shot before this update's input.
                 let dry = was_reloading || u.weapon.overheated || u.weapon.out_of_ammo(wc);
                 if p.pressed(buttons::RELOAD) {
-                    u.weapon.start_reload(wc);
+                    u.weapon.start_reload_as(wc, infinite_ammo);
                 }
                 u.weapon.update(dt, wc, input, &mut self.lcg, &mut shots);
                 // The empty click: a human's trigger press (the held counter
@@ -897,6 +954,7 @@ impl Sim {
 
         // 7. Vehicle pads: follow the posts just updated, decay, spawn.
         self.tick_vehicle_pads(dt);
+        self.rebuild_turrets();
 
         // The grenades that have gone off are gone (card HOLD).
         if !self.hazards.is_empty() {
@@ -1064,6 +1122,42 @@ impl Sim {
         let fwd = (self.aim_hit(i) - f).normalize_or(aim);
         let right = fwd.cross(Vec3::Y).normalize_or(aim_right);
         (f, (fwd, right, right.cross(fwd).normalize()))
+    }
+
+    /// Card UNSN: put the bots the think moved on unseen
+    /// ([`crate::ai::unseen`]) on their spots, in unit order, each with an
+    /// [`Event::Relocated`]. Two picked one spot this tick: the later is
+    /// recycled as before (and counted so).
+    fn relocate_unseen(&mut self, moves: Vec<(usize, Vec3)>) {
+        let mut taken: Vec<Vec3> = Vec::new();
+        for (i, to) in moves {
+            let h = self.handle(i);
+            let clash = taken.iter().any(|t| {
+                crate::nav::xz_dist(*t, to) < ai::unseen::CLEAR_XZ
+                    && (t.y - to.y).abs() < ai::unseen::CLEAR_DY
+            });
+            if clash {
+                let fails = &mut self.nav_stats.fails;
+                for (w, d) in [
+                    (ai::why::Why::Relocated, -1i64),
+                    (ai::why::Why::Recycled, 1),
+                ] {
+                    if let Some(n) = w.fail_index().and_then(|k| fails.get_mut(k)) {
+                        *n = n.saturating_add_signed(d);
+                    }
+                }
+                self.kill_environment(h, DeathCause::Stalled);
+                continue;
+            }
+            taken.push(to);
+            let u = &mut self.units[i];
+            let from = u.soldier.pos;
+            u.soldier.pos = to;
+            u.soldier.vel = Vec3::ZERO;
+            u.soldier.air_time = 0.0;
+            u.wall_push = Vec3::ZERO;
+            self.events.push(Event::Relocated { unit: h, from, to });
+        }
     }
 }
 

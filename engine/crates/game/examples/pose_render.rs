@@ -419,6 +419,7 @@ fn body_team(body: &str) -> game::walk::TeamTemplate {
         cries: Default::default(),
         anim: Default::default(),
         skins: Default::default(),
+        jet_look: Default::default(),
     }];
     team
 }

@@ -1,5 +1,5 @@
 use core::heightfield::Heightfield;
-use core::remote::DroidEnd;
+use core::remote::{DroidEnd, LIFETIME};
 use core::sim::{buttons, Event, PadState, Sim};
 use core::unit::Controller;
 use core::weapon::{HealthType, WeaponClass, DEG};
@@ -84,7 +84,7 @@ fn check_disc_values(game: &str, name: &str, w: &WeaponClass) {
     }
 }
 
-fn fly(game: &str, name: &str, roster: &ClassRoster, slot: u8, lifetime: f32) {
+fn fly(game: &str, name: &str, roster: &ClassRoster, slot: u8, max_health: f32) {
     let mut sim = Sim::empty(42);
     sim.heightfield = Some(flat());
     let class = roster.register(&mut sim, &mut Vec::new());
@@ -124,7 +124,9 @@ fn fly(game: &str, name: &str, roster: &ClassRoster, slot: u8, lifetime: f32) {
     sim.step(&[pad(buttons::ACTION, 0)]);
     assert!(sim.controlled_droid(owner).is_none(), "{game} {name}: back");
     let mut end = None;
-    for _ in 0..((lifetime + 2.0) * core::TICK_HZ as f32) as usize {
+    let mut health = 0.0;
+    for _ in 0..((LIFETIME + 2.0) * core::TICK_HZ as f32) as usize {
+        health = sim.droids.first().map_or(health, |d| d.health);
         sim.step(&[pad(0, 0)]);
         end = end.or(sim.events.iter().find_map(|e| match e {
             Event::DroidGone { end, .. } => Some((*end, sim.tick)),
@@ -136,8 +138,13 @@ fn fly(game: &str, name: &str, roster: &ClassRoster, slot: u8, lifetime: f32) {
     }
     let (end, tick) = end.unwrap_or_else(|| panic!("{game} {name}: never expired"));
     assert_eq!(end, DroidEnd::Expired);
-    let secs = (tick - launched) as f32 / core::TICK_HZ as f32;
-    assert!((secs - lifetime).abs() < 0.2, "{game} {name}: {secs} s");
+    // Ticks flown, the launch tick included: exactly 90 s.
+    assert_eq!(
+        tick - launched + 1,
+        90 * core::TICK_HZ as u64,
+        "{game} {name}"
+    );
+    assert_eq!(health, max_health, "{game} {name}: no drain");
 }
 
 #[test]
@@ -147,7 +154,8 @@ fn every_remote_droid_class_flies_the_discs_droid() {
         eprintln!("SKIP: requires both local baked discs");
         return;
     }
-    for (game, want, lifetime) in [("bf1", 8, 40.0), ("bf2", 13, 100.0 / 1.7)] {
+    // [ours] 90 s in both games; health (40 / 100) is only for damage.
+    for (game, want, max_health) in [("bf1", 8, 40.0), ("bf2", 13, 100.0)] {
         let db = load_classdb(&root.join("classes"), game, &["all", "imp", "rep", "cis"]).unwrap();
         let model = root.join(format!("common_{game}/models/com_weap_probedroid.glb"));
         assert!(!game::assets::load_glb(&model).unwrap().indices.is_empty());
@@ -169,7 +177,7 @@ fn every_remote_droid_class_flies_the_discs_droid() {
             found += 1;
             assert_eq!((held.channel, held.clips), (1, 1), "{game} {name}");
             check_disc_values(game, name, &held.weapon);
-            fly(game, name, &roster, held.slot, lifetime);
+            fly(game, name, &roster, held.slot, max_health);
         }
         assert_eq!(found, want, "{game}: classes with a remote droid");
     }
@@ -226,5 +234,102 @@ fn one_tap_calls_the_destruct_three_seconds_later() {
         let secs = (tick - tapped) as f32 / core::TICK_HZ as f32;
         assert!((secs - 3.0).abs() < 0.05, "{game} {name}: {secs} s");
         assert!(sim.controlled_droid(owner).is_none());
+    }
+}
+
+/// A walk with one class on both teams, its HUD rows as the battle builds them.
+fn walk_of(roster: &ClassRoster) -> game::walk::WalkSim {
+    let mut sim = Sim::empty(42);
+    let class = roster.register(&mut sim, &mut Vec::new());
+    let mut visual = game::walk::ClassVisual::from_roster(roster);
+    visual.held_hud = roster
+        .held
+        .iter()
+        .map(|h| (h.slot, h.hud.clone()))
+        .collect();
+    let faction = game::roster::FactionRoster {
+        faction: "rep".into(),
+        classes: vec![roster.clone()],
+    };
+    let t = game::walk::TeamTemplate::from_roster(&faction, &class, vec![visual]);
+    game::walk::WalkSim::with_teams(sim, Some(flat()), Vec3::ZERO, [t.clone(), t], None)
+}
+
+#[test]
+fn the_weapon_rows_show_the_droids_blaster_and_destruct_while_it_flies() {
+    let root = game::assets::baked_root();
+    if !root.join("classes/bf1_all.ron").exists() || !root.join("classes/bf2_all.ron").exists() {
+        eprintln!("SKIP: requires both local baked discs");
+        return;
+    }
+    // `[ours]` BF2's meshes on every map (maintainer, 2026-10-28): the BF1
+    // class's rows too, with no BF1 icon sheet.
+    let cases = [("bf1", "all_inf_marksman"), ("bf2", "rep_inf_ep3_officer")];
+    for (game, name) in cases {
+        let db = load_classdb(&root.join("classes"), game, &["all", "imp", "rep", "cis"]).unwrap();
+        let roster = ClassRoster::build(&db, name, 1, None).unwrap();
+        let remote = roster
+            .held
+            .iter()
+            .find(|h| h.weapon.remote.is_some())
+            .unwrap();
+        let slot = remote.slot;
+        // The droid class's own map icon.
+        let icon = game::minimap::droid_icon(&db, &remote.weapon.name);
+        assert_eq!(icon.texture.as_deref(), Some("troop_icon"), "{game} {name}");
+        assert_eq!(icon.scale, 1.0, "{game} {name}");
+        let mut walk = walk_of(&roster);
+        let owner = walk.player;
+        let u = &mut walk.sim.units[owner.index as usize];
+        for h in &mut u.held {
+            h.state.active = h.slot == slot;
+        }
+        u.cur1 = Some(u.held.iter().position(|h| h.slot == slot).unwrap() as u8);
+        let pad = |buttons: u32| PadState {
+            buttons,
+            ..Default::default()
+        };
+        let on_foot = game::hud_feed::weapon_rows(&walk);
+        assert!(
+            on_foot[0].is_some() && on_foot[1].is_some(),
+            "{game} {name}"
+        );
+        for _ in 0..30 {
+            walk.sim.step(&[pad(buttons::SECONDARY_FIRE)]);
+        }
+        assert!(walk.sim.controlled_droid(owner).is_some(), "{game} {name}");
+        let [primary, secondary] = game::hud_feed::weapon_rows(&walk);
+        let primary = primary.expect("blaster row");
+        let secondary = secondary.expect("destruct row");
+        assert_eq!(primary.key, game::roster::BLASTER_HUD, "{game} {name}");
+        assert_eq!(primary.icon, None, "{game} {name}");
+        assert_eq!(primary.total, None, "{game} {name}: the blaster is endless");
+        assert_eq!(secondary.key, game::roster::DESTRUCT_HUD, "{game} {name}");
+        assert_eq!(secondary.icon, None, "{game} {name}");
+        assert_eq!(secondary.total, Some(1), "{game} {name}: one destruct");
+        // The BF2 HUD (loaded on every map) draws both rows' meshes.
+        let model = ui::hud::HudModel {
+            hp: 40.0,
+            hp_max: 40.0,
+            weapon: Some(primary.clone()),
+            weapon2: Some(secondary.clone()),
+            ..Default::default()
+        };
+        let mut view = game::hud_feed::HudView::load(&root, render::HEADLESS_FORMAT, None).unwrap();
+        view.update(&model, 10.0, [1280, 720]);
+        view.update(&model, 10.0, [1280, 720]);
+        for row in ["player1weapon1mesh", "player1weapon2mesh"] {
+            let b = view
+                .bounds(row)
+                .unwrap_or_else(|| panic!("{game} {name}: {row} drawn"));
+            assert!(b[2] > b[0] && b[3] > b[1], "{game} {name}: {row} {b:?}");
+        }
+        // Control back: the soldier's own rows return.
+        walk.sim.step(&[pad(0)]);
+        walk.sim.step(&[pad(buttons::ACTION)]);
+        assert!(walk.sim.controlled_droid(owner).is_none());
+        let back = game::hud_feed::weapon_rows(&walk);
+        assert_eq!(back[0], on_foot[0], "{game} {name}");
+        assert!(back[1].is_some(), "{game} {name}");
     }
 }

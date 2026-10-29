@@ -188,6 +188,24 @@ fn a_sniper_picks_the_long_lane_hint_over_a_nearer_short_lane_one() {
     assert!(held, "it reached its spot");
 }
 
+/// Card MAIS: the mission's `AISnipeSuitabilityDist` bounds a lane at twice
+/// itself. The indoor maps' 30 m (a lane to 60 m) leaves the Normal sight
+/// (49 m) and the pick as they were; 20 m (to 40 m) drops the FAR hint's
+/// 45 m lane, and the NEAR one is the pick.
+#[test]
+fn the_snipe_suitability_distance_bounds_the_lane() {
+    let (mut sim, w) = line_scene();
+    let h = sniper(&mut sim, w, Vec3::new(85.0, 0.0, 0.0));
+    let u = sim.unit(h).expect("alive").clone();
+    sim.mission_ai.set_snipe_suitability(30.0);
+    assert!((lane(&sim, &u, FAR).1 - 45.0).abs() < 0.01);
+    assert_eq!(pick(&sim, h, &u, None).expect("a spot").spot, FAR);
+    sim.mission_ai.set_snipe_suitability(20.0);
+    assert_eq!(lane(&sim, &u, FAR), (0.0, 0.0), "45 m > 40 m");
+    assert!((lane(&sim, &u, NEAR).1 - 25.0).abs() < 0.01);
+    assert_eq!(pick(&sim, h, &u, None).expect("a spot").spot, NEAR);
+}
+
 /// Acceptance: two snipers that spawn together and think on one tick take
 /// two spots - the far hint and the near one - not one.
 #[test]

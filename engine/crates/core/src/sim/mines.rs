@@ -147,6 +147,18 @@ impl Sim {
         self.item_damage(damage, scales, health_type, m.flight.team, team)
     }
 
+    /// The unit a placed or flown item (auto-turret, remote droid and its
+    /// strike, mine, guided rocket) credits: its owner's CURRENT life in the
+    /// same unit slot, so a kill after the owner respawned or changed class
+    /// (a new generation) still reaches him. A slot that now plays for
+    /// another team keeps the stale handle, which credits nobody.
+    pub(super) fn item_owner(&self, owner: UnitHandle, team: u8) -> UnitHandle {
+        match self.units.get(owner.index as usize) {
+            Some(u) if u.team == team && u.gen >= owner.gen => self.handle(owner.index as usize),
+            _ => owner,
+        }
+    }
+
     pub(super) fn item_damage(
         &self,
         damage: f32,
@@ -215,7 +227,8 @@ impl Sim {
                 weapon_class: g.weapon_class as u32,
                 cause,
             });
-            self.explode(&e, g.pos, Some(g.owner), Some(g.team));
+            let owner = self.item_owner(g.owner, g.team);
+            self.explode(&e, g.pos, Some(owner), Some(g.team));
         }
     }
 
@@ -333,7 +346,7 @@ impl Sim {
                     }
                 }
                 for (_, v) in self.alive_vehicles() {
-                    let (centre, radius) = self.vehicle_sphere(v);
+                    let (centre, radius) = self.vehicle_blast_sphere(v);
                     let d = centre - m.flight.pos;
                     if v.team == Some(m.flight.team) {
                         friend |= c.friend_radius > 0.0

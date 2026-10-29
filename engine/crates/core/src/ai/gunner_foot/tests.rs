@@ -147,7 +147,7 @@ fn the_tracked_error_decays_to_the_floor_and_grows_with_movement() {
     use crate::skill::{Difficulty, Skill};
     use crate::unit::{Controller, UnitSpec};
     // A bot's skill is the TIER's (`core::skill_for`), so the level is
-    // chosen by the difficulty: Easy 8, Normal 17.
+    // chosen by the difficulty: Easy 14, Normal 17.
     let build = |d: Difficulty| {
         let mut s = crate::sim::Sim::empty(5);
         s.ground_rules = crate::soldier::GroundRules::Bf1;
@@ -237,8 +237,8 @@ fn the_error_offset_is_bounded_and_re_drawn_once_per_think() {
     for t in 0..40u64 {
         assert!((r(t).length() - 1.0).abs() < 1e-5, "unit vector");
     }
-    // The Elite tier's cap overrides the level's, so the offset a skill-20
-    // Elite bot can carry is 0.5 m and a Hard one 1.2 m.
+    // The Elite tier's cap overrides the level's, so the offset a
+    // skill-20 Elite bot can carry is 0.5 m and a Hard one 1.2 m.
     use crate::skill::Difficulty;
     assert_eq!(Difficulty::Elite.skill_at(20).err_cap, 0.5);
     assert!((Difficulty::Hard.skill_at(20).err_cap - 1.2).abs() < 1e-6);

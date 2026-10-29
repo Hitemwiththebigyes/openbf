@@ -17,7 +17,7 @@ Disc values: the baked class chains (`engine/assets_baked/classes/{bf1,bf2}_*.ro
 | retaking control | a fresh press of the remote weapon's trigger while its droid lives | same | V |
 | giving control back | [H] the exit/ACTION button; the droid stays where it is until it runs down | same | H |
 | flight | hover on a lift spring over the ground ray (`SetAltitude` 1.75 / imp 2.0), stick drives toward `MaxSpeed` 9 / `MaxStrafeSpeed` 7 under an `Acceleraton` cap of 70 (BF1 only reads the misspelled key) | `SetAltitude` 2.0, `Acceleration` 25 | V |
-| how long it lasts | `MaxHealth` 40, `AddHealth` -1/s: 40 s | `MaxHealth` 100, `AddHealth` -1/s, `EnergyAutoRestore` -1.7/s: energy out first, about 58.8 s | V, H (energy max 100) |
+| how long it lasts | `MaxHealth` 40, `AddHealth` -1/s: 40 s | `MaxHealth` 100, `AddHealth` -1/s, `EnergyAutoRestore` -1.7/s: energy out first, about 58.8 s | V, H (energy max 100); the port: 90 s in both, §7 |
 | what it fires | channel 0 `*_remotedroid_blaster`: single-shot bolt every 0.2 s, 60 m/s, 10 damage, no vehicle/building damage | 0.15 s, 160 m/s, 60 damage, vehicle/building x 0.1 | V |
 | the destruct | channel 1 `*_remotedroid_destruct`: one fresh press starts a 3.0 s (`MaxPressedTime`) countdown that cannot be cancelled -> an orbital salvo: 4 rounds 0.75 s apart, from 600 m at 70°, spread 2.5 m, each a 1000-damage bolt that explodes for 500 over 10.5 m | the same press and countdown -> the incinerator: a 12 m, 10000-damage burst at the droid (person/droid/animal only), plus `com_sfx_weap_remotedroid_exp` | V |
 | its health | shot and blasted like a droid (`DroidScale`); destroyed -> its `ExplosionName` (BF1 50 damage over 3/5 m; BF2 a 0-damage look) | same | V |
@@ -133,12 +133,105 @@ h - a = LiftDamp 9.8 dt / (LiftSpring + 9.8 / (9a)): 0.092 m at 30 Hz for BF1 (1
 
 | decision | tag |
 |---|---|
-| ACTION returns control; the droid stays until it runs down; a fresh press of the remote's trigger retakes it | H |
+| ACTION returns control; the droid stays until its time runs out; a fresh press of the remote's trigger retakes it | H |
+| Lifetime: every droid, BF1 and BF2, all maps, players and bots, lasts exactly 90 s from launch (2700 ticks, the launch tick included; `remote::LIFETIME`). The timer is separate from health: health starts at the class's `MaxHealth` (BF1 40, BF2 100) and only damage lowers it; `AddHealth` and BF2's `EnergyAutoRestore` are read but not applied (the PS2: BF1 40 s, BF2 about 58.8 s, §0) | OURS (maintainer, 2026-10-28) |
+| Timeout (`DroidEnd::Expired`): the droid vanishes quietly, with no explosion, no destruct and no damage; control returns to the soldier. A destruct countdown still running at 90 s is dropped. The spent clip follows the same rule as after any other ending (a restock relaunches) | OURS (maintainer, 2026-10-28) |
+| The HUD's stamina bar shows the droid's time left (90 s full) while flying, in both games; the health bar shows its health | OURS |
 | One fresh press of the droid's secondary trigger starts the 3 s countdown; it runs to the destruct whatever the trigger, the control hand-back or the owner does next (until the droid dies) | V (§5) |
 | The BF2 incinerator is a direct radius-12 burst with the ordnance's scales, under the normal blast friendly-fire rule; MaxTargets and the 120° cone are not modelled | H |
-| The owner's death ends the droid (its explosion goes off); the owner boarding a vehicle only returns control | H |
-| Bot use: launch with an enemy target within 40 m and the remote ready; steer at the nearest enemy in line of sight; close to `OptimalRange`, back off under half of it; fire within `MaxRange` when the yaw error is under 0.15 rad; hand back after 10 s with no target; no destruct | OURS |
+| The owner's death ends the droid (`DroidEnd::OwnerDied`): it vanishes with NO explosion (was: its explosion went off, H) | OURS (maintainer, 2026-10-28) |
+| The owner boarding a vehicle only returns control | H |
+| Explosions: only shot down (`Destroyed`) and the self-destruct (`Destruct`) set off the droid's `ExplosionName` and its effect and sound; the self-destruct is unchanged (3 s countdown, BF1 salvo / BF2 burst) | OURS (maintainer, 2026-10-28) |
+| Bot use: card DROIDAI's rules, §7.1 (was: launch whenever an enemy target was within 40 m; no destruct) | OURS (maintainer, 2026-10-28) |
 | Pitch turns at `MaxTurnSpeed` | OURS |
 | Collision sphere 0.35 m | OURS, provisional |
 | The frame normal's (n.x k, n.y + 0.1, n.z k) shaping and the velocity ray (step 9) are omitted; the frame uses n | OURS |
 | Engine and radio loops are not played | gap |
+
+### 7.1 The bots' droid (card DROIDAI, 2026-10-28) [ours]
+
+The maintainer's playtest note: a bot launched its droid every time one was ready and an enemy was near, then stood
+in the open, a free kill, flying a droid with a worse gun than its own. The rule now: a droid carrier sends its droid
+into a fight it is not in, from where no enemy sees it, some of the time; flies a while; then goes in itself. The PS2's
+own bot use of the remote is not read (§6). Constants in `core/src/remote.rs` (`BOT_*`), the launch in
+`core/src/ai/abilities.rs` (`launch_ok`), the flight in `core/src/sim/remotes.rs` (`bot_droid_pad`).
+
+**When it launches** (all must hold; the cheap tests first):
+
+1. the remote is ready (a clip, not reloading) and its last droid is gone;
+2. 30 s have passed since its last flight ended (`BOT_REST`; `AiState::droid_rest`);
+3. this 2 s window's draw passes, a 25 % chance (`BOT_ROLL`, `BOT_CHANCE`; the per-unit hash draw, sim state only);
+4. the body was not hit in the last 3 s (`BOT_HIT_QUIET`);
+5. a fight is near: an enemy the bot knows of, by its own eyes or ears or a friend's telling (its contacts), is within
+   60 m (`BOT_FIGHT`);
+6. no enemy is within 20 m (`BOT_NEAR`), seen or not: then it fights with its own gun;
+7. no enemy within 60 m has a line of sight to its body (from the enemy's muzzle to the body's centre).
+
+A bot reaches cover the usual way: the Tactician's hide phase, a guard post, or a wall between it and the fight. No
+separate walk to a hiding spot was added (a judgment call: the Tactician's position and cover scoring already put
+fighters in hidden spots, and a second mover for the droid would compete with them).
+
+**While it flies** (each tick, before the droid's own steering):
+
+- the flight ends when the body is hit, when an enemy within 15 m (`BOT_GUARD`) has a line of sight to the body, after
+  30 s in the air (`BOT_FLIGHT`), or after 10 s with no enemy within 40 m of the droid (`BOT_RECALL`);
+- an ending flight with an enemy within 8 m of the droid (`BOT_BLAST`) starts the destruct as it hands back (the
+  countdown runs on, §7); otherwise the droid is left where it is until its 90 s run out;
+- the droid shoots the nearest enemy it sees within 40 m (`BOT_RANGE`; closes to `OptimalRange`, backs off under half
+  of it, fires within `MaxRange` with the yaw error under 0.15 rad), else flies at the nearest enemy the bot knows of
+  within 60 m of the body;
+- among 2 enemies within 8 m (`BOT_CROWD`), or among 1 with its health under 30 % (`BOT_LOW`), it starts the destruct
+  and flies on until it goes off: BF1's orbital salvo or BF2's incinerator burst, whichever the class has.
+
+**After**: control comes back to the body, which fights or walks to its objective as any bot does, and rests 30 s.
+
+Bots still never shoot droids (public issue #58). With these rules a carrier's body is rarely the free kill #58
+describes, but enemy droids still fly among bots untouched.
+
+**Measured** (`DROID_CENSUS=1 round_to_outcome 36000 <seed> bf2_cor1 bf1_kas2 bf2_nab2`, seeds 1 and 2; "exposed" =
+an enemy within 20 m of the body, or one within 60 m in sight of it, at the throw):
+
+| | before | after |
+|---|---|---|
+| launches per carrier-minute (6 rounds) | 0.80-1.40, 189 in all | 0.30-0.78, 81 in all |
+| launches with the body exposed | 127 of 189 (67 %) | 15 of 81 (19 %) |
+| carrier time spent flying (body standing) | 22-58 % | 7-27 % |
+| body hits taken while flying | 448 | 17 |
+| carriers killed while flying | 68 | 1 |
+| droids ending in the destruct | 0 | 15 |
+| `stuck_max` per round (ticks) | 480 360 360 300 420 360 | 300 420 360 300 360 360 |
+
+The exposed launches left are the press-to-throw lag: the switch, the press and the 0.3 s `InitialSalvoDelay` after
+the decision, while enemies move.
+
+## 8. The HUD while flying (card DROIDHUD, 2026-10-28)
+
+Disc values from the baked class chains; how the HUD uses them is `re-hud.md` §3 and `re-hud-map.md` §3.
+
+- **Map icon** [V disc, D use]: the droid class (`*_weap_inf_remotedroid_ord`) authors `MapTexture troop_icon` and
+  `MapScale 1.0` in both games (soldiers' `troop_icon` is 1.4). The droid is a controllable, so the units table
+  (`FUN_003a5940`, re-hud-map §3) lists it with its class's map info [D: not captured]. The port draws every live droid
+  with that icon in its team's colour, enemy ones only when detected. `[ours]` the player's own flown droid shows too.
+- **Weapon rows** [V disc, D use]: the PS2 publishes the controlled entity's weapons (`FUN_003b3398`); the droid's are
+  its WEAPONSECTION 1 blaster (channel 0, ammo 0 = endless) and WEAPONSECTION 2 destruct (channel 1, ammo 1, 1 round).
+  BF2: blaster `HUDTag hud_vehicle_recoiless`, destruct `HUDTag hud_detpack_plunger`; the 1-player layout carries a
+  MeshInfo for `hud_vehicle_recoiless` under both `player1weapon1mesh` and `player1weapon2mesh` and one for
+  `hud_detpack_plunger` under `player1weapon2mesh`. `hud_detpack_plunger` is a flat card whose texture is a picture of
+  the probe droid. BF1 (no HUDTag): blaster `IconTexture IMP_pistol_icon`, destruct `HUD_orbital_strike_icon` (rep's
+  blaster also has `GeometryName rep_weap_inf_pistol`). The blaster shows the infinity ring and no count; the destruct
+  counts 1 (ammo 1 x `RoundsPerClip` 1). Not checked against a PS2 frame of a flying droid.
+- Sprint while flying: the owner's pad is cleared while the droid holds it (`Sim::droid_pad`) and the flight reads no
+  SPRINT, so it does nothing (test `sprint_does_nothing_while_flying`).
+- Pictures: `engine/artifacts/lead_tmp/droidhud/{bf2_nab2,bf1_tat2}.png` (`golden_hud::droid_hud_picture`).
+
+## 9. The camera, the rows' icons and the map while flying (card DROIDCAM, maintainer playtest 2026-10-28)
+
+| decision | tag |
+|---|---|
+| Third-person chase camera (`game::walk::droid_camera`): track centre = the disc's `EyePointOffset` (0.5 m) above the droid, view = the droid's aim pitched down by its `TiltValue` (5°), camera `DROID_CHASE` (0, 0, 2.2) from the centre in that tilted frame (straight back at eye height, as the soldier's stand section), so it swings round the droid as it pitches. The disc's `TrackOffset` (0, -0.25, 1.5 / 1.8) is read and not used; how the PS2 applies it is untraced. The world pulls it in and floors it as it does the soldier's (`settle_camera`, `camera_collide`) | OURS |
+| The reticle is the droid's aim ray 1024 m out projected through the drawn camera (`WalkSim::reticle_y`), as the soldier's; the reticle pick is the same ray (`core/src/sim/input.rs`) | OURS (as the soldier, §10.4 of re-aim-assist) |
+| The droid's model is drawn turned by π (the engine's models face +Z; the aim looks down -Z at yaw 0), so its blaster faces where it flies; checked by eye on the pictures, not against a PS2 frame | D |
+| Weapon rows on EVERY map: blaster `hud_vehicle_recoiless`, destruct `hud_detpack_plunger` (BF2's HUDTags, from `common_bf2`, which the BF2 HUD loads on BF1 maps too); BF1's `IconTexture` sheets are not shown | OURS (maintainer: "the bf1 remote droid hud icons look poor") |
+| Minimap while flying: centred on the droid, turned with its heading, its zoom from the droid's speed and the droid class's map view radii; the standing body shows as a soldier icon; on foot again, the camera and no own icon | OURS |
+- Pictures: `engine/artifacts/lead_tmp/droidcam/{bf2_nab2,bf1_tat2}.png` (`golden_hud::droid_hud_picture`, now with the
+  models drawn).

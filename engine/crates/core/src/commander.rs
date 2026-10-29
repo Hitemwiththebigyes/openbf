@@ -387,6 +387,9 @@ struct PostInfo {
     neutral: bool,
     atk: i32,
     def: i32,
+    /// Card MAIS: the mission lets this team's bots capture it
+    /// ([`crate::cp::CommandPost::ai_no_capture`]).
+    capturable: bool,
 }
 
 /// The post player `slot` stands NEAREST in XZ, if that player is alive.
@@ -468,6 +471,7 @@ pub fn plan(sim: &mut Sim, team: u8) {
             neutral: c.owner.is_none(),
             atk: c.def.value_atk[t],
             def: c.def.value_def[t],
+            capturable: !c.ai_no_capture(team),
         });
     }
     // Unreachable from where the unit stands. No graph (or no hub for the
@@ -494,6 +498,7 @@ pub fn plan(sim: &mut Sim, team: u8) {
     // --- card DEFS: each own post's cap of defenders, and who is over it ---
     let radius = threat_radius(sim);
     let alive = sim.alive_units().filter(|(_, u)| u.team == team).count();
+    let share = defend_share(sim.aggressiveness(team));
     let mut threat: Vec<u64> = Vec::with_capacity(posts.len());
     let mut cap: Vec<usize> = Vec::with_capacity(posts.len());
     for (ci, p) in posts.iter().enumerate() {
@@ -504,7 +509,7 @@ pub fn plan(sim: &mut Sim, team: u8) {
             old.threat.get(ci).copied().unwrap_or(0)
         };
         threat.push(last);
-        cap.push(defend_cap(alive, sim.tick.saturating_sub(last)));
+        cap.push(defend_cap(alive, sim.tick.saturating_sub(last), share));
     }
     // The defenders a post keeps are the nearest to it (ties: the lower
     // slot); `held` counts them, and a draw that lands on a full post is
@@ -634,7 +639,10 @@ pub fn plan(sim: &mut Sim, team: u8) {
                 neutral: p.neutral,
                 atk: p.atk,
                 def: p.def,
-                open: reach(hub, p) && exclude != Some(ci as u32),
+                // Card MAIS (OURS): a post its bots may not capture
+                // (`AICanCaptureCP`) is not drawn to take; held, it is
+                // still defended.
+                open: reach(hub, p) && exclude != Some(ci as u32) && (p.friendly || p.capturable),
             }));
             let r = roll(i as u32, sim.tick, gen);
             let mut got = None;
@@ -817,15 +825,27 @@ pub fn plan(sim: &mut Sim, team: u8) {
 }
 
 /// Card DEFS, rules 2-4: how many defenders a post keeps, of a team with
-/// `alive` living units, `quiet` ticks after its last threat or capture.
-pub fn defend_cap(alive: usize, quiet: u64) -> usize {
+/// `alive` living units, `quiet` ticks after its last threat or capture, at
+/// `share` of the team ([`defend_share`]).
+pub fn defend_cap(alive: usize, quiet: u64, share: f32) -> usize {
     if quiet >= DEFEND_QUIET_LEAVE {
         0
     } else if quiet >= DEFEND_QUIET_FALL {
         DEFEND_QUIET_CAP
     } else {
-        ((DEFEND_SHARE * alive as f32).round() as usize).max(1)
+        ((share * alive as f32).round() as usize).max(1)
     }
+}
+
+/// Card MAIS (OURS, a named deviation): the share of a team that defends one
+/// threatened post at the mission's `SetTeamAggressiveness` `aggr` -
+/// [`DEFEND_SHARE`] over it, at most all of the team. The PS2 stores the
+/// value and no reader of it is known in either game (re-ai-difficulty 3,
+/// open question 5); a less aggressive side (BF1 and BF2 Endor's Imperials,
+/// 0.7) holds what it has with more of its men. 1.0 (the default) is
+/// [`DEFEND_SHARE`].
+pub fn defend_share(aggr: f32) -> f32 {
+    (DEFEND_SHARE / aggr.max(DEFEND_SHARE)).min(1.0)
 }
 
 /// Card DEFS, rule 3: the distance inside which an enemy threatens a post -
@@ -2222,6 +2242,46 @@ mod tests {
             .expect("enemy");
     }
 
+    /// Card MAIS: a team the mission makes less aggressive
+    /// (`SetTeamAggressiveness` 0.7, BF1 and BF2 Endor's Imperials) keeps
+    /// more of itself on a threatened post: 0.25 / 0.7 of sixteen is six, so
+    /// the six nearest of the eight that took it hold it. 1.0 is the old
+    /// quarter.
+    #[test]
+    fn a_less_aggressive_team_keeps_more_defenders() {
+        assert_eq!(defend_share(1.0), DEFEND_SHARE);
+        assert!((defend_share(0.7) - 0.25 / 0.7).abs() < 1e-6);
+        assert_eq!(defend_share(0.1), 1.0, "never over the whole team");
+        assert_eq!(defend_cap(16, 0, defend_share(0.7)), 6);
+        let mut sim = defs_world();
+        sim.units[0].soldier.pos = Vec3::new(40.0, 0.0, 20.0);
+        sim.units[1].soldier.pos = Vec3::new(40.0, 0.0, 21.0);
+        sim.mission_ai.aggressiveness[0] = 0.7;
+        plans(&mut sim, 1);
+        assert_eq!(defenders(&sim, 1), [2, 3, 5, 6, 7, 8]);
+    }
+
+    /// Card MAIS (OURS): a post the team's bots may not capture is not drawn
+    /// to attack; one they hold still is to defend.
+    #[test]
+    fn a_post_barred_to_the_teams_bots_is_not_drawn_to_take() {
+        let mut sim = defs_world();
+        // cp0 and cp2 are the enemy's: bar both to team 0's bots.
+        sim.cps[0].ai_capture_ban = 1;
+        sim.cps[2].ai_capture_ban = 1;
+        sim.units[0].soldier.pos = Vec3::new(40.0, 0.0, 20.0);
+        sim.units[1].soldier.pos = Vec3::new(40.0, 0.0, 21.0);
+        plans(&mut sim, 1);
+        for i in [0, 1, 7, 8] {
+            assert!(
+                !matches!(sim.commander[0].of(i), Some(Objective::Attack(0 | 2))),
+                "unit {i} drew a barred post: {:?}",
+                sim.commander[0].of(i)
+            );
+        }
+        assert_eq!(defenders(&sim, 1), [2, 3, 5, 6], "its own post is held");
+    }
+
     /// Card DEFS, rule 2: of the eight that targeted the post, a quarter of
     /// the team's sixteen living units hold it - the four NEAREST - and the
     /// other four have another post at once.
@@ -2232,7 +2292,7 @@ mod tests {
         sim.units[0].soldier.pos = Vec3::new(40.0, 0.0, 20.0);
         sim.units[1].soldier.pos = Vec3::new(40.0, 0.0, 21.0);
         plans(&mut sim, 1);
-        assert_eq!(defend_cap(16, 0), 4);
+        assert_eq!(defend_cap(16, 0, DEFEND_SHARE), 4);
         assert_eq!(defenders(&sim, 1), [2, 3, 5, 6], "the four nearest hold it");
         for i in [0, 1, 7, 8] {
             assert!(
@@ -2242,9 +2302,9 @@ mod tests {
             );
         }
         // The share is of the LIVING team, and never under one defender.
-        assert_eq!(defend_cap(17, 0), 4);
-        assert_eq!(defend_cap(22, 0), 6);
-        assert_eq!(defend_cap(1, 0), 1);
+        assert_eq!(defend_cap(17, 0, DEFEND_SHARE), 4);
+        assert_eq!(defend_cap(22, 0, DEFEND_SHARE), 6);
+        assert_eq!(defend_cap(1, 0, DEFEND_SHARE), 1);
         // With eight of the team dead the cap is two.
         let mut sim = defs_world();
         for i in 9..17 {
@@ -2377,8 +2437,11 @@ mod tests {
         assert_eq!(defenders(&sim, 1), [0, 1, 2, 3], "4 s after the capture");
         plans(&mut sim, 1);
         assert_eq!(defenders(&sim, 1), [0], "5 s: one, the nearest");
-        assert_eq!(defend_cap(16, DEFEND_QUIET_FALL - 1), 4);
-        assert_eq!(defend_cap(16, DEFEND_QUIET_FALL), DEFEND_QUIET_CAP);
+        assert_eq!(defend_cap(16, DEFEND_QUIET_FALL - 1, DEFEND_SHARE), 4);
+        assert_eq!(
+            defend_cap(16, DEFEND_QUIET_FALL, DEFEND_SHARE),
+            DEFEND_QUIET_CAP
+        );
 
         // Threatened: an enemy 25 m from the post (the radius here is the
         // floor, 30 m: the posts span 80 m).
@@ -2434,8 +2497,11 @@ mod tests {
             sim.commander[0].of(0),
             Some(Objective::Attack(0 | 2))
         ));
-        assert_eq!(defend_cap(16, DEFEND_QUIET_LEAVE - 1), DEFEND_QUIET_CAP);
-        assert_eq!(defend_cap(16, DEFEND_QUIET_LEAVE), 0);
+        assert_eq!(
+            defend_cap(16, DEFEND_QUIET_LEAVE - 1, DEFEND_SHARE),
+            DEFEND_QUIET_CAP
+        );
+        assert_eq!(defend_cap(16, DEFEND_QUIET_LEAVE, DEFEND_SHARE), 0);
         // Threatened all the while: the four are still there.
         let mut sim = fixture();
         enemy_near_cp1(&mut sim, 25.0);

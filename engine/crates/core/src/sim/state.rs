@@ -31,6 +31,13 @@ use glam::Vec3;
 /// [`crate::collision::NO_GROUND`] mean what it says — nothing catches you.
 pub const LETHAL_LANDING_SPEED: f32 = 25.0;
 
+/// [`Event::Hit`]'s `age` for a blast's hit: no round flew to the victim.
+/// A bolt that lands in its first update strikes at age 0 (`Bolt::advance`;
+/// a 2000 m/s sniper bolt inside 66 m), so 0 cannot also mean a blast.
+///
+/// [`Bolt::advance`]: crate::projectile::Bolt::advance
+pub const BLAST_AGE: f32 = -1.0;
+
 /// [`Sim::outcome`] when the time limit runs out on equal reinforcements:
 /// BF2's `ObjectiveConquest:GameOptionsTimeLimitUp` calls
 /// `MissionVictory({1,2})` — BOTH teams win (`analysis/re-time-limit.md` §1
@@ -38,35 +45,39 @@ pub const LETHAL_LANDING_SPEED: f32 = 25.0;
 /// "undecided" (255).
 pub const OUTCOME_DRAW: u8 = 2;
 
-/// Session cheats (PLAN §Cheats): the originals' invincibility + infinite
-/// ammo, plus openbf's infinite stamina / jet fuel / all-awards. Toggled from
-/// the pause menu (ui::menu) or `--cheat`; reset on restart; apply to PLAYER
-/// units only (MP: host-only, later).
+/// Session cheats (PLAN §Cheats, card CHEAT2): the PS2's `sos` and `ammo`,
+/// plus openbf's no reloading, infinite stamina, unlock-all, jet fuel and
+/// all-awards. Toggled from the pause menu's rows or its Morse words
+/// (`game::cheats`); the game keeps them for the session and copies them
+/// into each battle's `Sim`. They apply to PLAYER units only (the PS2 gates
+/// on a human controller). Not hashed and not in the input log.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Cheats {
     pub invincible: bool,
+    /// The reserve never goes down; the clip still empties and reloads
+    /// (refilled for free).
     pub infinite_ammo: bool,
-    /// Sprint energy never drains.
+    /// `[ours]` The clip never empties: shots draw from the reserve, then
+    /// from the clip, with no reload. With `infinite_ammo` nothing is drawn.
+    pub no_reload: bool,
+    /// Sprint energy never drains, and `[ours]` neither does a jet class's
+    /// jet fuel (one cheat for both, 2026-10-28).
     pub infinite_stamina: bool,
-    /// Jet/jump-pack fuel never drains (no jetpacks yet — registered for the
-    /// registry's sake).
-    pub infinite_jet_fuel: bool,
+    /// `[ours]` Every class costs the player 0 points (`game::unlocks`).
+    pub all_classes: bool,
     /// All awards granted this session (awards system lands at P8).
     pub all_awards: bool,
 }
 
 impl Cheats {
     /// Registry view: (id, label, enabled) in menu order.
-    pub fn entries(&self) -> [(&'static str, &'static str, bool); 5] {
+    pub fn entries(&self) -> [(&'static str, &'static str, bool); 6] {
         [
-            ("invincible", "Invincibility (PS2: sos)", self.invincible),
-            ("ammo", "Infinite ammo (PS2: ammo)", self.infinite_ammo),
-            (
-                "stamina",
-                "Infinite stamina (openbf)",
-                self.infinite_stamina,
-            ),
-            ("jet", "Infinite jet fuel (openbf)", self.infinite_jet_fuel),
+            ("invincible", "Invincibility (sos)", self.invincible),
+            ("ammo", "Infinite ammo (ammo)", self.infinite_ammo),
+            ("clip", "No reloading (clip)", self.no_reload),
+            ("stamina", "Infinite stamina (run)", self.infinite_stamina),
+            ("classes", "Unlock all classes (all)", self.all_classes),
             ("awards", "All awards (openbf, session)", self.all_awards),
         ]
     }
@@ -75,11 +86,45 @@ impl Cheats {
         match id {
             "invincible" => self.invincible = !self.invincible,
             "ammo" => self.infinite_ammo = !self.infinite_ammo,
+            "clip" => self.no_reload = !self.no_reload,
             "stamina" => self.infinite_stamina = !self.infinite_stamina,
-            "jet" => self.infinite_jet_fuel = !self.infinite_jet_fuel,
+            "classes" => self.all_classes = !self.all_classes,
             "awards" => self.all_awards = !self.all_awards,
             _ => {}
         }
+    }
+
+    /// The registry id a pause-menu Morse word toggles: the PS2's `sos` and
+    /// `ammo`, and `[ours]` `clip`, `run` and `all`.
+    pub fn id_for_word(word: &str) -> Option<&'static str> {
+        Some(match word {
+            "sos" => "invincible",
+            "ammo" => "ammo",
+            "clip" => "clip",
+            "run" => "stamina",
+            "all" => "classes",
+            _ => return None,
+        })
+    }
+
+    /// The five the Morse words toggle one by one.
+    pub const FIVE: [&'static str; 5] = ["invincible", "ammo", "clip", "stamina", "classes"];
+
+    /// `[ours]` The `cheat` word: all five on, or all five off when they
+    /// already are. Returns whether they are on now.
+    pub fn toggle_five(&mut self) -> bool {
+        let on = !Self::FIVE.iter().all(|id| self.is_on(id));
+        for id in Self::FIVE {
+            if self.is_on(id) != on {
+                self.toggle(id);
+            }
+        }
+        on
+    }
+
+    /// Is the cheat `id` on?
+    pub fn is_on(&self, id: &str) -> bool {
+        self.entries().iter().any(|e| e.0 == id && e.2)
     }
 }
 
@@ -146,7 +191,9 @@ pub enum Event {
         /// The health the hit took (after the shield and the scales; 0 for
         /// a hit the shield swallowed).
         damage: f32,
-        /// Bolt age at impact (seconds) — distance = age × velocity.
+        /// Bolt age at impact (seconds) — distance = age × velocity; 0 for
+        /// a bolt that struck in its first update, [`BLAST_AGE`] for a
+        /// blast.
         age: f32,
         /// The victim's health after the hit (0 or less: it killed). The hurt
         /// cry's 2 % test reads it (card UCRY, `analysis/re-unit-chatter.md`
@@ -161,6 +208,20 @@ pub enum Event {
     Kill {
         shooter: UnitHandle,
         victim: UnitHandle,
+    },
+    /// Card DROIDDEATH (`analysis/re-droid-death.md`): a dead droid took the
+    /// chunk death at its death block - after the [`Event::Kill`] (or
+    /// [`Event::EnvDeath`]) of the same death, which the PS2 decides at the
+    /// damage. The game draws the class's `ExplosionName` effect at `pos`
+    /// (the body's sphere centre) and stops drawing the body; the item drop
+    /// follows as on any death. `team` / `class` index [`Sim::classes`];
+    /// `scale` is the chunks' launch scale ([`crate::unit::chunk_scale`]).
+    DroidBurst {
+        unit: UnitHandle,
+        pos: Vec3,
+        team: u8,
+        class: u8,
+        scale: f32,
     },
     BoltExpired {
         pos: Vec3,
@@ -279,6 +340,13 @@ pub enum Event {
     EnvDeath {
         unit: UnitHandle,
         cause: DeathCause,
+    },
+    /// Card UNSN: a stalled bot moved on where no human saw it, in place of
+    /// its recycle (`crate::ai::unseen`): a defect, listed by the sweep.
+    Relocated {
+        unit: UnitHandle,
+        from: Vec3,
+        to: Vec3,
     },
     /// Damage reached a vehicle's hull pool (card VDMG): a bolt (`shooter`
     /// set) or a collision (`None`). `damage` is what left the pool.
@@ -478,6 +546,15 @@ pub struct Sim {
     /// `difficulty`, but only when one is set, so an unset pair keeps every
     /// hash the sim had before.
     pub team_difficulty: [Option<crate::skill::Difficulty>; 2],
+    /// Card DTEAM [ours]: humans the team rule counts on each team (0, 1)
+    /// BESIDES the human units in `units` - a sweep's stand-in human
+    /// (`round_to_outcome`'s `SWEEP_HUMAN_TEAM`). An INPUT: it reaches the
+    /// hash only through the per-team rows ([`Sim::team_rows`]).
+    pub extra_humans: [u8; 2],
+    /// Card MAIS: the AI settings the mission script sets ([`MissionAi`]).
+    /// An INPUT like `omni_radius`, set by whoever builds the sim from the
+    /// mission; NOT hashed. The default is every knob's engine default.
+    pub mission_ai: MissionAi,
     /// Radius inside which a target is inside the AI's view cone whatever the
     /// angle: BF2's 10 m omni (RE §9.1). **BF1 maps set 0.0** — BF1's cone
     /// test has no omni branch. An INPUT like `nav`, set by whoever builds the
@@ -487,13 +564,10 @@ pub struct Sim {
     /// like `omni_radius`, set from the manifest's `source_game` by the same
     /// sites ([`crate::soldier::GroundRules::for_game`]); BF2's by default.
     pub ground_rules: crate::soldier::GroundRules,
-    /// Host option: apply the tier's `human_damage` multiplier to a bot's
-    /// bolt into a human (D12). An INPUT — constant for a round; what it
-    /// gates reaches the hash through health and tickets.
-    pub human_damage_on: bool,
     /// Host option: apply the Elite team handicap (bleed ×1.25 against a team
-    /// with a human whose opponent has none, D12). An INPUT, like
-    /// `human_damage_on`.
+    /// with a human whose opponent has none, D12). An INPUT — constant for a
+    /// round; what it gates reaches the hash through tickets. (Its twin, the
+    /// human damage multiplier, was retired by card DRETIRE.)
     pub team_handicap_on: bool,
     pub rng: SimRng,
     pub lcg: GameLcg,
@@ -566,6 +640,12 @@ pub struct Sim {
     /// slot's event feed before each tick (the feed scores the points); not
     /// hashed, like the pads. Missing = 0.
     pub spawn_points: Vec<i32>,
+    /// `[ours]` (card UNLK3): per player slot and team, each class's cost
+    /// for this slot as its career has earned it down (the game writes it
+    /// from the profile; [`Sim::class_refusal`]'s points test reads it in
+    /// place of `unlock_points`). An INPUT like `spawn_points`, not hashed.
+    /// Missing = the class's own `unlock_points`.
+    pub spawn_costs: Vec<[Vec<u32>; 2]>,
     /// Issue #28: per player slot, the ammo of each class it swapped away
     /// from this life ([`super::spawn::ClassAmmo`]); cleared when the slot's
     /// unit dies. Parallel to `players`; hashed only while some slot holds
@@ -583,6 +663,10 @@ pub struct Sim {
     /// The vehicle spawn pads (`crate::vehicle_pad`, card VPAD), ticked after
     /// the posts. Hashed last — and NOTHING at all when empty.
     pub vehicle_pads: Vec<crate::vehicle_pad::VehiclePad>,
+    /// The map's building turrets (card VTURB, [`Sim::add_building_turret`]):
+    /// how each is spawned and bound, and when a fallen one is built again.
+    /// Hashed only while one is down.
+    pub building_turrets: Vec<super::vehicles::BuildingTurret>,
     /// Per vehicle CLASS (`Vehicle::class` indexes it), the hover numbers —
     /// `None` for a class nothing integrates (walkers, flyers, turrets).
     /// SETUP data like `weapon_classes`, NOT hashed. A vehicle whose class
@@ -692,6 +776,12 @@ pub struct Sim {
     /// `game::layout::MapLayout::apply_mission`. An INPUT like the
     /// heightfield: set once and not part of [`Sim::hash`].
     pub death_regions: Vec<Region>,
+    /// The soldiers' fly-height ceiling, world y (card JETP,
+    /// `analysis/re-jetpack.md` §5.3): the mission's `SetMaxPlayerFlyHeight`
+    /// (`game::mission::MissionDef::max_player_fly_height`), else
+    /// [`crate::soldier::DEFAULT_FLY_CEILING`]. An INPUT like
+    /// `death_regions`: set once and not hashed.
+    pub fly_ceiling: f32,
     /// The map's water level, when it has water (the manifest's `water`
     /// height). An INPUT like `omni_radius`, set by whoever builds the sim;
     /// NOT hashed. Card HOLD reads it: a bot takes no hold position on a
@@ -752,6 +842,18 @@ pub struct Sim {
     /// Phase B: the two teams' objective plans (`core::commander`). SIM STATE
     /// — hashed, replay-exact, re-made one team per tick.
     pub commander: [crate::commander::TeamPlan; 2],
+    /// Card ARCM: per team, per arc of `nav`, the round's closings by its
+    /// bots (`ai::arcm`): an arc that keeps failing leaves the team's route
+    /// draw. SIM STATE — hashed once any is counted; empty until then.
+    pub arc_fails: [Vec<crate::ai::arcm::ArcFails>; 2],
+    /// Card TOKN: the human players' hit tokens and who holds them
+    /// (`ai::tokn`). SIM STATE - hashed once any is dealt; empty with no
+    /// human or with the budget off.
+    pub tokens: Vec<crate::ai::tokn::Token>,
+    /// Card DFOCUS: when each living human player was first seen alive at a
+    /// tier that focuses on him (`ai::dfocus`: his spawn grace). SIM STATE -
+    /// hashed when not empty; empty with no human or below Hard.
+    pub focus_born: Vec<crate::ai::dfocus::Born>,
 }
 
 /// What the follower had to fall back on this round — the numbers the sweep
@@ -766,6 +868,16 @@ pub struct NavStats {
     /// Longest run of ticks any unit spent making no progress toward its
     /// waypoint.
     pub stuck_max: u16,
+    /// Card WHY: the failed walks of the round by code, in the order of
+    /// `ai::why::FAILS` (a window's failure and what came of it each count).
+    pub fails: [u64; crate::ai::why::FAILS.len()],
+    /// Card ARCM: arcs closed to a bot (`ai::arcm`), arcs a team shunned,
+    /// legs drawn round a closed or shunned arc, and legs that kept one for
+    /// want of another way.
+    pub arcs_closed: u64,
+    pub arcs_shunned: u64,
+    pub shun_round: u64,
+    pub shun_kept: u64,
     /// Legs whose straight line crossed a barrier and got a corner path
     /// instead (Phase A.1, `core::nav::NavGraph::detour`).
     pub detoured_legs: u64,
@@ -835,6 +947,12 @@ pub struct NavStats {
     /// Bolts fired by an AI unit that HIT somebody — the numerator of the
     /// sweep's `hit_rate`, against `ai_shots`.
     pub ai_hits: u64,
+    /// Card TOKN: ticks a bot without a token pressed fire at a human (its
+    /// aim beside him), its bolts and blasts that met him anyway, and of
+    /// those the ones it had aimed at someone else (crossfire).
+    pub tokn_aimed_off: u64,
+    pub tokn_stray: u64,
+    pub tokn_cross: u64,
     /// Card FFLN: kills credited to a unit (a bolt's or a blast's), and of
     /// those the ones whose victim was on the killer's own team (not the
     /// killer himself: `self_kills`). OUTPUT only.
@@ -858,7 +976,17 @@ pub struct NavStats {
     /// confirming ray shut). OUTPUT only.
     pub tpos_ev: [u64; 17],
     /// ...and `NavTick::tpos_funnel` summed. OUTPUT only.
-    pub tpos_funnel: [u64; 14],
+    pub tpos_funnel: [u64; 15],
+    /// Card HYST: positions replaced by another on one think (flips), and
+    /// queries whose winner did not beat the position held by the margin.
+    /// OUTPUT only.
+    pub tpos_flips: u64,
+    pub tpos_kept: u64,
+    /// Card HYST: thinks woken early by a hit, a near miss, a new enemy in
+    /// sight (one count per bit), and the behaviour changes those thinks
+    /// made, by their `Why` code. OUTPUT only.
+    pub wakes: [u64; 3],
+    pub wake_why: [u64; 32],
     /// Phase D: squad commands ISSUED (one per accepted edge, whatever the
     /// number of bots that took it — `Event::Command` carries that). OUTPUT
     /// only, never hashed: the sweep's player is idle, so the acceptance reads
@@ -918,15 +1046,139 @@ pub fn omni_radius_for(source_game: &str) -> f32 {
     }
 }
 
+/// Card MAIS: the AI knobs a mission script sets
+/// (`analysis/re-ai-difficulty.md` 3; `engine/artifacts/loop/cards/MAIS.md`).
+/// The default of each is the PS2 engine's, so a mission that sets none
+/// plays as before.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MissionAi {
+    /// `SetAIViewMultiplier(m)`: every AI's view distance times this (BF2
+    /// clamps it to [0.1, 1.0]; default 1.0). Dagobah 0.35, Felucia 0.65.
+    pub view_mult: f32,
+    /// `SetTeamAggressiveness(team, v)` per team (default 1.0). OURS: below
+    /// 1 the team keeps more defenders on its posts
+    /// ([`crate::commander::defend_share`]).
+    pub aggressiveness: [f32; 2],
+    /// `AISnipeSuitabilityDist(d)`, m (BF2 clamps it to [0, 100]; default
+    /// 70): a sniper's lane counts ground out to `2 d`
+    /// ([`crate::ai::snipe::lane`]).
+    pub snipe_suitability: f32,
+}
+
+/// `AISnipeSuitabilityDist`'s default (BF2 `DAT_005fdffc`, 70.0).
+pub const SNIPE_SUITABILITY_DEFAULT: f32 = 70.0;
+
+impl Default for MissionAi {
+    fn default() -> Self {
+        Self {
+            view_mult: 1.0,
+            aggressiveness: [1.0; 2],
+            snipe_suitability: SNIPE_SUITABILITY_DEFAULT,
+        }
+    }
+}
+
+impl MissionAi {
+    /// `SetAIViewMultiplier`'s clamp (BF2 `FUN_002e37c0`).
+    pub fn set_view_mult(&mut self, m: f32) {
+        self.view_mult = m.clamp(0.1, 1.0);
+    }
+
+    /// `AISnipeSuitabilityDist`'s clamp (BF2: [0, 100]).
+    pub fn set_snipe_suitability(&mut self, d: f32) {
+        self.snipe_suitability = d.clamp(0.0, 100.0);
+    }
+}
+
 impl Sim {
-    /// The tier of team `team`'s units: its [`Sim::team_difficulty`] override,
-    /// else the round's [`Sim::difficulty`] (a team past 1 has no override).
-    pub fn difficulty_of(&self, team: u8) -> crate::skill::Difficulty {
-        self.team_difficulty
+    /// Card MAIS: team `team`'s AI tier as its bots see with it - the
+    /// difficulty tier's columns, its `view_mult` times the mission's
+    /// [`MissionAi::view_mult`]. Every view distance a bot uses comes from
+    /// here.
+    pub fn ai_tier(&self, team: u8) -> crate::skill::Tier {
+        let mut t = self.difficulty_of(team).tier();
+        t.view_mult *= self.mission_ai.view_mult;
+        t
+    }
+
+    /// Card MAIS: team `team`'s `SetTeamAggressiveness` (1.0 past team 1).
+    pub fn aggressiveness(&self, team: u8) -> f32 {
+        self.mission_ai
+            .aggressiveness
             .get(usize::from(team))
             .copied()
+            .unwrap_or(1.0)
+    }
+
+    /// The tier of team `team`'s units: its [`Sim::team_difficulty`] override,
+    /// else the row the DTEAM rule gives the team ([`Sim::team_rows`]: the
+    /// round's [`Sim::difficulty`] unless the team has a human surplus), else
+    /// (a team past 1) the round's.
+    pub fn difficulty_of(&self, team: u8) -> crate::skill::Difficulty {
+        let t = usize::from(team);
+        self.team_difficulty
+            .get(t)
+            .copied()
             .flatten()
+            .or_else(|| self.team_rows().get(t).map(|r| r.tier))
             .unwrap_or(self.difficulty)
+    }
+
+    /// Card DTEAM: the humans the team rule counts on teams 0 and 1 - every
+    /// occupied player slot's unit, alive or dead (a dead unit keeps its
+    /// team; a vacated slot, a human who left, counts no more), plus
+    /// [`Sim::extra_humans`].
+    pub fn humans_per_team(&self) -> [u8; 2] {
+        let mut n = self.extra_humans;
+        for h in self.players.iter().flatten() {
+            if let Some(u) = self.units.get(h.index as usize).filter(|u| u.team < 2) {
+                n[usize::from(u.team)] = n[usize::from(u.team)].saturating_add(1);
+            }
+        }
+        // Card DPRX: a human proxy counts as a human here too.
+        for u in self
+            .units
+            .iter()
+            .filter(|u| u.proxy_human.is_some() && u.team < 2)
+        {
+            n[usize::from(u.team)] = n[usize::from(u.team)].saturating_add(1);
+        }
+        n
+    }
+
+    /// Card DTEAM [ours]: each team's bots under the round's tier and the
+    /// humans now on each side ([`crate::skill::team_skill`]). Derived, never
+    /// stored, so a human joining, leaving or changing team is in the next
+    /// read; the skill reaches a bot at its next spawn ([`Sim::bot_skill`]).
+    pub fn team_rows(&self) -> [crate::skill::TeamSkill; 2] {
+        crate::skill::team_skill(self.difficulty, self.humans_per_team())
+    }
+
+    /// The integer skill a bot of team `team` spawns with: the base skill
+    /// of the team's [`Sim::team_difficulty`] override (the arena), else the
+    /// team's DTEAM row's skill, else (a team past 1) the round's base.
+    pub fn bot_skill(&self, team: u8) -> u8 {
+        let t = usize::from(team);
+        match self.team_difficulty.get(t).copied().flatten() {
+            Some(d) => d.base_skill(),
+            None => self
+                .team_rows()
+                .get(t)
+                .map_or(self.difficulty.base_skill(), |r| r.level),
+        }
+    }
+
+    /// The skill vector of whoever shoots AT a unit of team `team`: the
+    /// other side's row at its bot skill for teams 0 and 1, the round's for
+    /// any other team (the aim blocks' decay and floor).
+    pub fn enemy_skill_of(&self, team: u8) -> crate::skill::Skill {
+        match team {
+            0 | 1 => {
+                let e = 1 - team;
+                self.difficulty_of(e).skill_at(self.bot_skill(e))
+            }
+            _ => self.difficulty.skill(),
+        }
     }
 
     /// The tier of whoever shoots AT a unit of team `team`: the other side's
@@ -946,10 +1198,11 @@ impl Sim {
             tick: 0,
             difficulty: crate::skill::Difficulty::default(),
             team_difficulty: [None; 2],
+            extra_humans: [0; 2],
+            mission_ai: MissionAi::default(),
             // BF2's omni; a BF1 map's builder sets 0.0 (RE §9.1).
             omni_radius: 10.0,
             ground_rules: crate::soldier::GroundRules::Bf2,
-            human_damage_on: true,
             team_handicap_on: true,
             rng: SimRng::new(seed),
             // Independent generator; decorrelated seed so the two streams
@@ -968,11 +1221,13 @@ impl Sim {
             side_choice: Vec::new(),
             class_carousel: Vec::new(),
             spawn_points: Vec::new(),
+            spawn_costs: Vec::new(),
             class_ammo: Vec::new(),
             ai_spawned: [0, 0],
             units: Vec::new(),
             vehicles: Vec::new(),
             vehicle_pads: Vec::new(),
+            building_turrets: Vec::new(),
             hover_params: Vec::new(),
             walker_params: Vec::new(),
             seat_setup: Vec::new(),
@@ -1015,6 +1270,7 @@ impl Sim {
             waves: [SpawnWaves::mission_default(), SpawnWaves::mission_default()],
             ai_alive_cap: 16,
             death_regions: Vec::new(),
+            fly_ceiling: crate::soldier::DEFAULT_FLY_CEILING,
             water_level: None,
             water_mask: None,
             hazards: Vec::new(),
@@ -1034,6 +1290,9 @@ impl Sim {
                 crate::commander::TeamPlan::new(0),
                 crate::commander::TeamPlan::new(1),
             ],
+            arc_fails: Default::default(),
+            tokens: Vec::new(),
+            focus_born: Vec::new(),
         }
     }
 
@@ -1078,6 +1337,16 @@ impl Sim {
         }
         self.weapon_classes.push(wc);
         self.weapon_classes.len() - 1
+    }
+
+    /// Unit `i`'s (`infinite_ammo`, `no_reload`) cheats: a player's only,
+    /// on foot and in a seat (the PS2 asks for a human controller).
+    pub(crate) fn ammo_cheats(&self, i: usize) -> (bool, bool) {
+        let player = self.units[i].is_player;
+        (
+            player && self.cheats.infinite_ammo,
+            player && self.cheats.no_reload,
+        )
     }
 
     pub fn unit(&self, h: UnitHandle) -> Option<&Unit> {
@@ -1346,6 +1615,17 @@ impl Sim {
                 eat(&d.map_or([0xff], crate::skill::Difficulty::bytes));
             }
         }
+        // Card DTEAM: the per-team rows, only when a human surplus moves them
+        // off the round's row, so a sim with equal humans (every bot-only
+        // round) keeps the hash it had.
+        let rows = self.team_rows();
+        if rows != crate::skill::team_skill(self.difficulty, [0, 0]) {
+            eat(b"DTEAM");
+            for r in rows {
+                eat(&r.tier.bytes());
+                eat(&[r.level]);
+            }
+        }
         eat(&self.rng.state().to_le_bytes());
         eat(&self.lcg.state().to_le_bytes());
         for u in &self.units {
@@ -1555,6 +1835,13 @@ impl Sim {
                 p.hash_into(&mut eat);
             }
         }
+        // A fallen building turret's rebuild tick: nothing while none is down.
+        for (i, t) in self.building_turrets.iter().enumerate() {
+            if let Some(at) = t.rebuild_at {
+                eat(&(i as u32).to_le_bytes());
+                eat(&at.to_le_bytes());
+            }
+        }
         // The items on the field (PWUP): nothing at all when there are none.
         if !self.pickups.is_empty() {
             eat(&(self.pickups.len() as u32).to_le_bytes());
@@ -1567,6 +1854,33 @@ impl Sim {
             eat(&(self.stations.len() as u32).to_le_bytes());
             for s in &self.stations {
                 s.hash_into(&mut eat);
+            }
+        }
+        // Card ARCM: nothing until a closing is counted.
+        if self.arc_fails.iter().any(|t| !t.is_empty()) {
+            eat(b"ARCM");
+            for t in &self.arc_fails {
+                eat(&(t.len() as u32).to_le_bytes());
+                for f in t {
+                    eat(&[f.n]);
+                    eat(&f.last.to_le_bytes());
+                }
+            }
+        }
+        // Card TOKN: nothing until a token is dealt.
+        if !self.tokens.is_empty() {
+            eat(b"TOKN");
+            eat(&(self.tokens.len() as u32).to_le_bytes());
+            for t in &self.tokens {
+                t.hash_into(&mut eat);
+            }
+        }
+        // Card DFOCUS: nothing until a human is focused on.
+        if !self.focus_born.is_empty() {
+            eat(b"DFOCUS");
+            eat(&(self.focus_born.len() as u32).to_le_bytes());
+            for b in &self.focus_born {
+                b.hash_into(&mut eat);
             }
         }
         // Positive assist timers are controller history, even without a target.

@@ -355,6 +355,7 @@ fn world(map: &str, factions: [&str; 2], geometry: &str) -> Option<World> {
         cries: Default::default(),
         anim: Default::default(),
         skins: Default::default(),
+        jet_look: Default::default(),
     }];
     let mut walk = game::walk::WalkSim::with_teams(sim, None, Vec3::ZERO, [t.clone(), t], None);
     walk.vehicle_seats = build.seats.clone();

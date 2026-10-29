@@ -16,13 +16,15 @@
 //! ([`core::impact::ImpactLook::effect`]) at the hit with world axes — riding
 //! the hull when it struck a vehicle — then its `ExplosionName` class's
 //! effect ([`Fx::explode`]); a destroyed vehicle (`VehicleDestroyed`)
-//! detonates its class's explosion effect. A name the running game's
+//! detonates its class's explosion effect, a droid's chunk death
+//! (`DroidBurst`) its class's `ExplosionName` effect. A name the running game's
 //! effect table does not hold spawns nothing (§7: BF2's inherited BF1
 //! names). The PS2 draws an explosion's effect only within 60 m of the
 //! camera (B1 FUN_002701a0) — a PS2 budget the port drops (FEEL_NOTES).
 //! A bolt that strikes water spawns `ImpactEffectWater` on the surface; a
 //! blast at or below the water + 0.3 m spawns `WaterEffect` instead of
-//! `Effect`; a round in flight carries its `TrailEffect` (`trail.rs`).
+//! `Effect`; a round in flight carries its `TrailEffect` (`trail.rs`); a
+//! soldier in a jet stance carries his class's `JetEffect` (`jet.rs`).
 //! Still to come: the vehicles' own Damage / Chunk / Thrust / Wake / Stomp
 //! effects.
 //!
@@ -40,6 +42,7 @@ mod abilities;
 mod children;
 pub mod draw;
 pub mod emitter;
+mod jet;
 mod repair;
 pub mod ripple;
 mod trail;
@@ -338,6 +341,8 @@ pub struct LiveEffect {
     round: Option<trail::Round>,
     repair: Option<(UnitHandle, usize)>,
     buff: Option<(UnitHandle, usize)>,
+    /// The jet soldier whose `JetEffect` this is (card JETP2, `fx/jet.rs`).
+    jet: Option<UnitHandle>,
     float: Option<f32>,
 }
 
@@ -377,6 +382,7 @@ impl LiveEffect {
             round: None,
             repair: None,
             buff: None,
+            jet: None,
             float: None,
         };
         fx.advance(0.0);
@@ -506,6 +512,8 @@ pub struct Fx {
     /// [`Fx::take_sounds`], and where (card WSND).
     sounds: Vec<(String, Vec3)>,
     rounds: trail::Rounds,
+    /// The drawn jet frames by unit index ([`Fx::set_jet_frames`]).
+    jet_frames: Vec<Option<Mat4>>,
     water: ripple::Water,
 }
 
@@ -748,6 +756,13 @@ impl Fx {
     /// Read this tick's sim events into effects.
     pub fn ingest(&mut self, walk: &WalkSim) {
         self.ingest_sim(&walk.sim);
+        self.follow_jets(&walk.sim, |u| {
+            walk.teams[usize::from(u.team).min(1)]
+                .class(u.spec.class)
+                .jet_look
+                .effect
+                .as_deref()
+        });
     }
 
     /// [`Fx::ingest`] over the sim itself.
@@ -963,6 +978,21 @@ impl Fx {
                         self.explode(&x.look, *pos, sim.water_under(*pos));
                     }
                 }
+                // A droid's chunk death (card DROIDDEATH): its class's
+                // `ExplosionName` effect at the body.
+                Event::DroidBurst {
+                    pos, team, class, ..
+                } => match sim.burst_explosion(*team, *class) {
+                    Some(x) if baked => {
+                        self.explode(&x.look, *pos, sim.water_under(*pos));
+                    }
+                    _ => self.puffs.push(Puff {
+                        pos: *pos,
+                        kind: Kind::Blast(1.5),
+                        team: 0,
+                        age: 0.0,
+                    }),
+                },
                 Event::VehicleDestroyed { class, pos, .. } => {
                     let setup = sim
                         .blast_setup
@@ -1078,6 +1108,7 @@ fn billboard(p: &Puff, camera: &Camera) -> (Mat4, [f32; 4]) {
 mod tests {
     use super::*;
 
+    mod jet;
     mod resupply;
 
     fn puff(kind: Kind) -> Puff {

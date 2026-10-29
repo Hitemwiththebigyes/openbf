@@ -481,7 +481,18 @@ fn every_baked_nav_block_is_self_consistent() {
                     hint.kind
                 );
             }
-            map_hints += nav.hints.len();
+            // Card COVR: a donor map's hints (`bake::donor`) are not the
+            // disc's, and only a DONORS target carries them.
+            let donated = nav
+                .hints
+                .iter()
+                .filter(|h| h.name.starts_with(bake::donor::PREFIX))
+                .count();
+            assert!(
+                donated == 0 || bake::donor::DONORS.iter().any(|d| d.0 == key.as_str()),
+                "{at}: {donated} donated hints on a map with no donor"
+            );
+            map_hints += nav.hints.len() - donated;
             map_barriers += nav.barriers.len();
             hints += nav.hints.len();
             barriers += nav.barriers.len();

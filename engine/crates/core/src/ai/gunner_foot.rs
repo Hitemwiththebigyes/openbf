@@ -147,6 +147,9 @@ pub(super) fn run(
         AimRequest::Memory(p) => (None, None, Some(p)),
         AimRequest::Travel(_) => (None, None, None),
     };
+    // Card TOKN: a human this bot holds none of the tokens of - it shoots
+    // beside him, and lobs its grenades short of him.
+    let barred = held.filter(|c| super::tokn::bars(sim, me, c.handle));
     // Card GRAI: what the think's weapon choice means this tick.
     let armed = match enemy.filter(|_| support.is_none()) {
         Some(_) => arsenal::armed(sim, u, st),
@@ -160,12 +163,21 @@ pub(super) fn run(
         (AimRequest::Enemy(e, _), Armed::Thrown(gc, _)) => {
             let c = e.capsule().center();
             let err = seen_aim(sim, me, st, eye, e, 1e6, wc) - c;
-            let feet = e.soldier.pos + Vec3::new(err.x, 0.0, err.z);
+            let mut feet = e.soldier.pos + Vec3::new(err.x, 0.0, err.z);
+            if let Some(off) =
+                barred.and_then(|c| super::tokn::short_of(sim, me, c.handle, eye, feet))
+            {
+                feet += off;
+            }
             let (p, ok) = arsenal::lob_aim(sim, u, eye, feet, e.soldier.vel, gc);
             reaches = ok;
             p
         }
-        (AimRequest::Enemy(e, _), _) => seen_aim(sim, me, st, eye, e, wc.ordnance.velocity, wc),
+        (AimRequest::Enemy(e, _), _) => {
+            let p = seen_aim(sim, me, st, eye, e, wc.ordnance.velocity, wc);
+            let off = barred.and_then(|c| super::tokn::miss_offset(sim, me, c.handle, eye, p));
+            p + off.unwrap_or(Vec3::ZERO)
+        }
         (AimRequest::Memory(p) | AimRequest::Travel(p), _) => p,
     };
     let to = look_at - eye;
@@ -341,6 +353,7 @@ pub(super) fn run(
             } else if want_fire {
                 pad.buttons |= buttons::FIRE;
             }
+            nt.tokn_off = u8::from(barred.is_some() && pad.buttons & buttons::FIRE != 0);
             Some(range)
         }
         (None, _) => {
@@ -618,7 +631,7 @@ pub(super) fn seen_aim(
         return aim;
     };
     // The cap is the shooter's skill's, under the tier's override (Elite).
-    let cap = sim.difficulty_of(u.team).skill_at(u.skill).err_cap;
+    let cap = sim.skill_of(u).err_cap;
     let moving = e.soldier.vel.length() / e.consts.max_speed.max(0.1);
     if sim.ground_rules != crate::soldier::GroundRules::Bf2 {
         let vis = e.cloak.visibility();
@@ -656,9 +669,12 @@ pub(super) fn stance_factor(stance: Stance) -> f32 {
         Stance::Crouch => 1.5,
         Stance::Prone | Stance::Sprint | Stance::Jump => 2.0,
         Stance::Roll => 3.0,
-        // Not one of the five either (OURS): a thrown or fallen body.
+        // Not one of the five either (OURS): a thrown or fallen body. The
+        // jets are the PS2's states 6 and 7, outside the five: 1.0.
         Stance::Stand
         | Stance::Fall
+        | Stance::Jet
+        | Stance::Hover
         | Stance::Thrown
         | Stance::Tumble
         | Stance::GetUp
@@ -697,7 +713,9 @@ fn error_vector(
     if sim.unit(me).is_some_and(|u| carries_human(sim, u)) {
         return Vec3::ZERO;
     }
-    if !carries_human(sim, e) {
+    // Card DPRX: a proxy is a human target too (the shooter test above
+    // stays `is_player`: a proxy shooting aims with a bot's error).
+    if !(e.is_human() || carries_human(sim, e)) {
         off *= ERR_BOT_SCALE;
     }
     off * (d / wc.ai_bubble_dist + 0.5).min(wc.ai_bubble_clamp)

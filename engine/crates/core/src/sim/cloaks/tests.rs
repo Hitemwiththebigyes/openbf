@@ -217,8 +217,16 @@ fn a_portable_turret_drops_and_cannot_reacquire_a_concealed_soldier() {
         max_items: 1,
     }));
     let index = sim.add_weapon_class(weapon);
-    let mut turret =
-        crate::autoturret::Turret::new(1, owner, 0, index, &class, Vec3::ZERO, Vec3::ZERO, 0.0);
+    let mut turret = crate::autoturret::Turret::new(
+        1,
+        owner,
+        0,
+        index,
+        &class,
+        Vec3::Y * crate::autoturret::CENTRE,
+        Vec3::ZERO,
+        0.0,
+    );
     turret.landed = true;
     sim.turrets.push(turret);
     press(&mut sim, 0);

@@ -3,8 +3,7 @@
 //! r of p" for the thinks (`perception::scan`'s look and listen and
 //! `perception::tell`, the gunner's friend-in-line test, the follow gap),
 //! which each walked every unit; and the FOLLOW GAP ([`follow_ease`]). The
-//! contacts a friend passes on are `perception::tell`'s (every tier but
-//! Easy, `Tier::tell`): a TOLD record is aimed at while the bot walks its
+//! contacts a friend passes on are `perception::tell`'s (every tier): a TOLD record is aimed at while the bot walks its
 //! own way - it keeps nobody on a position (`ai::behave`) and never
 //! overwrites the bot's own record. Fire lanes: the gunner's friend-in-line
 //! test clears every shot's line by a tick of walking and its flight
@@ -12,7 +11,7 @@
 //! inside a post's group: COVER (while a friend captures, up to two others
 //! guard positions facing the approach; Hard and Elite) and FLANK (card
 //! FLNK: the match's share of a post pair's attackers walks the pair's flank
-//! route, `nav::flank`; every tier but Easy) - Overwatch is the sniper's
+//! route, `nav::flank`; every tier) - Overwatch is the sniper's
 //! spot (`ai::snipe`, card SNPR), counted beside them in the sweep's `roles`
 //! and `flank` lines. Not yet: the Gunner role (card TURR) and the lanes
 //! held on the board (the Tactician asks each friend's line itself).
@@ -381,7 +380,7 @@ pub fn flank_cap(n: usize, share: f32) -> usize {
 /// claim, an enemy in the post's region).
 fn flank_pass(sim: &mut Sim, t: u8) {
     use crate::unit::Controller;
-    let on = FLANK && sim.difficulty_of(t).tier().flank;
+    let on = FLANK;
     let n = sim.units.len();
     let in_group = |sim: &Sim, i: usize| {
         let u = &sim.units[i];

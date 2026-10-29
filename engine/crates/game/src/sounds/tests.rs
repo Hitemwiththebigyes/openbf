@@ -183,6 +183,7 @@ fn a_start_hands_each_ear_the_ps2s_level() {
     // A looping 3-D voice (an engine layer) the same way.
     let voice = |pos| crate::engine_sound::Voice {
         vehicle: 0,
+        soldier: false,
         layer: 0,
         record: 0,
         sound: fnv1a_lowercase("shot"),

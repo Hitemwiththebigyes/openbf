@@ -77,6 +77,10 @@ pub enum RouteSource {
     Straight,
     /// Card FLNK: the next hub of the bot's flank route (`crate::nav::flank`).
     Flank,
+    /// Card ARCM: drawn round an arc closed to the bot or shunned by its
+    /// team — the fewest-arcs way without them, kept hub by hub to the same
+    /// goal (`route::plan_leg`).
+    Shun,
 }
 
 impl RouteSource {
@@ -86,6 +90,7 @@ impl RouteSource {
             RouteSource::Bfs => "bfs",
             RouteSource::Straight => "straight",
             RouteSource::Flank => "flank",
+            RouteSource::Shun => "shun",
         }
     }
 }
@@ -237,6 +242,13 @@ pub struct NavTick {
     /// RCYC, [`StallState`]): the write-back kills it as
     /// [`crate::sim::DeathCause::Stalled`].
     pub stalled: u32,
+    /// Card UNSN: in place of `stalled`, the spot the bot is moved to
+    /// unseen (`f32` bits: the tick is `Eq`); `Sim::step`'s write-back
+    /// moves it ([`crate::ai::unseen`]).
+    pub relocate: Option<[u32; 3]>,
+    /// Card TOKN: 1 when this unit fired beside a human it holds no token
+    /// of.
+    pub tokn_off: u8,
     /// 1 when this think withheld a shot it was on target for, because a
     /// friend stood in the line of fire (card FFLN).
     pub line_held: u32,
@@ -251,7 +263,13 @@ pub struct NavTick {
     /// target, stage by stage (the sweep's `tfunnel` line: within the box,
     /// on the storey, kept by the cap, each filter's rejects, passed, the
     /// drop test's and the confirming ray's rejects, scored with no pick).
-    pub tpos_funnel: [u8; 14],
+    /// ([14], card HYST: the covered candidates the closing filter took.)
+    pub tpos_funnel: [u8; 15],
+    /// Card HYST: [`crate::ai::tactic::HY_FLIP`] / [`crate::ai::tactic::HY_KEPT`].
+    pub tpos_hyst: u8,
+    /// Card HYST: this tick's think was woken early, and by what
+    /// ([`crate::ai::wake`]'s bits); 0 = none (a scheduled think or none).
+    pub wake: u8,
     /// Card UCALL: 1 when this think's tracker TOOK a target (the first, or
     /// another in place of the held one) - BF1's `AcquiredTargetSound` call.
     pub acquired: u8,
@@ -267,6 +285,36 @@ pub struct NavTick {
     /// gunner left its turret by ([`crate::ai::man`]), [`NavTick::MAN_UNREACHED`]
     /// a claimed turret its walk did not reach; 0 otherwise.
     pub man: u8,
+    /// Card WHY: the reason the chain gave for the behaviour it chose this
+    /// tick ([`super::why`]; `Why::None` = the log derives it).
+    pub why: super::why::Why,
+    /// Card WHY: this tick's failed walk and what failed it, then what came
+    /// of it (the goal given up, the floor walk, the recycle) — in order,
+    /// `Why::None` past the last ([`NavTick::failed`])...
+    pub fails: [super::why::Why; 4],
+    /// ...and the nav arc the failed leg walked (card ARCM counts it against
+    /// the team).
+    pub fail_arc: Option<u16>,
+    /// Card ARCM: the arc this think closed to the bot (the team counts it),
+    /// and the legs drawn round a closed or shunned arc / kept for want of
+    /// another way.
+    pub closed_arc: Option<u16>,
+    pub shun_round: u8,
+    pub shun_kept: u8,
+}
+
+impl NavTick {
+    /// Card WHY: note a failed walk, or what came of one.
+    pub fn failed(&mut self, why: super::why::Why) {
+        if let Some(f) = self.fails.iter_mut().find(|f| **f == super::why::Why::None) {
+            *f = why;
+        }
+    }
+
+    /// The first failed walk this tick reported, if any.
+    pub fn fail(&self) -> super::why::Why {
+        self.fails[0]
+    }
 }
 
 /// What a bot carries between ticks. Card SPL11: the fields are grouped by
@@ -291,6 +339,11 @@ pub struct AiState {
     pub last_switch: u64,
     // ── Behaviour: the order it is under and what it is doing about it (`behave`).
     pub next_think: u64,
+    /// Card HYST: the tick of the last think, and what has happened since
+    /// that wakes the bot early (`crate::ai::wake`'s bits). Scheduling, like
+    /// `next_think`: not hashed.
+    pub last_think: u64,
+    pub wake: u8,
     pub items: super::items::ItemSeek,
     pub target_cp: Option<u32>,
     /// The squad this unit is in (Phase B): the key of the objective it shares
@@ -390,6 +443,9 @@ pub struct AiState {
     /// DIAGNOSTIC ONLY (card MOVR) — never hashed, never read by a rule: what
     /// the bot is doing this tick ([`Behaviour`]).
     pub behaviour: Behaviour,
+    /// DIAGNOSTIC ONLY (card WHY) — never hashed, never read by a rule: the
+    /// last reasons this bot changed behaviour or failed a walk.
+    pub why: super::why::WhyLog,
     // ── Gunner: the aim and the trigger (`gunner_foot`; a seat gun shares the bursts).
     /// The aim tracker's direction and its rate (brief D9, RE §4.2): the AI
     /// does not snap its pad at the target any more, it steers a unit vector
@@ -453,6 +509,13 @@ pub struct AiState {
     /// ([`FlankState`], `super::team::board`) — hashed only when it differs
     /// from the default, after `role`.
     pub flank: FlankState,
+    /// Card DROIDAI: no remote droid launch before this tick (the rest after
+    /// a flight, `remote::BOT_REST`). Hashed only when not 0, after `flank`.
+    pub droid_rest: u64,
+    /// Card ARCM: the arcs closed to the bot and the back-and-forth
+    /// detector ([`super::arcm::ArcmState`]) — hashed only when it differs
+    /// from the default, after `droid_rest`.
+    pub arcm: super::arcm::ArcmState,
 }
 
 /// Card FLNK (`analysis/bot-design.md` 6.2; OURS): the hub a bot's route to
@@ -1475,6 +1538,8 @@ impl Default for AiState {
             contacts: [None; crate::perception::CONTACTS],
             last_switch: 0,
             next_think: 0,
+            last_think: 0,
+            wake: 0,
             items: super::items::ItemSeek::default(),
             target_cp: None,
             squad: None,
@@ -1497,6 +1562,8 @@ impl Default for AiState {
             stall: None,
             mv: MoverState::default(),
             behaviour: Behaviour::None,
+            why: super::why::WhyLog::default(),
+            arcm: super::arcm::ArcmState::default(),
             aim_dir: Vec3::ZERO,
             aim_vel: Vec3::ZERO,
             err: ERR_NO_TARGET,
@@ -1514,6 +1581,7 @@ impl Default for AiState {
             snipe: SnipeBook::default(),
             role: RoleState::default(),
             flank: FlankState::default(),
+            droid_rest: 0,
         }
     }
 }
@@ -1643,6 +1711,13 @@ impl AiState {
         }
         if self.flank != FlankState::default() {
             self.flank.hash_into(eat);
+        }
+        if self.droid_rest != 0 {
+            eat(b"DROIDAI");
+            eat(&self.droid_rest.to_le_bytes());
+        }
+        if self.arcm != super::arcm::ArcmState::default() {
+            self.arcm.hash_into(eat);
         }
     }
 }

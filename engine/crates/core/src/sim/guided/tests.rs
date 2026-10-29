@@ -232,7 +232,7 @@ fn bot_steers_a_rocket_and_all_state_replays_from_recorded_pads() {
     a.unit_mut(owner).unwrap().controller = Controller::Ai;
     a.unit_mut(owner).unwrap().ai.target = Some(target);
     a.guided[0].rot = glam::Quat::IDENTITY;
-    assert!(a.bot_guided_pad(0).rx > 0);
+    assert!(a.bot_guided_pad(0).unwrap().rx > 0);
     let hash = a.hash();
     a.guided[0].prev_buttons ^= buttons::ACTION;
     assert_ne!(hash, a.hash());
@@ -336,4 +336,38 @@ fn forced_weapon_changes_return_control_and_rockets_contact_deployed_turrets() {
             ..
         }
     )));
+}
+
+/// PR #61 review fix 4: a bot's rocket with no target in sight hands control
+/// back after `BOT_BLIND`, not at the end of its energy.
+#[test]
+fn a_bots_rocket_with_no_target_returns_after_three_seconds() {
+    let (mut sim, owner) = scene(false);
+    launch(&mut sim, owner);
+    sim.unit_mut(owner).unwrap().controller = Controller::Ai;
+    let ticks = (crate::guided::BOT_BLIND * crate::TICK_HZ as f32).round() as usize;
+    let mut returned_at = None;
+    for t in 1..=ticks + 5 {
+        sim.step(&[]);
+        let back = sim.events.iter().any(|e| {
+            matches!(
+                e,
+                Event::GuidedGone {
+                    end: GuidedEnd::Returned,
+                    ..
+                }
+            )
+        });
+        if back {
+            returned_at = Some(t);
+            break;
+        }
+    }
+    let t = returned_at.expect("the rocket never returned control");
+    assert!(
+        t.abs_diff(ticks) <= 2,
+        "returned after {t} ticks, not {ticks}"
+    );
+    assert!(sim.guided.is_empty());
+    assert!(sim.controlled_guided(owner).is_none());
 }

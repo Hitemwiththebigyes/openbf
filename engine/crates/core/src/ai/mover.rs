@@ -21,7 +21,7 @@ use super::steer::floor_ahead;
 use super::{
     ARRIVED_SLACK, CORNER_ARRIVE, DEST_DEADBAND, HEADING_PERIOD, HOLD_BLOCKED, HOLD_ENDGAME,
     HOLD_WALK_DIST, HOLD_WALK_STICK, LEDGE_DROP, LOST_DOWN, SIDESTEP_OFFSET, SIDESTEP_TICKS,
-    STANCE_TAP_DELAY, STUCK_PROGRESS, STUCK_WINDOW,
+    STUCK_PROGRESS, STUCK_WINDOW,
 };
 use crate::cp::CommandPost;
 use crate::fmath;
@@ -350,46 +350,55 @@ pub(super) fn run(
         st.strafe_side = 0;
     }
 
-    // D13: THE STANCE CONTROLLER. The only lever is the one contextual
-    // ROLL_STANCE button (`sim::buttons`), and the soldier's own edge
-    // (`soldier.rs`, the `Stand | Crouch | Prone | Sprint` arm) cycles Stand →
-    // Crouch → Prone → Stand only while the stick is down and only after
-    // [`STANCE_TAP_DELAY`] in the current stance. So a tap is ONE press on ONE
-    // tick — pressing on consecutive ticks would produce a single edge, not a
-    // cycle — and Stand → Prone takes two taps half a second apart.
+    // D13: THE STANCE CONTROLLER. The levers are the contextual ROLL_STANCE
+    // button (`sim::buttons`) and JUMP. With the stick down the soldier's
+    // own tap rule (`Soldier::stance_tap_target`, `[ours]` 2026-10-28) is:
+    // a stand crouches; a crouch goes prone on the second tap of a double
+    // tap (within `PRONE_DOUBLE_TAP` of the first) and stands up after it; a
+    // prone stands up. JUMP stands a crouch or a prone up. So: crouch = one
+    // tap, prone = two taps a couple of ticks apart, up = one tap or JUMP.
+    //
+    // A tap is ONE press on ONE tick, spent only where the soldier will take
+    // it (`Soldier::stance_tap_after`: no lock, the button released last
+    // tick, the tap's wait). MEASURED — pressing through a prone
+    // transition's lock instead (`prone_down_lock`, 40 ticks) leaves the
+    // button HELD when the lock clears, so no edge ever arrives.
     //
     // A unit that has to WALK stands up FIRST, and gives up the tick's
     // movement to do it: with the stick down a crouched unit that presses
-    // ROLLS instead of standing, and a PRONE one is refused the roll and so
-    // could never get up at all while it kept walking.
+    // ROLLS instead of standing, and a PRONE one is refused the roll. A
+    // crouched one stands with JUMP: a tap inside the double-tap window
+    // would put it PRONE (the overshoot: 571 prone entries over 4 maps, none
+    // wanted, under the old Stand -> Crouch -> Prone cycle). No press ever
+    // lands a unit prone unless it wants prone.
     //
     // Card HOLD: a bot on its position that steps to another spot (a shuffle,
     // a strafe) MOVES IN ITS STANCE — crouched or prone, at that stance's
-    // speed — instead of cycling Crouch → Prone → Stand for three seconds per
-    // step and crouching again when it gets there.
+    // speed — instead of standing up for every step and going down again
+    // when it gets there.
     let want = crate::commander::stance_of_code(st.want_stance);
-    let in_stance = holding.is_some() && want == Some(u.soldier.stance);
-    let tap = if must_walk && in_stance {
-        false
-    } else if must_walk {
-        matches!(u.soldier.stance, Stance::Crouch | Stance::Prone)
+    let stance = u.soldier.stance;
+    let in_stance = holding.is_some() && want == Some(stance);
+    let aim = if must_walk {
+        (!in_stance && matches!(stance, Stance::Crouch | Stance::Prone)).then_some(Stance::Stand)
     } else {
         // Standing still is the soldier's own precondition, so it is ours.
-        pad.lx == 0 && pad.ly == 0 && want.is_some_and(|w| w != u.soldier.stance)
+        want.filter(|&w| pad.lx == 0 && pad.ly == 0 && w != stance)
     };
-    if tap {
+    if let Some(aim) = aim {
         if must_walk {
             pad.lx = 0;
             pad.ly = 0;
         }
-        // The press has to be an EDGE, so it is only spent on a tick the
-        // soldier will act on: its own two preconditions are the delay and a
-        // clear `lock_timer`. MEASURED — pressing through a prone transition's
-        // lock instead (`prone_down_lock`, 40 ticks) leaves the button HELD
-        // when the lock clears, so no edge ever arrives and the unit stays
-        // prone for the rest of the round.
-        if u.soldier.time_in_stance > STANCE_TAP_DELAY && u.soldier.lock_timer <= 0.0 {
-            pad.buttons |= buttons::ROLL_STANCE;
+        let dt = crate::TICK_DT;
+        match u.soldier.stance_tap_after(dt) {
+            Some(next) if next != Stance::Prone || aim == Stance::Prone => {
+                pad.buttons |= buttons::ROLL_STANCE;
+            }
+            _ if aim != Stance::Prone && u.soldier.jump_stands_after(dt) => {
+                pad.buttons |= buttons::JUMP;
+            }
+            _ => {}
         }
     }
 
@@ -413,9 +422,14 @@ pub(super) fn run(
     // long stand is the behaviour's give-up (card MOVR, `behave::recover`),
     // then the watch below.
     let walking = (pad.lx != 0 || pad.ly != 0 || steer == SteerPick::Ledge) && !mv.boarding;
+    // Card BSTK: a bot flying its remote droid stands still on purpose (the
+    // droid takes its pad, `Sim::droid_pads`): no window runs, so its stand
+    // is not a failed walk, and the last resort's watch waits.
+    let piloting = sim.controlled_droid(me).is_some();
     let mut failed = false;
     let mut lost_failed = false;
     match (ret, st.lost) {
+        _ if piloting => {}
         // A bot on its hold position, or running from a grenade, is not
         // walking its leg: the leg's progress window waits.
         // Card JITR: ...but a side-step it brought along still runs down.
@@ -442,6 +456,7 @@ pub(super) fn run(
                     }
                     l.ref_dist = 0.0;
                     lost_failed = true;
+                    nt.failed(super::why::Why::ReturnFailed);
                 } else {
                     l.ref_dist = d;
                 }
@@ -452,7 +467,22 @@ pub(super) fn run(
             // Card MOVR: a window with no progress is a FAILED walk, and a
             // window with progress ends the recovery.
             let was = st.route.map_or(0, |r| r.stuck_run);
-            stuck_window(sim, me, st, pos, walking, nt);
+            // Card ARCM: back and forth at the window's own waypoint closes
+            // the window now, as a failed one - not while the bot goes round
+            // a body on its committed side under the allowance (card OBST:
+            // along a long wall the way to the waypoint opens and closes).
+            let rd = st.mv.round;
+            let rounding = rd.live() && !rd.rim && rd.ticks < avoid::ROUND_MAX;
+            let osc = match st.route {
+                Some(r) if walking && !mv.excused && !rounding && r.via_arc.is_some() => {
+                    st.arcm.osc.step(sub_point(&r, pos), pos, sim.tick)
+                }
+                _ => {
+                    st.arcm.osc = super::arcm::Osc::default();
+                    false
+                }
+            };
+            stuck_window(sim, me, st, pos, walking, osc, nt);
             let now = st.route.map_or(0, |r| r.stuck_run);
             if now > was {
                 failed = true;
@@ -478,7 +508,7 @@ pub(super) fn run(
         st,
         pos,
         arrived_at_post || goal.is_none(),
-        must_walk && !mv.excused,
+        must_walk && !mv.excused && !piloting,
         sim.battle.teams.iter().any(|t| t.tickets() <= HOLD_ENDGAME),
         if lost_failed { 2 } else { u8::from(failed) },
         nt,
@@ -516,13 +546,16 @@ fn off_floor(sim: &Sim, pos: Vec3, spot_y: f32) -> bool {
 }
 
 /// The side-step countdown, then the progress window (design decision 4),
-/// for a unit that `moving` — its stick is deflected — this tick.
+/// for a unit that `moving` — its stick is deflected — this tick. Card
+/// ARCM: `back_and_forth` (the detector, `arcm::Osc`) closes the window now
+/// as a failed one.
 pub(super) fn stuck_window(
     sim: &Sim,
     me: UnitHandle,
     st: &mut AiState,
     pos: Vec3,
     moving: bool,
+    back_and_forth: bool,
     nt: &mut NavTick,
 ) {
     if sim.unit(me).is_none() {
@@ -535,7 +568,7 @@ pub(super) fn stuck_window(
         }
         if moving {
             r.stuck_ticks += 1;
-            if r.stuck_ticks >= STUCK_WINDOW {
+            if r.stuck_ticks >= STUCK_WINDOW || back_and_forth {
                 r.stuck_ticks = 0;
                 // Progress is measured to the CURRENT sub-waypoint, not to the
                 // hub: a corner walk legitimately moves AWAY from the hub for
@@ -554,10 +587,30 @@ pub(super) fn stuck_window(
                     && rd.ticks < avoid::ROUND_MAX
                     && nav::xz_dist(pos, rd.anchor) >= avoid::ROUND_TRAVEL;
                 st.mv.round.anchor = pos;
-                if r.ref_dist - d >= STUCK_PROGRESS {
+                if r.ref_dist - d >= STUCK_PROGRESS && !back_and_forth {
                     r.stuck_run = 0;
                     r.ref_dist = d;
-                } else if !rounding {
+                } else if !rounding || back_and_forth {
+                    // Card WHY: what the books say, before the cure below
+                    // changes them.
+                    let driving = sim.unit(me).is_some_and(|u| u.mount.is_some());
+                    nt.failed(if back_and_forth {
+                        super::why::Why::Oscillation
+                    } else {
+                        super::why::walk_failed(st, &r, driving)
+                    });
+                    nt.fail_arc = r.via_arc;
+                    // Card ARCM: the leg's arc failed twice running (a
+                    // failure since the walk last got anywhere), or back
+                    // and forth: closed to the bot, so the re-plan below
+                    // draws round it while another way exists.
+                    if let Some(a) = r
+                        .via_arc
+                        .filter(|_| !driving && (back_and_forth || st.mv.recover > 0))
+                    {
+                        st.arcm.close(a, sim.tick);
+                        nt.closed_arc = Some(a);
+                    }
                     // The commitment ends with the failed window: the
                     // side-step's side starts the next.
                     st.mv.round.end();
@@ -969,7 +1022,7 @@ mod tests {
                 ..crate::ai::Round::default()
             };
             let mut nt = NavTick::default();
-            stuck_window(&sim, h, &mut st, pos, true, &mut nt);
+            stuck_window(&sim, h, &mut st, pos, true, false, &mut nt);
             (st.route.expect("a route").stuck_run > 0, st.mv.round.live())
         };
         assert_eq!(window_fails(false), (false, true), "round a body");
@@ -1115,7 +1168,7 @@ mod tests {
         use crate::ai::think;
         use crate::unit::UnitSpec;
         let _style = crate::ai::tests::all_stand();
-        // An enemy 40 m away, inside the view distance (49 m at Normal).
+        // An enemy 40 m away, inside the view distance (49 m at Easy and Normal).
         let scene_of = |max_range: f32, rider: bool| {
             let (mut sim, h) = l_sim();
             let e = sim
@@ -1235,5 +1288,56 @@ mod tests {
         assert!(set_out >= 60, "every bot set out: {set_out}");
         let share = follow as f32 / set_out as f32;
         assert!((0.18..=0.42).contains(&share), "{follow} of {set_out}");
+    }
+
+    /// Card BSTK: a bot flying its remote droid stands still on purpose (the
+    /// droid takes its pad). Its walk's progress window does not run, so the
+    /// stand is no stuck run and nothing the sweep's `stuck_max` counts; the
+    /// same bot on foot walks off.
+    #[test]
+    fn a_bot_flying_its_droid_is_not_stuck() {
+        use crate::remote::tests::{Props, BF1_DROID};
+        use crate::remote::{Droid, DroidClass, RemoteWeapon};
+        use crate::weapon::WeaponClass;
+        let scene = |fly: bool| {
+            let (mut sim, h) = l_sim();
+            if fly {
+                let mut w = WeaponClass::bf1_rifle();
+                w.remote = Some(Box::new(RemoteWeapon::new(
+                    &Props(&[("0xc43b77dd", "1")]),
+                    DroidClass::from_props(&Props(BF1_DROID), false),
+                    WeaponClass::bf1_rifle(),
+                )));
+                let wc = sim.add_weapon_class(w);
+                let r = sim.weapon_classes[wc].remote.as_deref().expect("remote");
+                let d = Droid::new(
+                    0,
+                    h,
+                    0,
+                    wc,
+                    r,
+                    Vec3::new(0.0, 2.0, 0.0),
+                    Vec3::ZERO,
+                    0.0,
+                    false,
+                );
+                sim.droids.push(d);
+            }
+            // Under the bot's recall (10 s with no enemy near the droid).
+            for _ in 0..240 {
+                sim.step(&[PadState::default()]);
+            }
+            (sim, h)
+        };
+        let (sim, h) = scene(false);
+        let walked = sim.unit(h).expect("alive").soldier.pos.length();
+        assert!(walked > 5.0, "on foot it walks: {walked} m");
+        let (sim, h) = scene(true);
+        assert!(sim.controlled_droid(h).is_some(), "still flying");
+        let u = sim.unit(h).expect("alive");
+        assert!(u.soldier.pos.length() < 0.5, "the body stood");
+        assert_eq!(u.ai.route.map_or(0, |r| r.stuck_run), 0);
+        assert_eq!(sim.nav_stats.stuck_max, 0);
+        assert_eq!(u.ai.stall.map_or((0, 0), |s| (s.ticks, s.fails)), (0, 0));
     }
 }

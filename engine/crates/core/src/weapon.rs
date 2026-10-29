@@ -1007,8 +1007,13 @@ pub struct FireInput {
     pub held: bool,
     /// Soldier-side veto (rolls, dead, in-menu): no shots.
     pub blocked: bool,
-    /// Dev cheat: never consume ammo / never reload.
+    /// The `ammo` cheat: the reserve never goes down; the clip still empties
+    /// and its reload is free.
     pub infinite_ammo: bool,
+    /// `[ours]` The `clip` cheat: the clip never empties; shots draw from
+    /// the reserve, then the clip, and nothing reloads. Both cheats: nothing
+    /// is drawn at all (an endless weapon's rule).
+    pub no_reload: bool,
     /// The AI sniper distance table's yaw term for THIS tick, already scaled
     /// by the shooter's skill (`crate::ai::think` — brief D9). `None` for a
     /// human, for a bot with no target and for any class that fails
@@ -1039,6 +1044,9 @@ pub struct WeaponState {
     pub spare: u32,
     /// > 0 while reloading (provisional state machine, report §10.1).
     pub reload_timer: f32,
+    /// The running reload is the `ammo` cheat's: it fills the clip without
+    /// drawing on the reserve.
+    pub free_reload: bool,
     /// Heat in [0, 1]; overheated at ≥ 1.0 until it drops below HeatThreshold.
     pub heat: f32,
     pub overheated: bool,
@@ -1090,6 +1098,7 @@ impl WeaponState {
             clip: class.rounds_per_clip,
             spare: reserve_clips.saturating_mul(class.rounds_per_clip),
             reload_timer: 0.0,
+            free_reload: false,
             heat: 0.0,
             overheated: false,
             fire_cmd: 0,
@@ -1196,19 +1205,55 @@ impl WeaponState {
 
     /// Start a reload if one is possible (RELOAD button or empty clip).
     pub fn start_reload(&mut self, c: &WeaponClass) -> bool {
+        self.start_reload_as(c, false)
+    }
+
+    /// [`Self::start_reload`]; `free` (the `ammo` cheat) fills the clip at
+    /// the end without touching the reserve, even an empty one.
+    pub fn start_reload_as(&mut self, c: &WeaponClass, free: bool) -> bool {
         if c.infinite_ammo()
             || self.reloading()
             || self.clip >= c.rounds_per_clip
-            || self.spare == 0
+            || (!free && self.spare == 0)
         {
             return false;
         }
-        if self.spare != SPARE_INFINITE {
+        if !free && self.spare != SPARE_INFINITE {
             self.spare = self.spare.saturating_add(self.clip);
             self.clip = 0;
         }
+        self.free_reload = free;
         self.reload_timer = c.reload_time;
         true
+    }
+
+    /// Can a shot be paid for under the cheats? (`infinite_ammo`, `no_reload`
+    /// as in [`FireInput`].)
+    fn can_pay(&self, c: &WeaponClass, infinite_ammo: bool, no_reload: bool) -> bool {
+        if c.infinite_ammo() || (infinite_ammo && no_reload) {
+            return true;
+        }
+        if no_reload {
+            return self.clip.saturating_add(self.spare) >= c.ammo_per_shot;
+        }
+        self.clip >= c.ammo_per_shot
+    }
+
+    /// Pay for one shot: from the clip, or with `no_reload` from the reserve
+    /// first, so the clip stays full until the reserve is gone.
+    fn pay(&mut self, c: &WeaponClass, infinite_ammo: bool, no_reload: bool) {
+        if c.infinite_ammo() || (infinite_ammo && no_reload) {
+            return;
+        }
+        let mut cost = c.ammo_per_shot;
+        if no_reload && self.spare != SPARE_INFINITE {
+            let take = cost.min(self.spare);
+            self.spare -= take;
+            cost -= take;
+        } else if no_reload {
+            cost = 0;
+        }
+        self.clip = self.clip.saturating_sub(cost);
     }
 
     /// Trigger init (BF1 FUN_00288c58 / BF2 FUN_0032e758).
@@ -1226,13 +1271,13 @@ impl WeaponState {
     }
 
     /// FUN_002891c0: the firing state may return to idle.
-    fn cycle_finished(&self, c: &WeaponClass, blocked: bool) -> bool {
+    fn cycle_finished(&self, c: &WeaponClass, blocked: bool, cheats: (bool, bool)) -> bool {
         self.salvo_counter < 1
             && self.refire_time <= self.refire_accum
             && (c.trigger_single
                 || !self.fire_predicate(c)
                 || self.reloading()
-                || (!c.infinite_ammo() && self.clip < c.ammo_per_shot)
+                || !self.can_pay(c, cheats.0, cheats.1)
                 || blocked)
     }
 
@@ -1250,8 +1295,10 @@ impl WeaponState {
             held: fire_held,
             blocked,
             infinite_ammo,
+            no_reload,
             ai_dispersion,
         } = input;
+        let cheats = (infinite_ammo, no_reload);
         // The PS2's AI writes `weapon+0x138` every aim tick, before anything
         // in the fire cycle can ask for a spread; ours arrives with the pad.
         self.ai_dispersion = ai_dispersion;
@@ -1271,21 +1318,27 @@ impl WeaponState {
             self.reload_timer -= dt;
             if self.reload_timer <= 0.0 {
                 self.reload_timer = 0.0;
-                let take = (c.rounds_per_clip - self.clip.min(c.rounds_per_clip)).min(self.spare);
-                self.clip += take;
-                if self.spare != SPARE_INFINITE {
-                    self.spare -= take;
+                if std::mem::take(&mut self.free_reload) {
+                    // The `ammo` cheat: a full clip, the reserve untouched.
+                    self.clip = self.clip.max(c.rounds_per_clip);
+                } else {
+                    let take =
+                        (c.rounds_per_clip - self.clip.min(c.rounds_per_clip)).min(self.spare);
+                    self.clip += take;
+                    if self.spare != SPARE_INFINITE {
+                        self.spare -= take;
+                    }
                 }
             }
         }
-        if !infinite_ammo
+        if !no_reload
             && !c.infinite_ammo()
             && self.active
             && self.state == FireState::Idle
             && self.clip < c.ammo_per_shot
             && !self.reloading()
         {
-            self.start_reload(c);
+            self.start_reload_as(c, infinite_ammo);
         }
 
         // Charge enter (B1 cannon `FUN_00289050` 211479-211486, B2 twin;
@@ -1307,10 +1360,7 @@ impl WeaponState {
             && !self.reloading()
             && self.fire_predicate(c)
             // A grenade weapon with nothing in the hand does not wind up.
-            && (c.thrown.is_none()
-                || infinite_ammo
-                || c.infinite_ammo()
-                || self.clip >= c.ammo_per_shot)
+            && (c.thrown.is_none() || self.can_pay(c, infinite_ammo, no_reload))
         {
             self.trigger(c, lcg);
             self.state = FireState::Firing;
@@ -1321,19 +1371,15 @@ impl WeaponState {
             // and heat; the ammunition is the weapon's (§3).
             let sc = c.stage(self.stage());
             let first = shots.len();
-            self.fire_cycle(dt, sc, blocked, infinite_ammo, lcg, shots);
+            self.fire_cycle(dt, sc, blocked, cheats, lcg, shots);
             for s in &mut shots[first..] {
                 s.stage = self.stage;
             }
-            if self.cycle_finished(sc, blocked) {
+            if self.cycle_finished(sc, blocked, cheats) {
                 self.state = FireState::Idle;
                 self.stage = 0;
-                if !infinite_ammo
-                    && !c.infinite_ammo()
-                    && self.active
-                    && self.clip < c.ammo_per_shot
-                {
-                    self.start_reload(c);
+                if !no_reload && !c.infinite_ammo() && self.active && self.clip < c.ammo_per_shot {
+                    self.start_reload_as(c, infinite_ammo);
                 }
             }
         } else {
@@ -1361,7 +1407,7 @@ impl WeaponState {
         dt: f32,
         c: &WeaponClass,
         blocked: bool,
-        infinite_ammo: bool,
+        (infinite_ammo, no_reload): (bool, bool),
         lcg: &mut GameLcg,
         shots: &mut Vec<ShotSpec>,
     ) {
@@ -1383,7 +1429,7 @@ impl WeaponState {
                     || c.trigger_single
                     || !self.fire_predicate(c)
                     || self.reloading()
-                    || (!infinite_ammo && !c.infinite_ammo() && self.clip < c.ammo_per_shot)
+                    || !self.can_pay(c, infinite_ammo, no_reload)
                     || blocked
                 {
                     break;
@@ -1394,11 +1440,8 @@ impl WeaponState {
             } else {
                 if self.salvo_timer <= 0.0 {
                     loop {
-                        let ammo_ok = |s: &Self| {
-                            infinite_ammo || c.infinite_ammo() || s.clip >= c.ammo_per_shot
-                        };
                         for _ in 0..c.shots_per_salvo {
-                            if !ammo_ok(self) {
+                            if !self.can_pay(c, infinite_ammo, no_reload) {
                                 self.salvo_counter = 0;
                                 break;
                             }
@@ -1413,9 +1456,7 @@ impl WeaponState {
                                 pitch_spread: self.pitch_spread(c),
                                 yaw_spread: self.yaw_spread(c),
                             });
-                            if !infinite_ammo && !c.infinite_ammo() {
-                                self.clip -= c.ammo_per_shot;
-                            }
+                            self.pay(c, infinite_ammo, no_reload);
                             self.heat += c.heat_per_shot;
                             self.shots_fired += 1;
                             self.tilt_index =
@@ -1469,6 +1510,9 @@ impl WeaponState {
             eat(&[self.remote_press]);
         }
         eat(&[self.state as u8, self.overheated as u8, self.human as u8]);
+        if self.free_reload {
+            eat(b"FREE");
+        }
         if self.tilt_index != 0 {
             eat(b"tilt");
             eat(&self.tilt_index.to_le_bytes());

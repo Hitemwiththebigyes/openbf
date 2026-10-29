@@ -609,6 +609,20 @@ const RESCORE: u64 = 5 * crate::TICK_HZ as u64;
 /// with the farthest of the box's 40 m the fight changed before the bot got
 /// there (the maintainer's Kamino scene went to 1 bot over 6 reversals).
 const COVER_REACH: f32 = 15.0;
+/// Card HYST: the position held is re-scored beside the candidates of a
+/// query that may replace it (the 5-12 s timer, the open position's ask for
+/// cover), and another is taken only when it scores this share more; a tie
+/// keeps it. OURS (`lead_tmp/botre/modern.md` B1: 10-20 %).
+pub const SWITCH_MARGIN: f32 = 0.15;
+/// Card HYST: a walk to a position that closes on the target by more than
+/// this (m) and this share of the bot's distance to it, heading at it (the
+/// closing over half the walk), is not taken while the bot is inside the
+/// band already - it would run at the enemy in the open to reach its cover
+/// (The Last of Us, `modern.md` B2). OURS: 4 m alone took 1 in 7 covered
+/// picks and lowered the cover share (card HYST's sweep); with the share it
+/// bites in the close fights only.
+pub const CLOSING: f32 = 4.0;
+pub const CLOSING_SHARE: f32 = 0.4;
 
 /// The fight-time split's events (`NavTick::tpos_ev`, one bit each): the
 /// query's answer...
@@ -635,6 +649,12 @@ pub const EV_WALK_DROPPED: u16 = 1 << 13;
 pub const EV_IN_PLACE: u16 = 1 << 14;
 /// ...and a bot at an open position that found a covered one.
 pub const EV_UPGRADE: u16 = 1 << 15;
+
+/// Card HYST: what this think's Tactician did about the position held
+/// (`NavTick::tpos_hyst`): another taken in its place (a flip), or kept
+/// because no candidate beat it by [`SWITCH_MARGIN`].
+pub const HY_FLIP: u8 = 1 << 0;
+pub const HY_KEPT: u8 = 1 << 1;
 
 /// The names, in bit order (the sweep's `tactician` line).
 pub const EV_NAMES: [&str; 16] = [
@@ -748,7 +768,10 @@ fn line_open(sim: &Sim, from: Vec3, to: Vec3) -> bool {
 /// the one it leaves, left out, and with it every position within
 /// [`MOVE_MIN`] of it unless `.1` (the target went round its cover).
 /// `cover_only_tries` = only the tries with cover from the target (a bot at
-/// an open position asking for better). `None` = nothing passes.
+/// an open position asking for better). `keep` = the position held, still
+/// good (card HYST): re-scored as it stands and answered back unless the
+/// winner beats it by [`SWITCH_MARGIN`]. `None` = nothing passes.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn choose(
     sim: &Sim,
     tk: &Tick,
@@ -756,6 +779,7 @@ pub(super) fn choose(
     foe: &Foe,
     leaving: Option<(u32, bool)>,
     cover_only_tries: bool,
+    keep: Option<Pick>,
     nt: &mut NavTick,
 ) -> Option<Pick> {
     nt.tpos_query = 1;
@@ -874,7 +898,18 @@ pub(super) fn choose(
         let k = ((p - a).dot(ab) / ab.length_squared().max(1e-6)).clamp(0.0, 1.0);
         (a + ab * k).distance(p) < LINE
     };
-    // The first filter position `i` fails (1 ..= 7), else 0.
+    // Card HYST (The Last of Us' rule): from inside the band, a walk that
+    // closes on the target by over CLOSING (and CLOSING_SHARE of the way to
+    // it) and mostly toward it runs at the
+    // enemy in the open. (Outside the band the bot has to close.)
+    let me_to_aim = nav::xz_dist(pos, aim);
+    let closes = |p: Vec3| {
+        let closing = me_to_aim - nav::xz_dist(p, aim);
+        me_to_aim <= outer
+            && closing > CLOSING.max(CLOSING_SHARE * me_to_aim)
+            && closing > 0.5 * nav::xz_dist(pos, p)
+    };
+    // The first filter position `i` fails (1 ..= 8), else 0.
     let fails = |i: u32| -> usize {
         let q = &t.positions[i as usize];
         let p = q.pos;
@@ -909,6 +944,8 @@ pub(super) fn choose(
             .is_none_or(|g| g.barrier_stop(xz(pos), xz(p), nav::SOLDIER) >= 1.0)
         {
             7
+        } else if closes(p) {
+            8
         } else {
             0
         }
@@ -917,7 +954,9 @@ pub(super) fn choose(
         if covers(&t.positions[i as usize]) {
             let f = fails(i);
             if f != 0 {
-                nt.tpos_funnel[2 + f] = nt.tpos_funnel[2 + f].saturating_add(1);
+                // (The closing filter counts after the funnel's old slots.)
+                let k = if f == 8 { 14 } else { 2 + f };
+                nt.tpos_funnel[k] = nt.tpos_funnel[k].saturating_add(1);
             }
         }
     }
@@ -933,13 +972,63 @@ pub(super) fn choose(
     if near.iter().any(|&i| covers(&t.positions[i as usize])) {
         nt.tpos_query = 2;
     }
-    // A teammate's position or body within SPREAD.
+    // Card DFOCUS: a fellow focuser's bearing from the human it focuses.
+    let fellows = st
+        .target
+        .map_or_else(Vec::new, |h| crate::ai::dfocus::fellows(sim, me, h, aim));
+    // A teammate's position or body within SPREAD, or (card DFOCUS) a
+    // position on a fellow focuser's line of approach.
     let crowded = |p: Vec3| {
+        let d = xz(p - aim).normalize_or_zero();
         taken
             .iter()
             .chain(&bodies)
             .any(|(r, mate)| *mate && nav::xz_dist(*r, p) < SPREAD)
+            || fellows
+                .iter()
+                .any(|f| d.dot(*f) > crate::ai::dfocus::SPREAD_COS)
     };
+    // The score: cover with a line (3), nearness (2), cover from the other
+    // contacts (1), the bot's own bias (0.5) - each term held to 0..1 (card
+    // HYST: an authored arrow's +0.2 no longer lifts LOW cover over 1).
+    let score = |i: u32, cov: bool| -> f32 {
+        let q = &t.positions[i as usize];
+        let d = xz(aim - q.pos);
+        let bit = sector_pair(d);
+        let mut cover = 0.0;
+        if cov {
+            // A lane the table found: LOW over it, CORNER round it; else
+            // only the confirming ray will say (crouch-shut only).
+            cover = if q.low & bit != 0 {
+                1.0
+            } else if q.corner & bit != 0 {
+                0.8
+            } else {
+                0.6
+            };
+            if q.source == Source::Cover && q.facing.dot(d.normalize_or_zero()) >= FACING_COS {
+                cover += 0.2;
+            }
+        }
+        let cover = f32::min(cover, 1.0);
+        let near_term = (1.0 - nav::xz_dist(pos, q.pos) / SEARCH).clamp(0.0, 1.0);
+        let other = if others.is_empty() {
+            0.0
+        } else {
+            others
+                .iter()
+                .filter(|o| q.shields_toward(xz(**o - q.pos)))
+                .count() as f32
+                / others.len() as f32
+        };
+        let bias = unit_unit(me.index, u64::from(i), me.gen, SALT_TPOS);
+        3.0 * cover + 2.0 * near_term + other + 0.5 * bias
+    };
+    // Card HYST: the position held, scored as it stands (the bot on it).
+    let bar = keep.map(|k| {
+        let held = &t.positions[k.idx as usize];
+        score(k.idx, covers(held)) * (1.0 + SWITCH_MARGIN)
+    });
     let tries: &[(bool, bool)] = if cover_only_tries {
         &[(true, true), (true, false)]
     } else {
@@ -952,9 +1041,7 @@ pub(super) fn choose(
             if wide && crowded(q.pos) {
                 continue;
             }
-            let d = xz(aim - q.pos);
             let travel = nav::xz_dist(pos, q.pos);
-            let bit = sector_pair(d);
             let cov = covers(q);
             // In the open only a step away: spacing, not a walk.
             let reach = if cover_only { COVER_REACH } else { OPEN_REACH };
@@ -968,36 +1055,10 @@ pub(super) fn choose(
                 }
                 continue;
             }
-            let mut cover = 0.0;
-            if cov {
-                // A lane the table found: LOW over it, CORNER round it; else
-                // only the confirming ray will say (crouch-shut only).
-                cover = if q.low & bit != 0 {
-                    1.0
-                } else if q.corner & bit != 0 {
-                    0.8
-                } else {
-                    0.6
-                };
-                if q.source == Source::Cover && q.facing.dot(d.normalize_or_zero()) >= FACING_COS {
-                    cover += 0.2;
-                }
-            }
-            let near_term = (1.0 - travel / SEARCH).max(0.0);
-            let other = if others.is_empty() {
-                0.0
-            } else {
-                others
-                    .iter()
-                    .filter(|o| q.shields_toward(xz(**o - q.pos)))
-                    .count() as f32
-                    / others.len() as f32
-            };
-            let bias = unit_unit(me.index, u64::from(i), me.gen, SALT_TPOS);
-            scored.push((3.0 * cover + 2.0 * near_term + other + 0.5 * bias, i, cov));
+            scored.push((score(i, cov), i, cov));
         }
         scored.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
-        for &(_, i, cov) in scored.iter().take(CONFIRM) {
+        for &(sc, i, cov) in scored.iter().take(CONFIRM) {
             let q = &t.positions[i as usize];
             // Fired over (shut low, open at stand height) or round (tall).
             let bit = sector_pair(xz(aim - q.pos));
@@ -1007,6 +1068,13 @@ pub(super) fn choose(
                 .iter()
                 .find(|&&s| line_open(sim, firing_eye(q.pos, aim, s), chest))
             {
+                // Card HYST: not by the margin - the position held stays.
+                if let (Some(k), Some(bar)) = (keep, bar) {
+                    if sc <= bar {
+                        nt.tpos_hyst |= HY_KEPT;
+                        return Some(k);
+                    }
+                }
                 return Some(Pick {
                     idx: i,
                     covered: cov,
@@ -1068,6 +1136,9 @@ pub(super) fn failed(st: &mut AiState, tick: u64) {
 fn take(sim: &Sim, tk: &Tick, st: &mut AiState, h: &mut HoldState, p: Pick, nt: &mut NavTick) {
     let now = sim.tick;
     if st.tpos.held != Some(p.idx) {
+        if st.tpos.held.is_some() {
+            nt.tpos_hyst |= HY_FLIP;
+        }
         release(st, now);
     }
     let q = sim.positions.positions[p.idx as usize];
@@ -1276,7 +1347,14 @@ pub(super) fn fight(
             && now >= st.tpos.retry_at
         {
             st.tpos.retry_at = now + RETRY;
-            if let Some(p) = choose(sim, tk, st, foe, Some((i, false)), true, nt) {
+            let here = Pick {
+                idx: i,
+                covered: false,
+                lean: 0,
+            };
+            if let Some(p) = choose(sim, tk, st, foe, Some((i, false)), true, Some(here), nt)
+                .filter(|p| p.idx != i)
+            {
                 nt.tpos_ev |= EV_UPGRADE | EV_PICK_COVERED;
                 take(sim, tk, st, h, p, nt);
                 return true;
@@ -1313,7 +1391,21 @@ pub(super) fn fight(
     // The 5-12 s timer takes another QUALIFYING position (the PS2's
     // "another qualifying hint"): from cover, only another with cover.
     let cover_only = timer_only && st.tpos.covered;
-    match choose(sim, tk, st, foe, leaving, cover_only, nt) {
+    // Card HYST: the timer's query re-scores the position held beside its
+    // candidates (it is still good: no other leave test fired).
+    let keep = leaving.filter(|_| timer_only).map(|(i, _)| Pick {
+        idx: i,
+        covered: st.tpos.covered,
+        lean: st.tpos.lean,
+    });
+    match choose(sim, tk, st, foe, leaving, cover_only, keep, nt) {
+        Some(p) if Some(p.idx) == keep.map(|k| k.idx) => {
+            nt.tpos_ev |= EV_KEEP_TIMER;
+            st.tpos.until = now + FREE_AFTER;
+            st.tpos.next_at = now + span(tk.me, now, 2, NEXT);
+            cycle(sim, tk, st, h, Some(aim));
+            true
+        }
         Some(p) => {
             nt.tpos_ev |= if p.covered {
                 EV_PICK_COVERED

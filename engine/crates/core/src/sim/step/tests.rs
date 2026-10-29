@@ -7,6 +7,7 @@ use crate::unit::UnitHandle;
 use crate::unit::UnitSpec;
 use crate::weapon::WeaponClass;
 
+mod jet;
 mod ramps;
 
 /// The combat calls `unit` asked over `ticks` steps: (tick, call).
@@ -735,7 +736,7 @@ fn same_log_same_hash_with_a_collision_world() {
 
 /// D9: the skill's SPREAD multiplier is written onto an AI unit's weapon
 /// every fire tick and left at 1.0 for a player, so an Easy bot's spread
-/// grows 2.26x faster per shot than a human's.
+/// grows 1.63x faster per shot than a human's.
 #[test]
 fn an_ai_units_weapon_carries_the_skills_spread_multiplier() {
     use crate::skill::Difficulty;
@@ -751,11 +752,11 @@ fn an_ai_units_weapon_carries_the_skills_spread_multiplier() {
     let want = Difficulty::Easy
         .skill_at(s.unit(bot).unwrap().skill)
         .spread_mult;
-    assert!((want - 2.263).abs() < 1e-3, "Easy spread mult {want}");
+    assert!((want - 1.632).abs() < 1e-3, "Easy spread mult {want}");
     assert_eq!(s.unit(bot).unwrap().weapon.spread_mult, want);
     assert_eq!(s.unit(player).unwrap().weapon.spread_mult, 1.0);
     // ... and that multiplier is what scales the per-shot spread growth
-    // (weapon.rs `spread_per_shot`): same class, same shot, 2.26x apart.
+    // (weapon.rs `spread_per_shot`): same class, same shot, 1.63x apart.
     let wc = &s.weapon_classes[0];
     let grow = |mult: f32| {
         let mut w = crate::weapon::WeaponState::new(wc, false, 0);
@@ -772,6 +773,7 @@ fn an_ai_units_weapon_carries_the_skills_spread_multiplier() {
                 held: true,
                 blocked: false,
                 infinite_ammo: true,
+                no_reload: true,
                 ai_dispersion: None,
             },
             &mut lcg,
@@ -850,7 +852,7 @@ fn infinite_stamina_cheat_pins_energy() {
     assert_eq!(p.soldier.stance, crate::soldier::Stance::Sprint);
     let mut c = Cheats::default();
     c.toggle("stamina");
-    assert!(c.infinite_stamina && c.entries()[2].2);
+    assert!(c.infinite_stamina && c.entries()[3].2);
 }
 
 /// A human at the origin on flat ground, facing -Z, the spread off, with

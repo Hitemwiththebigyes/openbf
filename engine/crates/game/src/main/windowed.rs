@@ -66,6 +66,10 @@ fn play_event_sounds(
     let mut voices = Vec::new();
     engines.tick(walk, |h, l| sl.engine(h, l), &mut voices);
     sl.loop_voices(audio, &voices, &listener);
+    // The jets' turn-on and turn-off (card JETP2), at the soldier.
+    for s in engines.take_jet_shots() {
+        sl.play(audio, &s.name, s.pos, &listener);
+    }
     sl.play_repair_loops(audio, &walk.sim, &listener);
     sl.guided_loops(audio, &walk.sim, &listener);
     // The soldiers' steps and stance sounds (card FOLY).
@@ -141,6 +145,48 @@ fn start_blackbox(
     Some(bb)
 }
 
+/// The match log for the battle about to start (card DPRX,
+/// `game::matchlog`): dev mode, unless `OPENBF_MATCHLOG=0`. Follows the
+/// player's slot for the whole round.
+fn start_matchlog(
+    scene: &game::assets::Scene,
+    walk: &WalkSim,
+    mode: &str,
+    setup: &BattleSetup,
+) -> Option<game::matchlog::MatchLog> {
+    if !game::matchlog::on() {
+        return None;
+    }
+    let map = scene.dir.file_name().map_or_else(
+        || scene.manifest.map.clone(),
+        |n| n.to_string_lossy().into_owned(),
+    );
+    let mut meta = game::blackbox::Meta::for_run(
+        &map,
+        mode,
+        &scene.manifest.source_game,
+        setup.seed,
+        setup.difficulty.label(),
+    );
+    meta.mission = setup.mission_file.clone().unwrap_or_default();
+    meta.player_team = setup.player_team;
+    let cw = walk
+        .teams
+        .iter()
+        .any(|t| t.faction == "rep" || t.faction == "cis");
+    let dir = game::blackbox::default_dir().join("matches");
+    let log = game::matchlog::MatchLog::start(
+        &meta,
+        walk,
+        walk.player.index,
+        "human",
+        if cw { "cw" } else { "gcw" },
+        &dir,
+    );
+    println!("matchlog: on, the round writes {}", log.path().display());
+    Some(log)
+}
+
 /// Hand the black box the one-shots the mixer was given since the last call.
 fn note_sounds(
     bb: &mut game::blackbox::BlackBox,
@@ -214,55 +260,6 @@ fn rain_splashes(
     });
     for hit in hits {
         fx.spawn(&name, game::fx::emitter::Frame::at(hit));
-    }
-}
-
-/// PS2 BF2 pause-menu cheat words → openbf effects (analysis/re-cheat-codes.md
-/// §6). Every word toggles. The returned line is the confirmation shown in the
-/// HUD feed (the PS2 plays `shell_menu_accept`, a CORE.LVL click:
-/// `analysis/re-bf2-menus.md` §4.2).
-fn apply_cheat_word(
-    word: &str,
-    walk: &mut WalkSim,
-    hud_hidden: &mut bool,
-    sfx_slow: &mut bool,
-    sounds: Option<&mut game::sounds::SoundLib>,
-) -> String {
-    let on = |b: bool| if b { "on" } else { "off" };
-    match word {
-        "sos" => {
-            walk.sim.cheats.toggle("invincible");
-            format!(
-                "cheat sos: invincibility {}",
-                on(walk.sim.cheats.invincible)
-            )
-        }
-        "ammo" => {
-            walk.sim.cheats.toggle("ammo");
-            format!(
-                "cheat ammo: infinite ammo {}",
-                on(walk.sim.cheats.infinite_ammo)
-            )
-        }
-        "hud" => {
-            *hud_hidden = !*hud_hidden;
-            format!(
-                "cheat hud: HUD {}",
-                if *hud_hidden { "hidden" } else { "shown" }
-            )
-        }
-        "slow" => {
-            *sfx_slow = !*sfx_slow;
-            let rate = if *sfx_slow { 0.3 } else { 1.0 };
-            if let Some(sl) = sounds {
-                sl.rate_mul = rate;
-            }
-            format!("cheat slow: positional SFX pitch x{rate}")
-        }
-        "80s" => "cheat 80s: low-res soldiers (no soldier LOD models yet: no-op)".into(),
-        "at" => "cheat at: comic hit effects (no melee AddHitEffect yet: no-op)".into(),
-        "alias" => "cheat alias: PS2 GS post-filter toggle (no-op on PC)".into(),
-        other => format!("cheat {other}: unknown"),
     }
 }
 
@@ -384,6 +381,8 @@ struct App {
     /// The playtest black box (dev mode; `None` in normal play) and an F9
     /// press waiting for the frame to write it.
     blackbox: Option<game::blackbox::BlackBox>,
+    /// Card DPRX: the whole round's record of the player (dev mode).
+    matchlog: Option<game::matchlog::MatchLog>,
     snapshot_requested: bool,
     /// Quit chosen in the pause menu; handled after the frame.
     quit_clicked: bool,
@@ -413,12 +412,9 @@ struct App {
     /// close does) when the battle's clock reaches it - an unattended run's
     /// end with its exit snapshot and frame summary.
     quit_at: Option<u64>,
-    /// PS2 BF2 Morse cheat recogniser — process lifetime, never reset (authentic).
-    morse: ui::menu::MorseCheats,
-    /// `hud` cheat: HUD hidden.
-    hud_hidden: bool,
-    /// `slow` cheat: positional SFX at 0.3× pitch.
-    sfx_slow: bool,
+    /// The session's cheats and the pause menu's Morse recogniser (card
+    /// CHEAT2): copied into every battle, all off back at the main menu.
+    cheats: game::cheats::Session,
     window: Option<Arc<winit::window::Window>>,
     renderer: Option<Renderer>,
     gpu: Option<SceneGpu>,
@@ -568,6 +564,8 @@ impl App {
     ) -> Self {
         let mut kbm = game::kbm::Kbm::default();
         kbm.follow(&profile.settings);
+        // `--cheat` starts the session with its flags.
+        let cheats = game::cheats::Session::new(setup.cheats);
         Self {
             map: None,
             screen: Screen::Shell,
@@ -607,6 +605,7 @@ impl App {
             squad_icons: (None, None),
             hud_view: None,
             blackbox: None,
+            matchlog: None,
             snapshot_requested: false,
             prev_menu_buttons: 0,
             gameplay_stick: GameplayStick::default(),
@@ -617,9 +616,7 @@ impl App {
             sprint_latch: input::SprintLatch::default(),
             autopilot: false,
             quit_at: None,
-            morse: ui::menu::MorseCheats::new(),
-            hud_hidden: false,
-            sfx_slow: false,
+            cheats,
             window: None,
             renderer: None,
             gpu: None,
@@ -819,6 +816,8 @@ impl App {
         self.bolts = game::bolt_vis::BoltVis::new(&self.assets_dir, &scene.manifest.source_game);
         let setup = setup.unwrap_or(&self.setup);
         let mut walk = make_walk(scene, setup);
+        // `[ours]` The session's cheats, whatever the setup says (CHEAT2).
+        self.cheats.install(&mut walk.sim);
         walk.blend = game::render_blend::Blend::from_env();
         self.foley = game::foley::Foley::load(&scene.dir, &walk);
         self.engines = game::engine_sound::EngineSounds::new(&scene.dir, &walk);
@@ -827,8 +826,10 @@ impl App {
         if let Some(sl) = self.sounds.as_mut() {
             sl.for_walk(&scene.dir, &walk);
             preload_sounds(sl);
+            sl.rate_mul = self.cheats.sfx_rate();
         }
         self.blackbox = start_blackbox(scene, &walk, &self.mode, setup, self.sounds.as_mut());
+        self.matchlog = start_matchlog(scene, &walk, &self.mode, setup);
         self.feed = game::event_feed::EventFeed::for_walk(
             &self.assets_dir,
             &scene.manifest.source_game,
@@ -871,7 +872,6 @@ impl App {
         // THE MAINTAINER'S RULE: the aim assist is the PLAYER'S switch — no difficulty
         // tier reads it (the PS2 BF2's Elite clears it, RE §9.3; not ours).
         walk.sim.assist_armed = self.profile.settings.aim_assist;
-        walk.sim.human_damage_on = self.profile.settings.human_damage_on;
         walk.sim.team_handicap_on = self.profile.settings.team_handicap_on;
         (walk, cube)
     }
@@ -992,6 +992,13 @@ impl App {
             bb.write("exit", Some(walk), true);
         }
         self.blackbox = None;
+        // Card DPRX: a battle left before its outcome still writes its log.
+        if let (Some(m), Some((walk, _))) = (self.matchlog.as_mut(), self.walk.as_ref()) {
+            if let Some(p) = m.write(&walk.sim, "quit") {
+                println!("matchlog: wrote {}", p.display());
+            }
+        }
+        self.matchlog = None;
     }
 
     /// Battle → shell (records the round).
@@ -1442,10 +1449,14 @@ impl winit::application::ApplicationHandler for App {
                             confirm: edges & 16 != 0,
                             back: edges & 32 != 0,
                         };
-                        let (cursor, actions) = ui::menu::navigate(&model, input);
+                        // Left/Right are the Morse letter and word keys: the
+                        // rows never see them, outside the Respawn popup
+                        // (the sliders step in the shell's Options).
+                        let rows_input = game::pause::rows_input(input, model.respawn_confirm);
+                        let (cursor, actions) = ui::menu::navigate(&model, rows_input);
                         let click = game::pause::pause_sound(
                             model.respawn_confirm,
-                            input,
+                            rows_input,
                             model.cursor,
                             cursor,
                             &actions,
@@ -1455,14 +1466,14 @@ impl winit::application::ApplicationHandler for App {
                         }
                         // The PS2 matcher runs beside the menu on the same
                         // edges (the cursor wiggle while typing is authentic).
-                        if let Some(word) = self.morse.feed(input) {
-                            let line = apply_cheat_word(
-                                word,
-                                walk,
-                                &mut self.hud_hidden,
-                                &mut self.sfx_slow,
-                                self.sounds.as_mut(),
-                            );
+                        if let Some(line) = self.cheats.feed(input, &mut walk.sim) {
+                            if let Some(sl) = self.sounds.as_mut() {
+                                sl.rate_mul = self.cheats.sfx_rate();
+                                sl.play_2d(
+                                    self.audio.as_mut(),
+                                    ui::shell_feel::MenuSound::Accept.name(),
+                                );
+                            }
                             eprintln!("{line}");
                             self.feed
                                 .say(line, ui::hud::message_color::YELLOW, walk.sim.tick);
@@ -1476,6 +1487,7 @@ impl winit::application::ApplicationHandler for App {
                                 &mut self.paused,
                                 &mut self.pause_menu,
                             );
+                            self.cheats.follow(&walk.sim);
                             persist_setting(&mut self.profile, a, walk);
                             quit |= a == ui::menu::MenuAction::Quit;
                             self.kbm.follow(&self.profile.settings);
@@ -1518,9 +1530,9 @@ impl winit::application::ApplicationHandler for App {
                         });
                         // The class screen's unlocks read the player's
                         // points as the feed has scored them (card SSELB,
-                        // re-spawn-flow §4.3).
+                        // re-spawn-flow §4.3) and its career's costs (UNLK3).
                         let points = self.feed.stats(&walk.sim, walk.player).points;
-                        walk.sim.set_spawn_points(0, points);
+                        game::unlocks::set_player_gate(walk, points, &self.profile.career);
                         // Station serving is observed for every sim tick, even when a
                         // frame catches up several ticks before posing the scene.
                         if let Some(gpu) = self.gpu.as_mut() {
@@ -1537,6 +1549,7 @@ impl winit::application::ApplicationHandler for App {
                             if let Some(vis) = self.soldier_vis.as_mut() {
                                 vis.note_shots(walk);
                                 self.bolts.set_fire_points(vis.fire_points(walk));
+                                self.fx.set_jet_frames(vis.jet_frames(walk));
                             }
                             self.bolts.track(walk);
                             if let (Some(audio), Some(sl)) =
@@ -1557,6 +1570,14 @@ impl winit::application::ApplicationHandler for App {
                             if let Some(bb) = self.blackbox.as_mut() {
                                 stuck_alarm |= bb.tick(walk, Some(tick_pad));
                                 note_sounds(bb, self.sounds.as_mut(), walk.sim.tick);
+                            }
+                            if let Some(m) = self.matchlog.as_mut() {
+                                m.tick(&walk.sim, (tick_pad.lx, tick_pad.ly));
+                                if walk.sim.outcome.is_some() && !m.written() {
+                                    if let Some(p) = m.write(&walk.sim, "outcome") {
+                                        println!("matchlog: wrote {}", p.display());
+                                    }
+                                }
                             }
                             if let Some(p) = self.frame_profile.as_mut() {
                                 let hook = hook_t0.elapsed().as_secs_f64() * 1000.0;
@@ -1818,7 +1839,7 @@ impl winit::application::ApplicationHandler for App {
                     let page = spawn
                         .as_ref()
                         .and_then(|s| s.page.as_ref())
-                        .filter(|_| self.hud_view.is_some() && !self.hud_hidden);
+                        .filter(|_| self.hud_view.is_some() && !self.cheats.hud_hidden);
                     if let Some(vis) = self.soldier_vis.as_ref() {
                         let step = if self.paused { 0.0 } else { dt };
                         let (body, gun) = self.spawn_preview.draws(vis, page, &camera, step);
@@ -1830,7 +1851,7 @@ impl winit::application::ApplicationHandler for App {
                     if let Some((walk, _)) = self.walk.as_mut() {
                         walk.blend_out();
                     }
-                    let hud_hidden = self.hud_hidden;
+                    let hud_hidden = self.cheats.hud_hidden;
                     let pad_warning = self.pad_warning.clone();
                     // BF2's own HUD under the egui lines and the spawn
                     // screen (dead, it is the counts and the message box:
@@ -1904,6 +1925,7 @@ impl winit::application::ApplicationHandler for App {
                                         &mut self.paused,
                                         &mut self.pause_menu,
                                     );
+                                    self.cheats.follow(&walk.sim);
                                     persist_setting(&mut self.profile, a, walk);
                                     self.kbm.follow(&self.profile.settings);
                                     if a == ui::menu::MenuAction::Quit {
@@ -1954,6 +1976,9 @@ impl winit::application::ApplicationHandler for App {
                         // next row (§7); a Quit from the pause menu ends it.
                         if !std::mem::take(&mut self.round_over) || !self.next_round() {
                             self.playlist.clear();
+                            // `[ours]` Back at the main menu: the session's
+                            // cheats all go off (CHEAT2).
+                            self.cheats.end();
                         }
                     }
                 }

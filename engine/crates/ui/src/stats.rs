@@ -18,7 +18,10 @@
 //! - **Career Stats**: the profile's numbers and the nine medals; Up / Down /
 //!   Left / Right move the medal cursor, whose text shows below; Triangle
 //!   goes back; X ("Done" on its help line) quits; Square quits too
-//!   (`[ours]`: the career script's Square was not read).
+//!   (`[ours]`: the career script's Square was not read). `[ours]` (card
+//!   UNLK3): Down past the medals' last line turns the box to the unlockable
+//!   classes' career kills, the same rows four a column; Up past their first
+//!   line turns it back.
 //!
 //! Every text arrives already in the player's language (the game reads
 //! BF2's table); numbers arrive as numbers and are printed here.
@@ -28,6 +31,9 @@ pub const SHOWN: usize = 9;
 /// Medals per column of the career page (5 left, 4 right: statsref
 /// `dag1_gcw/301_after_K.png`).
 pub const MEDALS_LEFT: usize = 5;
+/// The unlockable classes per column of their page (`[ours]`: 4 left, 4
+/// right).
+pub const UNLOCKS_LEFT: usize = 4;
 
 /// One soldier's row on Team Stats, with his Personal Stats page.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -79,6 +85,61 @@ pub struct Career {
     /// column per line.
     pub values: Vec<(String, String)>,
     pub medals: Vec<Medal>,
+    /// `[ours]` (card UNLK3): the unlockable classes as medal rows: name,
+    /// career kills, the stage (the level's place) and the line below.
+    pub unlocks: Vec<Medal>,
+}
+
+/// The rows the career box shows: the medals or the unlocks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CareerView {
+    /// The first row's index in the medal cursor's run (medals, then
+    /// unlocks), the row count and the left column's.
+    pub start: usize,
+    pub len: usize,
+    pub left: usize,
+    /// The unlocks' page.
+    pub unlocks: bool,
+}
+
+impl Career {
+    /// The medal cursor's row: a medal, else an unlock.
+    pub fn row(&self, k: usize) -> Option<&Medal> {
+        match k.checked_sub(self.medals.len()) {
+            None => self.medals.get(k),
+            Some(u) => self.unlocks.get(u),
+        }
+    }
+
+    /// The box's two pages (the unlocks' only when there are any).
+    pub fn views(&self) -> Vec<CareerView> {
+        let n = self.medals.len();
+        let mut v = vec![CareerView {
+            start: 0,
+            len: n,
+            left: MEDALS_LEFT.min(n),
+            unlocks: false,
+        }];
+        if !self.unlocks.is_empty() {
+            v.push(CareerView {
+                start: n,
+                len: self.unlocks.len(),
+                left: UNLOCKS_LEFT.min(self.unlocks.len()),
+                unlocks: true,
+            });
+        }
+        v
+    }
+
+    /// The page row `k` is on.
+    pub fn view_of(&self, k: usize) -> CareerView {
+        let views = self.views();
+        views
+            .iter()
+            .copied()
+            .rfind(|v| k >= v.start)
+            .unwrap_or(views[0])
+    }
 }
 
 /// The pages' fixed texts.
@@ -90,6 +151,8 @@ pub struct StatsTexts {
     pub medals_title: String,
     pub career_title: String,
     pub career_medals: String,
+    /// `[ours]`: the unlocks' page heading.
+    pub career_unlocks: String,
     pub done: String,
     pub select: String,
     pub back: String,
@@ -327,28 +390,42 @@ impl StatsScreens {
 
     /// The career page's medal cursor: Up / Down within a column, Left /
     /// Right to the other column on the same line (its last when shorter).
+    /// `[ours]`: Down off a column's end goes on to the unlocks' page, the
+    /// same column's first line; Up off its top comes back to the medals'
+    /// last line of that column.
     fn move_medal(&mut self, p: Pad) {
-        let n = self.career.medals.len();
-        if n == 0 {
+        let views = self.career.views();
+        let Some(page) = views
+            .iter()
+            .rposition(|v| self.medal >= v.start)
+            .filter(|&i| views[i].len > 0)
+        else {
             return;
-        }
-        let split = MEDALS_LEFT.min(n);
-        let (col, line) = if self.medal < split {
-            (0, self.medal)
-        } else {
-            (1, self.medal - split)
         };
-        let len = |c: usize| if c == 0 { split } else { n - split };
-        let (col, line) = if p.up {
-            (col, line.saturating_sub(1))
+        let v = views[page];
+        let k = self.medal - v.start;
+        let (col, line) = if k < v.left { (0, k) } else { (1, k - v.left) };
+        let len = |v: CareerView, c: usize| if c == 0 { v.left } else { v.len - v.left };
+        let at = |v: CareerView, c: usize, line: usize| {
+            let c = if len(v, c) == 0 { 0 } else { c };
+            let line = line.min(len(v, c).saturating_sub(1));
+            v.start + if c == 0 { line } else { v.left + line }
+        };
+        self.medal = if p.up {
+            match (line, page.checked_sub(1)) {
+                (0, Some(prev)) => at(views[prev], col, usize::MAX),
+                _ => at(v, col, line.saturating_sub(1)),
+            }
         } else if p.down {
-            (col, (line + 1).min(len(col).saturating_sub(1)))
-        } else if (p.left || p.right) && len(1 - col) > 0 {
-            (1 - col, line.min(len(1 - col) - 1))
+            match views.get(page + 1) {
+                Some(&next) if line + 1 >= len(v, col) => at(next, col, 0),
+                _ => at(v, col, line + 1),
+            }
+        } else if (p.left || p.right) && len(v, 1 - col) > 0 {
+            at(v, 1 - col, line)
         } else {
-            (col, line)
+            self.medal
         };
-        self.medal = if col == 0 { line } else { split + line };
     }
 }
 
@@ -395,6 +472,7 @@ mod tests {
             Career {
                 values: Vec::new(),
                 medals: (0..9).map(|_| Medal::default()).collect(),
+                unlocks: Vec::new(),
             },
         )
     }
@@ -536,6 +614,39 @@ mod tests {
         s.input(press(|p| p.up = true));
         s.input(press(|p| p.up = true));
         assert_eq!(s.medal, 0);
+    }
+
+    /// Card UNLK3: Down off a medal column's end turns to the unlocks' page
+    /// (four a column), the same column; Up off its top comes back to that
+    /// column's last medal; Left / Right stay on the page.
+    #[test]
+    fn the_medal_cursor_runs_on_to_the_unlocks() {
+        let mut s = screens(3, 3, (0, 0));
+        s.career.unlocks = (0..8).map(|_| Medal::default()).collect();
+        s.page = Page::Career;
+        let down = press(|p| p.down = true);
+        let up = press(|p| p.up = true);
+        for _ in 0..5 {
+            s.input(down);
+        }
+        assert_eq!(s.medal, 9, "the unlocks' first, left column");
+        assert!(s.career.view_of(s.medal).unlocks);
+        for _ in 0..5 {
+            s.input(down);
+        }
+        assert_eq!(s.medal, 12, "their left column's last");
+        s.input(press(|p| p.right = true));
+        assert_eq!(s.medal, 16, "the right column, same line");
+        for _ in 0..3 {
+            s.input(up);
+        }
+        assert_eq!(s.medal, 13);
+        s.input(up);
+        assert_eq!(s.medal, 8, "back: the right medal column's last");
+        assert!(!s.career.view_of(s.medal).unlocks);
+        s.input(down);
+        assert_eq!(s.medal, 13);
+        assert_eq!(s.career.row(13), Some(&s.career.unlocks[4]));
     }
 
     #[test]

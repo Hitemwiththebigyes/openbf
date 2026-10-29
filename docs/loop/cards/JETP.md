@@ -1,19 +1,19 @@
 ---
 id: JETP
-title: Jet and jump packs: BF1 dark trooper (JetJump 21, no fuel cost), BF1 jet trooper (JetJump 5, JetPush 8, JetType hover, fuel), BF2's jet troopers, the Geonosians' wings - the port has no jet physics, only a nav flag
+title: Jet and jump packs, the physics - BF2's jet rules on every map (the jump-jet, the hover, fuel, the Jedi double jump, the fly-height ceiling) for human players; bots, effects, sounds, HUD and animation are JETP2
 milestone: M3
 value: 3
-phase: re
-status: blocked
+phase: build
+status: done
 deps:
-files:
+files: engine/crates/core/src/soldier.rs, engine/crates/core/src/sim/step.rs, engine/crates/core/src/sim/state.rs, engine/crates/core/src/unit.rs, engine/crates/game/src/roster.rs, engine/crates/game/src/mission.rs, engine/crates/game/src/layout.rs, scripts/gen_missions.py
 declares:
-needs: restore both PS2 corpora/ELFs, class data, SAIR jet evidence and runtime inputs before retry
+needs:
 effort:
-branch:
-resume: 20261024_2347 input hold; both-game jet physics and arc RE remain unproved; restore report inputs before another attempt; engine/artifacts/loop/reports/20261024_2347_card_JETP.md
+branch: jetpack
+resume: built 2026-10-28 on branch jetpack (build plan steps 1-8 + the cheat; analysis/re-jetpack.md §13); the rest is card JETP2
 created: 2026-09-29
-defer: post-alpha
+defer:
 tries: 1
 ---
 
@@ -59,3 +59,33 @@ infinite fuel via cheat".
   randint(3, 8) s and jet 80 m along its direction; hover-jet classes fly at a target 20 m or more away when the
   fuel lasts and no barrier crosses the line. On a route: the follower sets jump or jet from the connection's flags.
   The deathmatch agent jets straight up at random. BF1: an evade jump every 3-8 s and JetJumpHintHelper.
+
+## RE done (2026-10-28, branch jetp-re): `analysis/re-jetpack.md`
+Both games read from code + ELF words (no PCSX2 run, no verifier yet - plan step 9). Jet = a second tap of jump in the
+air (stance jump/fall); a tap ends it (BF1 jump-jet cannot be cancelled); fuel empty -> fall. Kick (both games):
+v += normalize(R x -0.1 strafe + F x max(fwd,-0.1) + (0,1.1,0)) x JetJump. BF2 jump-jet (dark trooper): JetFuelCost/s
+drain, vy += JetPush dt, the air mover with stick x JetAcceleration; BF2 hover: own mover, no gravity, v x exp(-2dt),
+flies along the aim (pitch doubled + 0.08 lift) toward ControlSpeed jet row x speeds at JetAcceleration. BF1 hover
+holds height (dvy = -2.5 vy), climbs by sin(pitch) x JetPush x 4, horizontal 2 x stick x speeds; BF1 recharges fuel
+DURING the jet. Spawn fuel 0.5 (recharge > 0) else 0. BF2 Jedi: the not-hover jet with a saber is a double jump
+(vy 1.5 x jump speed, energy 40). JetDuration is read by nothing. HUD: BF2 `player1jetpackbar` events, BF1 a
+code-drawn `hud_jetpack_icon`. Decision owed (the doc's 12): BF2 rules on BF1 classes with a stated data mapping
+(recommended). Build steps: the doc's 12 (13 small steps).
+
+## Built (2026-10-28, branch `jetpack`): build plan steps 1-8 and the infinite-fuel cheat
+The maintainer's decision (2026-10-28): BF2's jet rules on EVERY map, BF1 included (a named deviation `[ours]`); each
+class keeps its disc numbers; a BF1 class borrows only the keys BF1 never authors from its BF2 twin (jet trooper
+JetAcceleration 30 + jet row 1.5 / 1.25 / 1.25; dark troopers JetAcceleration 10); the Geonosian is skipped (not
+baked); no recharge while jetting. What was built, the controls, the feel numbers against the RE's, the judgment
+calls and the bot rounds: `analysis/re-jetpack.md` §13.
+- Controls: jump on the ground jumps; a second jump press in the air starts the jet (leap / hover / a Jedi's double
+  jump); a third ends it into a fall; landing or an empty tank ends it too (landing: the 0.3 s lock).
+- Tests: `core/src/soldier/tests/jet.rs` (17), `core/src/sim/step/tests/jet.rs` (5),
+  `game/tests/suite/roster.rs` (`the_jet_classes_carry_their_disc_numbers`, `bf1_jet_borrowing_matches_the_bf2_twins`),
+  `game/src/layout.rs` (the mission ceiling, in `bf1_mission_with_empty_roster_keeps_world_posts`).
+- Bot rounds (`round_to_outcome 9000 42`, bf1_kas2 / bf2_kas2 / bf2_yav1 / bf2_cor1): outcomes and tickets
+  unchanged; hashes move only by the hashed fuel of jet classes (a probe build without it reproduces main's).
+- Owed outside the code: regenerate the local `engine/missions/*.ron` (`python3 scripts/gen_missions.py`) so they
+  carry `max_player_fly_height`; until then every map's ceiling is the engine's 200.
+- Not done here (card JETP2): the verifier and PCSX2 captures (step 9), bots (10), effect and sounds (11), the HUD
+  fuel bar (12), `jetpack_hover` (13); the roster's route flag still says `JetJump > 0`.

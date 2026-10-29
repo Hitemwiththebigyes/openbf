@@ -594,7 +594,7 @@ impl Sim {
         // team template's, a test's hand-built spec), and mirrored into the
         // spec so a respawn from it starts from the same place. Players and
         // dummies keep 0: `Unit.skill` is a BOT's number.
-        unit.skill = crate::skill_for(spec.controller, self.difficulty_of(spec.team).base_skill());
+        unit.skill = crate::skill_for(spec.controller, self.bot_skill(spec.team));
         unit.spec.skill = unit.skill;
         // The probe starts from the AUTHORED node y: spawn nodes are authored
         // ON the platforms (BF1 KAM1 `CP4SpawnPath` nodes sit at y ~ 61.4-62.3
@@ -822,7 +822,7 @@ impl Sim {
             yaw,
             Controller::Ai,
             c,
-            self.difficulty_of(team).base_skill(),
+            self.bot_skill(team),
         );
         let h = self.spawn(&spec)?;
         self.ai_spawned[t] += 1;
@@ -838,7 +838,7 @@ impl Sim {
     /// slot, through keep-or-nearest (card SPSEL, [`Sim::keep_or_nearest_post`]);
     /// one who never picked still draws a node from the flat list of every
     /// post's ([`Sim::spawn_points`]).
-    pub(in crate::sim) fn respawn_slot(&mut self, i: usize) {
+    pub(crate) fn respawn_slot(&mut self, i: usize) {
         let team = self.units[i].team;
         let is_player = self.units[i].is_player;
         let slot = self.units[i].spec.player_slot.map(usize::from);
@@ -876,7 +876,7 @@ impl Sim {
             && old.controller == Controller::Ai
             && !self.classes[usize::from(old.team.min(1))].is_empty())
         .then(|| self.ai_class(old.team));
-        let base = self.difficulty_of(old.team).base_skill();
+        let base = self.bot_skill(old.team);
         let table = &self.classes[usize::from(old.team.min(1))];
         let spec = match old.player_slot.filter(|_| !table.is_empty()) {
             Some(slot) => {
@@ -897,11 +897,13 @@ impl Sim {
         // An AI respawn re-derives the tier's skill (D2): a difficulty change
         // between deaths reaches the bot at its next life, and a bot never
         // comes back with a stale level.
-        unit.skill = crate::skill_for(spec.controller, self.difficulty_of(spec.team).base_skill());
+        unit.skill = crate::skill_for(spec.controller, self.bot_skill(spec.team));
         unit.spec.skill = unit.skill;
         unit.soldier.pos.y = self.spawn_ground(pos);
         unit.kills = self.units[i].kills;
         unit.deaths = self.units[i].deaths;
+        // Card DPRX: a proxy comes back a proxy.
+        unit.proxy_human = self.units[i].proxy_human;
         self.units[i] = unit;
         let h = UnitHandle {
             index: i as u32,
@@ -1142,6 +1144,28 @@ impl Sim {
         self.spawn_points[s] = points;
     }
 
+    /// Card UNLK3: player slot `s`'s cost of each of `team`'s classes
+    /// ([`Sim::spawn_costs`]).
+    pub fn set_spawn_costs(&mut self, s: usize, team: u8, costs: Vec<u32>) {
+        if self.spawn_costs.len() <= s {
+            self.spawn_costs.resize(s + 1, Default::default());
+        }
+        self.spawn_costs[s][usize::from(team.min(1))] = costs;
+    }
+
+    /// Player slot `s`'s cost of `team`'s class `class`: its career's
+    /// ([`Sim::spawn_costs`]), else the class's `unlock_points`.
+    pub fn spawn_cost(&self, s: usize, team: u8, class: usize) -> u32 {
+        let own = self.classes[usize::from(team.min(1))]
+            .get(class)
+            .map_or(0, |c| c.unlock_points);
+        self.spawn_costs
+            .get(s)
+            .and_then(|t| t[usize::from(team.min(1))].get(class))
+            .copied()
+            .unwrap_or(own)
+    }
+
     /// How many of `team`'s units are on the field in class `class` (the
     /// panel's "Unit Count", `FUN_0036f538`: members with a live unit).
     pub fn class_count(&self, team: u8, class: usize) -> u32 {
@@ -1159,16 +1183,18 @@ impl Sim {
     /// has no max test. Bots never ask (the PS2 checks a human only). Not
     /// built: the droideka pool test (no BF2 line-up has a droideka class),
     /// and the PS2 shows Max only when it is under the member records, which
-    /// every authored max is.
+    /// every authored max is. `[ours]` (card UNLK3): the points test reads
+    /// the slot's career cost ([`Sim::spawn_cost`]); the max test stays on
+    /// the class's own cost, so a class unlocked for good keeps its max.
     pub fn class_refusal(&self, s: usize, team: u8, class: usize) -> Option<ClassRefusal> {
         let c = self.classes[usize::from(team.min(1))].get(class)?;
-        let cost = i64::from(c.unlock_points);
+        let cost = i64::from(self.spawn_cost(s, team, class));
         let points = i64::from(self.spawn_points.get(s).copied().unwrap_or(0));
         if cost != 0 && points < cost {
             return Some(ClassRefusal::Points((cost - points) as u32));
         }
         match c.max {
-            Some(max) if cost >= 1 && self.class_count(team, class) >= max => {
+            Some(max) if c.unlock_points >= 1 && self.class_count(team, class) >= max => {
                 Some(ClassRefusal::TooMany)
             }
             _ => None,

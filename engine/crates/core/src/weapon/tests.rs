@@ -42,11 +42,13 @@ fn shot_pattern_advances_wraps_and_participates_in_replay_hash() {
 
 const DT30: f32 = 1.0 / 30.0;
 
-fn fi(held: bool, infinite_ammo: bool) -> FireInput {
+/// `cheat`: both ammo cheats (nothing drawn, no reload).
+fn fi(held: bool, cheat: bool) -> FireInput {
     FireInput {
         held,
         blocked: false,
-        infinite_ammo,
+        infinite_ammo: cheat,
+        no_reload: cheat,
         ai_dispersion: None,
     }
 }
@@ -335,6 +337,42 @@ fn trigger_single_fires_once_per_press_rate_limited() {
     assert!((9..=10).contains(&fired), "2 s of tapping -> {fired} shots");
 }
 
+/// Card CHEAT2: `ammo` keeps the reserve and reloads for free (even from an
+/// empty reserve); `clip` keeps the clip full while the reserve pays, then
+/// empties it with no reload.
+#[test]
+fn ammo_and_clip_cheats_split() {
+    let c = WeaponClass::bf1_rifle();
+    let input = |infinite_ammo, no_reload| FireInput {
+        held: true,
+        infinite_ammo,
+        no_reload,
+        ..Default::default()
+    };
+    let mut lcg = GameLcg::new(1);
+    let mut shots = Vec::new();
+    // `ammo`, from a 50-round clip and no reserve.
+    let mut w = WeaponState::new(&c, true, 0);
+    let mut reloaded = false;
+    for _ in 0..30 * 20 {
+        w.update(DT30, &c, input(true, false), &mut lcg, &mut shots);
+        assert_eq!(w.spare, 0);
+        reloaded |= w.reloading();
+    }
+    assert!(reloaded && shots.len() > 60, "{} shots", shots.len());
+    // `clip`, 50 + 100.
+    let mut w = WeaponState::new(&c, true, 2);
+    shots.clear();
+    for _ in 0..30 * 40 {
+        w.update(DT30, &c, input(false, true), &mut lcg, &mut shots);
+        assert!(!w.reloading());
+        if w.spare > 0 {
+            assert_eq!(w.clip, 50);
+        }
+    }
+    assert_eq!((w.clip, w.spare, shots.len()), (0, 0, 150));
+}
+
 /// Ammo: 50-round clip empties after 50 shots, auto-reload takes 1.5 s,
 /// then firing resumes; infinite-ammo cheat never consumes.
 #[test]
@@ -543,6 +581,7 @@ fn ai_sniper_dispersion_reaches_the_weapon_yaw_slot() {
                 held: false,
                 blocked: false,
                 infinite_ammo: true,
+                no_reload: true,
                 ai_dispersion: Some(want),
             },
             &mut lcg,

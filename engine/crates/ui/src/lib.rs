@@ -26,6 +26,7 @@ pub mod hud_ambush;
 pub mod hud_capture;
 pub mod hud_draw;
 pub mod hud_map;
+pub mod hud_scope;
 pub mod hud_squad;
 pub mod hud_tree;
 pub mod loading;

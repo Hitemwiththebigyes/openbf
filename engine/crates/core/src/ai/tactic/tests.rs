@@ -533,7 +533,11 @@ fn a_position_is_rescored_every_five_seconds() {
     assert!(r0 > t0 + 30, "the re-score is ahead: {r0} at {t0}");
     sim.unit_mut(e).expect("enemy").soldier.pos = Vec3::new(0.0, 0.0, 25.0);
     let mut left = None;
-    run(&mut sim, e, (r0 - t0) as u32 + 60, |s| {
+    // The re-score needs the target SEEN, behind the bot now: its memory
+    // runs out ~1.3 s past the re-score and it turns to find it (2 rad), so
+    // it leaves ~2.4 s past the re-score. (It left at +1.4 s while the old
+    // stance cycle laid it prone by mistake before the test's turn, 2026-10-28.)
+    run(&mut sim, e, (r0 - t0) as u32 + 90, |s| {
         let u = s.unit(h).expect("bot");
         if left.is_none() && u.ai.tpos.held != Some(i) {
             left = Some(s.tick);
@@ -952,7 +956,7 @@ fn ask(sim: &Sim, h: UnitHandle, e: UnitHandle, leaving: Option<(u32, bool)>) ->
     };
     let mut nt = NavTick::default();
     let foe = Foe::seen(sim.unit(e).expect("enemy"));
-    choose(sim, &tk, &u.ai, &foe, leaving, false, &mut nt)
+    choose(sim, &tk, &u.ai, &foe, leaving, false, None, &mut nt)
 }
 
 /// A position just LEFT stays reserved [`FREE_AFTER`] (the PS2's hint
@@ -1019,7 +1023,7 @@ fn a_position_just_left_stays_reserved() {
 /// far side is no cover.
 #[test]
 fn a_cover_hint_covers_only_on_the_bots_side_of_the_target() {
-    let (enemy, bot) = (Vec3::ZERO, Vec3::new(10.0, 0.0, 0.0));
+    let (enemy, bot) = (Vec3::ZERO, Vec3::new(9.0, 0.0, 0.0));
     let hint = |p: Vec3| Position {
         pos: p,
         source: Source::Cover,
@@ -1032,17 +1036,19 @@ fn a_cover_hint_covers_only_on_the_bots_side_of_the_target() {
         shut: 0,
         tall: 0,
     };
-    // Near: 7.2 m from the bot, on its side; far: 14.6 m, beyond the target.
+    // Both 7 m from the target (2 m nearer than the bot: card HYST's
+    // closing rule passes them). Near: 6.3 m from the bot, on its side; far:
+    // 14.8 m, beyond the target.
     let table = vec![
-        hint(Vec3::new(4.0, 0.0, 4.0)),
-        hint(Vec3::new(-4.0, 0.0, 4.0)),
+        hint(Vec3::new(5.0, 0.0, 4.9)),
+        hint(Vec3::new(-5.0, 0.0, 4.9)),
     ];
     let (sim, h, e) = flat_scene(bot, enemy, table);
     let p = ask(&sim, h, e, None).expect("a position");
     let at = sim.positions.positions[p.idx as usize].pos;
     assert_eq!(
         (at, p.covered),
-        (Vec3::new(4.0, 0.0, 4.0), true),
+        (Vec3::new(5.0, 0.0, 4.9), true),
         "the near side's hint, as cover"
     );
 }
@@ -1156,8 +1162,9 @@ fn the_band_is_grown_at_its_inner_edge() {
     let d = (edge - 2.0).max(CROWD + 0.5);
     assert!(d < edge && d > edge - BAND_GROW, "edge {edge}, d {d}");
     let p = enemy + Vec3::new(0.0, 0.0, d);
+    // (The bot 3 m beside it: no walk at the target, card HYST.)
     let (sim, h, e2) = flat_scene(
-        Vec3::new(3.0, 0.0, -10.0),
+        p + Vec3::new(3.0, 0.0, 0.0),
         enemy,
         vec![low_toward(p, enemy)],
     );
@@ -1369,5 +1376,99 @@ fn a_bot_on_a_told_record_keeps_its_reservation_and_leaves_hit_twice() {
                 "kept a while: left at {left}"
             );
         }
+    }
+}
+
+/// A position at `p` with CORNER cover (shut at both heights) toward `toward`.
+fn corner_toward(p: Vec3, toward: Vec3) -> Position {
+    let bits = sector_pair(xz(toward - p));
+    Position {
+        low: 0,
+        corner: bits,
+        tall: bits,
+        ..low_toward(p, toward)
+    }
+}
+
+/// Bot `h`'s Tactician asked as the 5-12 s timer asks (card HYST): leaving
+/// position `held`, which it keeps unless beaten by the margin.
+fn ask_keep(
+    sim: &Sim,
+    h: UnitHandle,
+    e: UnitHandle,
+    held: u32,
+    keep: bool,
+) -> (Option<Pick>, NavTick) {
+    let u = sim.unit(h).expect("bot");
+    let tk = crate::ai::behave::Tick {
+        me: h,
+        u,
+        eye: u.muzzle(),
+        wc: &sim.weapon_classes[u.weapon_class],
+        tier: sim.difficulty.tier(),
+        skill: sim.difficulty.skill_at(u.skill),
+    };
+    let mut nt = NavTick::default();
+    let foe = Foe::seen(sim.unit(e).expect("enemy"));
+    let k = keep.then_some(Pick {
+        idx: held,
+        covered: true,
+        lean: 1,
+    });
+    let p = choose(sim, &tk, &u.ai, &foe, Some((held, false)), true, k, &mut nt);
+    (p, nt)
+}
+
+/// Card HYST: the timer re-scores the position held beside its candidates.
+/// LOW cover 3.5 m away outscores the CORNER the bot stands at (3 x 1.0 +
+/// near 1.83 against 3 x 0.8 + near 2.0) but by less than 15 %: kept; asked
+/// without the position held, the LOW one wins.
+#[test]
+fn the_position_held_is_kept_unless_another_beats_it_by_the_margin() {
+    let enemy = Vec3::new(0.0, 0.0, -25.0);
+    let table = vec![
+        corner_toward(Vec3::ZERO, enemy),
+        low_toward(Vec3::new(3.5, 0.0, 0.0), enemy),
+    ];
+    let (sim, h, e) = flat_scene(Vec3::ZERO, enemy, table);
+    let (free, nt) = ask_keep(&sim, h, e, 0, false);
+    assert_eq!(free.map(|p| p.idx), Some(1), "the LOW cover scores higher");
+    assert_eq!(nt.tpos_hyst & HY_KEPT, 0);
+    let (kept, nt) = ask_keep(&sim, h, e, 0, true);
+    assert_eq!(kept.map(|p| p.idx), Some(0), "not by 15 %: kept");
+    assert_eq!(nt.tpos_hyst & HY_KEPT, HY_KEPT);
+    // An open position held gives way to the LOW cover (it beats it by far).
+    let table = vec![
+        low_toward(Vec3::ZERO, Vec3::new(0.0, 0.0, 25.0)),
+        low_toward(Vec3::new(3.5, 0.0, 0.0), enemy),
+    ];
+    let (sim, h, e) = flat_scene(Vec3::ZERO, enemy, table);
+    let (p, _) = ask_keep(&sim, h, e, 0, true);
+    assert_eq!(p.map(|p| p.idx), Some(1), "cover beats the open spot");
+}
+
+/// Card HYST (The Last of Us' rule): from inside the band, cover 10 m
+/// straight at a target 20 m off is not taken - the bot would run at the
+/// enemy in the open; cover off to the side is, though farther.
+#[test]
+fn cover_reached_by_running_at_the_enemy_is_not_taken() {
+    let enemy = Vec3::new(0.0, 0.0, -20.0);
+    let ahead = low_toward(Vec3::new(0.0, 0.0, -10.0), enemy);
+    let side = low_toward(Vec3::new(12.0, 0.0, -2.0), enemy);
+    let (sim, h, e) = flat_scene(Vec3::ZERO, enemy, vec![ahead, side]);
+    assert_eq!(
+        ask(&sim, h, e, None).map(|p| p.idx),
+        Some(1),
+        "the side one"
+    );
+    // Alone, the one ahead is not taken at all.
+    let (sim, h, e) = flat_scene(Vec3::ZERO, enemy, vec![ahead]);
+    assert_eq!(ask(&sim, h, e, None).map(|p| p.idx), None);
+    // A step forward (under 4 m) is, and 6 m forward (under 40 % of the
+    // 20 m) too.
+    for z in [-3.0, -6.0] {
+        let near = low_toward(Vec3::new(0.0, 0.0, z), enemy);
+        let (sim, h, e) = flat_scene(Vec3::ZERO, enemy, vec![near]);
+        assert_eq!(ask(&sim, h, e, None).map(|p| p.idx), Some(0), "{z} m");
     }
 }

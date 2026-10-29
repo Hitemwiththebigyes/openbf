@@ -3,18 +3,82 @@
 //!
 //! The originals keep an integer skill 1..=20 per unit and read every accuracy
 //! parameter off curves in `t = (s − 1)/19` (`analysis/re-ai-difficulty.md`
-//! §4.1, §7). We keep that scale, so "old Elite" is a NUMBER — the PS2's
-//! non-human-team Elite base is enemy skill 17 (RE §2.1) — and our four tiers
-//! set every bot's base skill on top of it.
+//! §4.1, §7). We keep that scale, so a PS2 level is a NUMBER — the PS2's
+//! non-human-team base skill is 14 at Normal and 17 at Elite (RE §2.1) — and
+//! our four tiers set every bot's base skill on it.
+//!
+//! # The four tiers (the maintainer, 2026-10-28)
+//!
+//! "Normal (matching PS2 normal), Hard (matching ps2 elite), elite (step above
+//! ps2 elite), Legendary (our highest difficulty level)" — and the same day,
+//! after playing them: "Don't change difficulties under the hood, but just
+//! rename the 4 difficulties to easy, normal, hard, elite. brand new player
+//! starts on normal." So the rows below are those four, unchanged, under the
+//! names Easy / Normal / Hard / Elite. Matching need not be exact (our Easy
+//! and Normal may be a little dumber than the PS2's Normal and Elite), but
+//! Hard and Elite are harder than anything the PS2 has.
+//!
+//! History, so an old note reads right: before 2026-10-28 the rows were
+//! Easy 8 / Normal 17 / Hard 20 / Elite 20+extras. The first rename that day
+//! dropped Easy 8, called the 17 / 20 / 20+extras rows Hard / Elite /
+//! Legendary and added a new Normal row at 14 (the 17 row's columns at the PS2
+//! Normal's base skill 14). The second rename (above) shifted every name down
+//! one: today's Easy is that 14 row, Normal the 17 row (the old Normal, the
+//! row every gate, sweep and headless run has always used), Hard the 20 row
+//! and Elite the 20+extras row.
 //!
 //! # The tier table — PROVISIONAL, the lead's, DO NOT TUNE
 //!
-//! | tier | base skill | t | view mult | reaction s (ticks) | pressure ×human | human damage × | err cap | bleed handicap |
-//! |---|---|---|---|---|---|---|---|---|
-//! | Easy | 8 | 0.368 | 0.8 | 0.5 (15) | 1.0 | 1.0 | 1.83 m | — |
-//! | Normal | 17 | 0.842 | 1.0 | 0.3 (9) | 1.0 | 1.0 | 1.36 m | — |
-//! | Hard | 20 | 1.0 | 1.25 | 0.2 (6) | 1.3 | 1.15 | 1.2 m | — |
-//! | Elite | 20 | 1.0 | 1.5 | 0.15 (5) | 1.6 | 1.3 | **0.5 m** | ×1.25 |
+//! | tier | base skill | t | view mult | reaction s (ticks) | pressure ×human | err cap | bleed handicap |
+//! |---|---|---|---|---|---|---|---|
+//! | Easy | 14 | 0.684 | 1.0 | 0.3 (9) | 1.0 | 1.52 m | — |
+//! | Normal | 17 | 0.842 | 1.0 | 0.3 (9) | 1.0 | 1.36 m | — |
+//! | Hard | 20 | 1.0 | 1.25 | 0.2 (6) | 1.3 | 1.2 m | — |
+//! | Elite | 20 | 1.0 | 1.5 | 0.15 (5) | 1.6 | **0.5 m** | ×1.25 |
+//!
+//! Card DRETIRE (the maintainer, 2026-10-28): the "human damage ×" column (D12: a
+//! bot's bolt or blast into a human ×1.15 at Hard, ×1.3 at Elite) is gone,
+//! every tier takes 1.0: "Dying faster from a few bullets is a cheap way to
+//! do this. We should make the competition actually stiffer, not just give
+//! the enemy better weapons." Its host option `human_damage_on` went with
+//! it. The pressure column is a different lever (whom a bot picks as its
+//! target, `perception`), not damage, and stays.
+//!
+//! # Humans change their own team's bots (card DTEAM, the maintainer 2026-10-28) [ours]
+//!
+//! "Enemy bots stronger than teammates: Yes but there is a floor/ceiling
+//! [...] we don't want our teammates to just be so stupid they can't do
+//! anything at all. [...] when users are even on each side, each side's bots
+//! are even and then it comes down to the users playing better than the
+//! other user." Only humans change bot skill; no map or side is balanced.
+//!
+//! A team's SURPLUS is its humans minus the other team's, never below 0, and
+//! capped at [`SURPLUS_CAP`] (3): a 4th surplus human changes nothing more.
+//! The other team's bots keep the host tier's row (Elite's extras included).
+//! A team with surplus `s > 0` has its bots' skill lowered by the tier's
+//! offset per surplus human, never below the tier's floor, and its bots play
+//! the ROW that skill falls in (the highest tier, at most the host's, whose
+//! base skill is at or below it), so Elite's extras (and Hard's columns past
+//! one step) are off on the surplus team's own bots. Equal humans (0v0, 1v1,
+//! 2v2 ...) give both teams the host row. [`team_skill`] is the rule:
+//!
+//! | host tier | per surplus human | floor | surplus 1 | surplus 2 | surplus 3+ |
+//! |---|---|---|---|---|---|
+//! | Easy (14) | 0 | 14 | 14 Easy | 14 Easy | 14 Easy |
+//! | Normal (17) | −1 | 14 | 16 Easy row | 15 Easy row | 14 Easy row |
+//! | Hard (20) | −3 | 11 | 17 Normal row | 14 Easy row | 11 Easy row |
+//! | Elite (20+extras) | −3 | 11 | 17 Normal row | 14 Easy row | 11 Easy row |
+//!
+//! The floor 11 is the PS2's own teammates' skill (RE §2.1); Normal's floor
+//! is one row down (Easy's 14), Easy (a new player's team should win) takes
+//! no offset. The proposal's Elite "−3, then −2 each" reached its floor at a
+//! 4th human; with the cap at 3 it is −3 each, as Hard. PROVISIONAL, the
+//! proxy gate's to tune. The Easy and Normal rows share every column but the
+//! base skill, so "Easy row" under a Normal host only names the columns.
+//!
+//! The level is set at each bot's spawn ([`crate::sim::Sim::bot_skill`]), so
+//! a human joining, leaving or changing team reaches a bot at its next life;
+//! the row's columns are the team's and follow the head count at once.
 //!
 //! Card HOLD adds how quickly a bot runs from a grenade, as a chance per
 //! landing (ours, PROVISIONAL — the maintainer's to tune; its shuffle and strafe went
@@ -22,7 +86,7 @@
 //!
 //! | tier | grenade (per landing) | grenade delay s |
 //! |---|---|---|
-//! | Easy | 30 % | 1.1–2.1 |
+//! | Easy | 60 % | 0.6–1.3 |
 //! | Normal | 60 % | 0.6–1.3 |
 //! | Hard | 85 % | 0–0.8 |
 //! | Elite | 95 % | 0–0.8 |
@@ -34,24 +98,33 @@
 //!
 //! | tier | stays | strafes 2.5 m | rolls aside | moves to a new position |
 //! |---|---|---|---|---|
-//! | Easy | 65 % | 20 % | 5 % | 10 % |
+//! | Easy | 35 % | 30 % | 15 % | 20 % |
 //! | Normal | 35 % | 30 % | 15 % | 20 % |
 //! | Hard | 20 % | 30 % | 20 % | 30 % |
 //! | Elite | 10 % | 30 % | 25 % | 35 % |
+//!
+//! Card TEAM / FLNK (ours): every tier passes on what it sees and
+//! flanks; Hard and Elite also cover a capturer (`Tier::cover`).
+//! A bot's head (and vehicle critical-prim) hit multiplier is Hard's and
+//! Elite's only (`Sim::hit_scale`, the PS2's level-3 gate).
 //!
 //! Only the SKILL SCALE and the curves below are the RE's. Every column of
 //! that table is the lead's design placeholder: the base skills, the view
 //! multipliers, the reaction floor (the PS2 has **no** reaction timer at all —
 //! RE §4.3: its "reaction feel" is the 5-frame think cadence plus the error
-//! floor), the pressure weight, the human damage multiplier (see
-//! [`Tier::human_damage`]) and the bleed handicap. They are measured by the
+//! floor), the pressure weight and the bleed handicap. They are measured by the
 //! arena and moved by the LEAD, never by a build agent chasing an acceptance.
 //!
 //! The PS2's own per-level bases, for scale (RE §2.1): BF2 non-human teams
-//! 4 / 14 / 17 at Easy / Medium / Hard, human-team teammates 6 / 11 / 11.
+//! 4 / 14 / 17 at Easy / Medium / Hard (shown Easy / Normal / Elite),
+//! human-team teammates 6 / 11 / 11.
 
 /// The four host difficulty tiers (PLAN §Saves: host authority), ordered
 /// easiest first (the arena's head-to-head takes the lower of two).
+///
+/// The default is [`Difficulty::Normal`] (skill 17): the row every gate,
+/// sweep and headless run has always used, and where a brand-new profile
+/// starts (the maintainer, 2026-10-28).
 #[derive(
     Clone,
     Copy,
@@ -70,6 +143,9 @@ pub enum Difficulty {
     #[default]
     Normal,
     Hard,
+    /// A profile saved as "legendary" (the top tier's name for part of
+    /// 2026-10-28) loads as Elite, the same row.
+    #[serde(alias = "legendary")]
     Elite,
 }
 
@@ -82,7 +158,9 @@ impl Difficulty {
         Difficulty::Elite,
     ];
 
-    /// One byte for [`crate::sim::Sim::hash`].
+    /// One byte for [`crate::sim::Sim::hash`]. Each ROW keeps its byte
+    /// through both 2026-10-28 renames (skill 14 0, skill 17 1, skill 20 2,
+    /// 20+extras 3), so a run's hash does not move with a name.
     pub fn bytes(self) -> [u8; 1] {
         [match self {
             Difficulty::Easy => 0,
@@ -101,7 +179,8 @@ impl Difficulty {
         }
     }
 
-    /// `easy|normal|hard|elite`, case-insensitive; `None` for anything else.
+    /// `easy|normal|hard|elite`, case-insensitive; `None` for anything
+    /// else.
     pub fn parse(s: &str) -> Option<Difficulty> {
         match s.trim().to_ascii_lowercase().as_str() {
             "easy" => Some(Difficulty::Easy),
@@ -112,13 +191,13 @@ impl Difficulty {
         }
     }
 
-    /// The integer skill EVERY bot of every team takes at spawn (symmetric
-    /// competence — PLAN "AI decision": the tiers do not hand one team a
-    /// better bot than the other; the human-facing levers are the pressure
-    /// weight, the damage multiplier and the team handicap).
+    /// The tier's row skill: every bot of a team with no human surplus takes
+    /// it at spawn (a surplus team's bots take less, [`team_skill`], card
+    /// DTEAM). Easy and Normal are the PS2's Normal and Elite bases
+    /// (RE §2.1).
     pub fn base_skill(self) -> u8 {
         match self {
-            Difficulty::Easy => 8,
+            Difficulty::Easy => 14,
             Difficulty::Normal => 17,
             Difficulty::Hard | Difficulty::Elite => 20,
         }
@@ -127,63 +206,53 @@ impl Difficulty {
     /// The per-tier columns of the table above.
     pub fn tier(self) -> Tier {
         match self {
+            // Normal's columns at the PS2 Normal's skill (the error cap is
+            // the skill's own, 1.52 m at 14).
             Difficulty::Easy => Tier {
-                view_mult: 0.8,
-                reaction_ticks: 15,
-                pressure: 1.0,
-                human_damage: 1.0,
-                err_cap: None,
-                bleed_handicap: 1.0,
-                react: [0.20, 0.05, 0.10],
-                grenade: 0.30,
-                grenade_delay: (33, 63),
-                tell: false,
-                cover: false,
-                flank: false,
-            },
-            Difficulty::Normal => Tier {
                 view_mult: 1.0,
                 reaction_ticks: 9,
                 pressure: 1.0,
-                human_damage: 1.0,
                 err_cap: None,
                 bleed_handicap: 1.0,
                 react: [0.30, 0.15, 0.20],
                 grenade: 0.60,
                 grenade_delay: (18, 39),
-                tell: true,
                 cover: false,
-                flank: true,
+            },
+            Difficulty::Normal => Tier {
+                view_mult: 1.0,
+                reaction_ticks: 9,
+                pressure: 1.0,
+                err_cap: None,
+                bleed_handicap: 1.0,
+                react: [0.30, 0.15, 0.20],
+                grenade: 0.60,
+                grenade_delay: (18, 39),
+                cover: false,
             },
             Difficulty::Hard => Tier {
                 view_mult: 1.25,
                 reaction_ticks: 6,
                 pressure: 1.3,
-                human_damage: 1.15,
                 err_cap: None,
                 bleed_handicap: 1.0,
                 react: [0.30, 0.20, 0.30],
                 grenade: 0.85,
                 grenade_delay: (0, 24),
-                tell: true,
                 cover: true,
-                flank: true,
             },
             Difficulty::Elite => Tier {
                 view_mult: 1.5,
                 reaction_ticks: 5,
                 pressure: 1.6,
-                human_damage: 1.3,
-                // The Elite-only extra of design decision 1: a tighter
+                // The top tier's extra of design decision 1: a tighter
                 // tracked-position error cap than any skill level yields.
                 err_cap: Some(0.5),
                 bleed_handicap: 1.25,
                 react: [0.30, 0.25, 0.35],
                 grenade: 0.95,
                 grenade_delay: (0, 24),
-                tell: true,
                 cover: true,
-                flank: true,
             },
         }
     }
@@ -208,6 +277,68 @@ impl Difficulty {
     }
 }
 
+/// Card DTEAM: the most surplus humans a team's bots answer to. A team's
+/// 4th and later surplus human changes nothing more.
+pub const SURPLUS_CAP: u8 = 3;
+
+/// One team's bots under the DTEAM rule: the row whose columns they play and
+/// the integer skill they spawn with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TeamSkill {
+    pub tier: Difficulty,
+    pub level: u8,
+}
+
+impl Difficulty {
+    /// Card DTEAM: (skill lowered per surplus human, the floor it stops at).
+    /// OURS, PROVISIONAL (module header).
+    pub fn ally_offset(self) -> (u8, u8) {
+        match self {
+            Difficulty::Easy => (0, 14),
+            Difficulty::Normal => (1, 14),
+            Difficulty::Hard | Difficulty::Elite => (3, 11),
+        }
+    }
+
+    /// The row a bot of integer skill `level` plays under this host tier: the
+    /// highest tier, at most this one, whose base skill is at or below
+    /// `level` (Easy below every base).
+    pub fn row_for(self, level: u8) -> Difficulty {
+        Difficulty::ALL
+            .into_iter()
+            .rev()
+            .filter(|&d| d <= self)
+            .find(|&d| d.base_skill() <= level)
+            .unwrap_or(Difficulty::Easy)
+    }
+}
+
+/// Card DTEAM [ours]: each team's bots under host tier `tier` with
+/// `humans[t]` humans on team t (module header). A team with no human
+/// surplus takes the host row; a surplus team's bots lose the tier's offset
+/// per surplus human (at most [`SURPLUS_CAP`] of them), never below its
+/// floor, and play the row that skill falls in.
+pub fn team_skill(tier: Difficulty, humans: [u8; 2]) -> [TeamSkill; 2] {
+    let (per, floor) = tier.ally_offset();
+    [0usize, 1].map(|t| {
+        let surplus = humans[t].saturating_sub(humans[1 - t]).min(SURPLUS_CAP);
+        if surplus == 0 {
+            return TeamSkill {
+                tier,
+                level: tier.base_skill(),
+            };
+        }
+        let level = tier
+            .base_skill()
+            .saturating_sub(per * surplus)
+            .max(floor.min(tier.base_skill()));
+        TeamSkill {
+            tier: tier.row_for(level),
+            level,
+        }
+    })
+}
+
 /// The per-tier columns that are NOT a function of the integer skill. All
 /// PROVISIONAL (lead placeholders, no RE) — see the module header.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -221,11 +352,6 @@ pub struct Tier {
     /// Target-choice weight on a HUMAN target (per human, not per team —
     /// PLAN "AI decision"). PROVISIONAL.
     pub pressure: f32,
-    /// Damage multiplier on a bot's bolt into a HUMAN. **Entirely ours**: the
-    /// PS2's only level-3 damage lever is `HitLocation`, the ×4 vehicle
-    /// critical-hit prims an Elite AI attacker may score (RE §9.2), which is
-    /// not a buff against humans and waits for P7 vehicles. PROVISIONAL.
-    pub human_damage: f32,
     /// Elite's tighter tracked-position error cap; `None` = the skill's own.
     pub err_cap: Option<f32>,
     /// Ticket-bleed multiplier against a team that HAS a human when the
@@ -248,24 +374,16 @@ pub struct Tier {
     /// difficulty 14, U(0.6, 1.3) s under 17, else U(0, 0.8) s); which tier
     /// takes which range is ours.
     pub grenade_delay: (u64, u64),
-    /// Card TEAM (`analysis/bot-design.md` 4.1, section 7): an enemy a
-    /// friend within `perception::TELL_RADIUS` sees is passed on as heard -
-    /// aimed at, never fired at unseen. OURS: the PS2 has no team sense.
-    /// The design's column: Easy no, the rest yes. A told record keeps no
-    /// bot on a position (`ai::behave`): before that rule a told enemy held
-    /// a bot standing at its fight spot while its friends saw him - BF2
-    /// Coruscant's foot time in 20 s spells within 2 m 11.7 -> 21.1 % (8
-    /// seeds), with it 9.4 %.
-    pub tell: bool,
     /// Card TEAM (`analysis/bot-design.md` 4.3, section 7): while a friend
     /// captures a post, up to two others inside its region take guard
     /// positions facing the approach (the board's Cover role,
-    /// `ai::team::board`). OURS. The design's column: Hard and Elite.
+    /// `ai::team::board`). OURS. The design's column: the 20 and 20+extras
+    /// rows, Hard and Elite (names they also had before 2026-10-28). (The
+    /// design's other two team columns, telling a friend what it sees and
+    /// flanking, were every tier but the old skill-8 Easy; with that row gone
+    /// they are every tier's and no column:
+    /// `perception::tell` and `ai::team`'s flank board.)
     pub cover: bool,
-    /// Card FLNK (`analysis/bot-design.md` 6.2, section 7): a share of a
-    /// post's attackers walks the pair's flank route (the board's Flank
-    /// role, `ai::team::board`). OURS. The design's column: all but Easy.
-    pub flank: bool,
 }
 
 /// Everything the AI reads off its integer skill, computed once per think.
@@ -389,23 +507,23 @@ mod tests {
 
     #[test]
     fn the_four_tiers_yield_the_designs_vector() {
-        // The design's expected values (PLAN "PHASE C DESIGN", D1's table),
-        // recomputed from the RE's own formulas. The ONE cell that moved is
-        // Easy's aim accel: the design prints 1.459, the cubic gives
-        // 0.8 + 13.2·(7/19)³ = 1.4601 — reported, not tuned.
+        // The design's expected values (PLAN "PHASE C DESIGN", D1's table,
+        // its rows renamed on 2026-10-28), recomputed from the RE's own
+        // formulas; Easy's row is the curves at skill 14 (the RE §4.1
+        // per-level table's row 14).
         let rows = [
             //  tier                 spread   disp    accel   damp    decay  floor cap   pause  dodge
             (
                 Difficulty::Easy,
-                2.263,
-                1.263,
-                1.4601,
-                1.389,
-                0.468,
-                1.157895,
-                1.831579,
-                1.205,
-                0.074,
+                1.632,
+                0.632,
+                5.028,
+                1.895,
+                0.784,
+                0.778947,
+                1.515789,
+                0.953,
+                0.137,
             ),
             (
                 Difficulty::Normal,
@@ -582,8 +700,12 @@ mod tests {
             assert_eq!(Difficulty::parse(&format!("  {}  ", d.label())), Some(d));
         }
         assert_eq!(Difficulty::parse("medium"), None);
+        assert_eq!(Difficulty::parse("legendary"), None, "now Elite");
         assert_eq!(Difficulty::parse(""), None);
+        // The default is the skill-17 row, the one every gate has always
+        // run, and a brand-new player's.
         assert_eq!(Difficulty::default(), Difficulty::Normal);
+        assert_eq!(Difficulty::default().base_skill(), 17);
         // The hash byte is distinct per tier.
         let mut seen: Vec<u8> = Difficulty::ALL.iter().map(|d| d.bytes()[0]).collect();
         seen.sort_unstable();
@@ -593,24 +715,228 @@ mod tests {
 
     #[test]
     fn the_tier_columns_are_the_designs_table() {
-        let want = [
-            (Difficulty::Easy, 0.8, 15u64, 1.0, 1.0, 1.0),
-            (Difficulty::Normal, 1.0, 9, 1.0, 1.0, 1.0),
-            (Difficulty::Hard, 1.25, 6, 1.3, 1.15, 1.0),
-            (Difficulty::Elite, 1.5, 5, 1.6, 1.3, 1.25),
+        // (tier, base skill, view, reaction ticks, pressure, bleed,
+        // react [strafe, roll, move], grenade, grenade delay, cover)
+        type Row = (
+            Difficulty,
+            u8,
+            f32,
+            u64,
+            f32,
+            f32,
+            [f32; 3],
+            f32,
+            (u64, u64),
+            bool,
+        );
+        let want: [Row; 4] = [
+            (
+                Difficulty::Easy,
+                14,
+                1.0,
+                9,
+                1.0,
+                1.0,
+                [0.30, 0.15, 0.20],
+                0.60,
+                (18, 39),
+                false,
+            ),
+            (
+                Difficulty::Normal,
+                17,
+                1.0,
+                9,
+                1.0,
+                1.0,
+                [0.30, 0.15, 0.20],
+                0.60,
+                (18, 39),
+                false,
+            ),
+            (
+                Difficulty::Hard,
+                20,
+                1.25,
+                6,
+                1.3,
+                1.0,
+                [0.30, 0.20, 0.30],
+                0.85,
+                (0, 24),
+                true,
+            ),
+            (
+                Difficulty::Elite,
+                20,
+                1.5,
+                5,
+                1.6,
+                1.25,
+                [0.30, 0.25, 0.35],
+                0.95,
+                (0, 24),
+                true,
+            ),
         ];
-        for (d, view, react, press, dmg, bleed) in want {
+        for (d, base, view, react, press, bleed, hit, gren, delay, cover) in want {
             let t = d.tier();
+            assert_eq!(d.base_skill(), base, "{d:?}");
             assert_eq!((t.view_mult, t.reaction_ticks), (view, react), "{d:?}");
-            assert_eq!(
-                (t.pressure, t.human_damage, t.bleed_handicap),
-                (press, dmg, bleed)
-            );
+            assert_eq!((t.pressure, t.bleed_handicap), (press, bleed), "{d:?}");
+            assert_eq!((t.react, t.grenade, t.grenade_delay), (hit, gren, delay));
+            assert_eq!(t.cover, cover, "{d:?}");
         }
         assert_eq!(Difficulty::Elite.tier().err_cap, Some(0.5));
-        assert_eq!(Difficulty::Hard.tier().err_cap, None);
-        // Base skills: symmetric competence, every team the same.
-        let bases: Vec<u8> = Difficulty::ALL.iter().map(|d| d.base_skill()).collect();
-        assert_eq!(bases, vec![8, 17, 20, 20]);
+        for d in [Difficulty::Easy, Difficulty::Normal, Difficulty::Hard] {
+            assert_eq!(d.tier().err_cap, None, "{d:?}: the skill's own cap");
+        }
+        // Easy and Normal are the PS2's Normal and Elite bases (RE §2.1).
+        assert_eq!(Difficulty::Easy.base_skill(), 14);
+        assert_eq!(Difficulty::Normal.base_skill(), 17);
+    }
+
+    /// The maintainer, 2026-10-28: four tiers, easiest first, named Easy / Normal /
+    /// Hard / Elite; each ROW keeps its hash byte through the renames (skill
+    /// 14 0, 17 1, 20 2, 20+extras 3), so a gate's hash does not move.
+    #[test]
+    fn four_tiers_in_order_and_the_renamed_rows_keep_their_hash_bytes() {
+        assert_eq!(
+            Difficulty::ALL.map(Difficulty::label),
+            ["easy", "normal", "hard", "elite"]
+        );
+        assert!(Difficulty::ALL.windows(2).all(|w| w[0] < w[1]));
+        assert_eq!(Difficulty::ALL.map(|d| d.bytes()[0]), [0, 1, 2, 3]);
+        assert_eq!(
+            Difficulty::ALL.map(Difficulty::base_skill),
+            [14, 17, 20, 20]
+        );
+        assert_eq!(Difficulty::Elite.tier().err_cap, Some(0.5));
+        // Every step up is at least as hard on every lever.
+        for w in Difficulty::ALL.windows(2) {
+            let (a, b) = (w[0], w[1]);
+            let (ta, tb) = (a.tier(), b.tier());
+            assert!(a.base_skill() <= b.base_skill(), "{a:?} -> {b:?}");
+            assert!(ta.view_mult <= tb.view_mult && ta.reaction_ticks >= tb.reaction_ticks);
+            assert!(ta.pressure <= tb.pressure);
+            assert!(a.skill().err_cap >= b.skill().err_cap, "{a:?} -> {b:?}");
+        }
+    }
+
+    /// Every name a profile may have saved loads as the row it names today:
+    /// "easy" the skill-14 row, "normal" the 17 row, "hard" the 20 row,
+    /// "elite" the 20+extras row, and "legendary" (that row's name for part
+    /// of 2026-10-28) Elite too. An "elite" saved before 2026-10-28 meant the
+    /// 20+extras row and still does. The four names round-trip.
+    #[test]
+    fn every_saved_name_loads_as_its_row() {
+        #[derive(serde::Deserialize, serde::Serialize)]
+        struct S {
+            d: Difficulty,
+        }
+        let load = |name: &str| -> Difficulty {
+            ron::from_str::<S>(&format!("(d: {name})"))
+                .map(|s| s.d)
+                .unwrap_or_else(|e| panic!("{name}: {e}"))
+        };
+        assert_eq!(load("easy"), Difficulty::Easy);
+        assert_eq!(load("easy").base_skill(), 14);
+        assert_eq!(load("normal"), Difficulty::Normal);
+        assert_eq!(load("normal").base_skill(), 17);
+        assert_eq!(load("hard"), Difficulty::Hard);
+        assert_eq!(load("elite"), Difficulty::Elite);
+        assert_eq!(load("elite").tier().err_cap, Some(0.5), "20+extras");
+        assert_eq!(load("legendary"), Difficulty::Elite);
+        for d in Difficulty::ALL {
+            let text = ron::to_string(&S { d }).unwrap();
+            assert_eq!(text, format!("(d:{})", d.label()));
+            assert_eq!(load(d.label()), d);
+        }
+    }
+
+    /// Card DTEAM (the maintainer, 2026-10-28): the per-team rule as a table, every
+    /// tier, every head count the card names. `(humans, [team 0, team 1])`
+    /// as (row, skill); the other order mirrors it.
+    #[test]
+    fn team_skill_is_the_cards_table() {
+        use Difficulty::{Easy as Ea, Elite as El, Hard as Ha, Normal as No};
+        let ts = |tier, level| TeamSkill { tier, level };
+        let counts: [[u8; 2]; 10] = [
+            [1, 0],
+            [2, 0],
+            [3, 0],
+            [4, 0],
+            [5, 0],
+            [1, 1],
+            [2, 1],
+            [3, 1],
+            [2, 2],
+            [0, 0],
+        ];
+        // The surplus team's (row, skill) per tier at surplus 0, 1, 2, 3+.
+        let ally = |host: Difficulty, s: u8| match (host, s.min(3)) {
+            (h, 0) => ts(h, h.base_skill()),
+            (Ea, _) => ts(Ea, 14),
+            (No, 1) => ts(Ea, 16),
+            (No, 2) => ts(Ea, 15),
+            (No, _) => ts(Ea, 14),
+            (Ha | El, 1) => ts(No, 17),
+            (Ha | El, 2) => ts(Ea, 14),
+            (Ha | El, _) => ts(Ea, 11),
+        };
+        // Written out once for Elite, the tier the maintainer plays: 1v0 .. 0v0.
+        let elite = [
+            [ts(No, 17), ts(El, 20)],
+            [ts(Ea, 14), ts(El, 20)],
+            [ts(Ea, 11), ts(El, 20)],
+            [ts(Ea, 11), ts(El, 20)],
+            [ts(Ea, 11), ts(El, 20)],
+            [ts(El, 20), ts(El, 20)],
+            [ts(No, 17), ts(El, 20)],
+            [ts(Ea, 14), ts(El, 20)],
+            [ts(El, 20), ts(El, 20)],
+            [ts(El, 20), ts(El, 20)],
+        ];
+        for (h, want) in counts.iter().zip(elite) {
+            assert_eq!(team_skill(El, *h), want, "elite {h:?}");
+        }
+        for host in Difficulty::ALL {
+            for h in counts {
+                let s0 = h[0].saturating_sub(h[1]);
+                let want = [ally(host, s0), ts(host, host.base_skill())];
+                assert_eq!(team_skill(host, h), want, "{host:?} {h:?}");
+                // Mirrored: the same rule from the other side.
+                let back = team_skill(host, [h[1], h[0]]);
+                assert_eq!(back, [want[1], want[0]], "{host:?} mirrored {h:?}");
+            }
+        }
+        // Normal 1v0, the default a new player meets: allies 16, enemies 17.
+        assert_eq!(team_skill(No, [1, 0]).map(|t| t.level), [16, 17]);
+    }
+
+    /// The floor and the cap: no surplus team ever plays below skill 11 or
+    /// below its tier's floor, a 4th surplus human changes nothing, and the
+    /// team with fewer humans never moves.
+    #[test]
+    fn team_skill_holds_its_floor_and_cap() {
+        for host in Difficulty::ALL {
+            let (_, floor) = host.ally_offset();
+            for a in 0..8u8 {
+                for b in 0..8u8 {
+                    let r = team_skill(host, [a, b]);
+                    for t in r {
+                        assert!(t.level >= 11 && t.level >= floor.min(host.base_skill()));
+                        assert!(t.level <= host.base_skill() && t.tier <= host);
+                        assert_eq!(t.tier, host.row_for(t.level), "{host:?} {a}v{b}");
+                    }
+                    if a <= b {
+                        assert_eq!(r[0], team_skill(host, [0, 0])[0], "{a}v{b}");
+                    }
+                    if a >= b + 3 {
+                        assert_eq!(r, team_skill(host, [b + 3, b]), "{host:?} cap {a}v{b}");
+                    }
+                }
+            }
+        }
     }
 }

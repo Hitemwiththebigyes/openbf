@@ -375,6 +375,7 @@ pub fn screens(
                     .replace("\\'", "'"),
             })
             .collect(),
+        unlocks: crate::unlocks::rows(career, t),
     };
     let texts = StatsTexts {
         team_title: t("ifs.stats.teamstatstitle", "Team Stats"),
@@ -383,6 +384,8 @@ pub fn screens(
         medals_title: t("ifs.stats.medals", "Medals"),
         career_title: t("ifs.stats.careerstatstitle", "Career Stats"),
         career_medals: t("ifs.stats.CareerMedals", "Career Medals"),
+        // `[ours]` (card UNLK3): BF2's table has no such heading.
+        career_unlocks: "Career Unlocks".into(),
         done: t("ifs.stats.done", "Done"),
         select: t("common.select", "Select"),
         back: t("ifs.stats.back", "Back"),

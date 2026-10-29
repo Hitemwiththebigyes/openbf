@@ -32,6 +32,16 @@ pub const BORROWED_PRONE: &[&str] = &[
     "human_rifle_prone_getup_crouch",
 ];
 
+/// The BF2 throw clips a BF1 soldier borrows (`bake_soldier_anims`, card
+/// GTHRW): BF2's offhand throw (`shoot_secondary` underhand,
+/// `shoot_secondary2` overhand) is played on every map, a named deviation
+/// (BF1's own is `grenade_stand_shoot3` on the grenade's set,
+/// `analysis/re-grenade-throw-anim.md` §0).
+pub const BORROWED_THROW: &[&str] = &[
+    "human_rifle_stand_shoot_secondary_full",
+    "human_rifle_stand_shoot_secondary2_full",
+];
+
 /// Bake one soldier model (+ textures) from a SIDE LVL.
 pub fn bake_soldier(lvl_path: &str, model: &str, outdir: &str) -> Result<BakedSoldier> {
     bake_soldier_anims(lvl_path, model, None, outdir, None)
@@ -167,29 +177,34 @@ pub fn bake_soldier_anims(
         let mut sets = plan.sets;
         // BF2 has no prone clips (`missing`); BF1's rifle prone clips are
         // borrowed when `BF1_ANIMS` names BF1's COMMON.LVL (issue #40, one
-        // gameplay: a BF2 soldier goes prone too). The two games' soldier
-        // bones share names.
-        let bf1_buf = match (&sanm, std::env::var_os("BF1_ANIMS")) {
-            (Some(_), Some(p)) => Some(std::fs::read(&p).with_context(|| format!("{p:?}"))?),
-            _ => None,
+        // gameplay: a BF2 soldier goes prone too). A BF1 soldier borrows
+        // BF2's throw when `BF2_ANIMS` names BF2's INGAME.LVL (card GTHRW,
+        // BF2's throw on every map). The two games' soldier bones share names.
+        let (lender, lent) = match &sanm {
+            Some(_) => ("BF1_ANIMS", BORROWED_PRONE),
+            None => ("BF2_ANIMS", BORROWED_THROW),
         };
-        let bf1_banks = match &bf1_buf {
+        let lender_buf = match std::env::var_os(lender) {
+            Some(p) => Some(std::fs::read(&p).with_context(|| format!("{p:?}"))?),
+            None => None,
+        };
+        let lender_banks = match &lender_buf {
             Some(b) => {
                 let inner = mungefs::open(b).map_err(|e| anyhow!("{e}"))?;
                 mungefs::anim::find_banks(inner).map_err(|e| anyhow!("{e}"))?
             }
             None => Vec::new(),
         };
-        let bf1_human: Vec<&AnimBank> = bf1_banks
+        let lender_human: Vec<&AnimBank> = lender_banks
             .iter()
             .filter(|b| b.name.starts_with("human"))
             .collect();
         let mut borrowed = Vec::new();
-        for name in BORROWED_PRONE {
-            if wanted.iter().any(|w| w.0 == *name) || bf1_human.is_empty() {
+        for name in lent {
+            if wanted.iter().any(|w| w.0 == *name) || lender_human.is_empty() {
                 continue;
             }
-            if let Some((full, bank, k)) = find_clip(&bf1_human, name) {
+            if let Some((full, bank, k)) = find_clip(&lender_human, name) {
                 meta.missing.retain(|m| m != name);
                 borrowed.push(full.clone());
                 wanted.push((full, bank, k));
@@ -198,7 +213,7 @@ pub fn bake_soldier_anims(
         for (name, bank, k) in wanted {
             let mut decoded = bank.decode_clip(k).map_err(|e| anyhow!("{name}: {e}"))?;
             if borrowed.contains(&name) {
-                // BF1's bone lengths are not this model's: a bone the clip
+                // The lender's bone lengths are not this model's: a bone the clip
                 // does not move keeps the model's own rest offset - but the
                 // root and the pelvis, which carry the body's height on the
                 // floor (a prone idle holds them low and still).

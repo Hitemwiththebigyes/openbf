@@ -66,9 +66,6 @@ pub struct Settings {
     /// behaviour: the port's assist is the player's own switch at every tier.
     #[serde(default = "yes")]
     pub aim_assist: bool,
-    /// Host option: the tier's human damage multiplier (D12).
-    #[serde(default = "yes")]
-    pub human_damage_on: bool,
     /// Host option: the Elite team handicap (D12).
     #[serde(default = "yes")]
     pub team_handicap_on: bool,
@@ -101,7 +98,6 @@ impl Default for Settings {
             assist_intensity: 1.0,
             difficulty: core::skill::Difficulty::default(),
             aim_assist: true,
-            human_damage_on: true,
             team_handicap_on: true,
             fov_scale: 1.0,
             music_volume: 1.0,
@@ -255,6 +251,34 @@ mod tests {
             }
         );
         assert_eq!(profile.settings.assist_intensity, 0.7);
+    }
+
+    /// Every name a profile may hold loads as the row it names today
+    /// (the maintainer, 2026-10-28: Easy 14, Normal 17, Hard 20, Elite 20+extras):
+    /// "easy" Easy, "normal" Normal, "hard" Hard, "elite" Elite (an "elite"
+    /// saved before 2026-10-28 meant the 20+extras row and still does) and
+    /// "legendary", that row's name for part of 2026-10-28, Elite too.
+    #[test]
+    fn every_saved_tier_name_loads_as_its_row() {
+        use core::skill::Difficulty;
+        let at = |name: &str| {
+            ron::from_str::<Settings>(&format!("(assist_intensity: 1.0, difficulty: {name})"))
+                .unwrap()
+                .difficulty
+        };
+        assert_eq!(at("easy"), Difficulty::Easy);
+        assert_eq!(at("normal"), Difficulty::Normal);
+        assert_eq!(at("hard"), Difficulty::Hard);
+        assert_eq!(at("elite"), Difficulty::Elite);
+        assert_eq!(at("legendary"), Difficulty::Elite);
+        assert_eq!(at("normal").base_skill(), 17);
+        assert_eq!(at("elite").tier().err_cap, Some(0.5), "20+extras");
+        let s = Settings {
+            difficulty: Difficulty::Elite,
+            ..Default::default()
+        };
+        let back: Settings = ron::from_str(&ron::to_string(&s).unwrap()).unwrap();
+        assert_eq!(back.difficulty, Difficulty::Elite);
     }
 
     #[test]

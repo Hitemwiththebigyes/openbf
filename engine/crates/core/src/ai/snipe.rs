@@ -292,12 +292,19 @@ pub fn pick(sim: &Sim, me: UnitHandle, u: &Unit, left: Option<Vec3>) -> Option<S
 /// (`perception::view_distance` at its tier) that a ray from the spot's eye
 /// reaches, each weighted by its distance over that sight. Answers the score
 /// and the lane's length (its farthest point in sight).
+///
+/// Card MAIS: and no farther than twice the mission's
+/// `AISnipeSuitabilityDist` - the far edge of the PS2's own suitability
+/// query, a sphere of that radius centred that far out along the hint
+/// (`FUN_002d8398`, whose answer the PS2 never uses: re-soldier-ai 20). Its
+/// default (70 m) reaches past every tier's sight; the indoor maps' 30 m
+/// keeps a lane to 60 m.
 pub fn lane(sim: &Sim, u: &Unit, p: Vec3) -> (f32, f32) {
     let Some(g) = sim.nav.as_ref() else {
         return (0.0, 0.0);
     };
-    let sight =
-        perception::view_distance(Stance::Stand, sim.difficulty_of(u.team).tier().view_mult);
+    let sight = perception::view_distance(Stance::Stand, sim.ai_tier(u.team).view_mult)
+        .min(2.0 * sim.mission_ai.snipe_suitability);
     let eye = p + Vec3::Y * crate::unit::muzzle_height(Stance::Stand);
     let enemy_post = |i: usize| sim.cps[i].owner != Some(u.team);
     let mut pts: Vec<Vec3> = Vec::new();

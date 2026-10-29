@@ -8,6 +8,7 @@ pub mod beep;
 pub mod bind_pose;
 pub mod classes;
 pub mod cloth;
+pub mod donor;
 pub mod door;
 pub mod effects;
 pub mod entity_light;

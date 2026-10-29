@@ -10,7 +10,7 @@ files: engine/crates/core/src/guided.rs,engine/crates/core/src/sim/guided.rs,eng
 declares: sim
 needs: original-game comparison — control mapping, camera, flyer motion, collision dimensions and boundary integration
 effort:
-branch: codex/guided-rockets
+branch:
 resume: User-assigned; use All awards for access; medal progression explicitly separate. Auto-turrets excluded.
 created: 2026-10-28
 ---
@@ -27,6 +27,5 @@ Available local implementation checks: award gating and all 14 inherited launche
 Original-game acceptance remains open: pad mapping and launcher/camera offset frame, lateral/roll/high-pitch flyer fidelity, collision dimensions and crash/control-loss timing. The runtime does not load the original player-boundary/fly-height input; the guided boundary grace rule still needs that map integration. This card is parked, not complete.
 
 ## Notes
-The branch is stacked on codex/cloaking and includes main's portable-turret commit 42c31eb. Shared changes preserve packs, officer buffs, mines/detpacks/time bombs and remote droids. Guided rockets use their own flight, camera, collision, detonation and return state; ACTION ends the rocket rather than parking a retakable droid. No push or publication authorized.
 
 2026-10-28 maintainer playtest: guided rockets work, but turning is jittery. Snapshot build 577d409, BF2 COR1 seed 132, about 75 FPS with stable frame times. The mouse preview replaced interpolated rocket rotation with a full extra tick of filtered steering, including zero-motion mouse-aim frames. Remove that preview override and retain display-rate pose/camera interpolation. Regression covers 60/75/144 Hz, pending and zero mouse deltas, controller input and bit-identical simulation after drawing; see the report's follow-up.

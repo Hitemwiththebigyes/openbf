@@ -92,7 +92,7 @@ impl Sim {
         let teams = self.battle.teams.len();
         let mut has_human = vec![false; teams];
         for u in &self.units {
-            if u.is_player && (u.team as usize) < teams {
+            if u.is_human() && (u.team as usize) < teams {
                 has_human[u.team as usize] = true;
             }
         }
@@ -111,13 +111,15 @@ impl Sim {
     /// icon (card CPBAR) asks the same. A rider (a vehicle's or a turret's
     /// seat) is not in the PS2's scan (card WCREW: in BF1 RAM, 73 of 73 post
     /// rows with a seated soldier in the region count only those on foot;
-    /// BF2 not sampled).
+    /// BF2 not sampled). Card MAIS: nor a bot of a team the mission bars
+    /// from the post (`AICanCaptureCP`, [`crate::cp::CommandPost::ai_no_capture`]).
     pub fn counts_in_cp(&self, ui: usize, ci: usize) -> bool {
         let u = &self.units[ui];
         u.alive
             && u.capture_posts
             && u.mount.is_none()
             && (u.team as usize) < self.battle.teams.len()
+            && !(u.controller == crate::unit::Controller::Ai && self.cps[ci].ai_no_capture(u.team))
             && self.cps[ci].def.capture.contains(u.soldier.pos)
     }
 
@@ -347,6 +349,30 @@ mod tests {
             Some(0),
             "team 0 captured it beside the rider"
         );
+    }
+
+    /// Card MAIS: `AICanCaptureCP(post, team, false)` - a bot of the barred
+    /// team in the region does not count (nor contest); its human does, and
+    /// the other team's bots do.
+    #[test]
+    fn a_post_barred_to_a_teams_bots_does_not_count_them() {
+        let mut s = Sim::empty(5);
+        s.heightfield = Some(flat_ground());
+        s.add_cp(
+            sphere_cp("cp", Vec3::new(0.0, 0.0, -20.0), 8.0, false),
+            None,
+        );
+        let bot = |team, pos| UnitSpec {
+            controller: Controller::Ai,
+            ..UnitSpec::trooper(team, pos)
+        };
+        s.spawn(&bot(0, Vec3::new(2.0, 0.0, -20.0))).unwrap();
+        let b1 = s.spawn(&bot(1, Vec3::new(-2.0, 0.0, -20.0))).unwrap();
+        assert_eq!(s.cp_inside(0), vec![1, 1]);
+        s.cps[0].ai_capture_ban = 1 << 1;
+        assert_eq!(s.cp_inside(0), vec![1, 0], "team 1's bot is barred");
+        s.unit_mut(b1).unwrap().controller = Controller::Player { slot: 1 };
+        assert_eq!(s.cp_inside(0), vec![1, 1], "its human is not");
     }
 
     /// BF2 rule: a team at 0 tickets is defeated at once; AI never respawn

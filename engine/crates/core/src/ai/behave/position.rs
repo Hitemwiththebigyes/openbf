@@ -69,7 +69,7 @@ pub(super) fn fight_position(
 ) {
     let Tick { me, u, wc, .. } = *tk;
     let pos = u.soldier.pos;
-    let (stander, crouches, anywhere) = style(sim, tk);
+    let (stander, crouches, anywhere) = style(tk);
     // Card HVYW: against a vehicle every bot stands where it is and shoots
     // (the PS2's stand mode and its band's stop, 4.4 / 4.5; its flank and
     // behind modes are not built) - no ring 75 m round a tank.
@@ -199,21 +199,24 @@ fn stands_at(wc: &crate::weapon::WeaponClass, range: f32) -> bool {
 /// 4.4): [`STAND_SHARE`] of the bots stand, a scoped weapon always, and
 /// [`STAND_CROUCH`] of the standers crouch. The third answer is a test
 /// scene's only: its standers stand at any range, not just inside the band.
-fn style(sim: &Sim, tk: &Tick) -> (bool, bool, bool) {
+fn style(tk: &Tick) -> (bool, bool, bool) {
     #[cfg(test)]
     if let Some((stands, anywhere)) = tests::STYLE.with(std::cell::Cell::get) {
         return (stands, false, anywhere);
     }
     let Tick { me, u, wc, .. } = *tk;
-    let (stander, crouches) = style_of(me, sim.difficulty_of(u.team), wc.ai_distance_table());
+    let (stander, crouches) = style_of(me, wc.ai_distance_table());
+    // Card DPRX: a proxy that strafes fights on the move (a scope stands).
+    if u.proxy_human.is_some_and(|p| p.circles) && !wc.ai_distance_table() {
+        return (false, false, false);
+    }
     (stander, crouches, false)
 }
 
-/// [`style`]'s draw: (stands, crouches) of unit `me` at `difficulty`.
-fn style_of(me: UnitHandle, difficulty: crate::skill::Difficulty, scoped: bool) -> (bool, bool) {
-    let share = STAND_SHARE[usize::from(difficulty != crate::skill::Difficulty::Easy)];
+/// [`style`]'s draw: (stands, crouches) of unit `me`; every tier the same.
+fn style_of(me: UnitHandle, scoped: bool) -> (bool, bool) {
     (
-        scoped || unit_unit(me.index, 0, me.gen, SALT_STYLE) < share,
+        scoped || unit_unit(me.index, 0, me.gen, SALT_STYLE) < STAND_SHARE,
         unit_unit(me.index, 0, me.gen, SALT_STYLE ^ 1) < STAND_CROUCH,
     )
 }

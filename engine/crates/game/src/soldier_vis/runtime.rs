@@ -1,8 +1,8 @@
 //! Soldier asset loading, animation updates and draw submission.
 
 use super::{
-    drawn, drawn_weapon, fire_point, held_or_primary, model_of, part_groups, part_spec, rider_now,
-    seat_now, with_spec, ClassDraw, DrawPlan, FlashModel, HoverClock, SeatClock, SoldierAsset,
+    drawn, fire_point, held_or_primary, model_of, part_groups, part_spec, rider_now, seat_now,
+    with_spec, ClassDraw, DrawPlan, FlashModel, HoverClock, SeatClock, SoldierAsset,
     SoldierVisuals, UnitVisual, WeaponAsset, CORPSE_SECS,
 };
 use crate::animator::{AnimInput, Animator, ClassAnim, Rig};
@@ -13,6 +13,10 @@ use glam::{Mat4, Vec3};
 use render::{ParticleDraw, Renderer, SkinnedDrawCmd, TextureHandle};
 use std::collections::HashMap;
 use std::path::Path;
+
+/// The bone a jet effect rides (card JETP2, PROVISIONAL: `crate::fx`
+/// `jet.rs`).
+pub const JET_BONE: &str = "bone_ribcage";
 
 impl SoldierVisuals {
     /// Load the battle's soldier models and install its turret and walker rigs.
@@ -411,7 +415,7 @@ impl SoldierVisuals {
     }
 
     /// The asset a unit draws with.
-    fn asset_for(&self, team: u8, class: u8) -> Option<&SoldierAsset> {
+    pub(super) fn asset_for(&self, team: u8, class: u8) -> Option<&SoldierAsset> {
         self.assets.get(self.asset_index(team, class)?)
     }
 
@@ -631,7 +635,7 @@ impl SoldierVisuals {
         dt: f32,
         census: Option<&mut crate::animator::census::Census>,
     ) {
-        let (wc, _, weapon) = drawn(u, &walk.sim.weapon_classes);
+        let (wc, _, weapon) = drawn(u, &walk.sim.weapon_classes, rig.throws_offhand());
         let class = walk.sim.weapon_classes.get(wc);
         let team = &anim[usize::from(u.team.min(1))];
         let anim = team.get(usize::from(u.spec.class).min(team.len().saturating_sub(1)));
@@ -703,7 +707,12 @@ impl SoldierVisuals {
                 continue;
             };
             let Some(v) = self.units.get(i) else { continue };
-            if !u.cloak.visible() || v.gen != u.gen || (!u.alive && v.dead_for > CORPSE_SECS) {
+            // A droid that burst leaves no body to draw (card DROIDDEATH);
+            // a cloaked soldier is not drawn (card CLOAK).
+            if !u.cloak.visible()
+                || v.gen != u.gen
+                || (!u.alive && (u.burst || v.dead_for > CORPSE_SECS))
+            {
                 continue;
             }
             if !u.alive && !v.animator.posed() {
@@ -764,7 +773,7 @@ impl SoldierVisuals {
                     }
                 }
             }
-            let hand = drawn_weapon(u, &walk.sim.weapon_classes);
+            let hand = self.hand_of(u, &walk.sim.weapon_classes);
             if hand.hidden {
                 continue;
             }
@@ -780,7 +789,11 @@ impl SoldierVisuals {
             .iter()
             .map(|g| (g.weapon_class, Mat4::from_translation(g.pos)))
             .chain(sim.droids.iter().map(|d| {
-                let m = Mat4::from_rotation_translation(d.rotation(), d.pos);
+                // The model faces +Z, as the engine's models do (a soldier is
+                // drawn turned by π for the same reason); the droid's aim
+                // looks down -Z at yaw 0. The half turn about y is exact.
+                let turn = glam::Quat::from_xyzw(0.0, 1.0, 0.0, 0.0);
+                let m = Mat4::from_rotation_translation(d.rotation() * turn, d.pos);
                 (d.weapon_class, m)
             }))
             .chain(sim.turrets.iter().map(|t| {
@@ -804,6 +817,23 @@ impl SoldierVisuals {
         out
     }
 
+    /// Every drawn unit's `bone_ribcage` in the world, by unit index: where
+    /// a jet's effect rides (card JETP2, `crate::fx` `jet.rs`). `None` for a
+    /// unit drawn without a model or without the bone, or in a seat.
+    pub fn jet_frames(&self, walk: &WalkSim) -> Vec<Option<Mat4>> {
+        let mut out = vec![None; walk.sim.units.len()];
+        for (i, sa, model, palette) in self.posed(walk) {
+            if walk.sim.units[i].mount.is_some() {
+                continue;
+            }
+            let Some(b) = sa.asset.skeleton.index_of(JET_BONE) else {
+                continue;
+            };
+            out[i] = Some(model * palette[b] * sa.asset.skeleton.global_bind[b]);
+        }
+        out
+    }
+
     /// Every drawn unit's weapon fire point in the world, by unit index:
     /// `hp_weapons` × the weapon in hand's `FirePointName` node (the `hp_weapons`
     /// origin when the weapon model has no such node, §4.1). `None` for a
@@ -814,7 +844,7 @@ impl SoldierVisuals {
         for (i, sa, model, palette) in self.posed(walk) {
             if let (Some(hp), None) = (sa.hp_weapons, walk.sim.units[i].mount) {
                 let u = &walk.sim.units[i];
-                let in_hand = drawn_weapon(u, &walk.sim.weapon_classes);
+                let in_hand = self.hand_of(u, &walk.sim.weapon_classes);
                 let name = walk
                     .sim
                     .weapon_classes
@@ -849,7 +879,7 @@ impl SoldierVisuals {
             let Some(look) = walk
                 .sim
                 .weapon_classes
-                .get(drawn_weapon(u, &walk.sim.weapon_classes).class)
+                .get(self.hand_of(u, &walk.sim.weapon_classes).class)
                 .and_then(|w| w.flash.as_ref())
                 .filter(|f| f.draws() && f.model.as_deref() == Some(model.name.as_str()))
             else {

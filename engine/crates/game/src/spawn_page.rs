@@ -262,6 +262,7 @@ mod tests {
             jet: false,
             capture_posts: true,
             drops: core::sim::DropTable::default(),
+            chunk: None,
             min: 1,
             max: Some(4),
             unlock_points: 12,
@@ -285,6 +286,27 @@ mod tests {
             Some(SpawnPage::Class { lines, refused, .. }) => {
                 assert_eq!(lines[0], format!("Unit Count: {mates}  Max: 4"));
                 assert_eq!(refused & 1, 0);
+            }
+            p => panic!("{p:?}"),
+        }
+        // Card UNLK3: the career's cost (half at 50 kills) sets the line and
+        // the silhouette; the max line stays.
+        w.sim.set_spawn_costs(0, team as u8, vec![6]);
+        w.sim.set_spawn_points(0, 4);
+        match page(&w, &feed, 0) {
+            Some(SpawnPage::Class { lines, refused, .. }) => {
+                assert_eq!(lines[0], "Get 2 more points to unlock!");
+                assert_eq!(lines[1], format!("Unit Count: {mates}  Max: 4"));
+                assert_eq!(refused & 1, 1);
+            }
+            p => panic!("{p:?}"),
+        }
+        w.sim.set_spawn_costs(0, team as u8, vec![0]);
+        w.sim.set_spawn_points(0, 0);
+        match page(&w, &feed, 0) {
+            Some(SpawnPage::Class { lines, refused, .. }) => {
+                assert_eq!(lines[0], format!("Unit Count: {mates}  Max: 4"));
+                assert_eq!(refused & 1, 0, "unlocked for good");
             }
             p => panic!("{p:?}"),
         }

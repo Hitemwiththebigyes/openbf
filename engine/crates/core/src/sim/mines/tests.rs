@@ -119,6 +119,27 @@ fn standing_enemy_triggers_and_bf1_blast_kills_at_four_metres() {
     assert!(sim.unit(victim).is_none());
 }
 
+/// Review fix 1 (PR #61): a mine laid in a previous life credits its owner's
+/// current life in the same slot.
+#[test]
+fn a_mine_laid_before_a_respawn_credits_the_owners_new_life() {
+    let (mut sim, owner, weapon) = setup(false, false, f32::MAX);
+    sim.place_mine(owner, weapon, 0.0);
+    sim.mines[0].flight.pos = Vec3::ZERO;
+    sim.mines[0].anchor(Vec3::Y, Anchor::World, None);
+    sim.units[owner].gen += 1;
+    sim.units[owner].soldier.pos = Vec3::X * 40.0;
+    let now = sim.handle(owner);
+    let victim = sim.spawn(&UnitSpec::trooper(1, Vec3::ZERO)).unwrap();
+    sim.tick_mines(TICK_DT);
+    assert!(sim.unit(victim).is_none());
+    assert!(sim.events.iter().any(|e| matches!(
+        e,
+        Event::Kill { shooter, victim: v } if *shooter == now && *v == victim
+    )));
+    assert_eq!(sim.units[owner].kills, 1);
+}
+
 #[test]
 fn timebomb_life_starts_at_placement_even_in_flight() {
     for (bf2, life, ticks) in [(false, 10.0, 300), (true, 5.0, 150)] {

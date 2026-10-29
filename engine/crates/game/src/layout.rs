@@ -123,6 +123,9 @@ pub struct MissionApplied {
     pub death_regions: Vec<Region>,
     /// `AddDeathRegion` names the manifest has no region for.
     pub missing_death_regions: Vec<String>,
+    /// The soldiers' fly-height ceiling for `Sim::fly_ceiling` (card JETP):
+    /// the mission's `SetMaxPlayerFlyHeight`, else the engine's 200.
+    pub fly_ceiling: f32,
 }
 
 /// Build the sim's planning graph (`core::nav`) from a baked map.
@@ -480,6 +483,9 @@ impl MapLayout {
             reassigned,
             death_regions,
             missing_death_regions,
+            fly_ceiling: m
+                .max_player_fly_height
+                .unwrap_or(core::soldier::DEFAULT_FLY_CEILING),
         }
     }
 }
@@ -685,6 +691,18 @@ mod tests {
         );
         assert_eq!(l.cps.len(), 5);
         assert!(a.death_regions.is_empty());
+        // No SetMaxPlayerFlyHeight: the engine's ceiling (card JETP).
+        assert_eq!(a.fly_ceiling, 200.0);
+        let m = mission(
+            r#"(
+                map: "t", mode: "con", source_game: "bf2",
+                teams: [(faction: "imp", units: 20, tickets: 150),
+                        (faction: "all", units: 20, tickets: 150)],
+                ai_alive_cap: 16, spawn_delay: 10.0, spawn_interval: 0.25,
+                max_player_fly_height: Some(14.0),
+            )"#,
+        );
+        assert_eq!(l.apply_mission(&m).fly_ceiling, 14.0);
     }
 
     /// The per-game half of the `PrimaryStance` bitmask rule lives HERE, in

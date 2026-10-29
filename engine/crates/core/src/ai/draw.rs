@@ -67,6 +67,9 @@ pub const SALT_HUB_POINT: u32 = 0x4B_9017;
 /// Card TPOS: a bot's own bias per position (`^ 1` its cycle's phases, `^ 2`
 /// the wait for the next position, `^ 3` the move on a hit).
 pub const SALT_TPOS: u32 = 0x7B_05C0;
+/// Card DROIDAI: a hidden droid carrier's launch draw, one per
+/// `remote::BOT_ROLL` window.
+pub const SALT_DROID: u32 = 0xD8_01D5;
 
 /// [`route_rand`]'s FNV shape with a per-use-site salt folded in.
 pub fn unit_rand(unit_index: u32, tick: u64, gen: u32, salt: u32) -> u32 {
@@ -195,11 +198,11 @@ mod tests {
     /// `PrimaryStance 4`) is prone within 2 s, and is STANDING again within 2 s
     /// of being given somewhere to walk.
     ///
-    /// The timings are the soldier's, not a tuning choice: the cycle is
-    /// Stand -> Crouch -> Prone and each step needs
-    /// [`STANCE_TAP_DELAY`] in the stance before it, so going down takes two
-    /// taps about a second apart; coming up is one tap, because the cycle
-    /// wraps Prone -> Stand.
+    /// The timings are the soldier's, not a tuning choice
+    /// (`Soldier::stance_tap_target`): a stand takes a tap after
+    /// `STANCE_TAP_WAIT`, and the crouch it lands in goes prone on a second
+    /// tap inside `PRONE_DOUBLE_TAP`, so going down is two taps two ticks
+    /// apart; coming up is one tap, after the prone's lock.
     #[test]
     fn a_cover_hint_puts_a_defender_prone_and_a_route_stands_it_up() {
         use crate::commander::Objective;
@@ -234,6 +237,11 @@ mod tests {
         let prone_at = prone_at.expect("never went prone inside 2 s");
         assert!(prone_at < 60, "prone at tick {prone_at}");
         assert_eq!(stance(&sim), Stance::Prone, "and it stays down");
+        // And down it stays, for 5 s more: the wish is met, nothing presses.
+        for _ in 0..150u64 {
+            sim.step(&[PadState::default()]);
+            assert_eq!(stance(&sim), Stance::Prone, "it got up on its own");
+        }
 
         // Now give it somewhere to be: back at hub 0, 40 m from the post, with
         // the same Defend objective. It has to stand up to walk.
@@ -251,6 +259,57 @@ mod tests {
             sim.unit(h).expect("alive").ai.route.is_some(),
             "it is walking back to its post"
         );
+    }
+
+    /// The overshoot, gone (2026-10-28): a defender CROUCHED on a crouch-only
+    /// Cover hint that is given somewhere to walk stands up without ever
+    /// passing through prone. Under the old Stand -> Crouch -> Prone cycle
+    /// its one tap put it prone first (571 prone entries over 4 maps' rounds,
+    /// none wanted). It crouches with one tap and never goes prone while it
+    /// holds the crouch either.
+    #[test]
+    fn a_crouched_defender_given_a_route_stands_without_going_prone() {
+        use crate::commander::Objective;
+        let (mut sim, h) = l_sim();
+        let spot = sim.cps[0].def.pos;
+        sim.nav.as_mut().expect("graph").hints = vec![cover_hint(spot, MASK_CROUCH)];
+        sim.units[h.index as usize].soldier.pos = spot;
+        for t in 0..2 {
+            sim.commander[t].next_plan_tick = u64::MAX;
+        }
+        sim.commander[0].assignment = vec![Some(Objective::Defend(0))];
+        sim.commander[0].spots = vec![Some((spot, MASK_CROUCH))];
+
+        let stance = |s: &Sim| s.unit(h).expect("alive").soldier.stance;
+        let mut crouched_at = None;
+        for t in 0..90u64 {
+            sim.step(&[PadState::default()]);
+            assert_ne!(
+                stance(&sim),
+                Stance::Prone,
+                "prone on the way down, tick {t}"
+            );
+            if crouched_at.is_none() && stance(&sim) == Stance::Crouch {
+                crouched_at = Some(t);
+            }
+        }
+        assert_eq!(sim.unit(h).expect("alive").ai.want_stance, 2);
+        crouched_at.expect("never crouched inside 3 s");
+        assert_eq!(stance(&sim), Stance::Crouch, "and it stays crouched");
+
+        // A route: it stands, at once in the crouch's terms (JUMP, after the
+        // rise wait), and is never prone on the way.
+        sim.units[h.index as usize].soldier.pos = Vec3::ZERO;
+        let mut stood_at = None;
+        for t in 0..60u64 {
+            sim.step(&[PadState::default()]);
+            assert_ne!(stance(&sim), Stance::Prone, "prone on the way up, tick {t}");
+            if stood_at.is_none() && stance(&sim) == Stance::Stand {
+                stood_at = Some(t);
+            }
+        }
+        let stood_at = stood_at.expect("never stood up inside 2 s of a route");
+        assert!(stood_at < 60, "stood at tick {stood_at}");
     }
 
     /// A Cover hint at `pos` whose allowed-stance mask is `mask` — what

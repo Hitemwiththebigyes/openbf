@@ -364,7 +364,7 @@ pub(super) fn drive(
     });
     st.steer = SteerPick::Fwd;
     super::gunner::aim(sim, me, st, &mut pad, look, None);
-    stuck_window(sim, me, st, pos, p2 != 0.0, &mut nt);
+    stuck_window(sim, me, st, pos, p2 != 0.0, false, &mut nt);
     (pad, nt)
 }
 

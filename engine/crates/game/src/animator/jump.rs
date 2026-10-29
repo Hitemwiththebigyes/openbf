@@ -52,6 +52,16 @@ impl Jump {
                 }
                 *elapsed += dt;
             }
+            // A jet's end lands soft (B1 0x22a1b8..0x22a230: the old
+            // special 0x15 `jetpack_hover` always takes `landsoft`), and a
+            // fall after it counts its air time from the jet's end.
+            // PROVISIONAL: when the PS2 clears its clock +0x80 in a jet is
+            // not read; the port restarts it every jet update.
+            Err(Special::JetHover) => {
+                self.landing = None;
+                self.exit_elapsed = None;
+                self.air = Some(0.0);
+            }
             Ok(_) => {
                 if let Some(air) = self.air.take() {
                     let hard = air > HARD_LANDING_AFTER;

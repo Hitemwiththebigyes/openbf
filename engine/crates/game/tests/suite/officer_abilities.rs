@@ -39,7 +39,11 @@ fn all_officer_variants_keep_their_disc_ability_and_apply_it_through_secondary_f
             "all" => assert_eq!(ability.regeneration, (30.0, 20.0)),
             "imp" => assert_eq!(ability.offense, (15.0, 1.5)),
             "rep" => assert_eq!(ability.defense, (20.0, 0.5)),
-            "cis" => assert_eq!(ability.poison, (15.0, 30.0)),
+            "cis" => assert_eq!(
+                ability.poison,
+                (15.0, 20.0),
+                "the disc's 30/s at POISON_RATE"
+            ),
             _ => unreachable!(),
         }
         assert_eq!(ability.friends, !name.starts_with("cis"));

@@ -14,7 +14,7 @@
 //! - **flat** — a bare [`core::sim::Sim`] on a 400 m flat heightfield (the
 //!   `core::ai` test rig's shape), NO command posts and NO nav graph, 8 v 8
 //!   `UnitSpec::trooper` bots on two lines 30 m apart facing each other. 30 m
-//!   is inside every tier's view distance (Easy is the shortest: 0.8 × 49 m).
+//!   is inside every tier's view distance (Easy and Normal see least: 49 m).
 //!   With no posts there are no spawn points, so it is a ONE-LIFE fight and
 //!   the run ends at `ticks` or when a team is wiped out. `omni_radius` 10 m
 //!   (the BF2 value) — no manifest to read it from.
@@ -27,8 +27,8 @@
 //!
 //! The `all` rows put ONE tier on both teams, so `kills/min` measures how
 //! deadly a fight is, not which tier wins it: a tier that is harder to hit
-//! lowers both sides' kills (card TIER: Elite's flat-field kills / min fell
-//! under Hard's). Its `monotonic:` line is a row of the determinism gate,
+//! lowers both sides' kills (card TIER: Elite's flat-field kills / min
+//! fell under Hard's). Its `monotonic:` line is a row of the determinism gate,
 //! not a verdict on the tiers; the head-to-head below is.
 //!
 //! ## The head-to-head (card ARVS)
@@ -54,6 +54,14 @@
 //! bots' hit rate. `ai_shots` and `unperceived` are `NavStats`' own counters;
 //! the event fold's shot count is printed beside them when the two disagree,
 //! which would be a bug in one of them.
+//!
+//! ## The human proxy (card DPRX)
+//! `ARENA_PROXY=<team>:<average|good>` makes the first bot of `<team>` on
+//! foot a HUMAN PROXY (`core::ai::proxy`: a bot the sim treats as a human for
+//! every human-only rule, with a fixed human profile) on either field, and
+//! prints one stderr `proxy` line per run with its tally (kills, deaths,
+//! shots, hits, accuracy, seconds alive per life; `game::blackbox::session`'s
+//! definitions). Its kills still count in the row's AI columns.
 //!
 //! Two runs with the same arguments print byte-identical STDOUT — wall time,
 //! the one column that cannot be, goes to STDERR, as the sweep's progress
@@ -206,6 +214,13 @@ struct Fold {
     player_hits: u64,
     player_deaths: u64,
     side: [Side; 2],
+    /// Card TOKN's human measure (stderr only): the health the bots took
+    /// off the idle player, the ticks he was alive, and each hit on him by
+    /// how many distinct bots hit him in the 3 s up to it (1, 2, 3, 4+).
+    player_dmg: f64,
+    player_alive: u64,
+    shooters: [u64; 4],
+    recent: Vec<(u64, core::unit::UnitHandle)>,
 }
 
 impl Fold {
@@ -218,6 +233,10 @@ impl Fold {
             player_hits: 0,
             player_deaths: 0,
             side: [Side::default(); 2],
+            player_dmg: 0.0,
+            player_alive: 0,
+            shooters: [0; 4],
+            recent: Vec::new(),
         }
     }
 
@@ -236,6 +255,10 @@ impl Fold {
                 .filter(|&t| t < 2)
                 .map(usize::from)
         };
+        self.player_alive += u64::from(sim.alive_units().any(|(_, u)| u.is_player));
+        let tick = sim.tick;
+        self.recent
+            .retain(|(t, _)| tick < t + 3 * core::TICK_HZ as u64);
         for e in &sim.events {
             match *e {
                 core::sim::Event::Shot { unit, .. } if !human(unit) => {
@@ -249,6 +272,14 @@ impl Fold {
                 } if !human(shooter) => {
                     if human(victim) {
                         self.player_hits += 1;
+                        if let core::sim::Event::Hit { damage, .. } = *e {
+                            self.player_dmg += f64::from(damage);
+                        }
+                        self.recent.push((tick, shooter));
+                        let mut who: Vec<_> = self.recent.iter().map(|r| r.1).collect();
+                        who.sort_by_key(|h| (h.index, h.gen));
+                        who.dedup();
+                        self.shooters[who.len().clamp(1, 4) - 1] += 1;
                     } else {
                         self.hits += 1;
                         if let Some(t) = side(shooter) {
@@ -283,6 +314,150 @@ impl Fold {
 /// The flat arena has no player at all and is unaffected either way.
 fn slot0_is_bot() -> bool {
     matches!(std::env::var("SWEEP_SLOT0").as_deref(), Ok("bot" | "1"))
+}
+
+/// Card TOKN's human proxy, `ARENA_HUMAN=shadow` (map field, slot 0 the
+/// idle player): before every tick the player is put 1.5 m to the right of
+/// team 0's first living bot on foot, looking its way, at full health - so
+/// he stands in the fights the bots walk into, never shoots back and never
+/// dies, and the bots' hits on him (the stderr `human` line) measure the
+/// pressure on a human. A measuring rig, not a model of a player.
+fn shadow_human() -> bool {
+    std::env::var("ARENA_HUMAN").as_deref() == Ok("shadow")
+}
+
+/// Card DPRX: `ARENA_PROXY=<team>:<strength>`.
+fn arena_proxy() -> Option<(u8, core::ai::proxy::Strength)> {
+    let v = std::env::var("ARENA_PROXY").ok()?;
+    let (t, s) = v.split_once(':')?;
+    Some((
+        t.trim().parse().ok().filter(|t: &u8| *t < 2)?,
+        core::ai::proxy::Strength::parse(s)?,
+    ))
+}
+
+/// The proxy's slot and tally, after making the first bot of its team on
+/// foot one.
+fn make_proxy(sim: &mut Sim) -> Option<(usize, game::blackbox::session::Tally, String)> {
+    let (team, strength) = arena_proxy()?;
+    let h = sim
+        .alive_units()
+        .find(|(_, u)| u.team == team && u.controller == Controller::Ai && u.mount.is_none())
+        .map(|(h, _)| h)?;
+    sim.set_proxy(h, Some(strength.profile()));
+    Some((
+        h.index as usize,
+        game::blackbox::session::Tally::default(),
+        format!("{team} {}", strength.label()),
+    ))
+}
+
+/// The stderr `proxy` line.
+fn proxy_line(field: &str, seed: u32, p: &(usize, game::blackbox::session::Tally, String)) {
+    let s = &p.1.out;
+    eprintln!(
+        "proxy {field} seed {seed}: team/strength {} kills {} deaths {} shots {} hits {} acc {:.3} life_s {:.1}",
+        p.2,
+        s.kills,
+        s.deaths,
+        s.shots,
+        s.hits,
+        f64::from(s.hits) / f64::from(s.shots.max(1)),
+        s.alive_ticks as f64 / HZ / s.lives.len().max(1) as f64
+    );
+}
+
+fn shadow_step(sim: &mut Sim) {
+    let Some((pos, yaw)) = sim
+        .alive_units()
+        .find(|(_, u)| u.team == 0 && u.controller == Controller::Ai && u.mount.is_none())
+        .map(|(_, u)| (u.soldier.pos, u.soldier.yaw))
+    else {
+        return;
+    };
+    let Some(i) = sim.units.iter().position(|u| u.alive && u.is_player) else {
+        return;
+    };
+    let (sy, cy) = (yaw.sin(), yaw.cos());
+    let u = &mut sim.units[i];
+    if u.mount.is_some() {
+        return;
+    }
+    // Right of a soldier facing (-sin yaw, -cos yaw).
+    u.soldier.pos = pos + Vec3::new(cy, 0.0, -sy) * 1.5;
+    u.soldier.vel = Vec3::ZERO;
+    u.soldier.yaw = yaw;
+    u.health.cur = u.health.max;
+}
+
+/// Card DFOCUS's second proxy, `ARENA_HUMAN=lone`: the idle player stands
+/// apart from his team-mates, [`LONE_BACK`] behind team 0's front (its bot on
+/// foot nearest an enemy), on a standable point of the position table at
+/// least [`LONE_APART`] from any team-mate, in sight of that enemy where one
+/// is, facing it, at full health. The spot is chosen again every second. In
+/// the shadow proxy the fire aimed at the team-mate beside him hits him; here
+/// what hits him was aimed at him.
+fn lone_human() -> bool {
+    std::env::var("ARENA_HUMAN").as_deref() == Ok("lone")
+}
+
+const LONE_BACK: f32 = 15.0;
+const LONE_APART: f32 = 6.0;
+
+fn lone_step(sim: &mut Sim, spot: &mut Option<(Vec3, f32)>) {
+    let Some(i) = sim.units.iter().position(|u| u.alive && u.is_player) else {
+        return;
+    };
+    if sim.units[i].mount.is_some() {
+        return;
+    }
+    if spot.is_none() || sim.tick.is_multiple_of(core::TICK_HZ as u64) {
+        // The front: team 0's bot on foot nearest a living enemy.
+        let mut front: Option<(f32, Vec3, Vec3)> = None;
+        for (_, a) in sim
+            .alive_units()
+            .filter(|(_, u)| u.team == 0 && !u.is_player && u.mount.is_none())
+        {
+            for (_, e) in sim.alive_units().filter(|(_, u)| u.team == 1) {
+                let d = (e.soldier.pos - a.soldier.pos).length_squared();
+                if front.is_none_or(|f| d < f.0) {
+                    front = Some((d, a.soldier.pos, e.muzzle()));
+                }
+            }
+        }
+        if let Some((_, at, eye)) = front {
+            let dir = Vec3::new(eye.x - at.x, 0.0, eye.z - at.z).normalize_or(Vec3::Z);
+            let want = at - dir * LONE_BACK;
+            let mut near = Vec::new();
+            sim.positions.within(want, 10.0, &mut near);
+            let mut pts: Vec<Vec3> = near
+                .iter()
+                .map(|&k| sim.positions.positions[k as usize].pos)
+                .filter(|p| {
+                    sim.alive_units().all(|(_, u)| {
+                        u.team != 0 || u.is_player || (u.soldier.pos - *p).length() >= LONE_APART
+                    })
+                })
+                .collect();
+            pts.sort_by(|a, b| (*a - want).length().total_cmp(&(*b - want).length()));
+            let seen = pts
+                .iter()
+                .take(8)
+                .find(|p| core::perception::los(sim, eye, **p + Vec3::Y));
+            if let Some(p) = seen.or(pts.first()) {
+                let to = eye - *p;
+                *spot = Some((*p, (-to.x).atan2(-to.z)));
+            }
+        }
+    }
+    let Some((p, yaw)) = *spot else {
+        return;
+    };
+    let u = &mut sim.units[i];
+    u.soldier.pos = p;
+    u.soldier.vel = Vec3::ZERO;
+    u.soldier.yaw = yaw;
+    u.health.cur = u.health.max;
 }
 
 /// The flat field: `Sim::empty` on 400 m of level ground, no posts, no graph,
@@ -331,18 +506,25 @@ fn flat_sim(seed: u32, tiers: [Difficulty; 2]) -> Sim {
 fn run_flat(ticks: u64, seed: u32, tiers: [Difficulty; 2]) -> Row {
     let started = std::time::Instant::now();
     let mut sim = flat_sim(seed, tiers);
+    let mut proxy = make_proxy(&mut sim);
     let mut f = Fold::new();
     let idle = [PadState::default()];
     let mut t = 0u64;
     while t < ticks {
         sim.step(&idle);
         f.eat(&sim);
+        if let Some((i, tally, _)) = proxy.as_mut() {
+            tally.tick(&sim, Some((*i, "proxy")));
+        }
         t += 1;
         // One life each: the round is over when a side is wiped out.
         let (a, b) = alive_counts(&sim);
         if a == 0 || b == 0 {
             break;
         }
+    }
+    if let Some(p) = &proxy {
+        proxy_line("flat", seed, p);
     }
     let (a, b) = alive_counts(&sim);
     row(tiers, &sim, f, t, started, [a as f64, b as f64])
@@ -496,8 +678,17 @@ fn run_map(key: &str, path: &Path, ticks: u64, seed: u32, tiers: [Difficulty; 2]
     scene.install_collision(&mut w.sim);
     if let Some(a) = &applied {
         w.sim.death_regions = a.death_regions.clone();
+        w.sim.fly_ceiling = a.fly_ceiling;
     }
+    // Card DTEAM: the idle player in slot 0 (team 0) is no human of this
+    // tier comparison; one counted on team 1 cancels him for the team rule
+    // (it reads only the difference), so the rows are the tier's, as before.
+    w.sim.extra_humans = [0, 1];
     w.setup_conquest(&layout, [16, 16], true);
+    // The mission's AI settings (card MAIS), as the game applies them.
+    if let Some(m) = &mission {
+        m.apply_ai(&mut w.sim);
+    }
     // Slot 0 as a bot, opt-in (see `slot0_is_bot`): the same un-spawn-and-refill
     // `round_to_outcome` does by default, so the two referees can be run on the
     // same field. OFF, the idle player stands there and its hits and deaths are
@@ -511,15 +702,30 @@ fn run_map(key: &str, path: &Path, ticks: u64, seed: u32, tiers: [Difficulty; 2]
                 w.sim.spawn_ai(0, pos, yaw);
             }
         }
+        w.sim.extra_humans = [0, 0];
     }
 
+    let mut proxy = make_proxy(&mut w.sim);
     let mut f = Fold::new();
     let idle = [PadState::default()];
     let mut t = 0u64;
+    let (shadow, lone) = (shadow_human(), lone_human());
+    let mut spot = None;
     while t < ticks && w.sim.outcome.is_none() {
+        if shadow {
+            shadow_step(&mut w.sim);
+        } else if lone {
+            lone_step(&mut w.sim, &mut spot);
+        }
         w.step_tick(&idle);
         f.eat(&w.sim);
+        if let Some((i, tally, _)) = proxy.as_mut() {
+            tally.tick(&w.sim, Some((*i, "proxy")));
+        }
         t += 1;
+    }
+    if let Some(p) = &proxy {
+        proxy_line(key, seed, p);
     }
     let tickets = w
         .sim
@@ -527,6 +733,20 @@ fn run_map(key: &str, path: &Path, ticks: u64, seed: u32, tiers: [Difficulty; 2]
         .teams
         .each_ref()
         .map(|t| f64::from(t.reinforcements));
+    // Card TOKN: the idle player's side, on stderr (stdout is the pinned row).
+    let alive_s = f.player_alive as f64 / HZ;
+    eprintln!(
+        "human {key} {} seed {seed}: hits {} dmg {:.0} alive_s {alive_s:.0} dmg_per_alive_min {:.1} deaths {} shooters_in_3s [1,2,3,4+] {:?} tokn_aimed_off {} tokn_stray {} tokn_cross {}",
+        tiers[1].label(),
+        f.player_hits,
+        f.player_dmg,
+        f.player_dmg / (alive_s / 60.0).max(1e-9),
+        f.player_deaths,
+        f.shooters,
+        w.sim.nav_stats.tokn_aimed_off,
+        w.sim.nav_stats.tokn_stray,
+        w.sim.nav_stats.tokn_cross,
+    );
     Some(row(tiers, &w.sim, f, t, started, tickets))
 }
 
@@ -791,7 +1011,11 @@ mod tests {
         let c = run_flat(600, 43, [Difficulty::Normal; 2]);
         assert_ne!(a.hash, c.hash, "a different seed is a different fight");
 
-        // The tier reaches the bots: Elite's fight is not Normal's.
+        // The tier reaches the bots: Elite's fight is not Normal's, nor
+        // Easy's.
+        let low = run_flat(600, 42, [Difficulty::Easy; 2]);
+        assert_ne!(a.hash, low.hash);
+        assert_eq!(low.unperceived, 0);
         let e = run_flat(600, 42, [Difficulty::Elite; 2]);
         assert_ne!(a.hash, e.hash);
         assert_eq!(e.unperceived, 0);

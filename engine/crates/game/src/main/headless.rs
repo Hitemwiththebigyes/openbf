@@ -314,6 +314,10 @@ fn append_events(csv: &mut String, tick: usize, events: &[core::sim::Event]) {
                 };
                 format!("{tick},envdeath,{},,{what}\n", unit.index)
             }
+            Event::Relocated { unit, to, .. } => format!(
+                "{tick},relocated,{},,{:.2}:{:.2}:{:.2}\n",
+                unit.index, to.x, to.y, to.z
+            ),
             Event::VehicleHit {
                 shooter,
                 vehicle,
@@ -334,6 +338,10 @@ fn append_events(csv: &mut String, tick: usize, events: &[core::sim::Event]) {
                 killer.map_or(String::new(), |s| s.index.to_string()),
                 vehicle.index
             ),
+            // `a` the droid, `b` its team, the value the chunks' scale.
+            Event::DroidBurst {
+                unit, team, scale, ..
+            } => format!("{tick},droid_burst,{},{team},{scale:.3}\n", unit.index),
             Event::DoorOpened { door } => format!("{tick},door_opened,{door},,\n"),
             Event::DoorClosed { door } => format!("{tick},door_closed,{door},,\n"),
             // `a` is the item class; a taken item's `b` is the taker and its
@@ -628,6 +636,7 @@ pub(super) fn run_headless(v: &ViewerArgs) -> Result<()> {
             let fire_points = frame.vis.fire_points(&walk);
             frame.fx.set_repair_origins(&fire_points);
             frame.bolts.set_fire_points(fire_points);
+            frame.fx.set_jet_frames(frame.vis.jet_frames(&walk));
             frame.fx.update(core::TICK_DT);
             if let Some(w) = frame.weather.as_mut() {
                 w.update(core::TICK_DT);

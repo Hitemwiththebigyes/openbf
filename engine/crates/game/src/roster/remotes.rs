@@ -1,4 +1,5 @@
-use super::{explosion_class, fired_ordnance, weapon_from_db, ClassDb, ClassSrc};
+use super::{explosion_class, fired_ordnance, weapon_from_db, weapon_hud, ClassDb, ClassSrc};
+use crate::walk::{DroidHud, WeaponHud};
 use anyhow::{Context, Result};
 use core::remote::{Destruct, DroidClass, RemoteWeapon, Salvo};
 use core::weapon::{OrdnanceClass, PropSource, WeaponClass};
@@ -48,6 +49,46 @@ pub(super) fn remote_weapon(
         .map(|name| destruct(db, name));
     w.remote = Some(Box::new(remote));
     Ok(w)
+}
+
+/// BF2's `HUDTag` on its remote droid's blaster (`analysis/re-remote-droid.md`
+/// §8): the row's mesh on every map.
+pub const BLASTER_HUD: &str = "hud_vehicle_recoiless";
+/// BF2's `HUDTag` on its droid's destruct: the probe droid's card.
+pub const DESTRUCT_HUD: &str = "hud_detpack_plunger";
+
+/// A droid row with BF2's mesh. `[ours]` (maintainer, 2026-10-28: "the bf1
+/// remote droid hud icons look poor"): a BF1 droid's rows show BF2's
+/// meshes too, not its `IconTexture` sheets (`IMP_pistol_icon`,
+/// `HUD_orbital_strike_icon`); the HUD is BF2's on every map and loads them
+/// from `common_bf2`.
+fn bf2_row(mut hud: WeaponHud, key: &str) -> WeaponHud {
+    hud.key = key.to_owned();
+    hud.icon = None;
+    hud
+}
+
+/// The rows a flying droid shows (`analysis/re-remote-droid.md` §8): its
+/// channel-0 and channel-1 weapons, each with BF2's mesh ([`bf2_row`]).
+pub(super) fn droid_hud(db: &ClassDb, weapon: &str) -> Option<DroidHud> {
+    let droid = db.resolve(db.prop(weapon, "OrdnanceName")?.trim())?;
+    let slots = db.weapon_slots(droid);
+    let row = |channel: u8| {
+        slots
+            .iter()
+            .find(|s| s.channel == channel)
+            .and_then(|s| Some((s.ammo.unwrap_or(0), db.resolve(&s.weapon)?)))
+    };
+    let (_, blaster) = row(0)?;
+    let destruct = row(1);
+    Some(DroidHud {
+        blaster: bf2_row(weapon_hud(db, blaster), BLASTER_HUD),
+        destruct: destruct.map(|(_, name)| bf2_row(weapon_hud(db, name), DESTRUCT_HUD)),
+        destruct_rounds: destruct.and_then(|(clips, name)| {
+            let rounds = db.prop_f32(name, "RoundsPerClip").unwrap_or(1.0).max(0.0) as u32;
+            (clips > 0).then_some(clips * rounds)
+        }),
+    })
 }
 
 fn destruct(db: &ClassDb, name: &str) -> Destruct {

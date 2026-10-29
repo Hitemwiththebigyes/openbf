@@ -934,7 +934,8 @@ def facts_from_calls(seq):
          "cps": [], "posts": [], "killed": [], "layers": [], "numbots": None,
          "vo_bleed": [], "vo_low": [], "vo_oob": [],
          "mus_amb": [], "mus_vic": [], "mus_def": [], "sound": [],
-         "shots": []}
+         "shots": [], "ai_view": None, "ai_aggr": {}, "ai_snipe": None,
+         "ai_capture": {}, "ai_damage": [], "fly": None}
 
     def ti(v):
         return int(v) if isinstance(v, float) and v == int(v) else None
@@ -985,6 +986,12 @@ def facts_from_calls(seq):
             d["attacking"] = ti(a[0])
         elif c.name == "AddDeathRegion" and a and isinstance(a[0], str):
             d["death_regions"].append(a[0])
+        # The soldiers' fly-height ceiling (card JETP, analysis/re-jetpack.md
+        # 5.3): BF2's SetMaxPlayerFlyHeight (B2:32250), the last call wins.
+        # SetMaxFlyHeight is the AI flyers' and is not read.
+        elif c.name == "SetMaxPlayerFlyHeight" and a and \
+                isinstance(a[0], float):
+            d["fly"] = a[0]
         elif c.name == "ScriptCB_SetNumBots" and a and ti(a[0]) is not None:
             d["numbots"] = ti(a[0])
         elif c.name == "SetProperty" and len(a) >= 3 and \
@@ -1003,6 +1010,27 @@ def facts_from_calls(seq):
             d["posts"].append(a[1]["name"])
         elif c.name == "KillObject" and a and isinstance(a[0], str):
             d["killed"].append(a[0])
+        # The AI knobs (card MAIS, analysis/re-ai-difficulty.md 3): the last
+        # call wins, as each one is a plain store on the PS2.
+        elif c.name == "SetAIViewMultiplier" and a and \
+                isinstance(a[0], float):
+            d["ai_view"] = a[0]
+        elif c.name == "SetTeamAggressiveness" and len(a) >= 2 and \
+                isinstance(a[1], float):
+            t = ti(a[0])
+            if t:
+                d["ai_aggr"][t] = a[1]
+        elif c.name == "AISnipeSuitabilityDist" and a and \
+                isinstance(a[0], float):
+            d["ai_snipe"] = a[0]
+        elif c.name == "AICanCaptureCP" and len(a) >= 3 and \
+                isinstance(a[0], str) and isinstance(a[2], bool):
+            t = ti(a[1])
+            if t:
+                d["ai_capture"][(a[0], t)] = a[2]
+        elif c.name == "SetAIDamageThreshold" and len(a) >= 2 and \
+                isinstance(a[0], str):
+            d["ai_damage"].append((a[0], a[1]))
         # The commander's lines (card ANNC, analysis/re-announcer.md 2.2-2.4):
         # the script's own team numbers and names, in call order.
         elif c.name == "SetBleedingVoiceOver" and len(a) >= 3 and \
@@ -1105,6 +1133,21 @@ def build(key, game, planet, era, pc_stem, ps2_name):
     m.mus_def = (ps2 or {}).get("mus_def", [])
     m.sound = (ps2 or {}).get("sound", [])
     m.shots = (ps2 or {}).get("shots", [])
+    # Card MAIS: the script's AI knobs (the PS2 bytecode only).
+    p2 = ps2 or {}
+    m.ai_view = p2.get("ai_view")
+    m.ai_aggr = sorted(p2.get("ai_aggr", {}).items())
+    m.ai_snipe = p2.get("ai_snipe")
+    m.ai_no_capture = [k for k, allow in p2.get("ai_capture", {}).items()
+                       if not allow]
+    # SetAIDamageThreshold's meaning is not known (re-ai-difficulty 3: read
+    # only as a flag != 0); every conquest call writes the default, 0.
+    # Anything else is not carried and is said so.
+    for name, v in p2.get("ai_damage", []):
+        if v != 0.0:
+            m.prov.append("SetAIDamageThreshold(%r, %s) is not carried"
+                          % (name, v))
+    m.fly = (ps2 or {}).get("fly")
     m.strings = set(consts(f, str)) if f is not None else set()
     m.arc_blocks = arc_calls50(f) if f is not None and game == "bf2" else []
     m.barriers = barrier_calls50(f) if f is not None and game == "bf2" else []
@@ -1282,6 +1325,10 @@ def ron(m):
              % ", ".join('"%s"' % r for r in m.death_regions))
     L.append("    posts: [%s]," % ", ".join('"%s"' % r for r in m.posts))
     L.append("    killed: [%s]," % ", ".join('"%s"' % r for r in m.killed))
+    if m.fly is not None:
+        L.append("    // SetMaxPlayerFlyHeight: the soldiers' fly-height "
+                 "ceiling (world y).")
+        L.append("    max_player_fly_height: Some(%s)," % fmtf(m.fly))
     if m.sound:
         L.append("    // The sound sub-levels the script loads, in order "
                  "(ReadDataFile")
@@ -1358,6 +1405,28 @@ def ron(m):
         for sh in m.shots:
             L.append("        (%s)," % ", ".join(f32_text(v) for v in sh))
         L.append("    ],")
+    if m.ai_view is not None or m.ai_aggr or m.ai_snipe is not None or \
+            m.ai_no_capture:
+        L.append("    // The script's AI settings (Lua team numbers): "
+                 "SetAIViewMultiplier,")
+        L.append("    // SetTeamAggressiveness, AISnipeSuitabilityDist and "
+                 "the AICanCaptureCP")
+        L.append("    // bans in force (post, team).")
+        L.append("    ai: (")
+        if m.ai_view is not None:
+            L.append("        view_mult: Some(%s),"
+                     % fmtf(float(f32_text(m.ai_view))))
+        if m.ai_aggr:
+            L.append("        aggressiveness: [%s],"
+                     % ", ".join("(%d, %s)" % (t, fmtf(float(f32_text(v))))
+                                 for t, v in m.ai_aggr))
+        if m.ai_snipe is not None:
+            L.append("        snipe_suitability: Some(%s)," % fmtf(m.ai_snipe))
+        if m.ai_no_capture:
+            L.append("        no_capture: [%s],"
+                     % ", ".join('("%s", %d)' % (n, t)
+                                 for n, t in m.ai_no_capture))
+        L.append("    ),")
     if m.locals:
         L.append("    // locals = (first AddUnitClass of team %d, its "
                  "SetUnitCount)." % m.locals_team)

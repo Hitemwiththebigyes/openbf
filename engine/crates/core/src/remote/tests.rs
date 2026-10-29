@@ -72,10 +72,9 @@ fn bf1_reads_only_the_misspelled_acceleration() {
     assert!((bf1.pitch_limits[1] - 50.0 * DEG).abs() < 1e-6);
     assert_eq!(bf1.track_offset, Vec3::new(0.0, -0.25, 1.5));
     assert_eq!(bf1.energy_restore, 0.0);
-    assert_eq!(bf1.lifetime(), 40.0);
     let bf2 = DroidClass::from_props(&Props(BF2_DROID), true);
     assert_eq!(bf2.acceleration, 25.0);
-    assert!((bf2.lifetime() - 100.0 / 1.7).abs() < 1e-3);
+    assert_eq!(bf2.energy_restore, -1.7);
     assert_eq!(bf2.max_speed, 9.0);
     assert_eq!(bf2.max_strafe_speed, 7.0);
 }
@@ -118,20 +117,34 @@ fn droid_out_of_reach_of_the_ground_falls_and_cannot_steer() {
 }
 
 #[test]
-fn drain_ends_the_droid_when_its_health_or_energy_runs_out() {
-    for (props, bf2) in [(BF1_DROID, false), (BF2_DROID, true)] {
+fn every_droid_expires_on_the_tick_it_turns_90_s_with_no_drain() {
+    for (props, bf2, health) in [(BF1_DROID, false, 40.0), (BF2_DROID, true, 100.0)] {
         let c = DroidClass::from_props(&Props(props), bf2);
         let mut d = droid(&c, 1.0);
-        let ticks = (c.lifetime() / TICK_DT).ceil() as usize;
-        for _ in 0..ticks - 2 {
-            assert_eq!(d.drain(&c, TICK_DT), None);
+        let ticks = (LIFETIME * crate::TICK_HZ as f32).round() as usize;
+        assert_eq!(ticks, 2700);
+        for _ in 0..ticks - 1 {
+            assert_eq!(d.age_by(TICK_DT), None, "bf2={bf2}");
         }
-        let mut end = None;
-        for _ in 0..4 {
-            end = end.or(d.drain(&c, TICK_DT));
-        }
-        assert_eq!(end, Some(DroidEnd::Expired), "bf2={bf2}");
+        assert_eq!(d.health, health, "bf2={bf2}: health does not drain");
+        assert!((d.time_left() - TICK_DT).abs() < 0.01);
+        assert_eq!(d.age_by(TICK_DT), Some(DroidEnd::Expired), "bf2={bf2}");
+        assert!(d.time_left() < 0.01);
     }
+}
+
+#[test]
+fn only_destroyed_and_destruct_explode() {
+    assert!(DroidEnd::Destroyed.explodes());
+    assert!(DroidEnd::Destruct.explodes());
+    assert!(!DroidEnd::Expired.explodes());
+    assert!(!DroidEnd::OwnerDied.explodes());
+    let mut c = DroidClass::from_props(&Props(BF1_DROID), false);
+    c.explosion = Some(ExplosionClass::default());
+    let r = RemoteWeapon::new(&Props(&[]), c, WeaponClass::bf1_rifle());
+    assert_eq!(r.end_explosions(DroidEnd::Destroyed).count(), 1);
+    assert_eq!(r.end_explosions(DroidEnd::Expired).count(), 0);
+    assert_eq!(r.end_explosions(DroidEnd::OwnerDied).count(), 0);
 }
 
 #[test]

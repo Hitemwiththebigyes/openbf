@@ -15,7 +15,7 @@ import glob, os, re, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 AN = os.path.join(ROOT, "analysis")
 AREAS = [  # (area, filename keywords)
-    ("Soldier", ["soldier", "stance", "aim-assist", "knockback", "anim", "softskin", "zoom", "droideka-unit"]),
+    ("Soldier", ["soldier", "stance", "aim-assist", "knockback", "anim", "softskin", "zoom", "droideka-unit", "jetpack"]),
     ("AI / bots", ["-ai", "ai-", "squad", "kill-floor", "round-stalls", "droideka"]),
     ("Vehicles", ["vehicle", "hover", "walker", "turret", "command-walker"]),
     ("Weapons", ["weapon", "blaster", "bolt", "grenade", "ordnance", "powerup", "muzzle"]),

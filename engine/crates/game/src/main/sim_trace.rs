@@ -1,5 +1,5 @@
 //! SHASH headless trace CLI: fixture by default, or the existing battle
-//! builder on a baked conquest map (16 AI/team, normal difficulty, 250
+//! builder on a baked conquest map (16 AI/team, the default difficulty (Normal), 250
 //! tickets, default factions, no mission overrides). No renderer or device.
 //! InputLog frame 0 produces record tick 1. A log must have 1..=16 complete
 //! slots and at least the requested frames; additional frames are ignored.

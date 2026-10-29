@@ -179,6 +179,9 @@ pub struct HudModel {
     /// The spawn screen drawn in the HUD's frame (card SSELB,
     /// `crate::spawn_draw`); `None` = none up.
     pub spawn: Option<crate::spawn_draw::SpawnPage>,
+    /// The sniper scope's overlay (`crate::hud_scope`); `None` = not scoped.
+    /// While it is up the weapon panel is off (BF2's `weaponsDisable`).
+    pub scope: Option<crate::hud_scope::ScopeView>,
 }
 
 /// PROVISIONAL team accents for the egui HUD and spawn menu (orange/green);
@@ -240,7 +243,11 @@ pub fn feed(hud: &mut Hud, m: &HudModel, has_mesh: &dyn Fn(&str) -> bool) {
     if !(alive && m.weapon2.is_some()) {
         put("player1.weapon2.disable", EventValue::None);
     }
-    if alive && m.weapon.is_some() {
+    // The scope switches the weapon panel off (`crate::hud_scope`: BF2
+    // sends `weaponsDisable` while its ScopeDisplay is up, `weaponsEnable`
+    // again after); the rows keep their values.
+    let scoped = alive && m.scope.is_some();
+    if alive && m.weapon.is_some() && !scoped {
         put("player1.weaponsEnable", EventValue::None);
     }
     for (row, w) in [(1, &m.weapon), (2, &m.weapon2)] {
@@ -305,6 +312,7 @@ pub fn feed(hud: &mut Hud, m: &HudModel, has_mesh: &dyn Fn(&str) -> bool) {
         hud.ambush.hit(e);
     }
     hud.spawn = m.spawn.clone();
+    hud.scope = m.scope.clone().filter(|_| alive);
     hud.stats = m
         .round_end
         .as_ref()
@@ -442,6 +450,15 @@ pub fn feed(hud: &mut Hud, m: &HudModel, has_mesh: &dyn Fn(&str) -> bool) {
             "player1.weapon1.totalClipFraction",
         ],
     );
+    // Scoped: the panel's group alone goes off (not `weapon1.disable`,
+    // which the reticle listens to too).
+    hide(
+        hud,
+        "hud.gate.unscoped",
+        !scoped,
+        &["player1.weaponsDisable"],
+        &["player1.weaponsEnable"],
+    );
     hide(
         hud,
         "hud.gate.weapon2",
@@ -547,6 +564,16 @@ fn feed_target(hud: &mut Hud, t: Option<&HudTarget>, has_mesh: &dyn Fn(&str) -> 
         EventValue::Number(fraction.clamp(0.0, 1.0)),
         has_mesh,
     );
+}
+
+/// `[ours]` "Defeat In" over its number, where "Victory In" sits: BF2's
+/// layout puts the defeat label left of the number (0.664, 0.088 against
+/// the victory label's 0.845, 0.040; re-round-end.md §1.2). A named
+/// deviation, both labels in one place.
+pub fn place_countdown_labels(hud: &mut Hud) {
+    if let (Some(v), Some(d)) = (hud.find("victorytext"), hud.find("defeattext")) {
+        hud.elems[d].pos = hud.elems[v].pos;
+    }
 }
 
 /// The domination countdown's events (B2 HUD update `FUN_003b61e0`,
@@ -717,6 +744,7 @@ mod tests {
             capture: None,
             ambush: Vec::new(),
             spawn: None,
+            scope: None,
         }
     }
 

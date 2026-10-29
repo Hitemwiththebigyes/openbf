@@ -28,7 +28,13 @@
 //!   the PROVISIONAL offset [`MUZZLE_FORWARD`] / [`MUZZLE_RIGHT`]) — to the
 //!   sim's own impact point, the head at the same fraction of the way as
 //!   the sim's. A rider's bolt, and a droid's or auto-turret's
-//!   (`Sim::is_item_gun`), already leaves from its gun and is drawn as flown.
+//!   (`Sim::is_item_gun`), already leaves from its gun and is drawn as
+//!   flown, and so is a scoped soldier's: it leaves the scope point on his
+//!   camera's axis ([`drawn_from_the_gun`]).
+//! - **Where it ends**: at the sim's impact - the press's foreseen end for
+//!   the map and the ground, else the `Impact` the tick's sweep made on a
+//!   soldier, a hull or a mine (the bolt vanishes from `sim.bolts` on that
+//!   tick, so its last stretch is the remnant's).
 //! - **The light** (BF2 only, re-bolt §5.2 [O], card FXBL): a class with
 //!   `LightRadius` and a `LightColor` gives each bolt an omni light at the
 //!   midpoint of its last step (half a sim tick behind the drawn head), its
@@ -101,6 +107,10 @@ struct Tracked {
     terrain: bool,
     /// Metres the sim moves it per tick.
     step: f32,
+    /// The sim's bolt: where it is and the way it flies (its next tick's
+    /// sweep starts there).
+    pos: Vec3,
+    flight: Vec3,
 }
 
 #[derive(Debug, Clone)]
@@ -140,6 +150,73 @@ pub fn drawn_start(spawn: Vec3, dir: Vec3, end: Vec3, on_foot: bool, fire: Optio
         s
     } else {
         spawn
+    }
+}
+
+/// Is `u`'s bolt drawn from his weapon's fire point ([`drawn_start`])? On
+/// foot, yes - but not in the scope view: there the shot leaves the scope
+/// point on the camera's own axis (`re-aim-assist.md` §10.2 step 7,
+/// `core::unit::Unit::scope_point`, the eye 0.3 / 0.6 m behind it) and the
+/// PS2 draws a bolt from where it spawned (`re-bolt.md` §4: the spawn point
+/// is the tail it grows from), so the scoped player sees his bolt leave the
+/// middle of the scope and go straight to what it strikes. The gun model's
+/// muzzle sits beside and below that axis — at 8x zoom far off the picture
+/// — and a line from it came in from the side.
+pub fn drawn_from_the_gun(u: &core::unit::Unit) -> bool {
+    u.mount.is_none() && !u.scoped()
+}
+
+/// The tick's struck impacts (`Event::Impact`: one per bolt that struck a
+/// soldier, a hull, a mine, a droid, a building or the ground), each taken
+/// by at most one drawn bolt: where, the flight's direction, the class, on
+/// the heightfield.
+struct Struck(Vec<(Vec3, Vec3, usize, bool)>);
+
+impl Struck {
+    fn of(sim: &core::sim::Sim) -> Self {
+        Self(
+            sim.events
+                .iter()
+                .filter_map(|e| match *e {
+                    core::sim::Event::Impact {
+                        pos,
+                        dir,
+                        weapon_class,
+                        surface,
+                        ..
+                    } => Some((
+                        pos,
+                        dir,
+                        weapon_class as usize,
+                        surface == core::impact::Surface::Terrain,
+                    )),
+                    _ => None,
+                })
+                .collect(),
+        )
+    }
+
+    /// The nearest of class `class`'s impacts on the flight from `from`
+    /// along `dir` within `step` metres (this tick's move).
+    fn take_on(&mut self, from: Vec3, dir: Vec3, step: f32, class: usize) -> Option<(Vec3, bool)> {
+        let k = self
+            .0
+            .iter()
+            .enumerate()
+            .filter(|(_, &(p, d, c, _))| {
+                let t = (p - from).dot(dir);
+                c == class
+                    && d.abs_diff_eq(dir, 1e-4)
+                    && (-1e-3..=step + 1e-3).contains(&t)
+                    && (p - (from + dir * t)).length_squared() < 1e-3
+            })
+            .min_by(|a, b| {
+                let t = |p: Vec3| (p - from).dot(dir);
+                t(a.1 .0).total_cmp(&t(b.1 .0))
+            })
+            .map(|(k, _)| k)?;
+        let (p, _, _, terrain) = self.0.remove(k);
+        Some((p, terrain))
     }
 }
 
@@ -227,6 +304,20 @@ impl BoltVis {
         self.remnants.len()
     }
 
+    /// Every drawn bolt's line as (where it starts, its head): the ones in
+    /// flight at the last tick's head, then the hit ones at their impact.
+    pub fn lines(&self) -> Vec<(Vec3, Vec3)> {
+        self.tracked
+            .iter()
+            .map(|t| (t.start, t.head))
+            .chain(
+                self.remnants
+                    .iter()
+                    .map(|m| (m.head - m.dir * m.len, m.head)),
+            )
+            .collect()
+    }
+
     fn fire_point(&self, unit: u32) -> Option<Vec3> {
         self.fire_points.get(unit as usize).copied().flatten()
     }
@@ -276,6 +367,7 @@ impl BoltVis {
         };
         let old: HashMap<Key, Tracked> = self.tracked.drain(..).map(|t| (t.key, t)).collect();
         let mut seen = std::collections::HashSet::new();
+        let mut struck = Struck::of(sim);
         for b in &sim.bolts {
             if look(b.weapon_class).is_none() {
                 continue;
@@ -287,9 +379,9 @@ impl BoltVis {
                 Some(t) => t.start,
                 None => {
                     let dir = b.vel.normalize_or_zero();
-                    let on_foot = sim.unit(b.owner).is_some_and(|u| u.mount.is_none())
+                    let foot = sim.unit(b.owner).is_some_and(drawn_from_the_gun)
                         && !sim.is_item_gun(b.weapon_class);
-                    drawn_start(spawn, dir, b.end, on_foot, self.fire_point(b.owner.index))
+                    drawn_start(spawn, dir, b.end, foot, self.fire_point(b.owner.index))
                 }
             };
             let full = (b.end - spawn).length();
@@ -315,44 +407,52 @@ impl BoltVis {
                 struck: !matches!(b.hit, Hit::None),
                 terrain: matches!(b.hit, Hit::Terrain),
                 step: b.vel.length() * core::TICK_DT,
+                pos: b.pos,
+                flight: b.vel.normalize_or_zero(),
             });
         }
-        self.same_tick_hits(walk);
-        for (k, t) in old {
-            if seen.contains(&k) || !t.struck {
+        // A bolt gone this tick that struck: its remnant at the impact. The
+        // map and the terrain were known at the press (`t.end`); a soldier,
+        // a hull or a mine is met by the tick's sweep (`Sim::sweep_bolts`,
+        // issue #41), which moves the end and lands it the same tick - its
+        // `Impact` on the bolt's line within its last step says where.
+        let mut gone: Vec<(Key, Tracked)> =
+            old.into_iter().filter(|(k, _)| !seen.contains(k)).collect();
+        gone.sort_by_key(|(k, _)| *k);
+        for (_, t) in gone {
+            // The nearest impact on its last step: a soldier the sweep met
+            // short of a foreseen wall is the one it struck.
+            let hit = struck
+                .take_on(t.pos, t.flight, t.step, t.class)
+                .or_else(|| t.struck.then_some((t.end, t.terrain)));
+            let Some((end, terrain)) = hit else {
                 continue;
-            }
+            };
             self.remnants.push(Remnant {
                 class: t.class,
-                head: t.end,
-                dir: t.dir,
-                len: (t.end - t.start).length(),
+                head: end,
+                dir: (end - t.start).try_normalize().unwrap_or(t.dir),
+                len: (end - t.start).length(),
                 age: t.age,
                 fade: 1.0,
                 timer: 0.0,
-                terrain: t.terrain,
+                terrain,
                 prev: t.head,
             });
         }
+        self.same_tick_hits(walk, &mut struck);
     }
 
     /// The tick's bolts that the sim spawned and resolved inside the one
     /// tick — a shot whose end lies within its first step, e.g. at the
-    /// ground a few metres ahead — never reach `sim.bolts`. The PS2 draws
-    /// such a bolt at its impact like any other (re-bolt §4) and, on BF2,
-    /// lights the ground there (§5.2): each `Shot` of the tick with a struck
-    /// `BoltExpired` on its ray within one step becomes a remnant.
-    fn same_tick_hits(&mut self, walk: &WalkSim) {
+    /// ground a few metres ahead, or a sniper's at a soldier inside 66 m
+    /// (2000 m/s) — never reach `sim.bolts`. The PS2 draws such a bolt at
+    /// its impact like any other (re-bolt §4) and, on BF2, lights the ground
+    /// there (§5.2): each `Shot` of the tick with a struck `Impact` on its
+    /// ray within one step becomes a remnant.
+    fn same_tick_hits(&mut self, walk: &WalkSim, struck: &mut Struck) {
         use core::sim::Event;
         let sim = &walk.sim;
-        let struck: Vec<Vec3> = sim
-            .events
-            .iter()
-            .filter_map(|e| match e {
-                Event::BoltExpired { pos, struck: true } => Some(*pos),
-                _ => None,
-            })
-            .collect();
         for e in &sim.events {
             let Event::Shot {
                 unit,
@@ -373,29 +473,19 @@ impl BoltVis {
                 continue;
             }
             let step = w.ordnance.velocity * core::TICK_DT;
-            let on_ray = |p: &&Vec3| {
-                let t = (**p - *origin).dot(*dir);
-                (-1e-3..=step + 1e-3).contains(&t)
-                    && (**p - (*origin + *dir * t)).length_squared() < 1e-4
-            };
-            let Some(&p) = struck.iter().find(on_ray) else {
+            // The class and the line both: another hit this tick may be
+            // another bolt's. A mounted Shot names the seat gun, not the
+            // rider's foot weapon.
+            let Some((p, terrain)) = struck.take_on(*origin, *dir, step, class) else {
                 continue;
             };
             let start = drawn_start(
                 *origin,
                 *dir,
                 p,
-                u.mount.is_none() && !sim.is_item_gun(class),
+                drawn_from_the_gun(u) && !sim.is_item_gun(class),
                 self.fire_point(unit.index),
             );
-            // Impact and BoltExpired share the bolt's end. Match its class
-            // and flight direction too: another hit this tick may be terrain.
-            // A mounted Shot names the seat gun, not the rider's foot weapon.
-            let terrain = sim.events.iter().any(|e| matches!(e,
-                Event::Impact { pos, dir: impact_dir, weapon_class, surface: core::impact::Surface::Terrain, .. }
-                    if *pos == p && *weapon_class == *shot_class
-                        && impact_dir.abs_diff_eq(*dir, 1e-6)
-            ));
             self.remnants.push(Remnant {
                 class,
                 head: p,

@@ -102,7 +102,7 @@ const CAPTURED: (u32, &str) = (0xdd27_9cfc, "%s captured the %s");
 const LOST: (u32, &str) = (0xae1e_c790, "%s lost the %s");
 const COMMAND_POST: (u32, &str) = (0x7e64_bc51, "Command Post");
 
-fn read_locl(dir: &Path) -> Option<HudLocl> {
+pub(crate) fn read_locl(dir: &Path) -> Option<HudLocl> {
     let text = pak::read_to_string(dir.join("locl/english.ron")).ok()?;
     ron::from_str(&text).ok()
 }

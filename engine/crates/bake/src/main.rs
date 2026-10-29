@@ -258,6 +258,25 @@ fn main() -> Result<()> {
             println!("baked {} classes -> {}", c.len(), args[3]);
             Ok(())
         }
+        Some("donor-hints") if args.len() == 3 => {
+            for r in bake::donor::donate_all(std::path::Path::new(&args[2]))? {
+                println!(
+                    "donor hints {} <- {}: hubs {}/{} matched; cover offered {} -> added {} \
+                     (in a barrier {}, off the graph {}, on its own {}); its own cover {}",
+                    r.target,
+                    r.donor,
+                    r.hubs_matched,
+                    r.hubs,
+                    r.offered,
+                    r.added,
+                    r.in_barrier,
+                    r.off_graph,
+                    r.same,
+                    r.own
+                );
+            }
+            Ok(())
+        }
         Some("map") if args.len() == 4 || args.len() == 5 => {
             let m = bake::map::bake_map(&args[2], &args[3], args.get(4).map(String::as_str))?;
             // Since item 11 (`two-tier-ktx2`) every base texture is the PS2
@@ -283,6 +302,7 @@ fn main() -> Result<()> {
                 "usage:\n\
                  \x20 bake extract-iso <disc.iso>  <outdir>       the disc's DATA/_LVL_PS2 tree, as files\n\
                  \x20 bake map        <map.lvl>    <outdir> [pc.lvl]  models/textures/world manifest\n\
+                 \x20 bake donor-hints <assets_baked>             BF2 cover hints onto the BF1 maps of bake::donor::DONORS\n\
                  \x20 bake common     <common.lvl> <outdir> [pc.lvl]  shared models/textures/classes\n\
                  \x20 bake classes    <file.lvl>   <out.ron>      entc/wpnc/ordc/expc props\n\
                  \x20 bake loadscreen <load.lvl>   <mapdir>       load screen sequence/pool\n\

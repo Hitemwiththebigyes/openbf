@@ -10,6 +10,11 @@ use crate::unit::UnitHandle;
 use crate::weapon::{FireInput, HealthType};
 use glam::Vec3;
 
+/// [`Sim::turret_supported`]'s ray: from this far above the origin, to this
+/// far below it.
+const SUPPORT_RISE: f32 = 0.2;
+const SUPPORT_GAP: f32 = 0.1;
+
 impl Sim {
     pub fn turret_of(&self, h: UnitHandle, weapon: usize) -> Option<&Turret> {
         self.turrets
@@ -70,6 +75,13 @@ impl Sim {
                 continue;
             };
             let mut end = t.grow_old(&body, dt);
+            if end.is_none() && t.landed && !self.turret_supported(&t) {
+                // What it stood on moved or went: it falls again.
+                t.landed = false;
+                t.vel = Vec3::ZERO;
+                t.target = None;
+                t.fighting = false;
+            }
             if end.is_none() && !t.landed {
                 self.turret_fall(&mut t, &body, dt);
             }
@@ -87,6 +99,23 @@ impl Sim {
             self.turrets[k] = t;
             k += 1;
         }
+    }
+
+    /// `[ours]` (PR #61 review): a landed turret still has something under
+    /// its base - terrain, a building or a hull - within [`SUPPORT_GAP`] of
+    /// its origin, along its up. A turret on a vehicle that drove off, or on
+    /// a hull that was destroyed, has none and falls (the PS2's rule is not
+    /// traced).
+    fn turret_supported(&self, t: &Turret) -> bool {
+        let from = t.pos + t.up * SUPPORT_RISE;
+        self.sweep_item(
+            from,
+            -t.up,
+            SUPPORT_RISE + SUPPORT_GAP,
+            HullFilter::All,
+            None,
+        )
+        .is_some()
     }
 
     fn turret_fall(&self, t: &mut Turret, c: &TurretBody, dt: f32) {
@@ -143,14 +172,15 @@ impl Sim {
             &mut shots,
         );
         if !shots.is_empty() {
+            let owner = self.item_owner(t.owner, t.team);
             let who = Shooter {
-                owner: t.owner,
+                owner,
                 team: t.team,
                 weapon_class: gun,
                 is_player: self
                     .units
-                    .get(t.owner.index as usize)
-                    .is_some_and(|u| u.gen == t.owner.gen && u.is_player),
+                    .get(owner.index as usize)
+                    .is_some_and(|u| u.gen == owner.gen && u.is_player),
             };
             self.free_shots(who, t.muzzle(), t.aim_frame(), &shots);
         }
@@ -183,7 +213,7 @@ impl Sim {
                 v.team.is_some_and(|team| team != t.team)
                     && kinds & (1 << HealthType::Vehicle as u32) != 0
             })
-            .map(|(h, v)| (Aim::Vehicle(h), self.vehicle_sphere(v).0));
+            .map(|(h, v)| (Aim::Vehicle(h), self.vehicle_blast_sphere(v).0));
         let mut near: Vec<(f32, Aim, Vec3)> = units
             .chain(vehicles)
             .map(|(a, p)| (p.distance(eye), a, p))
@@ -201,7 +231,7 @@ impl Sim {
                 .unit(h)
                 .filter(|u| u.mount.is_none() && u.cloak.visible())
                 .map(|u| u.capsule().center()),
-            Aim::Vehicle(h) => self.vehicle(h).map(|v| self.vehicle_sphere(v).0),
+            Aim::Vehicle(h) => self.vehicle(h).map(|v| self.vehicle_blast_sphere(v).0),
         }
     }
 
@@ -215,7 +245,8 @@ impl Sim {
             .turret_class(t)
             .and_then(|c| c.end_explosion(end).cloned());
         if let Some(e) = e {
-            self.explode(&e, t.centre(), Some(t.owner), Some(t.team));
+            let owner = self.item_owner(t.owner, t.team);
+            self.explode(&e, t.centre(), Some(owner), Some(t.team));
         }
     }
 }

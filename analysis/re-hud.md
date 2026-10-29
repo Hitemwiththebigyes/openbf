@@ -144,6 +144,10 @@ TextFont (0x90ae147f) by name; `Text("key")` localises the key (`FUN_005ac980`) 
 (0x5bace35b) = w, h × the screen size (DAT_005ff860 = (float)DAT_007d5f70, D:396716); TextBreak (0x37d0f255) table
 0x5ff9b0 {None, Word, No Reformat, Word Reformat}; TextScale (0x133c15dc); TextCharacterSpacing (0xf30abeaa);
 NumberToTime (0xce8ad9c0, e.g. `"%m:%02s"`); FloatFormat (0xd9e54312).
+- [V] A Text without TextFont draws in **`gamefont_tiny`**: the Text ctor (D:405704) sets its text object's font to
+  `DAT_0060c794`; `re_check.py word b2 0x60c790 3` -> 0x60c790 0x8f4b7122, **0x60c794 0x46f060d5**, 0x60c798
+  0x548190d5, and `manifest::hud::locl_key("gamefont_tiny")` = 0x46f060d5 (0x8f4b7122 = `gamefont_small`). The
+  domination countdown's "Victory In" / "Defeat In" labels have no TextFont, so they print in the tiny font.
 - [V] An INFINITE number prints no digits (card HUDW, 2026-10-05; `re_check fn`: B2:406187 and 406209 are in
   `FUN_003ae6c0`, the Text's event handler; no verifier agent - a bounded read inside a build card): an int event equal
   to -1 (type 3) or 0x7fffffff (type 2), or a float FLT_MAX (type 4), takes the string at 0x630580 = "" when the

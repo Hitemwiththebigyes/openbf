@@ -61,6 +61,20 @@ impl ClassIcon {
     }
 }
 
+/// A remote weapon's droid icon: the class its `OrdnanceName` names.
+/// `[ours]` `troop_icon` 1.0 (the discs' value) when the class is not at hand.
+pub fn droid_icon(db: &ClassDb, remote: &str) -> ClassIcon {
+    let mut icon = db
+        .prop(remote, "OrdnanceName")
+        .and_then(|o| db.resolve(o.trim()))
+        .map_or_else(|| ClassIcon::of(db, ""), |c| ClassIcon::of(db, c));
+    if icon.texture.is_none() {
+        icon.texture = Some("troop_icon".into());
+        icon.scale = 1.0;
+    }
+    icon
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct MapStatic {
     /// The map's own `textures` directory (the image's sheet).
@@ -81,6 +95,10 @@ pub struct MapStatic {
     pub soldiers: Vec<ClassIcon>,
     /// By `Vehicle::class`.
     pub vehicles: Vec<ClassIcon>,
+    /// A remote droid's icon by its `Droid::weapon_class`: the droid
+    /// class's own `MapTexture` / `MapScale` (`troop_icon` 1.0 on both discs,
+    /// `analysis/re-remote-droid.md` §8).
+    pub droids: HashMap<usize, ClassIcon>,
 }
 
 /// The whole-map square from a `mapbounds` region (`FUN_003a7af0`,
@@ -225,8 +243,17 @@ impl MapStatic {
                 icon
             })
             .collect();
+        let droids = walk
+            .sim
+            .weapon_classes
+            .iter()
+            .enumerate()
+            .filter(|(_, w)| w.remote.is_some())
+            .map(|(k, w)| (k, droid_icon(&db, &w.name)))
+            .collect();
         let sheet_dir = scene.dir.join("textures");
         Self {
+            droids,
             image: image_of(&sheet_dir, &m.map),
             sheet_dir,
             bounds: mapbounds(m).map(bounds_of),
@@ -265,9 +292,18 @@ impl MapStatic {
     pub fn model(&self, walk: &WalkSim) -> MapModel {
         let sim = &walk.sim;
         let me = &sim.units[walk.player.index as usize];
-        let cam = walk.camera();
-        let eye = [cam.position.x, cam.position.z];
-        let (sy, cy) = core::fmath::sin_cos(cam.yaw);
+        // `[ours]` (maintainer, 2026-10-28) Flying a droid, the map is
+        // centred on the droid and turns with its heading; its zoom follows
+        // the droid's speed, by its class's view radii. On foot, the camera.
+        let flown = sim.controlled_droid(walk.player);
+        let (eye, yaw) = match flown {
+            Some(d) => ([d.pos.x, d.pos.z], d.yaw),
+            None => {
+                let cam = walk.camera();
+                ([cam.position.x, cam.position.z], cam.yaw)
+            }
+        };
+        let (sy, cy) = core::fmath::sin_cos(yaw);
         let fwd = [-sy, -cy];
         let own = me.team;
         let rel = |team: Option<u8>| match team {
@@ -279,14 +315,20 @@ impl MapStatic {
         let mine = me
             .mount
             .and_then(|m| sim.vehicles.get(m.vehicle.index as usize));
-        let (view, vel) = match mine {
-            Some(v) => (
+        let (view, vel) = match (mine, flown) {
+            (Some(v), _) => (
                 self.vehicles
                     .get(v.class as usize)
                     .map_or(VIEW_DEFAULT, |c| c.view),
                 v.vel,
             ),
-            None => (soldier(own).view, me.soldier.vel),
+            (None, Some(d)) => (
+                self.droids
+                    .get(&d.weapon_class)
+                    .map_or(VIEW_DEFAULT, |c| c.view),
+                d.vel,
+            ),
+            (None, None) => (soldier(own).view, me.soldier.vel),
         };
         let (centre, extent) = self.bounds.unwrap_or_else(|| Self::post_bounds(walk));
         // Detected: near, or ahead inside the cone, or firing.
@@ -325,11 +367,19 @@ impl MapStatic {
             .collect();
         let mut units = Vec::new();
         for (i, u) in sim.units.iter().enumerate() {
-            if !u.alive || i == walk.player.index as usize || u.mount.is_some() {
+            // The player's own body shows while his droid flies.
+            let own_body = i == walk.player.index as usize && flown.is_none();
+            if !u.alive || own_body || u.mount.is_some() {
                 continue;
             }
             let shot = (u.last_shot_tick != u64::MAX).then_some(u.last_shot_tick);
             if u.team != own && !detected(u.soldier.pos, shot) {
+                continue;
+            }
+            // Card CLOAK: an enemy with any concealment has no icon, firing
+            // or not (B2 FUN_003a5940, D:400941: a soldier whose byte +0x7e3
+            // is above 0 skips its icon on the detected path).
+            if u.team != own && !u.cloak.visible() {
                 continue;
             }
             let icon = soldier(u.team);
@@ -342,6 +392,29 @@ impl MapStatic {
                 scale: icon.scale,
                 color: rel(Some(u.team)),
                 heading: Some(-u.soldier.yaw),
+                number: None,
+            });
+        }
+        // Remote droids. `[ours]` the player's own flown droid shows too
+        // (the PS2's rule that hides the controlled unit's icon is not
+        // traced, re-hud-map §3).
+        for d in &sim.droids {
+            if d.team != own && !detected(d.pos, None) {
+                continue;
+            }
+            let Some((icon, texture)) = self
+                .droids
+                .get(&d.weapon_class)
+                .and_then(|c| Some((c, c.texture.clone()?)))
+            else {
+                continue;
+            };
+            units.push(MapIcon {
+                pos: [d.pos.x, d.pos.z],
+                texture,
+                scale: icon.scale,
+                color: rel(Some(d.team)),
+                heading: Some(-d.yaw),
                 number: None,
             });
         }
@@ -569,6 +642,200 @@ mod tests {
         );
         assert!(m.units.is_empty());
         assert_eq!(m.select, None, "no pick yet");
+    }
+
+    /// A flying droid has its class's icon in its team's colour at its
+    /// place; none once it is gone; an enemy one only when detected.
+    #[test]
+    fn a_flying_droid_has_a_map_icon() {
+        struct NoProps;
+        impl core::weapon::PropSource for NoProps {
+            fn prop(&self, _: &str) -> Option<&str> {
+                None
+            }
+            fn prop_hash(&self, _: u32) -> Option<&str> {
+                None
+            }
+        }
+        let mut w = WalkSim::new(3, Vec3::ZERO, None);
+        let droid = core::remote::DroidClass::from_props(&NoProps, true);
+        let remote = core::remote::RemoteWeapon::new(
+            &NoProps,
+            droid,
+            core::weapon::WeaponClass::bf1_rifle(),
+        );
+        let mut class = core::weapon::WeaponClass::bf1_rifle();
+        class.remote = Some(Box::new(remote.clone()));
+        let weapon = w.sim.add_weapon_class(class);
+        let own = w.sim.units[w.player.index as usize].team;
+        let st = MapStatic {
+            bounds: Some(([0.0, 0.0], 300.0)),
+            soldiers: vec![ClassIcon::of(&ClassDb::default(), "x"); 2],
+            droids: [(weapon, droid_icon(&ClassDb::default(), "x"))].into(),
+            ..MapStatic::default()
+        };
+        let icons = |w: &WalkSim| -> Vec<MapIcon> {
+            st.model(w)
+                .units
+                .into_iter()
+                .filter(|u| u.texture == "troop_icon" && u.scale == 1.0)
+                .collect()
+        };
+        assert!(icons(&w).is_empty());
+        let at = |team: u8, pos: Vec3| {
+            core::remote::Droid::new(
+                1,
+                w.player,
+                team,
+                weapon,
+                &remote,
+                pos,
+                Vec3::ZERO,
+                0.0,
+                true,
+            )
+        };
+        let d = at(own, Vec3::new(12.0, 2.0, -30.0));
+        w.sim.droids.push(d);
+        w.sim.droids[0].controlled = true;
+        let got = icons(&w);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].pos, [12.0, -30.0]);
+        assert_eq!(got[0].color, FRIEND);
+        // An enemy droid far behind the view is not detected.
+        let far = at(1 - own.min(1), Vec3::new(0.0, 2.0, 200.0));
+        w.sim.droids.push(far);
+        assert_eq!(icons(&w).len(), 1);
+        // Near the eye (the flown droid), it is, in the enemy colour.
+        w.sim.droids[1].pos = Vec3::new(14.0, 2.0, -34.0);
+        let got = icons(&w);
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[1].color, ENEMY);
+        w.sim.droids.clear();
+        assert!(icons(&w).is_empty());
+    }
+
+    /// PR #61 review fix 2: a cloaked enemy has no map icon, even close by
+    /// and firing; a cloaked friend keeps his.
+    #[test]
+    fn a_cloaked_enemy_has_no_map_icon() {
+        let mut w = WalkSim::new(3, Vec3::ZERO, None);
+        let own = w.sim.units[w.player.index as usize].team;
+        let foe = 1 - own.min(1);
+        let enemy = w
+            .sim
+            .spawn(&core::unit::UnitSpec::trooper(
+                foe,
+                Vec3::new(2.0, 0.0, -2.0),
+            ))
+            .unwrap();
+        let friend = w
+            .sim
+            .spawn(&core::unit::UnitSpec::trooper(
+                own,
+                Vec3::new(-2.0, 0.0, -2.0),
+            ))
+            .unwrap();
+        let icon = ClassIcon {
+            texture: Some("troop_icon".into()),
+            ..ClassIcon::of(&ClassDb::default(), "x")
+        };
+        let st = MapStatic {
+            bounds: Some(([0.0, 0.0], 300.0)),
+            soldiers: vec![icon; 2],
+            ..MapStatic::default()
+        };
+        let colours = |w: &WalkSim| -> Vec<[u8; 3]> {
+            st.model(w).units.into_iter().map(|u| u.color).collect()
+        };
+        let before = colours(&w);
+        assert!(
+            before.contains(&ENEMY) && before.contains(&FRIEND),
+            "{before:?}"
+        );
+        for h in [enemy, friend] {
+            let u = &mut w.sim.units[h.index as usize];
+            u.cloak.active = true;
+            u.cloak.strength = 0.5;
+            u.last_shot_tick = w.sim.tick;
+        }
+        let after = colours(&w);
+        assert!(!after.contains(&ENEMY), "{after:?}");
+        assert!(after.contains(&FRIEND), "{after:?}");
+    }
+
+    /// Flying a droid, the map is centred on the droid, turns with its
+    /// heading and zooms with its speed; the standing body shows as a
+    /// soldier icon. Control back, the soldier's camera again and no body.
+    #[test]
+    fn the_map_follows_a_flown_droid_and_returns() {
+        struct NoProps;
+        impl core::weapon::PropSource for NoProps {
+            fn prop(&self, _: &str) -> Option<&str> {
+                None
+            }
+            fn prop_hash(&self, _: u32) -> Option<&str> {
+                None
+            }
+        }
+        let mut w = WalkSim::new(3, Vec3::ZERO, None);
+        let droid = core::remote::DroidClass::from_props(&NoProps, true);
+        let remote = core::remote::RemoteWeapon::new(
+            &NoProps,
+            droid,
+            core::weapon::WeaponClass::bf1_rifle(),
+        );
+        let mut class = core::weapon::WeaponClass::bf1_rifle();
+        class.remote = Some(Box::new(remote.clone()));
+        let weapon = w.sim.add_weapon_class(class);
+        let own = w.sim.units[w.player.index as usize].team;
+        let soldier = ClassIcon {
+            texture: Some("soldier_icon".into()),
+            scale: 1.4,
+            view: VIEW_DEFAULT,
+        };
+        let st = MapStatic {
+            bounds: Some(([0.0, 0.0], 300.0)),
+            soldiers: vec![soldier; 2],
+            droids: [(weapon, droid_icon(&ClassDb::default(), "x"))].into(),
+            ..MapStatic::default()
+        };
+        let bodies = |m: &MapModel| {
+            m.units
+                .iter()
+                .filter(|u| u.texture == "soldier_icon")
+                .count()
+        };
+        let on_foot = st.model(&w);
+        assert_eq!(bodies(&on_foot), 0, "his own icon is the map's pointer");
+        let cam = w.camera();
+        assert_eq!(on_foot.eye, [cam.position.x, cam.position.z]);
+        let mut d = core::remote::Droid::new(
+            1,
+            w.player,
+            own,
+            weapon,
+            &remote,
+            Vec3::new(40.0, 2.0, -25.0),
+            Vec3::new(60.0, 0.0, 0.0),
+            1.1,
+            true,
+        );
+        d.controlled = true;
+        w.sim.droids.push(d);
+        let flying = st.model(&w);
+        assert_eq!(flying.eye, [40.0, -25.0]);
+        let (sy, cy) = core::fmath::sin_cos(1.1);
+        assert_eq!(flying.heading, heading([-sy, -cy]));
+        assert_eq!(flying.radius, view_radius(VIEW_DEFAULT, 60.0));
+        assert!(flying.radius > on_foot.radius);
+        assert_eq!(bodies(&flying), 1, "the standing body shows");
+        let me = w.soldier().pos;
+        assert!(flying.units.iter().any(|u| u.pos == [me.x, me.z]));
+        w.sim.droids[0].controlled = false;
+        let back = st.model(&w);
+        assert_eq!((back.eye, back.heading), (on_foot.eye, on_foot.heading));
+        assert_eq!(bodies(&back), 0);
     }
 
     struct Fixture {

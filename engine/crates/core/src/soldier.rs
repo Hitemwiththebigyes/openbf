@@ -55,7 +55,7 @@ pub const CONTROL_SPEED: [[f32; 3]; 8] = [
     [1.5, 0.5, 0.6],
     [0.03, 0.03, 0.5], // jump/air (x Acceleration: an acceleration, not a speed)
     [0.02, 0.02, 0.6], // roll
-    [0.3, 0.3, 1.0],   // jet (unused v0)
+    [0.3, 0.3, 1.0],   // jet (the ctor default; a class's own is `jet_control`)
     [0.0, 0.0, 0.1],   // tumble / get-up / dead
 ];
 
@@ -108,6 +108,35 @@ pub struct SoldierConstants {
     /// 1.15, BF2's snipers 0.95): the bolt prims' scale (`Unit::bolt_hit`,
     /// issue #41; analysis/re-hitzones.md).
     pub collision_scale: f32,
+    /// The jet (card JETP, `analysis/re-jetpack.md` §2): `JetJump`, the kick's
+    /// size at the jet's start (engine default 7.0).
+    pub jet_jump: f32,
+    /// `JetPush`: the jump-jet's lift, m/s^2 (default 14.0; the hover ignores it).
+    pub jet_push: f32,
+    /// `JetAcceleration` (default 20.0): the jump-jet's stick and the hover's
+    /// approach, m/s^2. BF1 has no such key; the game layer gives a BF1 class
+    /// its BF2 twin's (`game::roster::BF1_JET_BORROW`).
+    pub jet_acceleration: f32,
+    /// `JetType = hover`: the hover jet (BF2 stance 7), else the jump-jet (6).
+    pub jet_hover: bool,
+    /// `JetFuelRechargeRate`, fuel (0..1) a second (default 0). A class has a
+    /// jet when this is over 0 ([`SoldierConstants::has_jet`]).
+    pub jet_fuel_recharge: f32,
+    /// `JetFuelCost`: fuel a second in a jet stance (default 0.2).
+    pub jet_fuel_cost: f32,
+    /// `JetFuelInitialCost`: fuel the start takes (default 0).
+    pub jet_fuel_initial: f32,
+    /// `JetFuelMinBorder`: the fuel a start needs (default 0.1; equal passes).
+    pub jet_fuel_min_border: f32,
+    /// `JetEnergyDrain`: the energy bar's cost of a start (BF2; default 0).
+    pub jet_energy_drain: f32,
+    /// The `ControlSpeed jet` row (fwd, strafe, turn): the hover's speed
+    /// factors and the turn factor of both jet stances (ctor default
+    /// 0.3 / 0.3 / 1.0; the game layer reads the class chain's row).
+    pub jet_control: [f32; 3],
+    /// A channel-0 weapon is a lightsaber (B2 s+0x4e0 bit 0x10000, §3.3): a
+    /// class that does not hover double-jumps instead of jetting.
+    pub saber: bool,
 }
 
 impl Default for SoldierConstants {
@@ -138,6 +167,17 @@ impl Default for SoldierConstants {
             prone_up_lock: 44.5 / 30.0,
             aim_size: 1.0,
             collision_scale: 1.0,
+            jet_jump: 7.0,
+            jet_push: 14.0,
+            jet_acceleration: 20.0,
+            jet_hover: false,
+            jet_fuel_recharge: 0.0,
+            jet_fuel_cost: 0.2,
+            jet_fuel_initial: 0.0,
+            jet_fuel_min_border: 0.1,
+            jet_energy_drain: 0.0,
+            jet_control: CONTROL_SPEED[6],
+            saber: false,
         }
     }
 }
@@ -186,9 +226,84 @@ impl SoldierConstants {
         set("EnergyCostJump", &mut c.energy_cost_jump);
         set("EnergyCostJumpSprint", &mut c.energy_cost_jump_sprint);
         set("EnergyCostRoll", &mut c.energy_cost_roll);
+        // The jet (card JETP, re-jetpack.md §2.1; BF2 setter FUN_00252bb0,
+        // BF1 FUN_0020f2e0). `JetDuration` is read by neither game.
+        set("JetJump", &mut c.jet_jump);
+        set("JetPush", &mut c.jet_push);
+        set("JetAcceleration", &mut c.jet_acceleration);
+        set("JetFuelRechargeRate", &mut c.jet_fuel_recharge);
+        set("JetFuelCost", &mut c.jet_fuel_cost);
+        set("JetFuelInitialCost", &mut c.jet_fuel_initial);
+        set("JetFuelMinBorder", &mut c.jet_fuel_min_border);
+        set("JetEnergyDrain", &mut c.jet_energy_drain);
+        // Any other JetType value is ignored (B2:171303-171311).
+        c.jet_hover = src
+            .prop("JetType")
+            .is_some_and(|t| t.trim().eq_ignore_ascii_case("hover"));
         c
     }
+
+    /// One `ControlSpeed` value, `"<stance> fwd strafe turn"` (BF2 only):
+    /// the stance's name and its three factors.
+    pub fn control_row(value: &str) -> Option<(&str, [f32; 3])> {
+        let mut it = value.split_whitespace();
+        let name = it.next()?;
+        let mut row = [0.0; 3];
+        for v in &mut row {
+            *v = it.next()?.parse().ok()?;
+        }
+        Some((name, row))
+    }
+
+    /// A class has a jet when its fuel recharges: the PS2's own test for the
+    /// HUD's fuel bar and the bots' jet behaviours (re-jetpack.md §9, §10).
+    /// The Jedi's double jump is not one; it pays with the energy bar.
+    pub fn has_jet(&self) -> bool {
+        self.jet_fuel_recharge > 0.0
+    }
 }
+
+/// What a soldier's update takes from beyond its class (card JETP).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AirEnv {
+    /// The mission's fly-height ceiling, world y ([`DEFAULT_FLY_CEILING`]
+    /// when the script sets none; [`Soldier::fly_ceiling`]).
+    pub ceiling: f32,
+    /// A human's soldier: the jump button's taps in the air start and end a
+    /// jet, and the jets turn by the class's jet row (B2:160704-160706). The
+    /// PS2's bots do not press; they call the jet themselves (re-jetpack.md
+    /// §3.1 "Bots"), which the port does not build yet (card JETP2).
+    pub human: bool,
+}
+
+impl Default for AirEnv {
+    fn default() -> Self {
+        Self {
+            ceiling: DEFAULT_FLY_CEILING,
+            human: true,
+        }
+    }
+}
+
+/// The soldiers' fly-height ceiling when the mission sets none: BF2
+/// `FUN_002a4030`'s +200 (re-jetpack.md §5.3, re-boundary.md T3b).
+pub const DEFAULT_FLY_CEILING: f32 = 200.0;
+/// The ceiling's spring: within this many metres of it the feet are pulled
+/// toward this far under it, at [`FLY_CEILING_PULL`] per second per metre
+/// (BF2 B2:160726-160730, BF1 B1:117678-117681).
+pub const FLY_CEILING_BAND: f32 = 5.0;
+pub const FLY_CEILING_PULL: f32 = 10.0;
+/// The jet's kick (both games, B2 0x247750-0x247874): `normalize(R x strafe x
+/// this + F x max(fwd, [`JET_KICK_BACK`]) + (0, [`JET_KICK_LIFT`], 0))`.
+pub const JET_KICK_STRAFE: f32 = 0.1;
+pub const JET_KICK_BACK: f32 = -0.1;
+pub const JET_KICK_LIFT: f32 = 1.1;
+/// The hover's damping, v x exp(-this x dt) (B2 0x24893c), and the lift its
+/// flight axis takes on the aim's height before doubling it (0x248958).
+pub const HOVER_DAMP: f32 = 2.0;
+pub const HOVER_LIFT: f32 = 0.08;
+/// A class with a jet spawns with this much fuel (B2:149862-149867).
+pub const JET_SPAWN_FUEL: f32 = 0.5;
 
 /// Gravity, both games' soldier integrators (BF1 FUN_002098b8 / BF2
 /// FUN_00248560): -18 m/s^2.
@@ -213,6 +328,13 @@ pub enum Stance {
     /// A corpse's body (BF1 state 3, BF2 0xf): it slides, is pushed and
     /// kicked by later blasts, and leaves the world after [`CORPSE_SECS`].
     Dead,
+    /// The jump-jet (BF2 state 6; card JETP, re-jetpack.md §4.1): the dark
+    /// trooper's leap. Fuel drains, `JetPush` lifts, the stick accelerates
+    /// at `JetAcceleration`, gravity and the air drag act.
+    Jet,
+    /// The hover jet (BF2 state 7, re-jetpack.md §4.2): jet troopers, the
+    /// jet-pack heroes. No gravity; flies along the aim.
+    Hover,
 }
 
 impl Stance {
@@ -225,8 +347,23 @@ impl Stance {
             // BF1's thrown state shares the jump / fall case (B1:117557).
             Stance::Jump | Stance::Fall | Stance::Thrown => 4,
             Stance::Roll => 5,
+            Stance::Jet | Stance::Hover => 6,
             Stance::Tumble | Stance::GetUp | Stance::Dead => 7,
         }]
+    }
+
+    /// One of the two jet states (card JETP).
+    pub fn jetting(self) -> bool {
+        matches!(self, Stance::Jet | Stance::Hover)
+    }
+
+    /// Off the floor by the stance's own nature: the jump, the fall, a throw
+    /// and the jets (the wall pass's air step, `sim/step.rs`).
+    pub fn airborne(self) -> bool {
+        matches!(
+            self,
+            Stance::Jump | Stance::Fall | Stance::Thrown | Stance::Jet | Stance::Hover
+        )
     }
 
     /// The states a blast's push skips (with the two mounted ones, which
@@ -282,6 +419,10 @@ pub struct Soldier {
     /// The get-up's lock also holds the trigger (§2: the PS2 clears the
     /// trigger bytes while S+0xc0c runs).
     pub fire_lock: bool,
+    /// Jet fuel, 0..1 (card JETP; BF2 s+0xb90, BF1 s+0xc6c): spawned at
+    /// [`Soldier::spawn_fuel`], recharged outside the jet stances, spent by
+    /// a jet's start and its seconds (re-jetpack.md §5.1).
+    pub fuel: f32,
     /// The previous tick's pad word — the EDGE source for every contextual
     /// button, and (Phase D) for the squad commands `Sim::step` phase 0b reads.
     /// NOT hashed: it is a copy of a pad the input log already determines, so a
@@ -429,7 +570,19 @@ pub const JUMP_OFF_FLOOR: f32 = 0.3;
 /// crouch stands up on the jump button this long into it (both games; BF2
 /// B2:160394-160397).
 pub const BF1_JUMP_WAIT: f32 = 0.5;
+/// A crouch or a prone stands up on the jump button this long into it (the
+/// crouch: both games, BF2 B2:160394-160397; the prone: BF1's prone case,
+/// `jump && t > 0.5`, re-stance-roll.md §3.2).
 pub const CROUCH_RISE_WAIT: f32 = 0.5;
+/// A stationary ROLL_STANCE tap is taken this long into a stand or a prone
+/// (the port's stance cycle since card D13; a prone is held longer by its
+/// own lock, `prone_down_lock`).
+pub const STANCE_TAP_WAIT: f32 = 0.5;
+/// `[ours]` The prone double tap (the maintainer, 2026-10-28, both games): a crouch tap
+/// this long or less after the tap that crouched the soldier goes prone; a
+/// later one stands him up. The crouch is entered only by that tap and is
+/// instant, so the window is the crouch's own `time_in_stance`.
+pub const PRONE_DOUBLE_TAP: f32 = 1.0;
 
 /// A sprint starts over this share of MaxSpeed (BF2 B2:160328, the 0.9 at
 /// the compare; [`Soldier::sprint_start_speed`]).
@@ -535,7 +688,18 @@ impl Soldier {
             kept_flat: false,
             knock_draw: 0.0,
             fire_lock: false,
+            fuel: 0.0,
             prev_buttons: 0,
+        }
+    }
+
+    /// The fuel a soldier of class `c` spawns with: [`JET_SPAWN_FUEL`] when
+    /// it recharges, else none (both games, re-jetpack.md §5.1).
+    pub fn spawn_fuel(c: &SoldierConstants) -> f32 {
+        if c.has_jet() {
+            JET_SPAWN_FUEL
+        } else {
+            0.0
         }
     }
 
@@ -549,6 +713,59 @@ impl Soldier {
     /// the ACTION edge that seated it is not taken again next tick.
     pub(crate) fn set_prev_buttons(&mut self, b: u32) {
         self.prev_buttons = b;
+    }
+
+    /// What a stationary ROLL_STANCE tap does to a soldier in `stance` for
+    /// `t` seconds (`None`: the tap is dropped). `[ours]` (the maintainer, 2026-10-28,
+    /// both games): a stand crouches; a crouch goes prone when the tap is the
+    /// second of a double tap ([`PRONE_DOUBLE_TAP`]) and stands up otherwise;
+    /// a prone stands up. The stand and the prone take a tap after
+    /// [`STANCE_TAP_WAIT`]; a crouch at once, so a quick double tap counts.
+    pub fn stance_tap_target(stance: Stance, t: f32) -> Option<Stance> {
+        match stance {
+            Stance::Stand | Stance::Sprint if t > STANCE_TAP_WAIT => Some(Stance::Crouch),
+            Stance::Crouch if t <= PRONE_DOUBLE_TAP => Some(Stance::Prone),
+            Stance::Crouch => Some(Stance::Stand),
+            Stance::Prone if t > STANCE_TAP_WAIT => Some(Stance::Stand),
+            _ => None,
+        }
+    }
+
+    /// What a stationary ROLL_STANCE press on this tick's pad would do when
+    /// the soldier steps `dt` next (`None`: no edge, a lock, or a dropped
+    /// tap). The bots' stance controller asks this (card D13), so it presses
+    /// only where the press lands; it mirrors [`Soldier::step_looking`]'s
+    /// own order: the clocks advance, then the lock and the tap are read.
+    pub fn stance_tap_after(&self, dt: f32) -> Option<Stance> {
+        let held = self.prev_buttons & buttons::ROLL_STANCE != 0;
+        if held || (self.lock_timer - dt).max(0.0) > 0.0 {
+            return None;
+        }
+        Self::stance_tap_target(self.stance, self.time_in_stance + dt)
+    }
+
+    /// Whether a JUMP press on this tick's pad stands a crouch or a prone up
+    /// when the soldier steps `dt` next (the same mirror as
+    /// [`Soldier::stance_tap_after`]).
+    pub fn jump_stands_after(&self, dt: f32) -> bool {
+        matches!(self.stance, Stance::Crouch | Stance::Prone)
+            && self.prev_buttons & buttons::JUMP == 0
+            && (self.lock_timer - dt).max(0.0) <= 0.0
+            && self.time_in_stance + dt > CROUCH_RISE_WAIT
+    }
+
+    /// A commanded stance change. Prone changes carry BF1's hard anim locks
+    /// (`prone_down_lock` / `prone_up_lock`); crouch <-> stand is instant
+    /// (both games).
+    fn change_stance(&mut self, next: Stance, c: &SoldierConstants) {
+        if next == Stance::Prone {
+            self.lock_timer = c.prone_down_lock;
+            self.lock_hard = true;
+        } else if self.stance == Stance::Prone {
+            self.lock_timer = c.prone_up_lock;
+            self.lock_hard = true;
+        }
+        self.set_stance(next);
     }
 
     fn set_stance(&mut self, s: Stance) {
@@ -577,6 +794,13 @@ impl Soldier {
         } else {
             c.energy_cost_jump
         };
+        self.pay_energy(cost)
+    }
+
+    /// The energy bar's take (BF2 FUN_001e2010, re-stance-roll.md §4.3d): a
+    /// cost of 0 always passes; a depleted bar refuses; a bar that cannot
+    /// cover the cost is emptied and marked depleted.
+    fn pay_energy(&mut self, cost: f32) -> bool {
         if cost <= 0.0 {
             return true;
         }
@@ -634,7 +858,7 @@ impl Soldier {
     /// caller's next call, [`Soldier::resolve_ground`], with the floor under
     /// the feet this leaves (after the wall pass).
     pub fn step(&mut self, dt: f32, pad: &PadState, c: &SoldierConstants, rules: GroundRules) {
-        self.step_looking(dt, pad, c, rules, 1.0);
+        self.step_looking(dt, pad, c, rules, 1.0, AirEnv::default());
     }
 
     pub fn look_frozen(&self) -> bool {
@@ -672,6 +896,7 @@ impl Soldier {
         c: &SoldierConstants,
         rules: GroundRules,
         look_scale: f32,
+        env: AirEnv,
     ) {
         let fwd_in = PadState::axis(pad.ly);
         let strafe_in = PadState::axis(pad.lx);
@@ -688,6 +913,12 @@ impl Soldier {
             self.lock_hard = false;
             self.fire_lock = false;
         }
+        // Jet fuel (card JETP): BF2 recharges it outside the jet stances,
+        // before the stance switch (B2:160108-160116), on every map (BF1
+        // recharged it in them too).
+        if !self.stance.jetting() {
+            self.fuel = (self.fuel + c.jet_fuel_recharge * dt).min(1.0);
+        }
         // BF1 hard lock (FUN_00205cc8 t<10 band): movement + turn frozen.
         let frozen = self.look_frozen();
         let (fwd_in, strafe_in, turn_in, pitch_in) = if frozen {
@@ -697,10 +928,18 @@ impl Soldier {
         };
 
         // ── Aim (per-stance turn factor; prone pitch clamp — BF1) ─────────
+        // The hover flies along the aim the PS2 wrote LAST update (its aim
+        // update runs after the movement, re-jetpack.md §4.2 step 3).
+        let aim0 = (self.yaw, self.pitch);
         let ctl = self.stance.control();
-        self.yaw -= turn_in * c.max_turn_speed * ctl[2] * dt;
+        let turn_k = if self.stance.jetting() && env.human {
+            c.jet_control[2]
+        } else {
+            ctl[2]
+        };
+        self.yaw -= turn_in * c.max_turn_speed * turn_k * dt;
         let (lo, hi) = self.pitch_limits(c);
-        self.pitch = (self.pitch + pitch_in * c.max_pitch_speed * ctl[2] * dt).clamp(lo, hi);
+        self.pitch = (self.pitch + pitch_in * c.max_pitch_speed * turn_k * dt).clamp(lo, hi);
         if pad.has_look() && !frozen {
             (self.yaw, self.pitch) = self.mouse_turned(pad.look(), look_scale, c);
         }
@@ -730,6 +969,14 @@ impl Soldier {
                     self.lock_timer = c.soft_lock;
                 }
             }
+            // A jet lands on the floor with the light lock, whatever its
+            // airtime (BF2 FUN_00246850 from 6 / 7, re-jetpack.md §4.4).
+            Stance::Jet | Stance::Hover => {
+                if self.grounded {
+                    self.set_stance(Stance::Stand);
+                    self.lock_timer = c.soft_lock;
+                }
+            }
             Stance::Stand | Stance::Crouch | Stance::Prone | Stance::Sprint => {
                 if can_command && roll_stance_edge {
                     if Self::roll_predicate(fwd_in, strafe_in)
@@ -749,24 +996,12 @@ impl Soldier {
                             self.vel.x *= s;
                             self.vel.z *= s;
                         }
-                    } else if !Self::roll_predicate(fwd_in, strafe_in) && self.time_in_stance > 0.5
+                    } else if let Some(next) = (!Self::roll_predicate(fwd_in, strafe_in))
+                        .then(|| Self::stance_tap_target(self.stance, self.time_in_stance))
+                        .flatten()
                     {
-                        // Stationary: stance cycle stand -> crouch -> prone.
-                        let next = match self.stance {
-                            Stance::Stand | Stance::Sprint => Stance::Crouch,
-                            Stance::Crouch => Stance::Prone,
-                            _ => Stance::Stand,
-                        };
-                        // Prone transitions carry BF1's hard anim locks;
-                        // crouch<->stand is instant (both games).
-                        if next == Stance::Prone {
-                            self.lock_timer = c.prone_down_lock;
-                            self.lock_hard = true;
-                        } else if self.stance == Stance::Prone {
-                            self.lock_timer = c.prone_up_lock;
-                            self.lock_hard = true;
-                        }
-                        self.set_stance(next);
+                        // Stationary: [`Soldier::stance_tap_target`].
+                        self.change_stance(next, c);
                     }
                 }
                 // Sprint enter/exit (hold-to-sprint; BF2 predicate).
@@ -790,12 +1025,16 @@ impl Soldier {
                 }
                 // Jump: paid and applied after this update's ground move
                 // ([`Soldier::pay_jump`], [`Soldier::take_off`]). A crouch
-                // stands up instead (instant, no lock: both games).
+                // stands up instead (instant, no lock: both games), and so
+                // does a prone (BF1's prone case; `[ours]` in BF2), through
+                // the get-up's lock: neither launches a jump.
                 if can_command && jump_edge {
                     match self.stance {
                         Stance::Stand | Stance::Sprint => jump = self.jump_open(dt, rules),
-                        Stance::Crouch if self.time_in_stance > CROUCH_RISE_WAIT => {
-                            self.set_stance(Stance::Stand)
+                        Stance::Crouch | Stance::Prone
+                            if self.time_in_stance > CROUCH_RISE_WAIT =>
+                        {
+                            self.change_stance(Stance::Stand, c)
                         }
                         _ => {}
                     }
@@ -806,6 +1045,9 @@ impl Soldier {
         // ── Energy (BF2 pool; restore idle vs moving) ─────────────────────
         if self.stance == Stance::Sprint {
             self.energy -= c.energy_drain_sprint * dt;
+        } else if self.stance.jetting() {
+            // BF2's rate is 0 from stance 4 up (re-stance-roll.md §4.3d): a
+            // hovering Vader neither regains nor spends energy (card JETP).
         } else {
             let idle = fwd_in == 0.0 && strafe_in == 0.0;
             let rate = if idle {
@@ -879,6 +1121,7 @@ impl Soldier {
                 self.vel.y -= KNOCK_RULES.thrown_gravity() * dt;
             }
             self.pos += self.vel * dt;
+            self.fly_ceiling(dt, env.ceiling);
             if grounded && self.time_in_stance > THROWN_LAND_AFTER {
                 let sp2 = self.vel.length_squared();
                 let tumble = sp2 > KNOCK_LAND_FAST * KNOCK_LAND_FAST
@@ -898,6 +1141,12 @@ impl Soldier {
             self.prev_buttons = pad.buttons;
             return;
         }
+        if self.stance.jetting() {
+            let tap = env.human && jump_edge;
+            self.step_jet(dt, (fwd_in, strafe_in), tap, aim0, c, env.ceiling);
+            self.prev_buttons = pad.buttons;
+            return;
+        }
         if matches!(self.stance, Stance::Jump | Stance::Fall) {
             // JUNI: Jump/Fall use BF2 on every map; Thrown above keeps
             // its original per-game integrator and gravity.
@@ -914,6 +1163,13 @@ impl Soldier {
                 self.vel.y -= GRAVITY * dt;
             }
             self.pos += self.vel * dt;
+            // Then the ceiling and a second tap: the jet (card JETP; B2
+            // FUN_00240bf8 cases 4 / 8, B2:160614-160618), its kick added to
+            // the velocity the NEXT move takes, as the jump's is.
+            self.fly_ceiling(dt, env.ceiling);
+            if env.human && jump_edge {
+                self.jet_on(c, (fwd_in, strafe_in));
+            }
             self.prev_buttons = pad.buttons;
             return;
         }
@@ -1123,6 +1379,134 @@ impl Soldier {
         self.vel.x = fwd_axis.x * f2 + cy * s2;
         self.vel.z = fwd_axis.y * f2 - sy * s2;
         self.set_stance(Stance::Jump);
+    }
+
+    /// The fly-height ceiling (both games after the air movers; re-jetpack.md
+    /// §5.3): within [`FLY_CEILING_BAND`] of `ceiling` the vertical speed is
+    /// pulled toward that far under it, after the update's move, so it bends
+    /// the next one.
+    pub fn fly_ceiling(&mut self, dt: f32, ceiling: f32) {
+        let gap = ceiling - self.pos.y;
+        if gap < FLY_CEILING_BAND {
+            self.vel.y += (gap - FLY_CEILING_BAND) * dt * FLY_CEILING_PULL;
+        }
+    }
+
+    /// A jet's start (BF2 `FUN_002476a0`, re-jetpack.md §3.1; card JETP,
+    /// BF2's rules on every map): refused under `JetFuelMinBorder` (equal
+    /// passes) or on a depleted energy bar (`JetEnergyDrain` is paid as the
+    /// jump's cost is, [`Soldier::pay_energy`]); then `JetFuelInitialCost`
+    /// (fuel floored at 0) and the kick, `v += normalize(R x strafe x 0.1 +
+    /// F x max(fwd, -0.1) + (0, 1.1, 0)) x JetJump`, R and F the body's level
+    /// rows. A sabre class that does not hover double-jumps (§3.3); else the
+    /// hover or the jump-jet. `stick` = (fwd, strafe), right positive.
+    pub fn jet_on(&mut self, c: &SoldierConstants, stick: (f32, f32)) -> bool {
+        if self.fuel < c.jet_fuel_min_border || !self.pay_energy(c.jet_energy_drain) {
+            return false;
+        }
+        self.fuel = (self.fuel - c.jet_fuel_initial).max(0.0);
+        let (fwd_in, strafe_in) = stick;
+        let (sy, cy) = fmath::sin_cos(self.yaw);
+        let f = Vec3::new(-sy, 0.0, -cy);
+        let r = Vec3::new(cy, 0.0, -sy);
+        let dir = (r * (strafe_in * JET_KICK_STRAFE)
+            + f * fwd_in.max(JET_KICK_BACK)
+            + Vec3::Y * JET_KICK_LIFT)
+            .normalize();
+        self.vel += dir * c.jet_jump;
+        if c.saber && !c.jet_hover {
+            // The Jedi's double jump: the kick's horizontal part is thrown
+            // away for the stick's run speeds, and the rise is the jump's
+            // again, or 1.5 times it (B2:162553-162600).
+            let run = if fwd_in > 0.0 {
+                c.max_speed
+            } else {
+                c.max_strafe_speed
+            };
+            let j = c.jump_vy;
+            let vy = self.vel.y;
+            self.vel = f * (fwd_in * run) + r * (strafe_in * c.max_strafe_speed);
+            self.vel.y = if vy < 0.5 * j { vy + j } else { 1.5 * j };
+            self.set_stance(Stance::Jump);
+        } else {
+            self.set_stance(if c.jet_hover {
+                Stance::Hover
+            } else {
+                Stance::Jet
+            });
+        }
+        true
+    }
+
+    /// The jet stances' update (BF2 `FUN_00240bf8` cases 6 / 7, re-jetpack.md
+    /// §4.1-§4.2): the fuel's seconds (empty ends it), a tap ends it, else
+    /// the stance's mover and the ceiling. Ending falls (stance 8) with no
+    /// move this update; a sabre class tries its jet again at once (Vader and
+    /// the Emperor, whose border is a full tank, are refused). `aim` is the
+    /// aim before this update's turn (yaw, pitch).
+    fn step_jet(
+        &mut self,
+        dt: f32,
+        stick: (f32, f32),
+        tap: bool,
+        aim: (f32, f32),
+        c: &SoldierConstants,
+        ceiling: f32,
+    ) {
+        self.fuel -= c.jet_fuel_cost * dt;
+        let empty = self.fuel < 0.0;
+        if empty {
+            self.fuel = 0.0;
+        }
+        if empty || tap {
+            self.set_stance(Stance::Fall);
+            if c.saber {
+                self.jet_on(c, stick);
+            }
+            return;
+        }
+        let (fwd_in, strafe_in) = stick;
+        let (sy, cy) = fmath::sin_cos(aim.0);
+        let f = Vec3::new(-sy, 0.0, -cy);
+        let r = Vec3::new(cy, 0.0, -sy);
+        if self.stance == Stance::Jet {
+            // §4.1: JetPush up, then BF2's air mover with the stick as an
+            // acceleration of JetAcceleration (FUN_00248560): the drag,
+            // the stick, gravity off the floor.
+            self.vel.y += c.jet_push * dt;
+            self.vel *= fmath::exp(-AIR_DRAG * self.vel.length() * dt);
+            self.vel += (f * fwd_in + r * strafe_in) * (c.jet_acceleration * dt);
+            if !self.grounded {
+                self.vel.y -= GRAVITY * dt;
+            }
+        } else {
+            // §4.2 (FUN_00248898): on the floor the into-floor part goes; all
+            // speed fades by exp(-2 dt); along the flight axis D (the aim with
+            // its height lifted by 0.08 and doubled) and the level right axis
+            // the speed moves toward the jet row's targets by at most
+            // JetAcceleration x dt. No gravity, no JetPush.
+            if self.grounded {
+                let vn = self.vel.dot(self.ground_n);
+                if vn < 0.0 {
+                    self.vel -= self.ground_n * vn;
+                }
+            }
+            self.vel *= fmath::exp(-HOVER_DAMP * dt);
+            let (sp, cp) = fmath::sin_cos(aim.1);
+            let d = Vec3::new(f.x * cp, 2.0 * (sp + HOVER_LIFT), f.z * cp).normalize();
+            let run = if fwd_in > 0.0 {
+                c.max_speed
+            } else {
+                c.max_strafe_speed
+            };
+            let fwd_t = fwd_in * run * c.jet_control[0];
+            let side_t = strafe_in * c.max_strafe_speed * c.jet_control[1];
+            let a = c.jet_acceleration * dt;
+            self.vel += d * (fwd_t - self.vel.dot(d)).clamp(-a, a);
+            self.vel += r * (side_t - self.vel.dot(r)).clamp(-a, a);
+        }
+        self.pos += self.vel * dt;
+        self.fly_ceiling(dt, ceiling);
     }
 
     /// Air steering: Jump/Fall select BF2 everywhere (JUNI); Thrown selects
@@ -1346,6 +1730,12 @@ impl Soldier {
         if latches != 0 {
             eat(b"SOLDIER_LATCH");
             eat(&[latches]);
+        }
+        // Jet fuel (card JETP), when there is any: a class with no jet keeps
+        // 0 and hashes as before. The jet state is the stance, above.
+        if self.fuel != 0.0 {
+            eat(b"SOLDIER_FUEL");
+            eat(&self.fuel.to_bits().to_le_bytes());
         }
     }
 }

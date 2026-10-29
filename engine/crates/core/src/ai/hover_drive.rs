@@ -505,7 +505,15 @@ pub(super) fn drive(
     st.steer = SteerPick::Fwd;
     super::gunner::aim(sim, me, st, &mut pad, Look::Steering, None);
     if ai.state == 0 {
-        stuck_window(sim, me, st, pos, thr != 0.0 || strafe != 0.0, &mut nt);
+        stuck_window(
+            sim,
+            me,
+            st,
+            pos,
+            thr != 0.0 || strafe != 0.0,
+            false,
+            &mut nt,
+        );
     }
     (pad, nt)
 }

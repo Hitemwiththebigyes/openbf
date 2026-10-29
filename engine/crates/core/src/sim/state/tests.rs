@@ -244,13 +244,16 @@ fn a_squad_command_is_part_of_the_hash_and_no_command_costs_nothing() {
     // Card KNOCK (2026-10-21) moved it on purpose, 5affffe147952dc0 ->
     // f9f37400e0f3171e: the format - a soldier's hash eats its landing
     // draw and the get-up's fire lock (`knock_draw`, `fire_lock`).
+    // Card DTEAM (2026-10-28) moved it on purpose, 06da5e043dd4c755 ->
+    // 26e385b8a5a49460: the format - the scene is one human against none, so
+    // the hash eats the per-team bot rows (`Sim::team_rows`).
     let mut sim = Sim::new(42);
     for _ in 0..100 {
         sim.step(&[PadState::default()]);
     }
     assert_eq!(
         format!("{:016x}", sim.hash()),
-        "06da5e043dd4c755",
+        "26e385b8a5a49460",
         "the command-free hash format moved"
     );
 
@@ -307,10 +310,13 @@ fn the_difficulty_and_every_bots_skill_are_part_of_the_hash() {
     };
     let (norm, p, a) = build(crate::skill::Difficulty::Normal);
     let (elite, _, _) = build(crate::skill::Difficulty::Elite);
+    let (low, _, _) = build(crate::skill::Difficulty::Easy);
     assert_ne!(norm.hash(), elite.hash(), "the tier byte is hashed");
+    assert_ne!(norm.hash(), low.hash(), "the tier byte is hashed");
     // Every bot receives the tier's skill; a player keeps 0.
     assert_eq!(norm.unit(a).unwrap().skill, 17);
     assert_eq!(elite.unit(a).unwrap().skill, 20);
+    assert_eq!(low.unit(a).unwrap().skill, 14);
     assert_eq!(norm.unit(p).unwrap().skill, 0, "a player is not a bot");
     // The spec carries it too, so a rebuild starts from the same place.
     assert_eq!(norm.unit(a).unwrap().spec.skill, 17);
@@ -318,6 +324,76 @@ fn the_difficulty_and_every_bots_skill_are_part_of_the_hash() {
     let mut hacked = build(crate::skill::Difficulty::Normal).0;
     hacked.units[a.index as usize].skill = 3;
     assert_ne!(hacked.hash(), norm.hash(), "Unit.skill is hashed");
+}
+
+/// Card DTEAM (the maintainer, 2026-10-28) [ours]: a human surplus lowers the
+/// surplus team's bots at their next spawn, never a living bot; the other
+/// team keeps the tier's row; equal humans change nothing; the per-team
+/// rows reach the hash only when a surplus moves them.
+#[test]
+fn a_human_surplus_lowers_its_own_teams_bots_at_their_next_spawn() {
+    use crate::skill::Difficulty as D;
+    let bot = |team: u8| {
+        let mut ai = UnitSpec::trooper(team, Vec3::new(f32::from(team) * 5.0, 0.0, 0.0));
+        ai.controller = Controller::Ai;
+        ai
+    };
+    let make = |extra: [u8; 2]| {
+        let mut s = Sim::empty(4);
+        s.heightfield = Some(flat_ground());
+        s.difficulty = D::Elite;
+        s.extra_humans = extra;
+        s
+    };
+    // 0v0 and 1v1: both teams the Elite row, and the hash of a sim without
+    // the rule.
+    let even = make([1, 1]);
+    assert_eq!(
+        even.hash(),
+        make([0, 0]).hash(),
+        "even humans: no hash change"
+    );
+    assert_eq!(even.difficulty_of(0), D::Elite);
+    assert_eq!(even.bot_skill(0), 20);
+    // 1v0 at Elite: team 0's bots play the Normal row at 17, team 1 Elite.
+    let mut s = make([1, 0]);
+    assert_ne!(s.hash(), make([0, 0]).hash(), "a surplus is hashed");
+    assert_eq!(s.hash(), make([2, 1]).hash(), "2v1 is 1v0");
+    assert_ne!(make([3, 0]).hash(), make([2, 0]).hash());
+    assert_eq!(make([3, 0]).hash(), make([4, 0]).hash(), "the cap");
+    let a0 = s.spawn(&bot(0)).unwrap();
+    let a1 = s.spawn(&bot(1)).unwrap();
+    assert_eq!(s.unit(a0).unwrap().skill, 17);
+    assert_eq!(s.unit(a1).unwrap().skill, 20, "the enemy keeps the row");
+    assert_eq!(
+        (s.difficulty_of(0), s.difficulty_of(1)),
+        (D::Normal, D::Elite)
+    );
+    // Elite's extra (the 0.5 m error cap) is off on the surplus team only.
+    assert!(s.difficulty_of(0).skill_at(17).err_cap > 1.0);
+    assert_eq!(s.difficulty_of(1).skill_at(20).err_cap, 0.5);
+    // Who shoots at team 1 is team 0's row; at team 0, team 1's.
+    assert_eq!(s.enemy_skill_of(1).level, 17);
+    assert_eq!(s.enemy_skill_of(0), D::Elite.skill());
+    // A real human joins team 1: 1v1. The living bot keeps its 17; the
+    // next bot spawned on team 0 takes the full row.
+    let h = s
+        .spawn(&UnitSpec::player(1, Vec3::new(9.0, 0.0, 0.0)))
+        .unwrap();
+    assert_eq!(s.humans_per_team(), [1, 1]);
+    assert_eq!(s.unit(a0).unwrap().skill, 17, "no bot changes mid-life");
+    let b0 = s.spawn(&bot(0)).unwrap();
+    assert_eq!(s.unit(b0).unwrap().skill, 20);
+    // He changes team (to 0): 2v0 counts him with the stand-in, team 0's
+    // next bot drops to 14 on the Easy row.
+    s.units[h.index as usize].team = 0;
+    assert_eq!(s.humans_per_team(), [2, 0]);
+    let c0 = s.spawn(&bot(0)).unwrap();
+    assert_eq!(s.unit(c0).unwrap().skill, 14);
+    assert_eq!(s.difficulty_of(0), D::Easy);
+    // An arena override still wins over the rule.
+    s.team_difficulty = [Some(D::Hard), None];
+    assert_eq!((s.difficulty_of(0), s.bot_skill(0)), (D::Hard, 20));
 }
 
 #[test]
@@ -351,7 +427,7 @@ fn a_team_tier_reaches_that_teams_bots_and_only_then_moves_the_hash() {
     assert_eq!(plain.hash(), base.hash(), "no override: the old hash");
     let (split, hs) = build([Some(D::Easy), Some(D::Elite)]);
     assert_ne!(split.hash(), plain.hash(), "an override is hashed");
-    assert_eq!(split.unit(hs[0]).unwrap().skill, 8, "team 0 at Easy");
+    assert_eq!(split.unit(hs[0]).unwrap().skill, 14, "team 0 at Easy");
     assert_eq!(split.unit(hs[1]).unwrap().skill, 20, "team 1 at Elite");
     assert_eq!(split.difficulty_of(0), D::Easy);
     assert_eq!(
@@ -375,10 +451,9 @@ fn a_bf1_map_has_no_view_cone_omni() {
     a.omni_radius = 0.0;
     b.omni_radius = 10.0;
     assert_eq!(a.hash(), b.hash(), "omni_radius is an input, not state");
-    // So are the two host-option gates.
-    a.human_damage_on = false;
+    // So is the host-option gate.
     a.team_handicap_on = false;
-    assert_eq!(a.hash(), b.hash(), "the host options are inputs");
+    assert_eq!(a.hash(), b.hash(), "the host option is an input");
     assert_eq!(Sim::empty(1).difficulty, crate::skill::Difficulty::Normal);
     assert_eq!(Sim::empty(1).omni_radius, 10.0);
 }
@@ -501,3 +576,16 @@ fn htgtw_vehicle_magnet_hash_is_distinct_from_unit_and_none() {
 }
 
 mod hash_bolts;
+
+/// Card DTEAM with DPRX: a human proxy counts toward its team's humans, so
+/// its team's bots take the surplus row as they would for a player.
+#[test]
+fn a_human_proxy_counts_as_its_teams_human() {
+    let mut s = Sim::empty(1);
+    let h = s
+        .spawn(&crate::unit::UnitSpec::trooper(1, glam::Vec3::ZERO))
+        .unwrap();
+    assert_eq!(s.humans_per_team(), [0, 0]);
+    s.units[h.index as usize].proxy_human = Some(crate::ai::proxy::Strength::Good.profile());
+    assert_eq!(s.humans_per_team(), [0, 1]);
+}

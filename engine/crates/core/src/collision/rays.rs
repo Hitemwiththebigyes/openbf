@@ -234,6 +234,67 @@ impl CollisionWorld {
     }
 }
 
+impl CollisionWorld {
+    /// PROVISIONAL (ours; the chase camera, `game::camera_collide`): how far
+    /// a ball of `radius` moves from `origin` along `dir` (UNIT length)
+    /// before it touches a body in `layers` that `hulls` admits, within
+    /// `max_t` (parry's linear shape cast, so the time of impact is a
+    /// distance in metres). A ball already touching a body is stopped by it
+    /// only when it moves deeper (`stop_at_penetration: false`). Visual
+    /// only: the sim never asks it.
+    pub fn ball_cast(
+        &self,
+        origin: Vec3,
+        dir: Vec3,
+        max_t: f32,
+        radius: f32,
+        layers: Layers,
+        hulls: HullFilter,
+    ) -> Option<f32> {
+        if max_t <= 0.0 {
+            return None;
+        }
+        let mut seg = Aabb::empty();
+        seg.add(origin);
+        seg.add(origin + dir * max_t);
+        seg.min -= Vec3::splat(radius);
+        seg.max += Vec3::splat(radius);
+        let ball = parry3d::shape::Ball::new(radius);
+        let iso = super::Isometry::translation(origin.x, origin.y, origin.z);
+        let options = parry3d::query::ShapeCastOptions {
+            max_time_of_impact: max_t,
+            target_distance: 0.0,
+            stop_at_penetration: false,
+            compute_impact_geometry_on_penetration: false,
+        };
+        let mut best: Option<f32> = None;
+        self.visit_xz(seg.min.x, seg.max.x, seg.min.z, seg.max.z, hulls, |body| {
+            if !body.layers.contains(layers) || !body.aabb.overlaps(&seg) {
+                return;
+            }
+            let hit = body.shape.with_parry(&mut |s| {
+                parry3d::query::cast_shapes(
+                    &iso,
+                    &vector(dir),
+                    &ball,
+                    &body.iso,
+                    &vector(Vec3::ZERO),
+                    s,
+                    options,
+                )
+                .ok()
+                .flatten()
+            });
+            if let Some(h) = hit {
+                if best.is_none_or(|b| h.time_of_impact < b) {
+                    best = Some(h.time_of_impact);
+                }
+            }
+        });
+        best
+    }
+}
+
 /// The directions [`CollisionWorld::enclosing`] counts crossings along:
 /// three near straight up, then eight sideways, each off the axes so a ray
 /// does not run down a shared edge (two faces met at one point read as

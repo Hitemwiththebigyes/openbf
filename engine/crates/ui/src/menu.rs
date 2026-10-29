@@ -471,6 +471,11 @@ pub const CHEAT_WORDS: [(&str, u32); 7] = [
     ("slow", 0x6d95_42b8),
 ];
 
+/// `[ours]` (card CHEAT2): openbf's extra words, matched the same way:
+/// `clip` no reloading, `run` infinite stamina, `all` unlock all classes,
+/// `cheat` all five at once.
+pub const OUR_WORDS: [&str; 4] = ["clip", "run", "all", "cheat"];
+
 /// FNV-1a-32 with the engine's `| 0x20` fold (`FUN_00539308`).
 pub fn fnv1a_lower(bytes: &[u8]) -> u32 {
     bytes.iter().fold(0x811c_9dc5u32, |h, &b| {
@@ -515,7 +520,15 @@ impl MorseCheats {
             self.word[self.wlen] = 0;
             self.wlen = 0;
             let h = fnv1a_lower(cstr(&self.word));
-            hit = CHEAT_WORDS.iter().find(|(_, wh)| *wh == h).map(|(w, _)| *w);
+            hit = CHEAT_WORDS
+                .iter()
+                .find(|(_, wh)| *wh == h)
+                .map(|(w, _)| *w)
+                .or_else(|| {
+                    OUR_WORDS
+                        .into_iter()
+                        .find(|w| fnv1a_lower(w.as_bytes()) == h)
+                });
             self.letter[self.mlen] = 0;
             self.mlen = 0;
         }
@@ -801,6 +814,17 @@ mod morse_tests {
             assert_eq!(fnv1a_lower(w.as_bytes()), h, "{w}");
             assert_eq!(type_word(&mut m, w), Some(w));
             assert_eq!(m.pending(), (String::new(), String::new()));
+        }
+    }
+
+    /// `[ours]` clip, run, all: recognised, and no PS2 hash collides.
+    #[test]
+    fn our_words_recognised_without_collisions() {
+        let mut m = MorseCheats::new();
+        for w in OUR_WORDS {
+            let h = fnv1a_lower(w.as_bytes());
+            assert!(CHEAT_WORDS.iter().all(|(_, ps2)| *ps2 != h), "{w}");
+            assert_eq!(type_word(&mut m, w), Some(w));
         }
     }
 

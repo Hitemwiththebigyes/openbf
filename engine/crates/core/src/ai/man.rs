@@ -42,8 +42,9 @@
 //! - the five EXITS ([`exit_rule`], asked at each think in the seat): (1)
 //!   [`MAN_NO_TARGET`] with no target it can hit - only a hittable target
 //!   resets the PS2's clock; (2) [`MAN_LONG`] seated with no shot in the last
-//!   [`MAN_NO_SHOT`]; (3) hit from outside every arc (the PS2's), or the
-//!   turret under [`MAN_LOW_HEALTH`] (the PS2 has no bail-out for turrets);
+//!   [`MAN_NO_SHOT`]; (3) hit from outside every arc (the PS2's); a turret
+//!   low on health is never left (the PS2 has no bail-out for turrets; the
+//!   port's 30 % one was dropped, the maintainer 2026-10-28), only not boarded;
 //!   (4) the endgame; (5) the purpose test failed for [`MAN_PURPOSE_LOST`].
 //!   Then the turret is closed to that bot for [`MAN_LEFT_CLOSED`] (the PS2's
 //!   unboard cooldown). A turret fights a turret only inside its weapon's
@@ -149,7 +150,7 @@ pub fn hittable(
 ) -> Option<Vec3> {
     let v = sim.vehicle(vh)?;
     let wc = sim.weapon_classes.get(g.weapons.first()?.class)?;
-    let view = sim.difficulty_of(team).tier().view_mult;
+    let view = sim.ai_tier(team).view_mult;
     let (pivot, inv) = (v.pos + v.rot * g.pivot, v.rot.inverse());
     // (distance, index, point, muzzle, the target's mount and its building)
     type Cand = (f32, u32, Vec3, Vec3, Option<(VehicleHandle, Option<u32>)>);
@@ -451,8 +452,7 @@ pub fn exit_rule(
     if tick.saturating_sub(man.seated) >= MAN_LONG && tick.saturating_sub(shot) >= MAN_NO_SHOT {
         return Some(2);
     }
-    // 3. Hit since the last think by an enemy outside every arc, or the
-    //    turret under 30 % of its health.
+    // 3. Hit since the last think by an enemy outside every arc.
     let pivot = v.pos + v.rot * g.pivot;
     let outside = v.last_hit.is_some_and(|(h, t)| {
         tick.saturating_sub(t) <= THINK_PERIOD
@@ -460,7 +460,7 @@ pub fn exit_rule(
                 o.team != team && !arc_holds(g, v.rot.inverse() * (o.capsule().center() - pivot))
             })
     });
-    if outside || v.health.cur < MAN_LOW_HEALTH * v.health.max {
+    if outside {
         return Some(3);
     }
     // 4. The endgame.

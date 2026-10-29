@@ -196,6 +196,30 @@ fn a_locked_class_refuses_the_accept_until_the_points_are_there() {
     assert_eq!(s.class_refusal(0, 0, 1), Some(ClassRefusal::TooMany));
 }
 
+/// Card UNLK3: the slot's career cost replaces the class's own in the
+/// points test (half, then none); the max test keeps the class's own cost.
+#[test]
+fn a_career_cost_replaces_the_points_but_keeps_the_max() {
+    let mut s = screens_sim(5, false);
+    s.classes[0][1].unlock_points = 12;
+    s.classes[0][1].max = Some(1);
+    assert_eq!(s.spawn_cost(0, 0, 1), 12, "no career: the class's own");
+    s.set_spawn_costs(0, 0, vec![0, 6]);
+    s.set_spawn_points(0, 5);
+    assert_eq!(s.class_refusal(0, 0, 1), Some(ClassRefusal::Points(1)));
+    s.set_spawn_points(0, 6);
+    assert_eq!(s.class_refusal(0, 0, 1), None);
+    s.set_spawn_costs(0, 0, vec![0, 0]);
+    s.set_spawn_points(0, 0);
+    assert_eq!(s.class_refusal(0, 0, 1), None, "unlocked for good");
+    tap(&mut s, buttons::SPAWN_ACCEPT);
+    tap(&mut s, buttons::SPAWN_POST_LEFT);
+    assert!(tap(&mut s, buttons::SPAWN_ACCEPT));
+    assert_eq!(slot0(&s).spec.class, 1);
+    assert_eq!(s.class_refusal(0, 0, 1), Some(ClassRefusal::TooMany));
+    assert_eq!(s.spawn_cost(1, 0, 1), 12, "another slot: the class's own");
+}
+
 /// Acceptance 2: after a death the slot is not back before 4.0 s nor
 /// without the class accept, and IS back on the accept's tick while its
 /// team's spawn wave is not ready (the human skips the wave); the post

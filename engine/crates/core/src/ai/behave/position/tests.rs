@@ -149,6 +149,12 @@ fn hit_once(d: crate::skill::Difficulty, at: u64) -> (usize, u64) {
             1
         }
         _ => {
+            // (Card HYST: the hit wakes the bot, whose early think saw
+            // its enemy again.)
+            let h = crate::ai::HoldState {
+                last_contact: h0.last_contact,
+                ..h
+            };
             assert_eq!((h, st.fight), (h0, calm.fight), "an unnamed reaction");
             0
         }
@@ -160,14 +166,14 @@ fn hit_once(d: crate::skill::Difficulty, at: u64) -> (usize, u64) {
 /// hit by its tier's row — it stays, strafes, rolls or moves in the
 /// row's shares (400 hits a tier, each within 7 points of the row, as
 /// numbers: the row's own constants would follow a broken table), most
-/// at Easy stay and fewest at Elite, and every hit arms the 1.5 s
+/// at Easy and Normal stay and fewest at Elite, and every hit arms the 1.5 s
 /// cooldown, a stay too.
 #[test]
 fn a_hit_stander_stays_strafes_rolls_or_moves_by_its_tiers_row() {
     use crate::skill::Difficulty as D;
     let _style = all_stand();
     let rows = [
-        (D::Easy, [0.65, 0.20, 0.05, 0.10]),
+        (D::Easy, [0.35, 0.30, 0.15, 0.20]),
         (D::Normal, [0.35, 0.30, 0.15, 0.20]),
         (D::Hard, [0.20, 0.30, 0.20, 0.30]),
         (D::Elite, [0.10, 0.30, 0.25, 0.35]),
@@ -190,7 +196,11 @@ fn a_hit_stander_stays_strafes_rolls_or_moves_by_its_tiers_row() {
         }
         stays.push(n[0]);
     }
-    assert!(stays.windows(2).all(|w| w[0] > w[1]), "stays {stays:?}");
+    // Easy and Normal share a row; from Normal up fewer stay.
+    assert!(
+        stays[1..].windows(2).all(|w| w[0] > w[1]),
+        "stays {stays:?}"
+    );
 }
 
 /// Card REACT: a burst is ONE draw — a second hit inside the cooldown
@@ -495,36 +505,26 @@ fn a_scoped_rifle_stands_wherever_its_target_is_in_range() {
     assert_eq!(modes[stand], 0, "unscoped, under the band: {modes:?}");
 }
 
-/// Card FGHTA: the style's draw — half the bots stand (Easy: three
-/// quarters), a third of them would crouch, and a scoped weapon always
-/// stands. Over 200 unit indices; the numbers are the PS2's weights
+/// Card FGHTA: the style's draw — half the bots stand at every tier, a
+/// third of them would crouch, and a scoped weapon always stands. Over 200
+/// unit indices; the numbers are the PS2's weights
 /// (`analysis/re-soldier-ai.md` 4.4), not the rule's constants.
 #[test]
-fn half_the_bots_stand_three_quarters_on_easy_and_a_third_crouch() {
-    use crate::skill::Difficulty;
-    let share = |d: Difficulty, k: usize| {
+fn half_the_bots_stand_and_a_third_crouch() {
+    let share = |k: usize| {
         let n = (0..200u32)
             .filter(|&index| {
-                let s = style_of(UnitHandle { index, gen: 1 }, d, false);
+                let s = style_of(UnitHandle { index, gen: 1 }, false);
                 [s.0, s.1][k]
             })
             .count();
         n as f32 / 200.0
     };
-    for d in [Difficulty::Normal, Difficulty::Hard, Difficulty::Elite] {
-        let s = share(d, 0);
-        assert!((0.4..=0.6).contains(&s), "{d:?}: {s} stand");
-    }
-    let s = share(Difficulty::Easy, 0);
-    assert!((0.65..=0.85).contains(&s), "Easy: {s} stand");
-    let c = share(Difficulty::Normal, 1);
+    let s = share(0);
+    assert!((0.4..=0.6).contains(&s), "{s} stand");
+    let c = share(1);
     assert!((0.233..=0.433).contains(&c), "{c} crouch");
-    assert!((0..200u32).all(|index| style_of(
-        UnitHandle { index, gen: 3 },
-        Difficulty::Normal,
-        true
-    )
-    .0));
+    assert!((0..200u32).all(|index| style_of(UnitHandle { index, gen: 3 }, true).0));
 }
 
 /// Card FGHTA: a stander whose draw says so crouches on its spot, and
@@ -532,14 +532,10 @@ fn half_the_bots_stand_three_quarters_on_easy_and_a_third_crouch() {
 #[test]
 fn a_stander_that_draws_the_crouch_crouches() {
     use crate::sim::PadState;
-    use crate::skill::Difficulty;
     for crouches in [false, true] {
         // The first bot index whose draw is a stander of this kind.
         let n = (0..200u32)
-            .find(|&index| {
-                style_of(UnitHandle { index, gen: 1 }, Difficulty::Normal, false)
-                    == (true, crouches)
-            })
+            .find(|&index| style_of(UnitHandle { index, gen: 1 }, false) == (true, crouches))
             .expect("one in 200") as usize
             + 1;
         let (mut sim, bots, e) = fight_scene(n, 30.0);

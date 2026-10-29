@@ -9,9 +9,104 @@ use anyhow::{Context, Result};
 use render::hud::{HudBatch, HudPass, HudTexture, HudVertex};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use ui::hud::HudModel;
+use ui::hud::{HudModel, HudWeapon};
 use ui::hud_draw::{HudArt, HudMesh, HudMeshPart};
 use ui::hud_tree::{Hud, Kind};
+
+/// The sniper scope's overlay for the local player (`ui::hud_scope`,
+/// `analysis/re-zoom.md` §8): up while he is alive on foot, zoomed on a
+/// `ZoomFirstPerson` weapon (`core::unit::Unit::scoped`), and the camera's
+/// zoom S is above 1.0. Each game's own `weapon_scope`: BF1's (COMMON.LVL)
+/// on a BF1 map, BF2's (INGAME.LVL) elsewhere — the same design, the two
+/// differing in small details and alpha.
+pub fn scope_view(walk: &crate::walk::WalkSim) -> Option<ui::hud_scope::ScopeView> {
+    let me = walk.sim.unit(walk.player)?;
+    if !(me.alive && me.mount.is_none() && me.scoped() && walk.zoom_s > 1.0) {
+        return None;
+    }
+    let sheet = match walk.sim.ground_rules {
+        core::soldier::GroundRules::Bf1 => format!("common_bf1/{}", ui::hud_scope::SHEET),
+        core::soldier::GroundRules::Bf2 => ui::hud_scope::SHEET.to_owned(),
+    };
+    Some(ui::hud_scope::ScopeView { sheet })
+}
+
+/// The HUD's two weapon rows for the local player: on foot, the weapon in
+/// hand and channel 1's (GREN); flying a remote droid, the droid's blaster
+/// and destruct (`analysis/re-remote-droid.md` §8); else (riding, or
+/// flying a guided rocket) none.
+pub fn weapon_rows(walk: &crate::walk::WalkSim) -> [Option<HudWeapon>; 2] {
+    let sim = &walk.sim;
+    let me = &sim.units[walk.player.index as usize];
+    if !me.alive || me.mount.is_some() || sim.controlled_guided(walk.player).is_some() {
+        return [None, None];
+    }
+    let visual = walk.teams[usize::from(me.team.min(1))].class(me.spec.class);
+    let fill = |clip: u32, rounds: u32| {
+        if rounds > 0 {
+            clip as f32 / rounds as f32
+        } else {
+            1.0
+        }
+    };
+    let row = |hud: &crate::walk::WeaponHud, total: Option<u32>, clip_fraction: f32| HudWeapon {
+        key: hud.key.clone(),
+        class: hud.class.clone(),
+        icon: hud.icon.clone(),
+        // The localised weapon name waits for the Locl tables.
+        name: String::new(),
+        total,
+        clip_fraction,
+    };
+    if let Some(d) = sim.controlled_droid(walk.player) {
+        // The remote's slot: a held slot, else the primary.
+        let slot = me
+            .held
+            .iter()
+            .find(|w| w.class == d.weapon_class)
+            .map_or(me.weapon_slot, |w| w.slot);
+        let Some(hud) = visual.hud_of(slot).droid.as_deref() else {
+            return [None, None];
+        };
+        let blaster = sim.weapon_classes[d.weapon_class]
+            .remote
+            .as_ref()
+            .map(|r| &sim.weapon_classes[r.blaster_index]);
+        let primary = blaster.map(|c| {
+            row(
+                &hud.blaster,
+                d.blaster.rounds(c),
+                fill(d.blaster.clip, c.rounds_per_clip),
+            )
+        });
+        let secondary = hud
+            .destruct
+            .as_ref()
+            .map(|w| row(w, hud.destruct_rounds, 1.0));
+        return [primary, secondary];
+    }
+    // The weapon in the hands: the primary, or the channel-0 slot the
+    // player switched to (GREN).
+    let c = sim.weapon_classes.get(me.weapon_class);
+    let primary = Some(row(
+        visual.hud_of(me.weapon_slot),
+        c.and_then(|c| me.weapon.rounds(c)),
+        c.map_or(1.0, |c| fill(me.weapon.clip, c.rounds_per_clip)),
+    ));
+    // The secondary channel's current weapon: the grenade row (GREN).
+    let secondary = me
+        .cur1
+        .and_then(|k| me.held.get(usize::from(k)))
+        .and_then(|w| {
+            let c = sim.weapon_classes.get(w.class)?;
+            Some(row(
+                visual.hud_of(w.slot),
+                w.state.rounds(c),
+                fill(w.state.clip, c.rounds_per_clip),
+            ))
+        });
+    [primary, secondary]
+}
 
 /// How long a first frame lets the fades run before it is drawn: a capture
 /// shows the settled HUD, not the first instant of its 3 s fade-in.
@@ -159,6 +254,14 @@ impl HudView {
         ]);
         let mut hud = Hud::new(&layout, &transforms);
         hud.set_fonts(&art.fonts);
+        // The layout's own labels ("Victory In"), from BF2's text table.
+        if let Some(locl) = crate::event_feed::read_locl(&common) {
+            hud.set_texts(&|key| {
+                let t = locl.get(manifest::hud::locl_key(key))?;
+                Some(t.trim().to_owned())
+            });
+        }
+        ui::hud::place_countdown_labels(&mut hud);
         Ok(Self {
             hud,
             art,
@@ -337,6 +440,11 @@ impl HudView {
         self.movie_frame = Some((rgba, width, height));
     }
 
+    /// The sheets the last [`HudView::update`] drew from, in draw order.
+    pub fn drawn_sheets(&self) -> impl Iterator<Item = &str> {
+        self.batches.iter().map(|b| b.texture.as_str())
+    }
+
     /// The window box `[x0, y0, x1, y1]` the element called `name` was drawn
     /// in by the last [`HudView::update`]; `None` when it drew nothing.
     pub fn bounds(&self, name: &str) -> Option<[f32; 4]> {
@@ -412,9 +520,21 @@ impl HudView {
                             Some(sheet) => (sheet, true),
                             None => (sheet, false),
                         };
+                        // `<layer>/<sheet>`: that common layer's own copy
+                        // (`ui::hud_scope::ScopeView::sheet`).
+                        let (layer, sheet) = match sheet.split_once('/') {
+                            Some((l, s)) => (Some(l), s),
+                            None => (None, sheet),
+                        };
                         let t = self
                             .texture_dirs
                             .iter()
+                            .filter(|d| {
+                                layer.is_none_or(|l| {
+                                    d.parent().and_then(|p| p.file_name())
+                                        == Some(std::ffi::OsStr::new(l))
+                                })
+                            })
                             .map(|d| d.join(format!("{sheet}.ktx2")))
                             .find(|p| pak::is_file(p))
                             .and_then(|p| pak::read(p).ok())

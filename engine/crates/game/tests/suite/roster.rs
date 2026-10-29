@@ -523,6 +523,136 @@ fn only_the_jet_pack_classes_are_jet() {
     assert_eq!(bf2.prop_f32("rep_inf_ep3_jettrooper", "JetJump"), Some(5.0));
 }
 
+/// Card JETP step 1: each jet class's numbers off its disc (re-jetpack.md
+/// §2.2), with BF1's missing keys borrowed from its BF2 twin.
+#[test]
+fn the_jet_classes_carry_their_disc_numbers() {
+    let Some(dir) = classes_dir() else { return };
+    let bf1 = load_classdb_all(&dir, "bf1");
+    let bf2 = load_classdb_all(&dir, "bf2");
+    // (game, class, jump, push, accel, hover, cost, initial, recharge, border,
+    // energy, jet row)
+    type Row = (
+        &'static str,
+        &'static str,
+        [f32; 3],
+        bool,
+        [f32; 5],
+        [f32; 3],
+    );
+    let rows: [Row; 7] = [
+        (
+            "bf2",
+            "rep_inf_ep3_jettrooper",
+            [5.0, 8.0, 30.0],
+            true,
+            [0.16, 0.25, 0.12, 0.24, 0.0],
+            [1.5, 1.25, 1.25],
+        ),
+        (
+            "bf2",
+            "rep_inf_ep2_jettrooper_sniper",
+            [0.0, 0.0, 0.0],
+            true,
+            [1.0, 1.0, 0.0, 1.04, 0.0],
+            [1.5, 1.25, 1.25],
+        ),
+        (
+            "bf2",
+            "imp_inf_dark_trooper",
+            [21.0, 0.0, 10.0],
+            false,
+            [0.0, 0.5, 0.075, 0.49, 0.0],
+            [0.3, 0.3, 1.0],
+        ),
+        (
+            "bf2",
+            "imp_hero_bobafett",
+            [7.0, 8.0, 30.0],
+            true,
+            [0.15, 0.25, 0.12, 0.24, 0.0],
+            [2.0, 1.25, 1.25],
+        ),
+        (
+            "bf2",
+            "imp_hero_darthvader",
+            [7.0, 7.0, 20.0],
+            true,
+            [0.3, 0.25, 0.9, 1.0, 30.0],
+            [1.5, 1.25, 1.25],
+        ),
+        // BF1 on BF2's rules: its own numbers, the twin's JetAcceleration
+        // and jet row.
+        (
+            "bf1",
+            "rep_inf_jet_trooper",
+            [5.0, 8.0, 30.0],
+            true,
+            [0.2, 0.25, 0.1, 0.24, 0.0],
+            [1.5, 1.25, 1.25],
+        ),
+        (
+            "bf1",
+            "imp_inf_dark_trooper",
+            [21.0, 0.0, 10.0],
+            false,
+            [0.0, 0.5, 0.025, 0.49, 0.0],
+            [0.3, 0.3, 1.0],
+        ),
+    ];
+    for (game, class, [jump, push, accel], hover, fuel, row) in rows {
+        let db = if game == "bf1" { &bf1 } else { &bf2 };
+        let c = game::roster::soldier_constants(db, class);
+        let got = [
+            c.jet_jump,
+            c.jet_push,
+            c.jet_acceleration,
+            c.jet_fuel_cost,
+            c.jet_fuel_initial,
+            c.jet_fuel_recharge,
+            c.jet_fuel_min_border,
+            c.jet_energy_drain,
+        ];
+        let want = [
+            jump, push, accel, fuel[0], fuel[1], fuel[2], fuel[3], fuel[4],
+        ];
+        assert_eq!(got, want, "{game} {class}");
+        assert_eq!(c.jet_hover, hover, "{game} {class} hover");
+        assert_eq!(c.jet_control, row, "{game} {class} jet row");
+        assert_eq!(c.saber, class.contains("vader"), "{game} {class} sabre");
+    }
+    // The snow variant keeps its own fuel numbers.
+    let snow = game::roster::soldier_constants(&bf1, "imp_inf_dark_troopersnow");
+    assert_eq!(
+        (snow.jet_fuel_initial, snow.jet_fuel_min_border),
+        (0.4, 0.4)
+    );
+    assert_eq!(snow.jet_acceleration, 10.0);
+    // A rifleman has no jet; a Jedi has the sabre and no hover.
+    let rifle = game::roster::soldier_constants(&bf2, "rep_inf_ep3_rifleman");
+    assert!(!rifle.has_jet() && !rifle.saber);
+    let obi = game::roster::soldier_constants(&bf2, "rep_hero_obiwan");
+    assert!(obi.saber && !obi.jet_hover && !obi.has_jet());
+    assert_eq!((obi.jet_jump, obi.jet_energy_drain), (10.0, 40.0));
+    let vader = game::roster::soldier_constants(&bf2, "imp_hero_darthvader");
+    assert!(vader.saber && vader.jet_hover);
+}
+
+/// The borrowed BF1 numbers are BF2's twins' own (re-jetpack.md §12).
+#[test]
+fn bf1_jet_borrowing_matches_the_bf2_twins() {
+    let Some(dir) = classes_dir() else { return };
+    let bf1 = load_classdb_all(&dir, "bf1");
+    let bf2 = load_classdb_all(&dir, "bf2");
+    for &(class, twin, accel, row) in game::roster::BF1_JET_BORROW {
+        assert!(bf1.get(class).is_some(), "BF1 has {class}");
+        assert_eq!(bf1.prop(class, "JetAcceleration"), None, "{class}");
+        let t = game::roster::soldier_constants(&bf2, twin);
+        assert_eq!(t.jet_acceleration, accel, "{twin}");
+        assert_eq!(t.jet_control, row.unwrap_or([0.3, 0.3, 1.0]), "{twin}");
+    }
+}
+
 /// Card RKEX: the rocket launchers' ordnance carries its impact explosion
 /// from the disc - BF2's by `ExplosionName` (Damage 400, DamageRadiusInner
 /// 2, Outer 4, VehicleScale 0), BF1's (a `bullet` ordnance) by
@@ -841,6 +971,7 @@ fn battle_classes_hold_their_own_weapon_model() {
                     cries: c.cries.clone(),
                     anim: c.anim.clone(),
                     skins: c.skins.clone(),
+                    jet_look: c.jet_look.clone(),
                 })
                 .collect();
             t
@@ -2047,8 +2178,8 @@ fn own_skeleton_classes_carry_their_root_scale() {
 }
 
 /// Card SSELB (re-spawn-flow §4.3): a class's `PointsToUnlock` - every BF2
-/// officer 8, the BF2 specials 12, every other class 0, and no BF1 class
-/// any (BF1 has no unlocks).
+/// officer 8, the BF2 specials 12, every other class 0. BF1 has no unlocks;
+/// `[ours]` (card UNLK1) its specials take BF2's 12 and nothing else costs.
 #[test]
 fn only_the_bf2_officers_and_specials_cost_points() {
     let Some(dir) = classes_dir() else { return };
@@ -2069,7 +2200,14 @@ fn only_the_bf2_officers_and_specials_cost_points() {
     }
     costs.sort();
     eprintln!("{costs:?}");
-    assert!(costs.iter().all(|(g, ..)| *g == "bf2"), "{costs:?}");
+    let bf1: Vec<_> = costs.iter().filter(|(g, ..)| *g == "bf1").collect();
+    assert_eq!(
+        bf1,
+        [
+            &("bf1", "all_inf_smuggler".to_owned(), 12),
+            &("bf1", "imp_inf_dark_trooper".to_owned(), 12)
+        ]
+    );
     for (_, class, cost) in &costs {
         let want = if class.contains("officer") { 8 } else { 12 };
         assert_eq!(*cost, want, "{class}");
@@ -2335,4 +2473,77 @@ fn ordnance_charge_points_are_the_discs() {
         .collect();
     assert_eq!(dish.ordnance.max_damage, 1000.0);
     assert_eq!(pts, [(0.5, 1250.0), (0.75, 1500.0), (2.0, 3000.0)]);
+}
+
+/// Card DROIDDEATH (`analysis/re-droid-death.md` §1): of every soldier class
+/// on both discs, exactly the CIS soldier droids have a chunk death - BF1's
+/// eight droid classes and every BF2 class under `cis_inf_default` (the
+/// Magnaguard included) - each with ChunkFrequency 0.6 and its explosion's
+/// effect (BF1 `droid_explosion`, BF2 `cis_sfx_droid_explosion`, no sound);
+/// no clone, trooper, rebel, hero or local class has one.
+#[test]
+fn only_the_cis_soldier_droids_have_a_chunk_death() {
+    let Some(dir) = classes_dir() else { return };
+    for (game, effect) in [
+        ("bf1", "droid_explosion"),
+        ("bf2", "cis_sfx_droid_explosion"),
+    ] {
+        let db = load_classdb_all(&dir, game);
+        let mut names: Vec<&str> = db
+            .names()
+            .filter(|c| game::roster::is_soldier_chain(&db, c))
+            .collect();
+        names.sort_unstable();
+        let mut chunked = Vec::new();
+        for c in names {
+            let Some(d) = game::roster::chunk_death(&db, c) else {
+                continue;
+            };
+            assert_eq!(d.frequency, 0.6, "{game} {c}");
+            let look = &d.explosion.as_ref().expect(c).look;
+            assert_eq!(look.effects, [effect], "{game} {c}");
+            assert_eq!(look.sound, None, "{game} {c}");
+            chunked.push(c.to_owned());
+        }
+        assert!(
+            chunked.iter().all(|c| c.starts_with("cis_inf_")),
+            "{chunked:?}"
+        );
+        if game == "bf1" {
+            assert_eq!(
+                chunked,
+                [
+                    "cis_inf_assassindroid",
+                    "cis_inf_assault",
+                    "cis_inf_battledroid",
+                    "cis_inf_battledroid_av",
+                    "cis_inf_battledroid_inf",
+                    "cis_inf_battledroid_pilot",
+                    "cis_inf_battledroid_sniper",
+                    "cis_inf_pilotdroid",
+                ]
+            );
+        } else {
+            for c in [
+                "cis_inf_rifleman",
+                "cis_inf_rocketeer",
+                "cis_inf_engineer",
+                "cis_inf_sniper",
+                "cis_inf_officer",
+            ] {
+                assert!(chunked.iter().any(|x| x == c), "{c} in {chunked:?}");
+            }
+        }
+        for c in [
+            "rep_inf_ep3_rifleman",
+            "rep_inf_clone_trooper",
+            "cis_hero_grievous",
+            "cis_inf_countdooku",
+            "imp_inf_rifleman",
+        ] {
+            if db.get(c).is_some() {
+                assert!(game::roster::chunk_death(&db, c).is_none(), "{game} {c}");
+            }
+        }
+    }
 }

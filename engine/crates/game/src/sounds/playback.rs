@@ -501,7 +501,9 @@ impl SoundLib {
     pub fn loops_playing(&self) -> usize {
         self.loops
             .iter()
-            .filter(|(k, v)| matches!(k, LoopSource::Engine(..)) && v.is_some())
+            .filter(|(k, v)| {
+                matches!(k, LoopSource::Engine(..) | LoopSource::Jet(..)) && v.is_some()
+            })
             .count()
     }
 

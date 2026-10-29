@@ -3,6 +3,10 @@
 
 use super::{pf, PropSource};
 
+/// `[ours]` Poison damages at two thirds of the disc's rate (the MagnaGuard's
+/// 30/s for 15 s becomes 20/s): at the full rate it killed too fast in play.
+pub const POISON_RATE: f32 = 2.0 / 3.0;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Ability {
     pub radius: f32,
@@ -39,7 +43,10 @@ impl Ability {
             offense: pair("BuffOffenseTimer", "BuffOffenseMult", 1.0),
             defense: pair("BuffDefenseTimer", "BuffDefenseMult", 1.0),
             regeneration: pair("BuffHealthTimer", "BuffHealthRate", 0.0),
-            poison: pair("DebuffDamageTimer", "DebuffDamageRate", 0.0),
+            poison: {
+                let (timer, rate) = pair("DebuffDamageTimer", "DebuffDamageRate", 0.0);
+                (timer, rate * POISON_RATE)
+            },
             // The activation particle effect; its key name is not known.
             activation_effect: src.prop_hash(0x76f3_beea).map(str::to_owned),
         };

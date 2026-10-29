@@ -452,6 +452,11 @@ pub enum Special {
     Roll,
     Jump,
     Fall,
+    /// Both jet stances, the dark trooper's jump-jet included
+    /// (`jetpack_hover`: BF1 `FUN_0022a0a8` state 7 -> special 0x15, BF2
+    /// `FUN_0027bae0` states 6 / 7 -> simple id 0x19; card JETP2). The one
+    /// special a weapon action plays over (the stand's action row).
+    JetHover,
     Landing(bool),
     /// BF2 only: BF1 sprints on the run clip.
     Sprint,
@@ -486,6 +491,7 @@ impl Special {
             Special::Roll => "diveforward",
             Special::Jump => "jump",
             Special::Fall => "fall",
+            Special::JetHover => "jetpack_hover",
             Special::Landing(hard) => ["landsoft", "landhard"][usize::from(hard)],
             Special::Sprint => "sprint",
             Special::Flying(d) => [
@@ -536,6 +542,9 @@ pub fn stance_of(i: &AnimInput, game: Game) -> Result<usize, Special> {
     match i.stance {
         Stance::Roll => Err(Special::Roll),
         Stance::Jump => Err(Special::Jump),
+        // Both games play `jetpack_hover` in every jet stance, the
+        // jump-jet's too (card JETP2, analysis/re-jetpack.md §8).
+        Stance::Jet | Stance::Hover => Err(Special::JetHover),
         Stance::Fall => Err(Special::Fall),
         Stance::Dead => Err(Special::Dead),
         Stance::Thrown => Err(Special::Flying(if i.vel.y.abs() >= i.vel.x.abs() {
@@ -607,7 +616,18 @@ pub struct Rig {
     /// [`bf2::MOVES`], then the shot and the reload, then the four
     /// [`PRONE_CHANGES`].
     prone: Vec<Option<usize>>,
+    /// BF1: BF2's throw borrowed for every map (the bake's
+    /// `BORROWED_THROW`, card GTHRW): `shoot_secondary` (underhand), then
+    /// `shoot_secondary2` (overhand). `None` when not baked: BF1's own
+    /// grenade clip plays, its wind-up stretched to the release.
+    throw: [Option<usize>; 2],
 }
+
+/// BF2's rifle throw clips, which a BF1 soldier borrows ([`Rig::throw`]).
+pub const BF2_THROW_CLIPS: [&str; 2] = [
+    "human_rifle_stand_shoot_secondary_full",
+    "human_rifle_stand_shoot_secondary2_full",
+];
 
 impl Rig {
     pub fn new(sets: SoldierSets, skel: &Skeleton, clips: &[Clip]) -> Self {
@@ -628,6 +648,13 @@ impl Rig {
             .iter()
             .map(|c| find_clip(clips, &c.name))
             .collect();
+        let throw = BF2_THROW_CLIPS.map(|n| {
+            if sets.game == "bf2" {
+                None
+            } else {
+                find_clip(clips, n)
+            }
+        });
         let mut root = vec![None; clips.len()];
         for (c, at) in sets.clips.iter().zip(&map) {
             if let (Some(v), Some(&k)) = (sets.root_speed.get(&c.name), at.as_ref()) {
@@ -660,7 +687,30 @@ impl Rig {
                 .chain(PRONE_CHANGES.iter().map(|c| format!("human_rifle_{c}")))
                 .map(|n| find_clip(clips, &n))
                 .collect(),
+            throw,
         }
+    }
+
+    /// BF1: the borrowed BF2 throw clip of `variant` (overhand above 0),
+    /// standing or crouched (BF2's crouch plays the stand clips; it has no
+    /// prone throw, so a prone soldier keeps BF1's).
+    fn borrowed_throw(&self, s: usize, variant: u8) -> Option<usize> {
+        if self.game != Game::Bf1 || s == 2 {
+            return None;
+        }
+        self.throw[usize::from(variant > 0)]
+    }
+
+    /// Does this BF1 soldier throw BF2's throw ([`Rig::throw`] baked)? Then a
+    /// thrown weapon is drawn as BF2's offhand one: the primary stays in
+    /// his hand and keeps its set.
+    pub fn throws_offhand(&self) -> bool {
+        self.throw.iter().any(Option::is_some)
+    }
+
+    /// Is asset clip `clip` a borrowed BF2 throw ([`Rig::throw`])?
+    pub fn is_borrowed_throw(&self, clip: usize) -> bool {
+        self.throw.contains(&Some(clip))
     }
 
     /// BF2: the borrowed prone clip `k` of [`Rig::prone`] as a whole-body
@@ -868,10 +918,39 @@ impl Rig {
     ) -> Option<(Slot, Option<Slot>)> {
         match (self.game, &self.sets.bf1) {
             (Game::Bf1, Some(t)) => {
+                // BF2's throw on every map (card GTHRW): its slots' blends
+                // (upper 0.15, lower 0.5; the bf2 `shoot_secondary2` pair).
+                if let ActionKind::Throw(variant) = kind {
+                    if let Some(clip) = self.borrowed_throw(s, variant) {
+                        let up = Slot {
+                            clip,
+                            looping: false,
+                            blend_in: 0.15,
+                            blend_out: 0.15,
+                            aim: aim::AimKind::None,
+                            pair: None,
+                        };
+                        let legs = Slot {
+                            blend_in: 0.5,
+                            blend_out: 0.5,
+                            ..up
+                        };
+                        return Some((up, Some(legs)));
+                    }
+                }
                 let k = match kind {
                     ActionKind::Shoot => 1,
                     ActionKind::Throw(variant) => usize::from(variant.min(2)) + 1,
                     ActionKind::Reload => 5,
+                };
+                // A soldier who borrows BF2's throw keeps his primary's set
+                // through it (BF2's offhand rule); a prone throw, which BF2
+                // has none of, takes the grenade set's.
+                let set = match kind {
+                    ActionKind::Throw(_) if self.throw.iter().any(Option::is_some) => {
+                        bf1::weapon_set("grenade").unwrap_or(set)
+                    }
+                    _ => set,
                 };
                 // The legs play the same clip, its blend 0.5 s longer (§3.2).
                 let up = self.slot1(t.u[s][set][k])?;
@@ -1140,6 +1219,11 @@ impl Animator {
         self.lower.t
     }
 
+    /// The upper player's phase in [0, 1].
+    pub fn upper_phase(&self) -> f32 {
+        self.upper.t
+    }
+
     /// The alert timer and the aim pose.
     pub fn aim(&self) -> &aim::Aim {
         &self.aim
@@ -1217,9 +1301,12 @@ impl Animator {
         // A BF2 sprint is a special state on the legs, but the hands still
         // throw and shoot in it, as BF1's sprint on the stand's clips does:
         // the action takes the stand's clips and the legs keep sprinting.
+        // The jet hover is the one special the PS2 draws an action over
+        // (BF1 the `jal 0x22c7f0` at 0x22b214 with a2 = 1; BF2
+        // `FUN_0027d9a8` from the stand's action row): the same here.
         let hands = match stance {
             Ok(s) => Some(s),
-            Err(Special::Sprint) => Some(0),
+            Err(Special::Sprint | Special::JetHover) => Some(0),
             Err(_) => None,
         };
         if let Some(s) = hands {
@@ -1362,6 +1449,7 @@ impl Animator {
         let rate = self.action.map_or(1.0, |a| {
             if rig.game == Game::Bf1
                 && a.kind == ActionKind::Throw(2)
+                && !rig.is_borrowed_throw(a.upper.clip)
                 && self.upper.t * clips[a.upper.clip].frames as f32 / 30.0 < BF1_THROW_WINDUP
                 && i.throw_windup > 0.0
             {
@@ -1379,10 +1467,17 @@ impl Animator {
             }
             _ => rig.game,
         };
+        // A borrowed BF2 throw keeps BF2's clock on a BF1 rig: frame n at
+        // n / 30 s, so its hand lets go at BF2's wind-up.
+        let clock_of = |p: &Player| match p.slot {
+            Some(s) if rig.is_borrowed_throw(s.clip) => Game::Bf2,
+            _ => clock,
+        };
+        let (up_clock, low_clock) = (clock_of(&self.upper), clock_of(&self.lower));
         self.upper
-            .advance(clips, dt * if up_action { rate } else { walk }, clock);
+            .advance(clips, dt * if up_action { rate } else { walk }, up_clock);
         self.lower
-            .advance(clips, dt * if legs { rate } else { walk }, clock);
+            .advance(clips, dt * if legs { rate } else { walk }, low_clock);
 
         let jump_pose = matches!(
             body,

@@ -102,7 +102,8 @@ pub struct Probe {
     pub speed: f32,
     pub grounded: bool,
     /// `core::soldier::Stance` as 0 stand, 1 crouch, 2 prone, 3 sprint,
-    /// 4 jump, 5 roll, 6 fall, 7 thrown, 8 tumble, 9 get-up, 10 dead.
+    /// 4 jump, 5 roll, 6 fall, 7 thrown, 8 tumble, 9 get-up, 10 dead, 11 jet
+    /// (the jump-jet), 12 hover.
     pub stance: u8,
     pub hp: f32,
     /// The vehicle slot and seat it rides, or -1.
@@ -239,14 +240,14 @@ pub struct Probe {
 pub const LEGEND: &[(&str, &str)] = &[
     ("id/gen", "unit slot and generation"),
     ("class", "index into names.classes[team]"),
-    ("stance", "0 stand 1 crouch 2 prone 3 sprint 4 jump 5 roll 6 fall 7 thrown 8 tumble 9 getup 10 dead"),
+    ("stance", "0 stand 1 crouch 2 prone 3 sprint 4 jump 5 roll 6 fall 7 thrown 8 tumble 9 getup 10 dead 11 jet 12 hover"),
     ("veh/seat", "vehicle slot ridden (-1 on foot) and seat"),
     ("locus/hub/floor_dy", "H hub, A arc, N nearest (off the graph), - none; that hub; feet minus the hub's top floor"),
     ("level", "0 on the playable level, >0 metres below it, -1 unknown"),
     ("overhead", "metres to a face straight up, -1 none"),
     ("goal/goal_cp", "the commander's objective and post index"),
     ("cp", "the post the brain walks at"),
-    ("from/next/dest/arc/src", "the route leg: hubs, arc (-1 last leg or straight), t table b bfs s straight f flank"),
+    ("from/next/dest/arc/src", "the route leg: hubs, arc (-1 last leg or straight), t table b bfs s straight f flank r round a shunned arc (card ARCM)"),
     ("wp/wp_d", "the leg's aim point and XZ metres to it"),
     ("steer/fan/slide/sidestep", "the steering's pick, fan step x30 deg, slide side, side-step state"),
     ("doing/recover", "the behaviour that ran this tick (none travel fight evade capture guard board ride follow recover) and the walk's failed progress windows since it last made progress (schema 4)"),
@@ -277,6 +278,8 @@ pub fn stance_code(s: core::soldier::Stance) -> u8 {
         Stance::Tumble => 8,
         Stance::GetUp => 9,
         Stance::Dead => 10,
+        Stance::Jet => 11,
+        Stance::Hover => 12,
     }
 }
 
@@ -368,6 +371,7 @@ impl Probe {
                 core::ai::RouteSource::Bfs => 'b',
                 core::ai::RouteSource::Straight => 's',
                 core::ai::RouteSource::Flank => 'f',
+                core::ai::RouteSource::Shun => 'r',
             }),
             wp: r.map_or([0.0; 3], |r| r.waypoint.to_array()),
             wp_d: r.map_or(-1.0, |r| core::nav::xz_dist(p, r.waypoint)),

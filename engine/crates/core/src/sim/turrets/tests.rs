@@ -140,6 +140,46 @@ fn it_shoots_an_enemy_in_range_dead_for_its_owner() {
     assert_eq!(kills, [(owner, enemy)]);
 }
 
+/// Review fix 1: a turret thrown in a previous life credits its owner's
+/// current life (the same unit slot), not the stale handle.
+#[test]
+fn a_kill_after_the_owner_respawned_credits_his_new_life() {
+    let (mut sim, owner, weapon) = setup();
+    deploy(&mut sim);
+    let i = owner.index as usize;
+    // A new life in the same slot: what a respawn or a class change does.
+    sim.units[i].gen += 1;
+    let now = sim.handle(i);
+    assert_ne!(now, owner);
+    let enemy = enemy_ahead(&mut sim, 20.0);
+    let events = run(&mut sim, 15.0);
+    assert!(shots(&events, gun(&sim, weapon)) >= 4);
+    let kills: Vec<_> = events
+        .iter()
+        .filter_map(|e| match e {
+            Event::Kill { shooter, victim } => Some((*shooter, *victim)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(kills, [(now, enemy)]);
+    assert_eq!(sim.units[i].kills, 1);
+    // The turret is still the old life's own: its bolts do not strike it.
+    assert_eq!(sim.turrets.len(), 1);
+    assert_eq!(sim.turrets[0].health, 50.0);
+}
+
+/// Review fix 1: a slot that now plays for the other team is not credited.
+#[test]
+fn an_item_of_a_slot_that_changed_team_credits_nobody() {
+    let (mut sim, owner, _) = setup();
+    let i = owner.index as usize;
+    assert_eq!(sim.item_owner(owner, 0), owner);
+    sim.units[i].gen += 1;
+    assert_eq!(sim.item_owner(owner, 0), sim.handle(i));
+    sim.units[i].team = 1;
+    assert_eq!(sim.item_owner(owner, 0), owner);
+}
+
 #[test]
 fn its_bolts_leave_its_own_gun_far_from_its_owner() {
     let (mut sim, owner, weapon) = setup();
@@ -343,4 +383,24 @@ fn turrets_are_hashed_and_replay_exactly() {
     assert_eq!(a.hash(), b.hash());
     a.turrets[0].yaw += 0.01;
     assert_ne!(a.hash(), b.hash());
+}
+
+/// PR #61 review fix 5: a landed turret whose support goes (here the ground
+/// drops away under it, as a vehicle driving off does) falls and lands again.
+#[test]
+fn a_turret_whose_support_goes_falls_and_lands_again() {
+    let (mut sim, _, _) = setup();
+    deploy(&mut sim);
+    assert!(sim.turrets[0].landed);
+    run(&mut sim, 1.0);
+    assert!(sim.turrets[0].landed, "still supported");
+    if let Some(hf) = sim.heightfield.as_mut() {
+        hf.heights.iter_mut().for_each(|h| *h = -5.0);
+    }
+    sim.step(&[PadState::default()]);
+    assert!(!sim.turrets[0].landed, "no support: falling");
+    run(&mut sim, 3.0);
+    let t = &sim.turrets[0];
+    assert!(t.landed, "{:?}", t.pos);
+    assert!((t.pos.y + 5.0).abs() < 0.05, "{:?}", t.pos);
 }

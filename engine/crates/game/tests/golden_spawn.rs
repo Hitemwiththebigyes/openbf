@@ -44,6 +44,7 @@ fn hud() -> ui::hud::HudModel {
         capture: None,
         ambush: Vec::new(),
         spawn: None,
+        scope: None,
     }
 }
 

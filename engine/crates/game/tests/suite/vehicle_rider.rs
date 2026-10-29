@@ -476,6 +476,7 @@ fn a_seated_rider_is_drawn_on_his_vehicle() {
             cries: Default::default(),
             anim: Default::default(),
             skins: Default::default(),
+            jet_look: Default::default(),
         }];
         let mut walk = game::walk::WalkSim::with_teams(sim, None, Vec3::ZERO, [t.clone(), t], None);
         walk.vehicle_seats = build.seats.clone();

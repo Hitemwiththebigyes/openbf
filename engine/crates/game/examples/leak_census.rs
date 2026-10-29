@@ -631,6 +631,7 @@ fn build_sim(key: &str, path: &Path, out: &mut String) -> Option<game::walk::Wal
     scene.install_collision(&mut w.sim);
     if let Some(a) = &applied {
         w.sim.death_regions = a.death_regions.clone();
+        w.sim.fly_ceiling = a.fly_ceiling;
     }
     Some(w)
 }

@@ -23,7 +23,9 @@
 //! each with its phases, ticks run, AI and hook ms and the GPU objects made.
 //!
 //! Views:
-//! - `--unit <id>`: that unit in every frame, its trail and its events;
+//! - `--unit <id>`: that unit in every frame, its trail, its events and
+//!   (card WHY, schema 9) its last reasons: why it entered each behaviour,
+//!   why each walk failed (a troubled bot's line carries its last four);
 //! - `--near x,y,z,r`: the units within `r` of a point in the last frame;
 //! - `--events`: every event in the file;
 //! - `--sounds`: every sound start in the file (60 s);
@@ -302,11 +304,27 @@ fn event_line(snap: &Snapshot, e: &EventRow) -> String {
                 e.b,
                 weapon_name(snap, e.c),
                 v(0),
-                if v(2) > 0.0 {
-                    format!("direct, {:.2} s flight", v(2))
-                } else {
-                    "blast".into()
+                match (v(2), snap.schema) {
+                    (a, _) if a > 0.0 => format!("direct, {a:.2} s flight"),
+                    (a, s) if a == 0.0 && s >= 11 => "direct, struck in its first update".into(),
+                    (_, s) if s >= 11 => "blast".into(),
+                    // Schema < 11 wrote 0 for both (`core::sim::BLAST_AGE`).
+                    _ => "blast, or a bolt that struck in its first update".into(),
                 },
+                v(1)
+            )
+        }
+        Ev::VehicleHit => {
+            let v = |i: usize| e.v.get(i).copied().unwrap_or(0.0);
+            let who = if e.a < 0 {
+                "a collision".to_string()
+            } else {
+                format!("#{} with {}", e.a, weapon_name(snap, e.c))
+            };
+            format!(
+                "{who} hit vehicle {}: {} damage, {} left at the tick's end, at {at}",
+                e.b,
+                v(0),
                 v(1)
             )
         }
@@ -540,6 +558,23 @@ fn header(snap: &Snapshot) -> String {
     );
     let env: Vec<String> = h.meta.env.iter().map(|(k, v)| format!("{k}={v}")).collect();
     let _ = writeln!(s, "  env {}", env.join(" "));
+    // Card DPRX (schema 10): the whole battle's tally; human_profile.py
+    // prints the full profile.
+    if let Some(m) = &snap.session {
+        let mins = (m.to.saturating_sub(m.from)) as f32 / core::TICK_HZ as f32 / 60.0;
+        let _ = writeln!(
+            s,
+            "  session ({} #{}, {:.1} min): kills {} deaths {} shots {} hits {} lives {} (scripts/human_profile.py for the profile)",
+            m.subject,
+            m.unit,
+            mins,
+            m.kills,
+            m.deaths,
+            m.shots,
+            m.hits,
+            m.lives.len()
+        );
+    }
     s
 }
 
@@ -806,6 +841,9 @@ fn troubled(snap: &Snapshot) -> String {
                 continue;
             }
             let mut line = format!("  {}", unit_line(snap, p));
+            if let Some(w) = whys(snap, p.id, 4) {
+                let _ = write!(line, "\n      {w}");
+            }
             if let Some(r) = &run {
                 let _ = write!(
                     line,
@@ -992,6 +1030,31 @@ fn events(snap: &Snapshot, span: Option<f32>) -> String {
     s
 }
 
+/// Card WHY: unit `id`'s last `n` reasons as one line ("12.3 s fight:seen,
+/// 14.0 s FAIL wall arc 31 in travel, ..."), `None` when the file has none
+/// (before schema 9, or a unit that has changed nothing yet).
+fn whys(snap: &Snapshot, id: u32, n: usize) -> Option<String> {
+    let w = snap.why.iter().find(|w| w.id == id)?;
+    let skip = w.rows.len().saturating_sub(n);
+    let rows: Vec<String> = w.rows[skip..]
+        .iter()
+        .map(|r| {
+            let t = secs(snap, r.tick);
+            if r.fail {
+                let arc = if r.arc >= 0 {
+                    format!(" arc {}", r.arc)
+                } else {
+                    String::new()
+                };
+                format!("{t:.1} s FAIL {}{arc} in {}", r.why.tag(), r.doing.tag())
+            } else {
+                format!("{t:.1} s {}:{}", r.doing.tag(), r.why.tag())
+            }
+        })
+        .collect();
+    Some(format!("why (gen {}): {}", w.gen, rows.join(", ")))
+}
+
 fn unit_view(snap: &Snapshot, id: u32) -> String {
     let mut s = format!("UNIT #{id}  every frame, oldest first\n");
     for f in &snap.frames {
@@ -1000,6 +1063,13 @@ fn unit_view(snap: &Snapshot, id: u32) -> String {
         }
     }
     s.push_str(&trail(snap, id));
+    match whys(snap, id, usize::MAX) {
+        Some(w) => {
+            let _ = writeln!(s, "  {w}");
+        }
+        None if snap.schema < 9 => s.push_str("  why: none (a file before schema 9)\n"),
+        None => s.push_str("  why: none\n"),
+    }
     s.push_str("  its events:\n");
     for e in &snap.events {
         let unit_event = !matches!(

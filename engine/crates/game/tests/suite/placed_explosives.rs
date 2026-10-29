@@ -28,6 +28,7 @@ fn check_limit(weapon: &core::weapon::WeaponClass) {
         heights: vec![0.0; 4],
     });
     sim.cheats.infinite_ammo = true;
+    sim.cheats.no_reload = true;
     let wc = sim.add_weapon_class(weapon.clone());
     let owner = sim
         .spawn(&UnitSpec {

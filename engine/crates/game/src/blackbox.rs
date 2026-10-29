@@ -55,6 +55,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Weak};
 
 mod rotating;
+pub mod session;
 pub use rotating::PREVIOUS;
 
 /// The file's schema version. 2 (card BLKF): the stop is asked along the
@@ -64,8 +65,14 @@ pub use rotating::PREVIOUS;
 /// CPBAR): a post's units inside per team and its two times. 6 (card HITCH):
 /// the frame record (`hitches`). 7: the human's mouse look (`mx`, `my`)
 /// and the mouse-aim bit. 8: the human's shots and every hit he deals or
-/// takes (`shot`, `hit`, the event's `v`). An older file still reads.
-pub const SCHEMA: u32 = 8;
+/// takes (`shot`, `hit`, the event's `v`). 9 (card WHY): each unit's last
+/// reasons (`why`). 10 (card DPRX): the match-long `session` tally of the
+/// human (a headless round's: the proxy's). 11: a hit's age is -1 for a
+/// blast (`core::sim::BLAST_AGE`); before it 0 was a blast OR a bolt that
+/// struck in its first update (a sniper's inside 66 m). 12 (playtest
+/// 2026-10-28, building turrets): every hit on a vehicle's or turret's pool
+/// the human deals or takes in his ride (`vhit`). An older file still reads.
+pub const SCHEMA: u32 = 12;
 /// Ticks between two unit frames (0.5 s).
 pub const UNIT_PERIOD: u64 = core::TICK_HZ as u64 / 2;
 /// Ticks between two world frames (2 s).
@@ -330,9 +337,17 @@ pub enum Ev {
     /// round leaving the weapon (schema 8).
     Shot,
     /// Unit a hit unit b, one of them the human; c a's weapon in hand; `v`
-    /// = [damage, b's health after it, the round's age in s: 0 for a
-    /// blast] (schema 8).
+    /// = [damage, b's health after it, the round's age in s: -1 for a
+    /// blast] (schema 8; a blast was 0 before schema 11).
     Hit,
+    /// Bot a, stalled, moved on where no human saw it (card UNSN): at its
+    /// new spot; `v` = where it stood.
+    Relocate,
+    /// Unit a (-1: a collision) damaged vehicle or building turret b, the
+    /// human the shooter or a rider of b; c a's weapon in hand; at the
+    /// vehicle; `v` = [damage, b's health at the tick's end: 0 when it was
+    /// destroyed] (schema 11).
+    VehicleHit,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -586,6 +601,37 @@ pub struct Snapshot {
     /// before schema 6, in a headless round or with the record off.
     #[serde(default)]
     pub hitches: Option<crate::frame_profile::Hitches>,
+    /// Card WHY (schema 9): each unit slot's last reasons — why it entered
+    /// a behaviour or why its walk failed — as at its last unit frame (a
+    /// dead unit's as it died, until its slot respawns).
+    #[serde(default)]
+    pub why: Vec<WhyUnit>,
+    /// Card DPRX (schema 10): the whole battle's tally of the human (in a
+    /// headless round, the human proxy's), [`session::Session`]. None before
+    /// schema 10 and with nobody to follow.
+    #[serde(default)]
+    pub session: Option<session::Session>,
+}
+
+/// One unit's reasons ([`Snapshot::why`]).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WhyUnit {
+    pub id: u32,
+    pub gen: u32,
+    /// Oldest first.
+    pub rows: Vec<WhyOut>,
+}
+
+/// One reason (`core::ai::why::WhyRow`): the tick, the behaviour entered
+/// (or, `fail`, the one the bot was in when its walk failed), the code, and
+/// the nav arc a failed leg walked (-1 none).
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+pub struct WhyOut {
+    pub tick: u64,
+    pub doing: crate::unit_probe::Doing,
+    pub why: core::ai::why::Why,
+    pub arc: i32,
+    pub fail: bool,
 }
 
 /// The stuck alarm's watch on the human.
@@ -622,6 +668,9 @@ pub struct Ring {
     trails: Vec<Trail>,
     /// Each unit slot's no-progress run at the last frame.
     prev_stuck: Vec<u16>,
+    /// Card WHY: each unit slot's generation and reason log at its last
+    /// frame (copied: no allocation per frame).
+    whys: Vec<Option<(u32, core::ai::why::WhyLog)>>,
     frame_ms: Wheel<f32>,
     window: [u32; 2],
     tick: u64,
@@ -631,6 +680,8 @@ pub struct Ring {
     alarm: Alarm,
     /// The windowed game's frame record (card HITCH), read at a snapshot.
     hitches: Option<Arc<Mutex<crate::frame_profile::Record>>>,
+    /// Card DPRX: the match-long tally of the human or the proxy.
+    session: session::Tally,
 }
 
 fn r2(v: f32) -> f32 {
@@ -695,6 +746,7 @@ impl Ring {
             sounding: Vec::new(),
             trails: Vec::new(),
             prev_stuck: Vec::new(),
+            whys: Vec::new(),
             frame_ms: Wheel::new(FRAME_TIMES),
             window: [0; 2],
             tick: 0,
@@ -707,6 +759,7 @@ impl Ring {
             },
             alarm: Alarm::default(),
             hitches: None,
+            session: session::Tally::default(),
         }
     }
 
@@ -784,6 +837,11 @@ impl Ring {
                 .get(h.index as usize)
                 .map_or(-1, |u| u.weapon_class as i32)
         };
+        let rides_human = |vh: core::vehicle::VehicleHandle| {
+            sim.vehicles.get(vh.index as usize).is_some_and(|x| {
+                x.gen == vh.gen && x.seats.iter().filter_map(|s| s.occupant).any(human)
+            })
+        };
         for ev in &sim.events {
             let mut v = Vec::new();
             let (kind, a, b, c, pos) = match *ev {
@@ -816,6 +874,25 @@ impl Ring {
                         at(victim),
                     )
                 }
+                Event::VehicleHit {
+                    shooter,
+                    vehicle,
+                    damage,
+                    ..
+                } if shooter.is_some_and(human) || rides_human(vehicle) => {
+                    let v_now = sim.vehicle(vehicle);
+                    v = vec![r2(damage), r2(v_now.map_or(0.0, |x| x.health.cur.max(0.0)))];
+                    (
+                        Ev::VehicleHit,
+                        shooter.map_or(-1, |s| s.index as i32),
+                        vehicle.index as i32,
+                        shooter.map_or(-1, weapon),
+                        r2v(sim
+                            .vehicles
+                            .get(vehicle.index as usize)
+                            .map_or([0.0; 3], |x| x.pos.to_array())),
+                    )
+                }
                 Event::Kill { shooter, victim } => (
                     Ev::Kill,
                     shooter.index as i32,
@@ -842,6 +919,10 @@ impl Ring {
                     -1,
                     at(unit),
                 ),
+                Event::Relocated { unit, from, to } => {
+                    v = from.to_array().iter().map(|&x| r2(x)).collect();
+                    (Ev::Relocate, unit.index as i32, -1, -1, r2v(to.to_array()))
+                }
                 Event::Respawn { unit } => (Ev::Spawn, unit.index as i32, -1, -1, at(unit)),
                 Event::Despawn { unit } => (Ev::Despawn, unit.index as i32, -1, -1, at(unit)),
                 Event::Captured { cp, team } => {
@@ -936,6 +1017,28 @@ impl Ring {
             .units
             .get(walk.player.index as usize)
             .filter(|u| u.is_player && u.gen == walk.player.gen);
+        // Card DPRX: the tally follows the human's slot (alive or not), else
+        // the first proxy's. A vacated slot (the sweep's bot in slot 0) holds
+        // no human.
+        let seated = sim
+            .players
+            .iter()
+            .flatten()
+            .any(|h| h.index == walk.player.index);
+        let subject = if seated
+            && sim
+                .units
+                .get(walk.player.index as usize)
+                .is_some_and(|u| u.is_player)
+        {
+            Some((walk.player.index as usize, "human"))
+        } else {
+            sim.units
+                .iter()
+                .position(|u| u.proxy_human.is_some())
+                .map(|i| (i, "proxy"))
+        };
+        self.session.tick(sim, subject);
         self.human = human.map_or(-1, |_| walk.player.index as i32);
         let mut alarm = false;
         if let Some(u) = human {
@@ -969,7 +1072,13 @@ impl Ring {
         let f = self.frames.next();
         f.tick = t;
         f.units.clear();
+        if self.whys.len() < sim.units.len() {
+            self.whys.resize(sim.units.len(), None);
+        }
         for (h, u) in sim.alive_units() {
+            if !u.is_player {
+                self.whys[h.index as usize] = Some((h.gen, u.ai.why));
+            }
             let p = tidy(Probe::of(sim, h, u, t, true));
             let was = std::mem::replace(&mut self.prev_stuck[h.index as usize], p.stuck);
             if was < STUCK_EVENT_TICKS && p.stuck >= STUCK_EVENT_TICKS {
@@ -1192,11 +1301,13 @@ impl Ring {
             ("frames", "every alive unit every 0.5 s, oldest first; keys below"),
             ("human", "the player: every 0.5 s, then every tick for the last 5 s; lx/ly/rx/ry sticks -32767..32767; buttons bits 1 fire 2 jump 4 roll/stance 8 sprint 16 zoom 32 reload 64 action 128 switch 256 secondary fire 512-4096 squad follow / hold / at ease / move out 8192 / 16384 spawn class next / prev 32768 switch secondary 65536-524288 spawn post up / down / left / right 1048576 spawn accept 2097152 spawn back 4194304 pause-menu respawn 8388608 mouse aim (aim assist off); mx/my the mouse look the tick took, 1/65536 rad (mx + turns right, my + looks up), 0 = none or a controller"),
             ("world", "every 2 s: tickets, bleed/s, alive, posts (owner -1 neutral, cap charge and cap_team its team, neutral the neutralise charge, inside the counting units per team, times CaptureTime / NeutralizeTime), vehicles (kind 0 hover 1 walker 2 flyer 3 turret; riders by seat), doors (0 shut..1 open)"),
-            ("events", "kill: a killer b victim c the killer's weapon in hand (a seat gun's or a thrown grenade's kill reads as it); death_region/fall/rider_death/blast/kill_floor/under_map/lost/recycle: a unit; spawn/despawn: a unit; captured/neutralized/saved: a post b team; vehicle_lost: a vehicle b killer c class; order: a slot b kind c bots; voice: text; stuck: a unit b body (a no-progress run reached 3 s); shot: the human a fired weapon c; hit: a hit b (one of them the human), c a's weapon in hand, v = damage, b's health after, the round's age (0 = a blast)"),
+            ("events", "kill: a killer b victim c the killer's weapon in hand (a seat gun's or a thrown grenade's kill reads as it); death_region/fall/rider_death/blast/kill_floor/under_map/lost/recycle: a unit; spawn/despawn: a unit; captured/neutralized/saved: a post b team; vehicle_lost: a vehicle b killer c class; order: a slot b kind c bots; voice: text; stuck: a unit b body (a no-progress run reached 3 s); shot: the human a fired weapon c; hit: a hit b (one of them the human), c a's weapon in hand, v = damage, b's health after, the round's age (-1 = a blast; schema < 11: 0 = a blast or a first-update bolt); vehicle_hit (schema 12): a (-1 a collision) damaged vehicle or building turret b (the human a or a rider of b), c a's weapon in hand, v = damage, b's health at the tick's end (0 = destroyed)"),
             ("trails", "each unit's last 10 s of positions at 4 Hz, oldest first, ending at its own tick: header.trail_tick for a unit alive then, earlier for one that died (its slot not yet respawned); gen is that life's generation"),
             ("header", "build_commit / build_dirty: the commit the BINARY was built from (the code that ran); commit / dirty: the checkout's HEAD when the battle started; build_time: the executable's mtime, s since the epoch"),
             ("sounds", "every one-shot the mixer was handed in the last 60 s, oldest first: tick, name (names.sounds: the property), take (names.takes: the file under the baked root), gain (linear, the level by distance included), ears (what each ear got [left, right]: the gain x the bus, a 3-D sound split by the PS2's per-ear law, card MIXH), pitch (playback rate), dist (m from the listener, 0 = a 2-D line), voices (one-shots still sounding by their length + engine loops), secs (the take's length at that pitch). Not in it: the engine loops themselves and the music"),
             ("hitches", "the windowed game's frame record (card HITCH): frames, the seconds they span, p50 / p99 / worst ms (a frame = its start to the next frame's start), over = frames longer than limit_ms past the battle's first settle_s seconds, per_min of them, made_frames = frames that made GPU objects; slow = the newest frames over limit_ms, worst = the longest past settle_s; a row: t (s since the battle's first frame), tick, ms, laps (the frame's phases in order: sim = the ticks with their hook, update, draws, render = render_frame with its image wait acquire_ms, other = the time outside them), ticks run, ai_ms / hook_ms (inside sim), gpu_ms (with OPENBF_GPU_TIMING=1, a frame or two old), made (kind, label, bytes of each GPU object made)"),
+            ("why", "card WHY (schema 9): per unit slot (id, gen), its last 8 reasons oldest first: tick, doing = the behaviour entered (or, fail true, the one it was in when its walk failed), why = the code (recover is entered for a failed-walk code), arc = the nav arc a failed leg walked (-1 none), fail = a failed walk, not a change. Behaviour codes: off_level grenade pickup snipe_spot guard_spot seen hit memory claim order arrived goal_changed target_lost safe recovered claim_ended seated idle set_out. Failed-walk codes (a progress window that failed, by the mover's books): wall (slid or fanned off a wall) rim (a level-edge barrier) body (going round a body) round_spent (the going-round allowance spent) ledge (no floor ahead) boxed (every way shut, backed off) off_graph (no hop: a straight walk) no_gain (the way open, no nearer: pushed, jammed) oscillation (back and forth at its waypoint, card ARCM) driving (a driver's window) return_failed (a lost bot's walk back) gave_up (the goal given up) pinned (sent off along the floor) recycled"),
+            ("session", "card DPRX (schema 10): the whole battle's tally of the human (headless: the proxy): subject, unit, team, from/to ticks, kills, deaths (incl. environmental), shots (presses), hits (on enemies, one per victim per tick), lives [spawn tick, end tick] (open: the last still alive), alive_ticks, foot_ticks, dist_m (ground path on foot), moving_ticks (> 0.5 m/s), strafe_ticks/strafe_starts (sideways > 1 m/s and > forward), crouch_/prone_ ticks and starts, engage = seconds from first sight (within 60 m, 40 deg of the aim, clear line) to the first hit on that enemy, engage_dropped = sightings never hit (5 s unseen); scripts/human_profile.py reads it"),
             ("focus", "what the human looked at when it was written: unit slot, how it was picked, the eye, the view direction, the world point under the reticle"),
         ] {
             legend.insert(k.to_owned(), v.to_owned());
@@ -1244,6 +1355,35 @@ impl Ring {
                 .hitches
                 .as_ref()
                 .and_then(|h| h.try_lock().ok().map(|r| r.hitches())),
+            session: (self.session.out.unit >= 0 && !self.session.out.subject.is_empty())
+                .then(|| self.session.out.clone()),
+            why: self
+                .whys
+                .iter()
+                .enumerate()
+                .filter_map(|(i, w)| {
+                    let (gen, log) = w.as_ref()?;
+                    let rows: Vec<WhyOut> = log
+                        .rows()
+                        .map(|r| WhyOut {
+                            tick: r.tick,
+                            doing: r.doing,
+                            why: r.why,
+                            arc: if r.arc == u16::MAX {
+                                -1
+                            } else {
+                                i32::from(r.arc)
+                            },
+                            fail: r.failed,
+                        })
+                        .collect();
+                    (!rows.is_empty()).then_some(WhyUnit {
+                        id: i as u32,
+                        gen: *gen,
+                        rows,
+                    })
+                })
+                .collect(),
         }
     }
 }
@@ -1554,6 +1694,14 @@ impl BlackBox {
             panic!("OPENBF_BLACKBOX_PANIC: forced at tick {}", walk.sim.tick);
         }
         alarm
+    }
+
+    /// Add a `key=value` line to the header's environment list (a headless
+    /// run's own settings, card DPRX's proxy).
+    pub fn note_env(&mut self, key: &str, value: &str) {
+        let mut r = locked(&self.ring);
+        r.meta.env.push((key.to_owned(), value.to_owned()));
+        r.meta.env.sort();
     }
 
     /// One rendered frame's time and the window's size, for the header.

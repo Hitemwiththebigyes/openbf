@@ -469,10 +469,10 @@ fn exit_2_forty_five_seconds_with_no_shot_in_twenty() {
 }
 
 /// Exit 3: hit from behind a turret whose arc is the front 120 degrees ->
-/// out at the next think; hit from inside the arc -> stays. Under 30 % of
-/// its health -> out; at 35 % -> stays.
+/// out at the next think; hit from inside the arc -> stays. A turret low on
+/// health is not left (no bail-out since 2026-10-28): at 5 % it stays.
 #[test]
-fn exit_3_hit_from_outside_every_arc_or_the_turret_under_thirty_percent() {
+fn exit_3_hit_from_outside_every_arc_and_no_low_health_bail_out() {
     let hit = DamageDesc {
         damage: 10.0,
         scales: [1.0; 7],
@@ -500,7 +500,7 @@ fn exit_3_hit_from_outside_every_arc_or_the_turret_under_thirty_percent() {
         assert_eq!(out.is_some(), leaves, "from behind {from_behind}");
         assert_eq!(sc.s.nav_stats.man_codes[3], u64::from(leaves));
     }
-    for (share, leaves) in [(0.25, true), (0.35, false)] {
+    for (share, leaves) in [(0.05, false), (0.35, false)] {
         let mut sc = scene(
             Vec3::new(3.0, 0.0, 10.0),
             Vec3::new(4.0, 0.0, 30.0),

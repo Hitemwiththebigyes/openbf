@@ -1,10 +1,26 @@
 use super::{buttons, Event, PadState, Sim};
 use crate::collision::{Capsule, HullFilter};
 use crate::projectile::{Bolt, Shooter};
-use crate::remote::{Droid, DroidClass, DroidEnd, StrikeRun, BOT_RANGE, BOT_RECALL, RADIUS};
+use crate::remote::{
+    Droid, DroidClass, DroidEnd, StrikeRun, BOT_BLAST, BOT_CROWD, BOT_FIGHT, BOT_FLIGHT, BOT_GUARD,
+    BOT_LOW, BOT_RANGE, BOT_RECALL, BOT_REST, RADIUS,
+};
 use crate::unit::{Controller, UnitHandle};
 use crate::weapon::{shot_direction, FireInput};
 use glam::Vec3;
+
+/// Card DROIDAI: what a bot's flight does this tick.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum BotFlight {
+    /// Flies on.
+    Fly,
+    /// Starts the destruct's countdown and flies on.
+    Destruct,
+    /// Hands control back: the body goes in itself.
+    Home,
+    /// Starts the countdown and hands control back.
+    DestructHome,
+}
 
 impl Sim {
     pub fn controlled_droid(&self, h: UnitHandle) -> Option<&Droid> {
@@ -107,38 +123,114 @@ impl Sim {
             self.droids[k].controlled = false;
             return None;
         }
-        let pad = if self.units[i].controller == Controller::Ai {
+        let bot = self.units[i].controller == Controller::Ai;
+        let (pad, flight) = if bot {
             self.bot_droid_pad(k)
         } else {
-            unit_pads.get(i).copied().unwrap_or_default()
+            (
+                unit_pads.get(i).copied().unwrap_or_default(),
+                BotFlight::Fly,
+            )
         };
+        if matches!(flight, BotFlight::Destruct | BotFlight::DestructHome) {
+            self.start_charge(k);
+        }
         let owner = self.droids[k].owner;
         self.take_remote_pad(owner, unit_pads);
         let d = &mut self.droids[k];
         let exit = pad.pressed(buttons::ACTION) && d.prev_buttons & buttons::ACTION == 0;
-        let bot_done = self.units[i].controller == Controller::Ai && d.idle > BOT_RECALL;
+        let bot_done = matches!(flight, BotFlight::Home | BotFlight::DestructHome);
         if exit || bot_done {
             d.controlled = false;
             let owner = d.owner;
-            self.release_remote(owner, pad.buttons);
+            self.release_droid(owner, pad.buttons);
             return None;
         }
         Some(pad)
     }
 
-    fn bot_droid_pad(&self, k: usize) -> PadState {
+    /// The destruct's countdown, started by a bot (a player's starts on his
+    /// press, in [`Sim::tick_droids`]).
+    fn start_charge(&mut self, k: usize) {
+        let d = &self.droids[k];
+        let has = self.weapon_classes[d.weapon_class]
+            .remote
+            .as_ref()
+            .is_some_and(|r| r.destruct.is_some());
+        if !has || d.charge.is_some() {
+            return;
+        }
+        let (pos, weapon_class) = (d.pos, d.weapon_class as u32);
+        self.droids[k].charge = Some(0.0);
+        self.events.push(Event::DroidCharge { pos, weapon_class });
+    }
+
+    /// Enemies on foot within `r` of `at`.
+    fn enemies_near(&self, team: u8, at: Vec3, r: f32) -> usize {
+        self.alive_units()
+            .filter(|(_, u)| u.team != team && u.mount.is_none())
+            .filter(|(_, u)| (u.soldier.pos + Vec3::Y).distance_squared(at) <= r * r)
+            .count()
+    }
+
+    /// Card DROIDAI [ours]: a bot's droid flight, one tick. The body comes
+    /// first: hit, or an enemy within `BOT_GUARD` with sight of it, ends the
+    /// flight; so do `BOT_FLIGHT` in the air and `BOT_RECALL` with no enemy
+    /// near the droid. An ending flight sets off the destruct when an enemy
+    /// is within `BOT_BLAST` of the droid. Flying, it shoots the nearest
+    /// enemy it sees within `BOT_RANGE`, else flies at the nearest enemy the
+    /// bot knows of; among `BOT_CROWD` enemies, or nearly dead
+    /// (`BOT_LOW`) beside one, it destructs.
+    fn bot_droid_pad(&self, k: usize) -> (PadState, BotFlight) {
         let d = &self.droids[k];
         let Some(r) = self.weapon_classes[d.weapon_class].remote.as_ref() else {
-            return PadState::default();
+            return (PadState::default(), BotFlight::Home);
+        };
+        let has_destruct = r.destruct.is_some() && d.charge.is_none();
+        let near = self.enemies_near(d.team, d.pos, BOT_BLAST);
+        let u = &self.units[d.owner.index as usize];
+        // (Hit on this tick or the last: the damage pass runs after this.)
+        let hit = u.last_hit.is_some_and(|(_, t)| t + 1 >= self.tick);
+        let body = u.capsule().center();
+        let seen = || {
+            self.alive_units().any(|(_, e)| {
+                e.team != u.team
+                    && e.soldier.pos.distance_squared(u.soldier.pos) <= BOT_GUARD * BOT_GUARD
+                    && crate::perception::los(self, e.muzzle(), body)
+            })
+        };
+        if hit || d.idle > BOT_RECALL || d.age >= BOT_FLIGHT || seen() {
+            let flight = if has_destruct && near > 0 {
+                BotFlight::DestructHome
+            } else {
+                BotFlight::Home
+            };
+            return (PadState::default(), flight);
+        }
+        let low = d.health < r.droid.max_health * BOT_LOW;
+        let flight = if has_destruct && (near >= BOT_CROWD || (low && near > 0)) {
+            BotFlight::Destruct
+        } else {
+            BotFlight::Fly
         };
         let blaster = &self.weapon_classes[r.blaster_index];
         let eye = d.pos;
-        let target = self
+        let seen_target = self
             .droid_enemies(d)
             .filter(|p| crate::perception::los(self, eye, *p))
             .min_by(|a, b| a.distance_squared(eye).total_cmp(&b.distance_squared(eye)));
-        let Some(target) = target else {
-            return PadState::default();
+        // Else the nearest enemy the bot (or a friend who told it) knows of.
+        let known = || {
+            u.ai.contacts
+                .iter()
+                .flatten()
+                .filter(|c| self.unit(c.handle).is_some_and(|e| e.alive))
+                .map(|c| c.last_pos + Vec3::Y)
+                .filter(|p| p.distance_squared(u.soldier.pos) <= BOT_FIGHT * BOT_FIGHT)
+                .min_by(|a, b| a.distance_squared(eye).total_cmp(&b.distance_squared(eye)))
+        };
+        let Some(target) = seen_target.or_else(known) else {
+            return (PadState::default(), flight);
         };
         let to = target - eye;
         let dist = to.length();
@@ -147,21 +239,25 @@ impl Sim {
         let yaw_err = crate::vehicle::gun::wrap(want_yaw - d.yaw);
         let pitch_err = want_pitch - d.pitch;
         let [_, optimal, max] = blaster.ai_range;
-        let forward = if dist > optimal {
+        let forward = if seen_target.is_none() || dist > optimal {
             1.0
         } else if dist < optimal * 0.5 {
             -0.5
         } else {
             0.0
         };
-        let fire = yaw_err.abs() < 0.15 && dist <= max && d.prev_buttons & buttons::FIRE == 0;
-        PadState {
+        let fire = seen_target.is_some()
+            && yaw_err.abs() < 0.15
+            && dist <= max
+            && d.prev_buttons & buttons::FIRE == 0;
+        let pad = PadState {
             ly: PadState::quantize(forward),
             rx: PadState::quantize(-yaw_err * 2.0),
             ry: PadState::quantize(pitch_err * 2.0),
             buttons: if fire { buttons::FIRE } else { 0 },
             ..PadState::default()
-        }
+        };
+        (pad, flight)
     }
 
     fn droid_enemies(&self, d: &Droid) -> impl Iterator<Item = Vec3> + '_ {
@@ -190,8 +286,9 @@ impl Sim {
                 .unit(d.owner)
                 .map(|u| (u.is_player, u.look_scale(), u.controller));
             let Some((is_player, look, controller)) = owner else {
+                // [ours] The owner died: the droid vanishes, no explosion.
                 self.droids.remove(k);
-                self.droid_gone(&d, DroidEnd::Recalled);
+                self.droid_gone(&d, DroidEnd::OwnerDied);
                 continue;
             };
             let pad = routed.unwrap_or_default();
@@ -215,8 +312,9 @@ impl Sim {
                 ground,
             );
             self.droid_walls(&mut d);
+            // [ours] A 90 s clock, apart from health; the timeout is quiet.
             let mut end = if d.alive() {
-                d.drain(&c, dt)
+                d.age_by(dt)
             } else {
                 Some(DroidEnd::Destroyed)
             };
@@ -243,6 +341,7 @@ impl Sim {
                     held: fire,
                     blocked: false,
                     infinite_ammo: false,
+                    no_reload: false,
                     ai_dispersion: None,
                 },
                 &mut self.lcg,
@@ -250,7 +349,7 @@ impl Sim {
             );
             if !shots.is_empty() {
                 let who = Shooter {
-                    owner: d.owner,
+                    owner: self.item_owner(d.owner, d.team),
                     team: d.team,
                     weapon_class: blaster,
                     is_player,
@@ -269,7 +368,7 @@ impl Sim {
                     self.destruct(&d);
                 }
                 if d.controlled {
-                    self.release_remote(d.owner, d.prev_buttons);
+                    self.release_droid(d.owner, d.prev_buttons);
                 }
                 self.droid_gone(&d, end);
                 continue;
@@ -285,9 +384,23 @@ impl Sim {
         }
     }
 
+    /// The owner takes his own pad back from a remote (droid or guided
+    /// rocket); the held buttons do not re-press.
     pub(super) fn release_remote(&mut self, owner: UnitHandle, buttons: u32) {
         if let Some(u) = self.unit_mut(owner) {
             u.soldier.set_prev_buttons(buttons);
+        }
+    }
+
+    /// [`Sim::release_remote`] for a droid flight.
+    fn release_droid(&mut self, owner: UnitHandle, buttons: u32) {
+        self.release_remote(owner, buttons);
+        let rest = self.tick + (BOT_REST * crate::TICK_HZ as f32) as u64;
+        if let Some(u) = self.unit_mut(owner) {
+            // Card DROIDAI: a bot rests from its droid after a flight.
+            if u.controller == Controller::Ai {
+                u.ai.droid_rest = rest;
+            }
         }
     }
 
@@ -395,7 +508,8 @@ impl Sim {
         let burst = x.burst.clone();
         self.strikes.extend(strike);
         if let Some(e) = burst {
-            self.explode(&e, d.pos, Some(d.owner), Some(d.team));
+            let owner = self.item_owner(d.owner, d.team);
+            self.explode(&e, d.pos, Some(owner), Some(d.team));
         }
     }
 
@@ -406,8 +520,9 @@ impl Sim {
             end,
         });
         let e = self.droid_class(d).and_then(|c| c.explosion.clone());
-        if let Some(e) = e {
-            self.explode(&e, d.pos, Some(d.owner), Some(d.team));
+        if let Some(e) = e.filter(|_| end.explodes()) {
+            let owner = self.item_owner(d.owner, d.team);
+            self.explode(&e, d.pos, Some(owner), Some(d.team));
         }
     }
 
@@ -437,11 +552,15 @@ impl Sim {
             let (origin, dir) = s.shot(run.target, draws);
             let (shell, delay) = (r.shell_index, s.delay);
             let ord = &self.weapon_classes[shell].ordnance;
+            let owner = self.item_owner(run.owner, run.team);
             let who = Shooter {
-                owner: run.owner,
+                owner,
                 team: run.team,
                 weapon_class: shell,
-                is_player: self.unit(run.owner).is_some_and(|u| u.is_player),
+                is_player: self
+                    .units
+                    .get(owner.index as usize)
+                    .is_some_and(|u| u.is_player),
             };
             let bolt = self.free_bolt(origin, dir, ord.velocity, ord.life_span, who);
             self.bolts.push(bolt);

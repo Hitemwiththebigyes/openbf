@@ -79,6 +79,7 @@ impl Sim {
             boosted: false,
             prev_buttons: u.soldier.prev_buttons() | buttons::FIRE,
             pending_end: None,
+            blind: 0.0,
         });
         let last = self.guided.len() - 1;
         if let Some(at) = self.guided_contact(&self.guided[last], origin) {
@@ -103,14 +104,22 @@ impl Sim {
                 routed.push(PadState::default());
                 continue;
             };
-            let pad = if u.controller == Controller::Ai {
-                self.bot_guided_pad(k)
+            let (pad, lost) = if u.controller == Controller::Ai {
+                match self.bot_guided_pad(k) {
+                    Some(pad) => (pad, false),
+                    None => (PadState::default(), true),
+                }
             } else {
-                pads.get(owner.index as usize).copied().unwrap_or_default()
+                (
+                    pads.get(owner.index as usize).copied().unwrap_or_default(),
+                    false,
+                )
             };
             self.take_remote_pad(owner, pads);
             let r = &mut self.guided[k];
-            if pad.buttons & !r.prev_buttons & buttons::ACTION != 0 {
+            r.blind = if lost { r.blind + crate::TICK_DT } else { 0.0 };
+            let blind = r.blind >= crate::guided::BOT_BLIND - crate::TICK_DT * 0.5;
+            if blind || pad.buttons & !r.prev_buttons & buttons::ACTION != 0 {
                 r.pending_end = Some(GuidedEnd::Returned);
             } else if pad.buttons & !r.prev_buttons & buttons::SECONDARY_FIRE != 0 {
                 r.pending_end = Some(GuidedEnd::Destroyed);
@@ -121,22 +130,22 @@ impl Sim {
         routed
     }
 
-    fn bot_guided_pad(&self, k: usize) -> PadState {
+    /// A bot's steering toward its target's aim point; `None` with no
+    /// target it sees (lost, cloaked or behind cover).
+    fn bot_guided_pad(&self, k: usize) -> Option<PadState> {
         let r = &self.guided[k];
         let target = self.unit(r.owner).and_then(|u| u.ai.target).and_then(|h| {
             self.unit(h)
                 .filter(|e| e.cloak.visible())
                 .map(|u| u.aim_point())
         });
-        let Some(target) = target.filter(|p| crate::perception::los(self, r.pos, *p)) else {
-            return PadState::default();
-        };
+        let target = target.filter(|p| crate::perception::los(self, r.pos, *p))?;
         let local = r.rot.inverse() * (target - r.pos).normalize_or_zero();
-        PadState {
+        Some(PadState {
             rx: PadState::quantize(crate::fmath::atan2(local.x, -local.z) * 2.0),
             ry: PadState::quantize(crate::fmath::asin(local.y.clamp(-1.0, 1.0)) * 2.0),
             ..Default::default()
-        }
+        })
     }
 
     pub(super) fn tick_guided(&mut self, pads: &[PadState], dt: f32) {
@@ -190,7 +199,8 @@ impl Sim {
                 .and_then(|c| c.explosion(end))
                 .cloned();
             if let Some(e) = explosion {
-                self.explode(&e, r.pos, Some(r.owner), Some(r.team));
+                let owner = self.item_owner(r.owner, r.team);
+                self.explode(&e, r.pos, Some(owner), Some(r.team));
             }
             self.events.push(Event::GuidedGone {
                 pos: r.pos,
@@ -258,7 +268,11 @@ impl Sim {
                 offer(t);
             }
         }
-        for d in self.droids.iter().filter(|d| d.owner != r.owner) {
+        for d in self
+            .droids
+            .iter()
+            .filter(|d| d.owner.index != r.owner.index)
+        {
             if let Some(t) =
                 crate::unit::ray_sphere(from, dir, d.pos, crate::remote::RADIUS + RADIUS)
             {

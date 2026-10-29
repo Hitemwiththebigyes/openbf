@@ -801,7 +801,10 @@ impl Opt {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SessionOptions {
     pub num_bots: i32,
-    /// 1 Easy, 2 Normal, 3 Elite (`iDifficulty`; the profile's).
+    /// The AI tier, 1 Easy, 2 Normal, 3 Hard, 4 Elite (the profile's;
+    /// [`DIFFICULTY_LEVELS`]). A named deviation: the PS2's `iDifficulty` is
+    /// 1 Easy, 2 Normal, 3 Elite with only 2 <-> 3 reachable (the maintainer,
+    /// 2026-10-28: the port's four tiers replace the PS2's three).
     pub difficulty: i32,
     pub heroes: bool,
     /// 3 Points or 5 Timer.
@@ -825,9 +828,10 @@ pub struct SessionOptions {
 
 impl Default for SessionOptions {
     /// The PS2's values (§2.3, menuref "Session Options" table [M]): 16 AI,
-    /// Normal, 100 %, timers Off, CTF 5, Hunt 5 min / 50, Assault 180;
-    /// Heroes Off, Unlock Points, first to 10 points, Best Player, Timer
-    /// 90 s (`so_hero`, `sheets/hero_all_steps.png`).
+    /// Normal (ours: 2 = Normal, the port's default tier), 100 %, timers Off,
+    /// CTF 5, Hunt 5 min / 50, Assault 180; Heroes Off, Unlock Points, first
+    /// to 10 points, Best Player, Timer 90 s (`so_hero`,
+    /// `sheets/hero_all_steps.png`).
     fn default() -> Self {
         SessionOptions {
             num_bots: 16,
@@ -886,9 +890,10 @@ impl SessionOptions {
                 self.ctf_numbots = self.num_bots;
                 self.ass_numbots = self.num_bots;
             }
-            // `5 - x`: Normal <-> Elite; `[ours]` Easy (unreachable on the
-            // PS2, 5 - 1 has no text) goes to Normal.
-            Opt::AiDifficulty => self.difficulty = if self.difficulty == 2 { 3 } else { 2 },
+            // `[ours]` the four tiers, a step per press, clamped like the
+            // other rows (L1/R1 go to the ends). The PS2's row toggles
+            // `5 - x`, Normal <-> Elite (a named deviation, the maintainer 2026-10-28).
+            Opt::AiDifficulty => self.difficulty = clamp(self.difficulty + d, 1, DIFFICULTY_LEVELS),
             Opt::HeroesOnOff => self.heroes = !self.heroes,
             Opt::HeroUnlock => self.hero_unlock = if self.hero_unlock == 3 { 5 } else { 3 },
             Opt::HeroUnlockVal => self.hero_unlock_val = clamp(self.hero_unlock_val + d, 1, 120),
@@ -1103,6 +1108,10 @@ const SMALL_TEXTS: [(&str, &str); 8] = [
     ("common.mp.options", "Options"),
 ];
 
+/// The AI Difficulty row's levels, 1..=this: Easy, Normal, Hard, Elite
+/// ([`SessionOptions::difficulty`]).
+pub const DIFFICULTY_LEVELS: i32 = 4;
+
 impl IaTexts {
     pub fn new(text: &dyn Fn(&str, &str) -> String) -> IaTexts {
         let t = |k: (&str, &str)| text(k.0, k.1);
@@ -1262,12 +1271,16 @@ impl IaTexts {
             Opt::CtfNumBots => pieces(num, &[&n(v.ctf_numbots)]),
             Opt::AssNumBots => pieces(num, &[&n(v.ass_numbots)]),
             Opt::AiDifficulty => {
-                let key = match v.difficulty {
-                    1 => "ifs.difficulty.easy",
-                    3 => "ifs.difficulty.hard",
-                    _ => "ifs.difficulty.medium",
+                // BF2's words where it has them (`ifs.difficulty.easy`
+                // "Easy", `.medium` "Normal", `.hard` "Elite"); `[ours]` Hard,
+                // English (BF2 has no "Hard": its Hard level shows "Elite").
+                let name = match v.difficulty {
+                    1 => self.get("ifs.difficulty.easy"),
+                    2 => self.get("ifs.difficulty.medium"),
+                    3 => "Hard",
+                    _ => self.get("ifs.difficulty.hard"),
                 };
-                pieces(self.get("ifs.mp.createopts.difficulty"), &[self.get(key)])
+                pieces(self.get("ifs.mp.createopts.difficulty"), &[name])
             }
             Opt::HeroesOnOff => pieces(
                 self.get("ifs.mp.createopts.heroes"),

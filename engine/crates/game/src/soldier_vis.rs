@@ -660,7 +660,7 @@ fn model_of(s: &core::soldier::Soldier) -> Mat4 {
 }
 
 mod grenade;
-use grenade::{drawn, drawn_weapon};
+use grenade::drawn;
 mod runtime;
 
 #[cfg(test)]

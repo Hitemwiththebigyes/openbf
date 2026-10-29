@@ -58,6 +58,7 @@ fn model() -> ui::hud::HudModel {
         capture: None,
         ambush: Vec::new(),
         spawn: None,
+        scope: None,
     }
 }
 
@@ -186,4 +187,188 @@ fn tat1_hud_ambush_matches_golden() {
     let (rgba, w, h) = r.capture_rgba().expect("capture");
 
     common::assert_golden(&common::goldens_dir().join("hud_ambush.png"), &rgba, w, h);
+}
+
+/// The player flying a remote droid, on a BF1 and a BF2 map, in the
+/// droid's third-person chase camera with the models drawn (the droid, the
+/// standing owner, a team mate's and an enemy's droid and their owners) and
+/// the HUD: BF2's blaster and destruct meshes in the weapon rows on both
+/// maps, the droid's time left in the stamina bar, and the minimap centred
+/// on the droid with the droid icons and the owner's body. Not a golden: it
+/// writes `engine/artifacts/lead_tmp/droidcam/<map>.png` to look at.
+#[test]
+#[ignore = "requires a GPU adapter + the baked maps"]
+fn droid_hud_picture() {
+    use core::sim::{buttons, PadState};
+    use core::unit::Controller;
+    use glam::Vec3;
+    common::force_ps2_tier();
+    let root = game::assets::baked_root();
+    let out = std::path::PathBuf::from(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../artifacts/lead_tmp/droidcam"
+    ));
+    std::fs::create_dir_all(&out).unwrap();
+    for (map, game, class, sides) in [
+        ("bf2_nab2", "bf2", "rep_inf_ep3_officer", ["rep", "cis"]),
+        ("bf1_tat2", "bf1", "all_inf_marksman", ["all", "imp"]),
+    ] {
+        let mut scene = game::assets::load_scene(&root.join(map)).expect("scene");
+        scene.apply_mode_layer("con");
+        let db = game::roster::load_classdb(&root.join("classes"), game, &sides).unwrap();
+        let roster = game::roster::ClassRoster::build(&db, class, 1, None).unwrap();
+        let mut sim = core::sim::Sim::empty(42);
+        scene.install_collision(&mut sim);
+        let uc = roster.register(&mut sim, &mut Vec::new());
+        let mut visual = game::walk::ClassVisual::from_roster(&roster);
+        visual.held_hud = roster
+            .held
+            .iter()
+            .map(|h| (h.slot, h.hud.clone()))
+            .collect();
+        let faction = game::roster::FactionRoster {
+            faction: sides[0].into(),
+            classes: vec![roster.clone()],
+        };
+        let t = game::walk::TeamTemplate::from_roster(&faction, &uc, vec![visual]);
+        let mut enemy = t.clone();
+        enemy.faction = sides[1].into();
+        let layout = game::layout::MapLayout::from_manifest(&scene.manifest);
+        let at = layout.cps.first().map_or(Vec3::ZERO, |c| c.pos) + Vec3::new(6.0, 0.0, 6.0);
+        let mut walk = game::walk::WalkSim::with_teams(
+            sim,
+            scene.heightfield(),
+            Vec3::new(at.x, 0.0, at.z),
+            [t.clone(), enemy.clone()],
+            None,
+        );
+        walk.add_posts(&layout);
+        // The player launches his droid and flies it forward a second.
+        let owner = walk.player;
+        let slot = roster
+            .held
+            .iter()
+            .find(|h| h.weapon.remote.is_some())
+            .unwrap()
+            .slot;
+        let u = &mut walk.sim.units[owner.index as usize];
+        for h in &mut u.held {
+            h.state.active = h.slot == slot;
+        }
+        u.cur1 = Some(u.held.iter().position(|h| h.slot == slot).unwrap() as u8);
+        let pad = |buttons: u32, ly: i16| PadState {
+            buttons,
+            ly,
+            ..Default::default()
+        };
+        for _ in 0..30 {
+            walk.sim.step(&[pad(buttons::SECONDARY_FIRE, 0)]);
+        }
+        for _ in 0..30 {
+            walk.sim.step(&[pad(0, i16::MAX / 2)]);
+        }
+        let mine = walk.sim.controlled_droid(owner).expect("flying").clone();
+        // A team mate's and an enemy's droid near it, for the colours.
+        let remote = walk.sim.weapon_classes[mine.weapon_class]
+            .remote
+            .clone()
+            .unwrap();
+        for (k, team, off) in [
+            (0u64, 0u8, Vec3::new(-8.0, 0.0, -6.0)),
+            (1, 1, Vec3::new(7.0, 0.0, -9.0)),
+        ] {
+            let tpl = if team == 0 { &t } else { &enemy };
+            let bot = walk
+                .sim
+                .spawn(&tpl.spec(
+                    team,
+                    mine.pos + off + Vec3::new(0.0, 0.0, 3.0),
+                    0.0,
+                    Controller::Ai,
+                    0,
+                ))
+                .unwrap();
+            let d = core::remote::Droid::new(
+                1000 + k,
+                bot,
+                team,
+                mine.weapon_class,
+                &remote,
+                mine.pos + off,
+                Vec3::ZERO,
+                0.7,
+                false,
+            );
+            walk.sim.droids.push(d);
+        }
+        let statics =
+            game::minimap::MapStatic::load(&scene, &root.join("classes"), &walk, &[], None);
+        let [weapon, weapon2] = game::hud_feed::weapon_rows(&walk);
+        let class = walk.sim.droid_class(&mine).unwrap();
+        let m = ui::hud::HudModel {
+            team_names: [sides[0].into(), sides[1].into()],
+            tickets: [150, 150],
+            hp: mine.health,
+            hp_max: class.max_health,
+            energy: mine.time_left(),
+            energy_max: core::remote::LIFETIME,
+            weapon,
+            weapon2,
+            reticle: Some(0),
+            reticle_y: walk.reticle_y(),
+            stats: Some(ui::hud::HudStats::default()),
+            map: Some(statics.model(&walk)),
+            ..model()
+        };
+        let m = ui::hud::HudModel { target: None, ..m };
+        let mut r = render::Renderer::new_headless(1280, 720).expect("headless renderer");
+        let gpu = upload_scene(&mut r, &scene).expect("upload");
+        let mut hud = game::hud_feed::HudView::for_renderer(&root, &r).expect("the BF2 HUD bake");
+        hud.update(&m, 0.0, [1280, 720]);
+        hud.update(&m, 1.0, [1280, 720]);
+        for name in ["player1weapon1mesh", "player1weapon2mesh", "player1map"] {
+            println!("{map} {name}: {:?}", hud.bounds(name));
+        }
+        // The models: the standing owner, the bots and every droid's own.
+        let mut vis = game::soldier_vis::SoldierVisuals::for_walk(&mut r, &root, &scene, &walk);
+        for _ in 0..10 {
+            vis.update(&walk, core::TICK_DT);
+        }
+        let mut draws = gpu.draws.clone();
+        let props = vis.weapon_draws(&walk);
+        // The flown droid's own model draws, in front of the camera and on
+        // screen (in first person it could have sat behind the near plane).
+        let cam = walk.camera();
+        let at = |m: &glam::Mat4| m.transform_point3(Vec3::ZERO);
+        let own: Vec<_> = props
+            .iter()
+            .filter(|d| at(&d.model).distance(mine.pos) < 1e-3)
+            .collect();
+        assert!(!own.is_empty(), "{map}: the flown droid's model draws");
+        let c = cam.view_proj(1280.0 / 720.0) * (mine.pos + Vec3::Y * 0.15).extend(1.0);
+        let (x, y) = (c.x / c.w, c.y / c.w);
+        assert!(
+            c.w > 1.0 && x.abs() < 0.2 && (-0.9..0.0).contains(&y),
+            "{map}: ({x}, {y})"
+        );
+        draws.extend(props);
+        let skinned = vis.draws(&walk);
+        println!(
+            "{map}: camera {:?} droid {:?} ({:.2} m), droid on screen at ({x:.2}, {y:.2})",
+            cam.position,
+            mine.pos,
+            cam.position.distance(mine.pos)
+        );
+        r.render_frame(
+            &cam,
+            &draws,
+            &skinned,
+            gpu.clear,
+            Some(&mut |dev, q, enc, view, size| hud.paint(dev, q, enc, view, size)),
+        )
+        .expect("render");
+        let (rgba, w, h) = r.capture_rgba().expect("capture");
+        let png = render::encode_png_rgb(&rgba, w, h).expect("png");
+        std::fs::write(out.join(format!("{map}.png")), png).unwrap();
+    }
 }

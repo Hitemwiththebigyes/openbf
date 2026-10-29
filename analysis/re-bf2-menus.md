@@ -185,7 +185,7 @@ Step = the Left/Right step; L1/R1 multiply it by 10. Clamp(v, lo, hi) (main.f5) 
 | group | tag | text (English) | field | step | range | default | what it changes |
 |---|---|---|---|---|---|---|---|
 | Global | numbots | "AI Units Per Team: < n >" | `iNumBots` | 1 | 0 .. `iMaxBots` = **0 .. 16** [M menuref `so_global`] | 16 [M] (`DAT_0066ca88`, runtime) | AI per team; a change also copies the value into con / ctf / eli / ass numbots (pc 12-29) |
-| Global | aidifficulty | "AI Difficulty Level: < Normal >" | `iDifficulty` | toggle `5 - x` | 2 "Normal" <-> 3 "Elite" (1 "Easy" shows but cannot be reached) | profile's difficulty (profile+0x3c, `ScriptCB_GetNetGameDefaults` B2 44185-44198, clamp 1..3) [M Normal] | the bots' skill level (`analysis/re-ai-difficulty.md`) |
+| Global | aidifficulty | "AI Difficulty Level: < Normal >" | `iDifficulty` | toggle `5 - x` | 2 "Normal" <-> 3 "Elite" (1 "Easy" shows but cannot be reached) | profile's difficulty (profile+0x3c, `ScriptCB_GetNetGameDefaults` B2 44185-44198, clamp 1..3) [M Normal] | the bots' skill level (`analysis/re-ai-difficulty.md`); **the port replaces this row's three levels with its four tiers, §7** |
 | Hero | heroes_onoff | "Heroes: < On/Off >" | `bHeroesEnabled` | toggle | | **Off** [M menuref `so_hero`] | heroes in the battle; Off hides the other hero rows (main.f8 pc 3-14) |
 | Hero | hero_unlock_1 | "Unlock Hero: < Points / Timer >" | `HeroPrefs.iHeroUnlock` | toggle 3 <-> 5 | only Points (3) and Timer (5) reachable; texts exist for 1-6 | Points [M menuref `so_hero`] | the unlock rule |
 | Hero | hero_unlock_2 | "First to < n > points" / "< n > seconds" (by rule) | `iHeroUnlockVal` | 1 | 1 .. 120 | 10 [M menuref `so_hero_ranges`] | the unlock threshold |
@@ -1175,6 +1175,16 @@ are BF1-only; the BF2 ground maps without a BF1 counterpart are cor1 dag1 dea1 f
   rows inside a group the port ignores.
 - **Era**: the PS2 era list stays (Clone Wars / Galactic Civil War / All Eras); the port's cross-era pairing
   (re-bf2-shell §9.6) is an extra row after "All Eras" [ours].
+- **AI Difficulty Level = the port's four tiers** (a named deviation, the maintainer 2026-10-28). The PS2 row's levels (1 Easy,
+  2 Normal, 3 Elite; only Normal <-> Elite reachable, §2.3) are replaced by **Easy, Normal, Hard, Elite**, one
+  step per Left / Right and clamped at both ends like the other rows (L1/R1 go to the ends; no wrap). Easy is the
+  PS2's Normal (base skill 14), Normal the PS2's Elite (17), Hard and Elite are ours and harder than anything the
+  PS2 has (`engine/crates/core/src/skill.rs` has the table). Normal is the default, so the row reads "< Normal >"
+  like the PS2's frame. Words: BF2's own `ifs.difficulty.easy` "Easy", `ifs.difficulty.medium` "Normal" and
+  `ifs.difficulty.hard` "Elite" (BF2's word for its top level, here the port's top tier); "Hard" is ours, English
+  (BF2 has no "Hard" text). The four names were Normal, Hard, Elite, Legendary for part of 2026-10-28 (same rows,
+  one step up); the maintainer renamed them the same day. `ui::shell::SessionOptions::difficulty` holds 1..=4 in that order;
+  the value is the profile's tier and is saved when Session Options is left.
 - **Launch**: the PS2 hands the whole playlist to the engine (`ScriptCB_SetMissionNames`) and plays it in order; the
   port must queue the playlist the same way (map, mode, era per row) - a single-map launch is a deviation.
 

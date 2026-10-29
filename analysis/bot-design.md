@@ -291,7 +291,9 @@ each tick and giving the last winner a bonus.
 - **The last leg ends outside every barrier:** the PS2's planner refuses a goal that is not clear [P 2]. Today 39 %
   of the bots stalled on a last leg at a post stand inside a barrier, 62 % inside one grown 0.5 m [M3].
 - **Flank routes** (OURS, 6.2): per ordered post pair, at load, the best other route within +35 %, a hub list.
-- **Every walk has an outcome** - Following, Arrived, Failed(why) - and the behaviour that asked handles all three.
+- **Every walk has an outcome** - Following, Arrived, Failed(why) - and the behaviour that asked handles all three. Card WHY
+  (2026-10-28) records the why: a code on every failed walk and every behaviour change (`core::ai::why`), in the
+  black box and counted per map by the sweep's census.
 
 ### 4.6 Tactician - OURS: the PS2's cover use, made honest
 Asked with (bot, target or approach, weapon band, purpose) it answers one position or none. The order is the one
@@ -319,6 +321,10 @@ expensive test from the best down [X4, X8]:
 | 0.5 | the bot's own bias, from its fixed number [P 4.4]: two bots in one place choose differently, one bot keeps a character |
 
 - **Confirm** the winner with one ray from its firing point to the target; on a miss the next two.
+- **Hysteresis** (card HYST, 2026-10-28): a query that may replace the position held (the 5-12 s timer, the open
+  position's ask for cover) scores the held one beside its candidates, and another is taken only when it scores
+  15 % more; each score term is held to 0-1. A walk that from inside the band closes on the target by over 4 m and
+  40 % of the way to it, heading at it, is filtered out (The Last of Us' "rush forward to take cover").
 - **Keep it** while its conditions still hold - reserved for this bot, cover from the target, inside the band, not
   compromised - asked each think with no scoring (the "still good enough" re-check [X8]). A position where the
   bot was hit twice, or that its target has walked round, is compromised and left (D7).
@@ -389,7 +395,7 @@ A seated bot's gun stays `gunner.rs` [C].
 | the post | by the commander's rules | until done | the PS2's four triggers (re-conquest-goal 0) |
 | the role | once a second | 20 s | its task ends |
 | the behaviour | every think | its own minimum (4.4) | an allowed interrupter; one change per think |
-| the position | its conditions every think; a new query on a failure, else after 5-12 s | until reached, then its hide / fire cycle | a condition fails: reservation, cover from the target, the band, compromised |
+| the position | its conditions every think; a new query on a failure, else after 5-12 s | until reached, then its hide / fire cycle | a condition fails: reservation, cover from the target, the band, compromised; or another scores 15 % more (card HYST) |
 | a MoveRequest's destination | every think | - | it moves more than 0.5 m |
 | the side round an obstacle | when a new obstacle is met | until that obstacle is behind | a dead end, once |
 | the heading | every 3rd tick | - | turning costs, reversing costs most |
@@ -471,6 +477,12 @@ BF2 added limits that a failing walk resets.
   nearest hub it can stand level with, along the floor (card RETW); (3) give the goal up - the Tactician offers
   another position, or the commander draws again without this post; (4) after 120 s the recycle [C RCYC], which
   stays as the last resort and is counted, by spot, as a defect.
+- **Unseen, not recycled** (D23, card UNSN): where step (4) would recycle a bot on the level, it is moved to a hub of
+  its route past the failing link (within 60 m, on its floor, clear of bodies and soldiers) while no human player has
+  a line to the bot or the spot; with a human watching, the recycle stays. Every move is still a defect in the census.
+- **Failed links are remembered** (D20, card ARCM): step (1)'s re-plan does not draw again an arc whose walk failed
+  twice running; the team drops an arc three of its bots failed; a back-and-forth at the waypoint fails the window at
+  once.
 - **The endgame hunts** (10 tickets or fewer, or 3 or fewer alive): nobody guards, snipes or mans a turret.
 - **The sweep counts it** (B9): alive, on foot, not fighting, under 2 m in 20 s, and the behaviour is not Guard,
   Overwatch, Capture or Man. BOTM measures the PS2's own "idle 20 s and not fighting" at 3-21 % [B].
@@ -489,6 +501,7 @@ and adds what each tier DOES. Every number is OURS and PROVISIONAL; the feel is 
 | first shot after first sight (today's column) | 0.50 s | 0.30 s | 0.20 s | 0.17 s |
 | aim sharpens the longer its target stays in view | the PS2's error decay by skill, kept | | | |
 | bots that may fire at one human at once | 2 | 4 | no limit | no limit |
+| hit tokens per human (card TOKN, built: the rest fire beside him; held 5 / 4 / 3 s; near miss 1.8 / 1.4 / 1.0 m) | 1 | 2 | 4 | off (6 pending the user) |
 | fires when the aim is within | 6 deg | 3 deg | 2 deg | 2 deg |
 | bursts beyond 40 m | full | full | short (2-3) | short (2-3) |
 | takes a covered position, per opportunity | 25 % | 50 % (the PS2's draw) | 75 % | 90 % |
@@ -517,6 +530,19 @@ good (but still human)" [X5]; and limiting how many shoot at the player at once 
 is (Half-Life gave each squad two attack slots [X11]; Amalur scales the budget with the difficulty [X12]) - it is
 PLAN's "per-human pressure" layer, here only at Easy and Normal. Card TIER measures today's four tiers over 8
 seeds before TCMP changes anything.
+
+**2026-10-28 (the maintainer), card DRETIRE [ours]:** the damage into a human is gone at every tier ("Dying faster from a few
+bullets is a cheap way to do this. We should make the competition actually stiffer, not just give the enemy better
+weapons"): no `Tier::human_damage`, no `human_damage_on` host option. The human-target preference (pressure) is a
+different lever, whom a bot picks, and stays.
+
+**2026-10-28 (the maintainer), card DTEAM [ours]:** only humans change bot skill, per team (`skill::team_skill`). A team's
+human surplus (its humans minus the other's, never below 0, capped at 3) lowers its own bots by the tier's offset
+per surplus human: Easy 0, Normal -1 (floor 14), Hard and Elite -3 (floor 11, the PS2's teammates); they play the
+row that skill falls in, so Elite's extras are off on them. The other team keeps the tier's row; equal humans
+(0v0, 1v1, 2v2) keep both rows. Set at each bot's spawn; a 0v0 round is hash-for-hash unchanged. No map or side
+bias is touched. Measured with one stand-in human on team 1 (`SWEEP_HUMAN_TEAM=1`), 8 maps x 8 seeds, team 1's
+wins: Elite 29/64 -> 15/64 (margin -13 -> -51), Normal 32/64 -> 30/64 (-1 -> -13).
 
 ## 8. SAIR's table, a verdict per row
 
@@ -586,6 +612,12 @@ No "classic bots" option (the maintainer, 2026-10-02). Each line: what the PS2 d
 | D17 | a unit is located like a goal - 3-D (BF1 hub sphere; both games' corridors and nearest arc), no level rule - and a route from an arc starts at the end its draw runs along, else the farther end [RE_LOG "Arrival and locate", audit 2026-10-03] | where a unit stands (a route's start, a hunt's quarry, a boarding, an order's goal) is located in XZ, the first containing corridor, the nearer end, with the level rule (`NavGraph::locate_unit_on`, `route::level_hub`); a post is located as the PS2 does | measured, card LOC3, 32 seeds x 32 maps against main 9f2aa09 (`lead_tmp/loc3/ab/perseed_A_C.txt`): the PS2's unit locate and start cost 1,315 recycles against 838, 1,022 of 1,024 rounds finished against 1,024, 12 maps worse beyond seed noise (BF2 Utapau kills / min 27.8 -> 16.9, BF1 Bespin Platforms 30.0 -> 19.7, BF2 Polis Massa recycles / round 0.72 -> 5.72), one better (BF2 Dagobah 2.50 -> 0.25). PROVISIONAL: to be run again when the mover cards have landed (card LOC3B) |
 | D18 | stuck = under 2 m from an anchor in 3 s, or no progress to the node for 5 s; a node is reached at 1.0 m, the last at 0.5 m [P 2] | the 2 s progress window with its re-plan and side-step, six failed windows give the goal up; a node at 1.5 m, the last at 1.0 m (`ai.rs`: `STUCK_WINDOW`, `GIVE_UP_AFTER`, `ARRIVE_MIN_RADIUS`, `CORNER_ARRIVE`) | measured twice, each rule behind its own switch in one binary: card MOVR on the old wall slide, card MOVR2 on card OBST's steering - 24 seeds x 32 maps against main c0794eb, paired by seed (`lead_tmp/movr2/ab/c_*/seeds.md`, `tools/perseed_rec.py`). **The clock** (with the window's own cure): recycles 199 -> 196, deaths off the level ("lost") 21 -> 98 (t +8.6) and in death regions 201 -> 320 (t +5.3) - BF2 Mygeeto's bots stay on the wall-follow round `myg1_bldg_spiral_platform1` (hub 78) until they are up on it; POL1's staying path 12.5 -> 15.7 m. **Node 1.0 m**: alone it passes (recycles 199 -> 153, t -1.7; B1 / B2 better in 11 of 12 cells), on top of the PS2's leg aim it adds nothing (156 -> 162) and "lost" deaths double (19 -> 40, t +2.8 against main). **Last node 0.5 m**: POL1 pinball 3.55 -> 3.90 %, staying path 12.5 -> 18.1 m, reversals 1.36 -> 1.85. **Give up at the 3rd failed window, not the 6th**: recycles 199 -> 155 (t -2.3), but POL1's staying path goes over its bar (14.3 m) and 3 rounds of 768 do not end against 1. The leg aim of the same paragraph IS the PS2's now (recycles 199 -> 156, t -1.8). To be run again after cards OBSR, OBST2 and TPOS: the stays at a wall and the holders' shuffles are what a tighter radius and a slower clock lengthen [H] |
 | D19 | a bot boards a building turret once its body sphere is within the two radii + 1.5 m (BF2 `FUN_002c42d8`) / + 0.5 m (BF1 `FUN_00244848`), 3-D, and waits at a turret its walk cannot reach (BF1 with no timer, BF2 behind a 30 s clock the failing walk resets) [P 7.2, 7.5] | the same reach (card TBRD; before it the port boarded from radius + 5 m + 2 m in XZ, about 10 m, and 190 of 320 BF1 Bespin 2 turret boards came from over 2 m below or above the gun); a bot inside the reach in XZ whose centre is over 2 m above or below the turret's origin (`ai::OTHER_FLOOR`) gives the claim up at once and the turret is closed to it, where it stood out the claim's 30 s | the maintainer, 2026-10-20: bots "teleport" into turrets from about 10 ft; standing under a balcony gun for 30 s reads as stuck. The turret's radius is still the 3 m placeholder (`VEHICLE_RADIUS`; the PS2 reads its collision sphere, not baked for buildings) [H]. Measured 8 seeds x 32 maps (`engine/artifacts/tbrd/README.md`) |
+| D20 | a BF2 walk that fails restarts its limit and may draw the same arc again; BF1's stalls on it; the stuck test is a clock (under 2 m in 3 s, or no progress for 5 s) [P 2, 10c] | an arc whose walk fails twice running, or on which the bot goes back and forth (three turns of over 1 m toward and away from its waypoint inside 5 s with no new ground; not while it goes round a body), is closed to that bot for 60 s; an arc closed by 3 of a team's bots in turn leaves that team's route draw for the round; a bot drawn round one walks the fewest-arcs way without it to the same goal; with no other way the arc is kept (`ai::arcm`, card ARCM) | modern.md A1 (Pogamut's failed-link report, Halo 2's failure memory) and A2 (Pogamut's distance detector); measured 6 seeds x 34 maps against card WHY (`lead_tmp/botre/runs/ARCM/seeds`): time in Recover 1.52 -> 1.47 % of foot time (1.26 -> 1.11 % without BF1 Bespin 1, whose failing arc has no other way), unexplained standing (stand20) 10,124 -> 9,164, recycles 25 -> 19, stuck_max per-map median 180 -> 120 and max 600 -> 360, 204/204 finished. The detector waits while a bot goes round a body under its allowance (card OBST's one-side rule). Without the hub-by-hub detour, table and detour taken in turn went round in loops (BF1 Rhen Var 1: 32 recycles against 2) |
+| D21 | BF2: a bot thinks at the next step on a threat entry for a HUMAN unit only, else on its interval; BF1 on its round [`re-ai-think-rate.md` 4, 7]; a timer move takes "another qualifying hint" [P 4.6] | a hit, an enemy bolt within 2 m or a new enemy in sight within 20 m wakes a bot at the next tick (at most every 0.1 s); the timer and the open spot's ask keep the held position unless another scores 15 % more; no cover reached by running at the enemy (`ai::wake`, `tactic::choose`, card HYST) | modern.md B1-B3; measured 6 seeds x 34 maps against card ARCM (`lead_tmp/botre/runs/HYST/seeds`): position flips per fight-minute 2.02 -> 1.71, unexplained standing (stand20) 9,164 -> 8,389, time in Recover 1.47 -> 1.36 %, B12 cover 15.27 -> 15.61 %, contact20 13.81 -> 13.44 %, 204/204 finished, recycles 19 -> 19 |
+| D22 | BF1 Yavin Temple authors 51 Cover hints [`lead_tmp/botre/xbox_pc.md` 2.2] | it also has BF2 Yavin Temple's (973 on the same graph, hubs 85 / 85): 409 added at bake, the rest deep in a barrier, off the graph or on BF1's own (`bake::donor`, card COVR); Bespin Platforms and Rhen Var Harbor not (a fan conversion's data, unchecked) | the bot design's hint gap (M1, M6); measured 24 seeds of BF1 Yavin 1 (`lead_tmp/botre/runs/COVR/seeds`): fight time at a Cover hint 335 -> 5,965 s, contact20 10.2 -> 11.3 %, kills per foot-minute 0.98 -> 1.05, B12 17.6 -> 17.7 %, body failures 290 -> 861 (BF2 Yavin's own rate), 24/24 finished |
+| D23 | a bot that cannot go on stays where it is (BF1) or restarts its walk (BF2); nothing moves it [P 2, 10c] | a bot the stall watch gives up on the level (card RCYC's recycle, 120 s without net progress or 10 failed windows at one place) is moved to the far end of its failing leg, else the next hub or two toward its goal (60 m at most, its floor, clear of bodies and soldiers, on the level, no death region), when no human player has a line of sight (the bolts' ray, from his eye or from his camera 3 m behind) to the bot or the spot: within 15 m any way he looks, beyond inside 65 deg of his look; else recycled as before (`ai::unseen`, card UNSN). A move costs no ticket and is listed like a recycle | the user, 2026-10-28: a recycle costs the team a ticket for our defect; measured 6 seeds x 34 maps against card COVR (`lead_tmp/botre/runs/UNSN/seeds`, no human in the sweep): recycles 19 -> 6 with 11 moves (BF1 Bespin 1's arc 150 stall: 11 recycles -> 0, 9 moves of 7-29 m), 204/204 finished, stuck_max per map median / mean / max 120 / 158 / 360 both, Recover 1.36 -> 1.35 % |
+| D24 | every bot's shot at a human can hit; the aim error, bursts and skill decide [P 4.9, 8] | hit tokens per human by tier (the user's table after the first play: Easy 2, Normal 3, Hard 5, Elite 7; Elite holds 2 s and misses by 0.7 m): only a holder's bolts and blasts hurt him; the others still fire, aimed 1.8 / 1.4 / 1.0 m beside his chest, a little high, and throw no grenade at him; a token is held 5 / 4 / 3 s, then goes to the nearest enemy bot on foot targeting him with a clear line (weighted by how nearly it aims at him; lowest index on a tie), the holder keeping it when nobody waits; bot-vs-bot and vehicle fire untouched. A holder's shot still goes through the aim error model and its hit through D12's multiplier (`ai::tokn`, card TOKN) | the user, 2026-10-28; Half-Life's squad attack slots and Amalur's per-difficulty budget (section 7). Measured with the arena's shadowing idle human (`ARENA_HUMAN=shadow`, 10 maps x 4 seeds x 9,000 ticks, `lead_tmp/botre/runs/TOKN`): damage taken per minute Easy 435 -> 171, Normal 573 -> 221, Hard 1,256 -> 1,275 (t +0.2; hits -8 %, t -0.8), Elite unchanged (every run identical) |
+| D25 | a bot targets the nearest contact it perceives, with the tier's pressure weight for a human; nothing gangs bots up on one human [P 4.9; `analysis/difficulty-proposal.md` 1] | focus fire at Hard and Elite: a human's token holders (D24) are his focusers - a bot that SEES him (its own eyes at its last think; heard or told is not enough), within its reach (45 m on foot, 120 m with a scoped rifle, 90 m against a human in a vehicle or turret with a weapon that hurts it, never without one; only heavy weapons: no soldier), not capturing a post or defending one under threat, and holding no other human's token may take one and makes him its target; it keeps him 3 s after losing sight and walks to his last seen point within 25 m; no focus in a human's first 3 s after a spawn; the Tactician's spaced try keeps focusers 30 degrees apart round him; card FFLN's no shot through a friend stands (`ai::dfocus`, card DFOCUS) | the user, 2026-10-28. Arena proxies, 10 maps x 4 seeds x 9,000 ticks (`lead_tmp/botre/runs/DFOCUS`): Easy / Normal every run identical; damage per minute Hard +16 % (shadow, t +1.9; lone, t +1.8), Elite +2 % shadow (t +0.2), +20 % lone (t +2.5) |
 
 **Deliberately NOT changed** (so nothing improves by accident): which post is drawn; the route-table walk; the
 range band and its 15 m moves; go-to-the-noise at 30 m for at most 10 s; a fight given up at weapon range + 10 m;

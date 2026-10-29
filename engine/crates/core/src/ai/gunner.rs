@@ -68,8 +68,8 @@ pub(super) fn aim(
     };
     let w = s.gun.weapons.first()?;
     let wc = &sim.weapon_classes[w.class];
-    let skill = sim.difficulty_of(u.team).skill_at(u.skill);
-    let tier = sim.difficulty_of(u.team).tier();
+    let skill = sim.skill_of(u);
+    let tier = sim.unit_tier(u);
     let held = st.target.and_then(|h| perception::contact_of(st, h));
     let enemy = held.filter(|c| c.seen_now).and_then(|c| sim.unit(c.handle));
     let point = enemy.map(|e| seen_aim(sim, me, st, s.eye, e, wc.ordnance.velocity, wc));

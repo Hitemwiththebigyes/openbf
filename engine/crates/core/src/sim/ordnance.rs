@@ -34,7 +34,8 @@ impl Sim {
     pub(super) fn held_weapons(&mut self, i: usize, p: &PadState, blocked: bool, dt: f32) -> bool {
         let pri = p.pressed(buttons::FIRE);
         let sec = p.pressed(buttons::SECONDARY_FIRE);
-        let infinite = self.cheats.infinite_ammo && self.units[i].is_player;
+        // `infinite`: a free reload always refills, so never out of ammo.
+        let (infinite, no_reload) = self.ammo_cheats(i);
 
         // The active channel.
         let ch1_has_it = self.units[i].cur1.is_some_and(|k| {
@@ -82,6 +83,7 @@ impl Sim {
                 held: held && !remote,
                 blocked,
                 infinite_ammo: infinite,
+                no_reload,
                 ai_dispersion: None,
             };
             shots.clear();
@@ -141,7 +143,8 @@ impl Sim {
                 weapon_class: b.weapon_class,
                 is_player: b.shooter_is_player,
             };
-            let probe = Bolt::spawn(
+            let hulls = b.hulls;
+            let mut probe = Bolt::spawn(
                 pos,
                 dir,
                 speed,
@@ -153,6 +156,8 @@ impl Sim {
                 HullFilter::Static,
                 std::iter::empty(),
             );
+            probe.hulls = hulls;
+            probe.pass_own_building();
             if probe.hit != crate::projectile::Hit::None {
                 let b = &mut self.bolts[k];
                 (b.hit, b.end, b.remaining) = (probe.hit, probe.end, probe.remaining);

@@ -10,11 +10,12 @@ use manifest::{CommonManifest, Manifest};
 use std::collections::HashMap;
 use std::path::Path;
 
-/// Bind placed stations to collision instances and load living/wreck spheres.
-pub fn install_collision(sim: &mut Sim, m: &Manifest, map_dir: &Path, db: &ClassDb) -> Result<()> {
-    if sim.stations.is_empty() {
-        return Ok(());
-    }
+/// A map's game's common bake: its folder and its manifest, `None` when it
+/// is not baked.
+pub type Common = (std::path::PathBuf, Option<CommonManifest>);
+
+/// [`Common`] for map `m` in `map_dir`.
+pub fn load_common(m: &Manifest, map_dir: &Path) -> Result<Common> {
     let root = map_dir.parent().unwrap_or(map_dir);
     let common_dir = root.join(format!("common_{}", m.source_game));
     let path = common_dir.join("common.ron");
@@ -23,32 +24,57 @@ pub fn install_collision(sim: &mut Sim, m: &Manifest, map_dir: &Path, db: &Class
     } else {
         None
     };
-    let sphere = |geometry: &str, class: &str| -> Result<Option<[f32; 4]>> {
-        let entry = m
-            .geometries
-            .iter()
-            .find(|g| {
-                g.name.eq_ignore_ascii_case(geometry)
-                    && pak::exists(map_dir.join("models").join(format!("{}.glb", g.model)))
-            })
-            .map(|g| (map_dir, g))
-            .or_else(|| {
-                common
-                    .as_ref()?
-                    .geometries
-                    .iter()
-                    .find(|g| g.name.eq_ignore_ascii_case(geometry))
-                    .map(|g| (common_dir.as_path(), g))
-            });
-        let Some((dir, g)) = entry else {
-            return Ok(None);
-        };
-        let mesh = crate::assets::load_glb(&dir.join("models").join(format!("{}.glb", g.model)))?;
-        Ok(mesh.sphere.map(|s| {
-            let ([x, y, z], r) = crate::vehicle_class::blast_sphere(db, class, Some(s));
-            [x, y, z, r]
-        }))
+    Ok((common_dir, common))
+}
+
+/// The blast sphere of `class` drawn as map or common geometry `geometry`
+/// (model space): the model's SPHR grown by the class's collision
+/// primitives ([`crate::vehicle_class::blast_sphere`]); `None` when neither
+/// the map nor its game's common bake has the model or it has no sphere.
+pub fn geometry_sphere(
+    m: &Manifest,
+    map_dir: &Path,
+    common: &Common,
+    db: &ClassDb,
+    geometry: &str,
+    class: &str,
+) -> Result<Option<[f32; 4]>> {
+    let (common_dir, common) = (&common.0, &common.1);
+    let entry = m
+        .geometries
+        .iter()
+        .find(|g| {
+            g.name.eq_ignore_ascii_case(geometry)
+                && pak::exists(map_dir.join("models").join(format!("{}.glb", g.model)))
+        })
+        .map(|g| (map_dir.to_path_buf(), g.model.clone()))
+        .or_else(|| {
+            common
+                .as_ref()?
+                .geometries
+                .iter()
+                .find(|g| g.name.eq_ignore_ascii_case(geometry))
+                .map(|g| (common_dir.to_path_buf(), g.model.clone()))
+        });
+    let Some((dir, model)) = entry else {
+        return Ok(None);
     };
+    let mesh = crate::assets::load_glb(&dir.join("models").join(format!("{model}.glb")))?;
+    Ok(mesh.sphere.map(|s| {
+        let ([x, y, z], r) = crate::vehicle_class::blast_sphere(db, class, Some(s));
+        [x, y, z, r]
+    }))
+}
+
+/// Bind placed stations to collision instances and load living/wreck spheres.
+pub fn install_collision(sim: &mut Sim, m: &Manifest, map_dir: &Path, db: &ClassDb) -> Result<()> {
+    if sim.stations.is_empty() {
+        return Ok(());
+    }
+    let both = load_common(m, map_dir)?;
+    let sphere =
+        |geometry: &str, class: &str| geometry_sphere(m, map_dir, &both, db, geometry, class);
+    let (common_dir, common) = (&both.0, &both.1);
     for c in &mut sim.station_classes {
         c.sphere = sphere(&c.geometry, &c.name)?;
         c.wreck_sphere = match &c.destroyed_geometry {

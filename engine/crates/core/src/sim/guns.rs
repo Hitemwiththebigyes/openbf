@@ -393,13 +393,9 @@ impl Sim {
         let up = right.cross(fwd).normalize();
         let is_player = self.units[i].is_player;
         let team = self.units[i].team;
-        let infinite_cheat = self.cheats.infinite_ammo && is_player;
+        let (infinite_cheat, no_reload_cheat) = self.ammo_cheats(i);
         // On foot's D9 spread multiplier and the fairness record (step 4).
-        let ai_spread_mult = ai.then(|| {
-            self.difficulty_of(team)
-                .skill_at(self.units[i].skill)
-                .spread_mult
-        });
+        let ai_spread_mult = ai.then(|| self.skill_of(&self.units[i]).spread_mult);
         let perceived = !ai || {
             let st = &self.units[i].ai;
             st.target
@@ -423,6 +419,7 @@ impl Sim {
                 held,
                 blocked: false,
                 infinite_ammo: w.infinite || infinite_cheat,
+                no_reload: w.infinite || no_reload_cheat,
                 ai_dispersion: None,
             };
             shots.clear();

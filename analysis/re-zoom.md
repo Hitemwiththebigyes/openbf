@@ -284,6 +284,17 @@ only; a bot has no zoom flag.
     `3` / `4` occur only as ODF values (54 / 24 / 1). BF1's is in COMMON.LVL.
   - While the display is up BF2's HUD update switches one HUD group (B2:411733 `FUN_003b61e0`); which elements was
     not read [H].
+    **Read 2026-10-28 (scope playtest) [V]:** the byte is the display's +0x379 (*(decompiler detail omitted)*, B2:411737; `FUN_0038f340`
+    clears it). A change of it calls `FUN_003b6b50` (B2:411738-411741). Then *(decompiler detail omitted)* (*(decompiler detail omitted)*:
+    the first word of both channels' HUD cache, 0x6a9050 + ch x 0x28, is 0 after `FUN_003b3398`; its meaning was not
+    read) picks the event sent on a change of *(decompiler detail omitted)*: +0x6a9338 = `player%d.weaponsDisable` (string 0x6314b8)
+    when set, +0x6a9334 = `player%d.weaponsEnable` (0x6314a0) when clear (registration B2:408037-408040;
+    B2:411756-411767). So **the weapon panel group `player1weaponinformation` (and the overheat text) goes off in the
+    scope**. While scoped the health / energy senders `FUN_003b4bb8`, `FUN_003b5708`, the in-vehicle health
+    `FUN_003b4668` and the jet fuel `FUN_003b4e70` are skipped (B2:411769-411784: those bars keep their last
+    values); the target publisher `FUN_003b3398` (B2:411747-411755), the reticle placer and the map senders
+    `FUN_003b5020` / `FUN_003b51b8` run either way, so **the target readout stays in the scope**. Whether the
+    reticle is drawn over the overlay was not checked on a frame [H]. Ported: `ui::hud_scope`.
 - **`Effect("ScopeBlur")`** [V for the hook]: BF1's `ScopeBlurEffect` (vtable 0x549170, constructor `FUN_0037a770`
   B1:367754) owns the per-viewport flag the display raises (`DAT_005194f0`, B1:262813). Blocks exist in BF1 END1,
   GEO1 and BF2 END1, FEL1, MUS1, GEO1, TAT3; what the effect draws was not read [H].
@@ -365,7 +376,7 @@ each cancel; yaw and pitch rates = plain / divisor; S after n ticks = z + (1 - z
   PARTLY items are folded in and reproduced: F9 / F11 (the scope frame's "first person suspended" gate, and the
   view record's alternative), F12 (the body test's first gate), H6 (the tangent ratio is 0.76660, not 0.76659).
   Its extra finds are in sections 3, 5 and 8 marked [verifier].
-- **Stays [H] / not read**: what BF2 hides of the HUD under the scope; what `ScopeBlur` draws; whether the reticle
+- **Stays [H] / not read**: what `ScopeBlur` draws (what BF2 hides under the scope: read, §8); whether the reticle
   is drawn inside the scope; `SniperScope`'s and `ScopeTexture`'s readers (none found in the decompile text — a
   reader inside an undecompiled function is not excluded for `SniperScope`); the camera helper `FUN_0057ab20`'s
   16.0 / 4.0 above S 1.01 (no caller in the text); the listener rule that reads the scope flag in the camera

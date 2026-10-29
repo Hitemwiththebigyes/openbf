@@ -309,6 +309,7 @@ pub(super) fn make_walk(scene: &game::assets::Scene, b: &BattleSetup) -> WalkSim
     if let Some(m) = &b.mission {
         let a = layout.apply_mission(m);
         walk.sim.death_regions = a.death_regions.clone();
+        walk.sim.fly_ceiling = a.fly_ceiling;
         let blocked = m.apply_arc_blocks(walk.sim.nav.as_mut());
         if blocked != 0 {
             println!("mission: route groups {blocked:#b} blocked (plnp)");
@@ -333,6 +334,10 @@ pub(super) fn make_walk(scene: &game::assets::Scene, b: &BattleSetup) -> WalkSim
     }
     if let Some(counts) = ai_counts {
         walk.add_posts(&layout);
+        // The mission's AI settings (card MAIS), its capture bans by post.
+        if let Some(m) = &b.mission {
+            m.apply_ai(&mut walk.sim);
+        }
         // The vehicle spawn pads follow the posts just added (card VPAD) and
         // go in before the opening wave, which spawns at the command walkers
         // they are about to build (card CWSP).
@@ -444,7 +449,13 @@ pub(super) fn hud_model(
     let on_foot = me.alive && me.mount.is_none() && droid.is_none() && guided.is_none();
     let (hp, hp_max, energy, energy_max) = match (guided, droid) {
         (Some((r, c)), _) => (r.health, c.health, r.energy, c.energy),
-        (None, Some((d, c))) => (d.health, c.max_health, d.energy, core::remote::ENERGY_MAX),
+        // [ours] Flying a droid, the stamina bar runs down its 90 s.
+        (None, Some((d, c))) => (
+            d.health,
+            c.max_health,
+            d.time_left(),
+            core::remote::LIFETIME,
+        ),
         (None, None) => (
             me.health.cur,
             me.health.max,
@@ -454,50 +465,8 @@ pub(super) fn hud_model(
     };
     let spawn = spawn_model(walk, feed).and_then(|s| s.page);
     let slot = me.spec.player_slot.map_or(0, usize::from);
-    let weapon = on_foot.then(|| {
-        let class = walk.sim.weapon_classes.get(me.weapon_class);
-        let rounds = class.map_or(0, |c| c.rounds_per_clip);
-        // The weapon in the hands: the primary, or the channel-0 slot the
-        // player switched to (GREN).
-        let hud = walk.teams[usize::from(me.team.min(1))]
-            .class(me.spec.class)
-            .hud_of(me.weapon_slot);
-        ui::hud::HudWeapon {
-            key: hud.key.clone(),
-            class: hud.class.clone(),
-            icon: hud.icon.clone(),
-            // The localised weapon name waits for the Locl tables.
-            name: String::new(),
-            total: class.and_then(|c| me.weapon.rounds(c)),
-            clip_fraction: if rounds > 0 {
-                me.weapon.clip as f32 / rounds as f32
-            } else {
-                1.0
-            },
-        }
-    });
-    // The secondary channel's current weapon: the grenade row (GREN).
-    let weapon2 = on_foot
-        .then(|| me.cur1.and_then(|k| me.held.get(usize::from(k))))
-        .flatten()
-        .and_then(|w| {
-            let class = walk.sim.weapon_classes.get(w.class)?;
-            let hud = walk.teams[usize::from(me.team.min(1))]
-                .class(me.spec.class)
-                .hud_of(w.slot);
-            Some(ui::hud::HudWeapon {
-                key: hud.key.clone(),
-                class: hud.class.clone(),
-                icon: hud.icon.clone(),
-                name: String::new(),
-                total: w.state.rounds(class),
-                clip_fraction: if class.rounds_per_clip > 0 {
-                    w.state.clip as f32 / class.rounds_per_clip as f32
-                } else {
-                    1.0
-                },
-            })
-        });
+    // On foot the soldier's rows; flying, the droid's.
+    let [weapon, weapon2] = game::hud_feed::weapon_rows(walk);
     let reticle = (on_foot || droid.is_some() || guided.is_some()).then(|| {
         walk.sim
             .reticle_pick
@@ -549,6 +518,8 @@ pub(super) fn hud_model(
         squad: feed.squad(walk.sim.tick),
         // The spawn screen up, drawn in the HUD's frame (card SSELB).
         spawn,
+        // The sniper scope's overlay (`ui::hud_scope`).
+        scope: game::hud_feed::scope_view(walk),
         capture: game::capture_feed::for_unit(
             &walk.sim,
             walk.player.index as usize,

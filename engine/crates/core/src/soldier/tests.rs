@@ -1,7 +1,9 @@
 //! Reference vectors from re-stance-roll.md §5 (BF2-model subset).
 use super::*;
 
+mod jet;
 mod juni;
+mod prone_tap;
 
 const DT: f32 = 1.0 / 30.0;
 
@@ -126,14 +128,15 @@ fn v7_contextual_button_cycles_or_rolls() {
         ..Default::default()
     };
     let release = PadState::default();
-    // Stationary presses cycle stand -> crouch -> prone -> stand.
+    // Stationary presses: stand -> crouch, a second tap inside the double
+    // tap's 1 s -> prone, a prone tap -> stand (`prone_tap.rs`).
     let cycle = |s: &mut Soldier, wait: usize| {
         run(s, &release, &c, wait);
         tick(s, &press, &c);
     };
     cycle(&mut s, 20); // past the 0.5 s repeat gate
     assert_eq!(s.stance, Stance::Crouch);
-    cycle(&mut s, 20);
+    cycle(&mut s, 20); // 0.7 s after the first tap
     assert_eq!(s.stance, Stance::Prone);
     // Prone entry carries BF1's 1.333 s hard lock: movement is frozen
     // and the next cycle press is refused until it expires.

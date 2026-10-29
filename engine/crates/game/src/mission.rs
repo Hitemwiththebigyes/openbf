@@ -18,7 +18,8 @@
 //! (HANDOFF HOLD 16). `cps` and `death_regions` ARE applied
 //! (`layout::apply_mission`, `main/battle.rs`'s walk setup), `voice` is the
 //! commander's lines (`crate::announce`), `era` selects the mission-specific
-//! minimap orientation, and `source` is printed by the sweep.
+//! minimap orientation, `ai` is the bots' settings ([`MissionDef::apply_ai`],
+//! card MAIS), and `source` is printed by the sweep.
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
@@ -78,6 +79,13 @@ pub struct MissionDef {
     /// `AddDeathRegion("name")` region names, in call order.
     #[serde(default)]
     pub death_regions: Vec<String>,
+    /// `SetMaxPlayerFlyHeight(y)`, the last call: the soldiers' fly-height
+    /// ceiling (card JETP, `analysis/re-jetpack.md` §5.3; BF2's rule on
+    /// every map, so a BF1 script's `SetMaxFlyHeight` - the AI flyers' - is
+    /// not read). None = the engine's 200 (`core::soldier::DEFAULT_FLY_CEILING`).
+    /// A RON generated before this field (`scripts/gen_missions.py`) has none.
+    #[serde(default)]
+    pub max_player_fly_height: Option<f32>,
     /// The conquest command-post roster, in `CommandPost:New` order — the
     /// posts the mission actually hands to its `ObjectiveConquest`, which is
     /// NOT every post in the world layer (BF2 Hoth builds four and kills the
@@ -147,6 +155,11 @@ pub struct MissionDef {
     /// it; [`MissionDef::camera_shots`] reads them.
     #[serde(default, rename = "camera_shots")]
     pub camera_shot_calls: Vec<[f32; 7]>,
+    /// Card MAIS: the AI settings the script sets as it starts
+    /// ([`AiSettings`]), applied by [`MissionDef::apply_ai`]. Absent on a
+    /// mission whose script sets none.
+    #[serde(default)]
+    pub ai: AiSettings,
     /// The PC .lua and PS2 script this record was read out of.
     #[serde(default)]
     pub source: String,
@@ -186,6 +199,27 @@ pub struct VoiceDef {
     /// has no map boundary yet (card BNDY).
     #[serde(default)]
     pub out_of_bounds: Vec<(u8, String)>,
+}
+
+/// [`MissionDef::ai`]: the script's AI knobs (card MAIS;
+/// `analysis/re-ai-difficulty.md` 3), with its own (Lua, 1-based) team
+/// numbers. `None` / empty: the script does not set it, and the engine's
+/// default holds ([`core::sim::MissionAi`]).
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct AiSettings {
+    /// `SetAIViewMultiplier(m)`.
+    #[serde(default)]
+    pub view_mult: Option<f32>,
+    /// `SetTeamAggressiveness(team, v)`, the last call per team.
+    #[serde(default)]
+    pub aggressiveness: Vec<(u8, f32)>,
+    /// `AISnipeSuitabilityDist(d)`, m.
+    #[serde(default)]
+    pub snipe_suitability: Option<f32>,
+    /// `AICanCaptureCP(post, team, false)` still in force once the script's
+    /// start has run: (post, team).
+    #[serde(default)]
+    pub no_capture: Vec<(String, u8)>,
 }
 
 /// One [`MissionDef::death_drains`] entry, port (0-based) teams.
@@ -352,6 +386,36 @@ impl MissionDef {
         }
     }
 
+    /// Card MAIS: put [`MissionDef::ai`] into the sim (Lua team `t` is port
+    /// team `t - 1`). Run once the posts are in (`WalkSim::add_posts`): a
+    /// capture ban names its post. Answers the bans that found their post.
+    pub fn apply_ai(&self, sim: &mut core::sim::Sim) -> usize {
+        let mut ai = core::sim::MissionAi::default();
+        if let Some(m) = self.ai.view_mult {
+            ai.set_view_mult(m);
+        }
+        for &(t, v) in &self.ai.aggressiveness {
+            if let Some(a) = ai.aggressiveness.get_mut(usize::from(t.wrapping_sub(1))) {
+                *a = v;
+            }
+        }
+        if let Some(d) = self.ai.snipe_suitability {
+            ai.set_snipe_suitability(d);
+        }
+        sim.mission_ai = ai;
+        let mut found = 0;
+        for (name, t) in &self.ai.no_capture {
+            let team = t.wrapping_sub(1);
+            for cp in sim.cps.iter_mut() {
+                if team < 8 && cp.def.name.eq_ignore_ascii_case(name) {
+                    cp.ai_capture_ban |= 1 << team;
+                    found += 1;
+                }
+            }
+        }
+        found
+    }
+
     /// [`MissionDef::sound`]'s sub-level names.
     pub fn sound_levels(&self) -> Vec<String> {
         self.sound.iter().map(|(_, sub)| sub.clone()).collect()
@@ -391,6 +455,96 @@ mod tests {
             eprintln!("SKIP: no engine/missions/*.ron (scripts/pack.py generates them)");
         }
         none
+    }
+
+    fn cp(name: &str) -> core::cp::CpDef {
+        core::cp::CpDef {
+            name: name.into(),
+            pos: glam::Vec3::ZERO,
+            capture: core::region::Region::sphere(glam::Vec3::ZERO, 6.0),
+            control: None,
+            value_bleed: 10,
+            value_atk: [10; 2],
+            value_def: [10; 2],
+            spawn_nodes: Vec::new(),
+            capture_time: 10.0,
+            neutralize_time: 12.0,
+        }
+    }
+
+    /// Card MAIS: the script's AI settings reach the sim - the view
+    /// multiplier clamped as BF2 clamps it, Lua team `t` as port team
+    /// `t - 1`, a capture ban on its post by name (any case) and team; a
+    /// mission that sets none leaves every engine default.
+    #[test]
+    fn the_missions_ai_settings_reach_the_sim() {
+        let ron = r#"(map: "x", mode: "con", source_game: "bf2", teams: [
+            (faction: "all", units: 20, tickets: 150), (faction: "imp", units: 20, tickets: 150)],
+            ai_alive_cap: 16, spawn_delay: 10.0, spawn_interval: 0.25,
+            ai: (view_mult: Some(0.35), aggressiveness: [(1, 1.0), (2, 0.7)],
+                 snipe_suitability: Some(30.0), no_capture: [("CP2", 2), ("cp9", 1)]))"#;
+        let m: MissionDef = ron::from_str(ron).expect("parses");
+        let mut sim = core::sim::Sim::empty(1);
+        sim.add_cp(cp("cp1"), None);
+        sim.add_cp(cp("cp2"), None);
+        assert_eq!(m.apply_ai(&mut sim), 1, "cp9 is no post here");
+        let ai = sim.mission_ai;
+        assert_eq!(ai.view_mult, 0.35);
+        assert_eq!(ai.aggressiveness, [1.0, 0.7]);
+        assert_eq!(ai.snipe_suitability, 30.0);
+        assert_eq!(sim.cps[0].ai_capture_ban, 0);
+        assert!(sim.cps[1].ai_no_capture(1) && !sim.cps[1].ai_no_capture(0));
+        // BF2's clamps.
+        let mut far = m.clone();
+        far.ai.view_mult = Some(3.0);
+        far.ai.snipe_suitability = Some(500.0);
+        far.apply_ai(&mut sim);
+        assert_eq!(sim.mission_ai.view_mult, 1.0);
+        assert_eq!(sim.mission_ai.snipe_suitability, 100.0);
+        // None set: the defaults, whatever was there.
+        let mut none = m.clone();
+        none.ai = AiSettings::default();
+        none.apply_ai(&mut sim);
+        assert_eq!(sim.mission_ai, core::sim::MissionAi::default());
+    }
+
+    /// Card MAIS: the shipped missions carry the PS2 scripts' AI settings
+    /// (`scripts/gen_missions.py`, from the bytecode): fog on Dagobah and
+    /// Felucia, Endor's slower Imperials in both games, the indoor maps'
+    /// snipe distance, BF2 Naboo's locals barred from every post.
+    #[test]
+    fn shipped_missions_carry_their_ai_settings() {
+        if no_missions() {
+            return;
+        }
+        let load = |n: &str| MissionDef::load(&missions_dir().join(n)).expect(n);
+        for (n, v) in [
+            ("bf2_dag1_con.ron", 0.35),
+            ("bf2_dag1_con_cw.ron", 0.35),
+            ("bf2_fel1_con.ron", 0.65),
+            ("bf2_fel1_con_cw.ron", 0.65),
+        ] {
+            assert_eq!(load(n).ai.view_mult, Some(v), "{n}");
+        }
+        assert_eq!(
+            load("bf2_end1_con.ron").ai.aggressiveness,
+            [(1, 1.0), (2, 0.7)]
+        );
+        assert_eq!(
+            load("bf1_end1_con.ron").ai.aggressiveness,
+            [(1, 1.0), (2, 0.7)]
+        );
+        for n in [
+            "bf2_cor1_con.ron",
+            "bf2_tan1_con_cw.ron",
+            "bf2_tat3_con.ron",
+        ] {
+            assert_eq!(load(n).ai.snipe_suitability, Some(30.0), "{n}");
+        }
+        let nab = load("bf2_nab2_con.ron").ai.no_capture;
+        assert_eq!(nab.len(), 6);
+        assert!(nab.iter().all(|(_, t)| *t == 3));
+        assert_eq!(load("bf2_kas2_con.ron").ai, AiSettings::default());
     }
 
     /// The two original v0 missions still carry the RE'd numbers after the

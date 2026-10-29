@@ -592,3 +592,92 @@ fn human_seat_charge_keeps_the_human_release_edge() {
         .iter()
         .any(|e| matches!(e, Event::Shot { unit, weapon_class: 0, .. } if *unit == p)));
 }
+
+/// Playtest 2026-10-28 (BF2 Kamino, `analysis/re-turret-collision.md` 3.1,
+/// 3.4, 4.1): a building turret's building bodies are its own once bound
+/// (`Sim::bind_building`): a round that meets one strikes the turret, whose
+/// pool takes the ordnance's building scale; a blast beside it measures it
+/// past its own bodies; at 0 it is destroyed with its gunner; and its own
+/// gunner's round leaves it as a wall, not a hit. Unbound (the port before),
+/// the round stops on a plain wall and the pool keeps its health.
+#[test]
+fn a_bound_building_takes_rounds_and_blasts_and_its_gunner_dies_with_it() {
+    use crate::collision::HullFilter;
+    use crate::projectile::{Bolt, Hit, Shooter, Target};
+    for bound in [true, false] {
+        let (mut s, v) = recoilless_world(true);
+        if bound {
+            s.bind_building(v, 7);
+        }
+        s.vehicle_mut(v).unwrap().aim_sphere = Some((Vec3::new(0.0, 3.0, -5.0), 6.0));
+        s.weapon_classes[0].ordnance.max_damage = 100.0;
+        s.weapon_classes[0].ordnance.falloff = None;
+        s.weapon_classes[0].ordnance.scales = [1.0, 1.0, 1.0, 0.5, 0.25, 0.25, 0.25];
+        let gunner = s
+            .spawn(&UnitSpec::trooper(0, Vec3::new(0.0, 0.0, 4.0)))
+            .unwrap();
+        assert!(s.seat_unit(gunner, v, 0));
+        let shooter = s
+            .spawn(&UnitSpec::trooper(1, Vec3::new(0.0, 0.0, 40.0)))
+            .unwrap();
+        let fire = |s: &Sim, owner, hulls| {
+            Bolt::fire(
+                Vec3::new(0.0, 1.0, 30.0),
+                -Vec3::Z,
+                300.0,
+                1.0,
+                Shooter {
+                    owner,
+                    team: 1,
+                    weapon_class: 0,
+                    is_player: false,
+                },
+                s.heightfield.as_ref(),
+                None,
+                &s.collision,
+                hulls,
+            )
+        };
+        let b = fire(&s, shooter, HullFilter::All);
+        let want = if bound {
+            Hit::Target(Target::Vehicle(v))
+        } else {
+            Hit::World
+        };
+        assert_eq!(b.hit, want, "bound {bound}");
+        // The gunner's own round: a wall either way.
+        assert_eq!(
+            fire(&s, gunner, HullFilter::except(Some(v))).hit,
+            Hit::World
+        );
+        s.bolts.push(b);
+        for _ in 0..3 {
+            s.step(&[]);
+        }
+        let hp = s.vehicle(v).unwrap().health.cur;
+        assert_eq!(hp, if bound { 1000.0 - 25.0 } else { 1000.0 });
+        if !bound {
+            continue;
+        }
+        // A blast just off the building's side wall, the building's centre
+        // 3.5 m in past its own bodies: inside DamageRadiusInner + w / 2.
+        let e = crate::weapon::ExplosionClass {
+            damage: 400.0,
+            damage_inner: 2.0,
+            damage_outer: 4.0,
+            scales: [1.0, 1.0, 1.0, 0.0, 0.25, 0.25, 0.25],
+            ..Default::default()
+        };
+        s.explode(&e, Vec3::new(3.5, 3.0, -5.0), Some(shooter), Some(1));
+        assert_eq!(s.vehicle(v).unwrap().health.cur, hp - 100.0);
+        // At 0 the turret is destroyed and its seated gunner killed by the
+        // shooter (`destroy_vehicle`); its bodies are a wall again.
+        s.vehicle_mut(v).unwrap().health.cur = 1.0;
+        s.explode(&e, Vec3::new(3.5, 3.0, -5.0), Some(shooter), Some(1));
+        assert!(s.vehicle(v).is_none());
+        assert!(s.unit(gunner).is_none_or(|g| !g.alive));
+        assert!(s.events.iter().any(|e| matches!(e,
+            Event::Kill { shooter: k, victim } if *k == shooter && *victim == gunner)));
+        assert_eq!(fire(&s, shooter, HullFilter::All).hit, Hit::World);
+    }
+}

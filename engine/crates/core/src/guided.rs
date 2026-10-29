@@ -122,6 +122,11 @@ pub enum GuidedEnd {
     OwnerGone,
 }
 
+/// `[ours]` A bot flying a guided rocket whose target is lost, cloaked or
+/// out of sight for this long hands control back (PR #61 review: it flew
+/// blind up to the rocket's 40 s of energy). The PS2's bot rule is untraced.
+pub const BOT_BLIND: f32 = 3.0;
+
 #[derive(Clone, Debug)]
 pub struct GuidedRocket {
     pub id: u64,
@@ -140,6 +145,9 @@ pub struct GuidedRocket {
     pub boosted: bool,
     pub prev_buttons: u32,
     pub pending_end: Option<GuidedEnd>,
+    /// `[ours]` A bot's seconds of flight with no target in sight; at
+    /// [`BOT_BLIND`] it hands control back.
+    pub blind: f32,
 }
 
 impl GuidedRocket {
@@ -240,6 +248,7 @@ impl GuidedRocket {
                 self.health,
                 self.energy,
                 self.age,
+                self.blind,
             ])
         {
             eat(&value.to_bits().to_le_bytes());

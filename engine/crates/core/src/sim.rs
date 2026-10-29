@@ -39,6 +39,7 @@ mod buffs;
 mod cloaks;
 mod combat;
 mod doors;
+mod droid_death;
 mod guided;
 mod guns;
 mod input;
@@ -63,6 +64,7 @@ pub use bounds::{
     Level, ReturnPath, BOUND_DROP, KILL_FLOOR_DROP, LEVEL_HUBS, LEVEL_RISE, UNDER_MAP_SPEED,
 };
 pub use buffs::Buffs;
+pub use droid_death::PUSHED_DEAD_HEALTH;
 pub use guns::SeatLook;
 pub use input::{buttons, AimTarget, InputLog, PadState, LOOK_UNIT};
 pub use look::{LookPreview, MOUSE_STEER};
@@ -74,13 +76,14 @@ pub use round::scale_reinforcements;
 pub use seats::{ENTER_REACH, EXIT_RING};
 pub use spawn::{ClassAmmo, ClassRefusal, SideChoice, SpawnStage, SpawnWaves, CLASS_CHANGE_FACING};
 pub use state::{
-    omni_radius_for, Call, Cheats, DeathCause, Event, Hazard, NavStats, Sim, HAZARD_RADIUS,
-    LETHAL_LANDING_SPEED, OUTCOME_DRAW,
+    omni_radius_for, Call, Cheats, DeathCause, Event, Hazard, MissionAi, NavStats, Sim, BLAST_AGE,
+    HAZARD_RADIUS, LETHAL_LANDING_SPEED, OUTCOME_DRAW, SNIPE_SUITABILITY_DEFAULT,
 };
 pub use stations::{
     Station, StationAnim, StationClass, StationMotion, DELAY_DEFAULT as STATION_DELAY_DEFAULT,
     GATHER_MAX as STATION_GATHER_MAX,
 };
+pub use vehicles::BuildingTurret;
 
 #[cfg(test)]
 mod tests {

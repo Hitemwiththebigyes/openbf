@@ -110,7 +110,7 @@ pub const SPLIT_TILT: f32 = 0.4;
 /// (`analysis/re-zoom.md` §5). Sprint is a section of its own on BF2; BF1 has no sprint, so
 /// its sprint section is OURS (the maintainer, 2026-10-04, FEEL_NOTES): the stand
 /// section moved back by BF2's own step, 0.8 m, so a sprint shows. Jump, roll
-/// and fall keep the stand section (PROVISIONAL).
+/// and fall keep the stand section, the jets take the sprint's (PROVISIONAL).
 pub fn camera_section(rules: GroundRules, stance: Stance, zoomed: bool) -> CameraSection {
     let bf1 = rules == GroundRules::Bf1;
     if zoomed {
@@ -133,8 +133,11 @@ pub fn camera_section(rules: GroundRules, stance: Stance, zoomed: bool) -> Camer
             if bf1 { 5.0 } else { 10.0 },
         ),
         Stance::Prone => (0.5, 0.0, 3.0, 5.0),
-        Stance::Sprint if !bf1 => (1.8, 0.0, 4.0, 10.0),
-        Stance::Sprint => (1.8, 0.0, 4.3, 5.0),
+        // The jets (card JETP), OURS and PROVISIONAL: the sprint's section,
+        // so the camera stands back while he flies at 10-12 m/s and the
+        // ground under him shows. The PS2's own jet section is not read.
+        Stance::Sprint | Stance::Jet | Stance::Hover if !bf1 => (1.8, 0.0, 4.0, 10.0),
+        Stance::Sprint | Stance::Jet | Stance::Hover => (1.8, 0.0, 4.3, 5.0),
         _ if bf1 => (1.8, 0.0, 3.5, 5.0),
         _ => (1.8, 0.0, 3.2, 10.0),
     };
@@ -261,6 +264,11 @@ pub struct Unit {
     pub skill: u8,
     /// The unit's own aim-error block (card CLSE2). HASHED.
     pub aim: AimBlock,
+    /// Card DPRX: a bot the sim treats as a HUMAN for every human-only rule,
+    /// driven by the bot brain with this fixed profile (`crate::ai::proxy`).
+    /// A measuring tool (sweep, arena); `None` for every unit in the game.
+    /// Kept through respawns. HASHED only when set.
+    pub proxy_human: Option<crate::ai::proxy::Profile>,
     /// Bookkeeping for traces/awards.
     pub kills: u32,
     pub deaths: u32,
@@ -288,6 +296,16 @@ pub struct Unit {
     /// The kill's item drop waits for the dead state (B1 FUN_001ffec0 runs
     /// from the death block: a thrown soldier drops where he lands).
     pub drop_due: bool,
+    /// The chunk mark (card DROIDDEATH, `analysis/re-droid-death.md` §1; B1
+    /// S+0xbfd / B2 E+0xa74 bit 3): a blast's push rolled the class's
+    /// `ChunkFrequency` and won. Sticky for the life: the unit bursts at its
+    /// death whatever the death roll draws.
+    pub chunk_mark: bool,
+    /// This life ended in the chunk death ([`Event::DroidBurst`]): the body
+    /// left the world at once and is never drawn.
+    ///
+    /// [`Event::DroidBurst`]: crate::sim::Event::DroidBurst
+    pub burst: bool,
     /// The total push the WALL PASS applied to this unit this tick (`Sim::step`
     /// phase 3a, `CollisionWorld::push_out`), zero when it touched nothing.
     /// Horizontal by construction.
@@ -558,6 +576,10 @@ impl Unit {
         if self.body {
             eat(&[1, self.drop_due as u8]);
         }
+        // Card DROIDDEATH: only once set, so a sim without droids keeps its hash.
+        if self.chunk_mark || self.burst {
+            eat(&[2, self.chunk_mark as u8, self.burst as u8]);
+        }
         // Phase D: the squad order, and NOTHING AT ALL when there is none (not
         // even a 0 byte — brief addendum 3). That is what keeps a command-free
         // sim's hash byte-identical to the pre-Phase-D one, which is the whole
@@ -613,6 +635,17 @@ impl Unit {
             eat(&z.value.to_bits().to_le_bytes());
             eat(&z.divisor.to_bits().to_le_bytes());
         }
+        // Card DPRX: nothing at all for a unit that is not a proxy.
+        if let Some(p) = &self.proxy_human {
+            p.hash_into(eat);
+        }
+    }
+
+    /// Is this unit a human for the human-only rules: a player, or a bot
+    /// standing in for one (card DPRX, [`Unit::proxy_human`]). The cheats and
+    /// the rules about the unit as a SHOOTER keep asking `is_player`.
+    pub fn is_human(&self) -> bool {
+        self.is_player || self.proxy_human.is_some()
     }
 }
 
@@ -777,6 +810,30 @@ fn ray_yawed_box(o: Vec3, d: Vec3, c: Vec3, right: Vec3, fwd: Vec3, half: Vec3) 
     (enter <= exit && exit >= 0.0).then(|| enter.max(0.0))
 }
 
+/// A droid class's chunk death (card DROIDDEATH, `analysis/re-droid-death.md`;
+/// B1 B1:116889-116968, B2 B2:159605-159669 [V]): at the death block one
+/// draw U, and `U <= frequency` or the unit's [`Unit::chunk_mark`] bursts it -
+/// the `explosion` at the body, the body out of the world, no corpse, the
+/// item drop as on any death. Only a class with chunk geometry
+/// (`ChunkGeometryName`) has one: the CIS soldier droids of both games.
+#[derive(Clone, Debug)]
+pub struct ChunkDeath {
+    /// `ChunkFrequency` (B1 class+0x1e58, B2 class+0x121c; BF2's ctor -1.0).
+    pub frequency: f32,
+    /// The class's `ExplosionName` class (B1 class+0x1e6c, B2 +0x1238).
+    pub explosion: Option<crate::weapon::ExplosionClass>,
+}
+
+/// The chunks' launch scale at the burst (B1:116957, B2:159656): 1.0 at
+/// health -50 or below, else 0.1 + 0.018 x the overkill.
+pub fn chunk_scale(health: f32) -> f32 {
+    if health <= -50.0 {
+        1.0
+    } else {
+        -health * 0.018 + 0.1
+    }
+}
+
 /// One entry of a team's class table (`Sim::classes[team]`): everything the
 /// sim needs to BUILD a unit of that class, plus the mission's per-class
 /// counts. Built by the game layer from the ODF chain
@@ -801,6 +858,9 @@ pub struct UnitClass {
     pub capture_posts: bool,
     /// What a unit of this class drops when it dies (card PWUP).
     pub drops: crate::sim::DropTable,
+    /// The droid's chunk death (card DROIDDEATH); `None` for a class without
+    /// chunk geometry, which never bursts.
+    pub chunk: Option<ChunkDeath>,
     /// Mission `AddUnitClass` count / `SetupTeams` slot minimum — how many of
     /// this class the team fields before the fill class takes over
     /// (`Sim::ai_class`).
@@ -1049,6 +1109,7 @@ impl UnitSpec {
         let class = &classes[self.weapon_class];
         let mut soldier = Soldier::new(self.pos);
         soldier.yaw = self.yaw;
+        soldier.fuel = Soldier::spawn_fuel(&self.consts);
         if self.is_player() {
             soldier.pitch = SPAWN_PITCH;
         }
@@ -1086,6 +1147,7 @@ impl UnitSpec {
             switch_held: 0,
             skill: self.skill,
             aim: AimBlock::default(),
+            proxy_human: None,
             kills: 0,
             deaths: 0,
             ai: AiState::default(),
@@ -1097,6 +1159,8 @@ impl UnitSpec {
             wall_push: Vec3::ZERO,
             body: false,
             drop_due: false,
+            chunk_mark: false,
+            burst: false,
             last_shot_tick: u64::MAX,
             last_hit: None,
             command: None,

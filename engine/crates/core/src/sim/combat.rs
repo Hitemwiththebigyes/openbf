@@ -1,10 +1,9 @@
 //! What a bolt does when it lands (`resolve_bolt`, step 5: damage through the
-//! id guard, D12's human damage layer, the kill and its ticket, then its
-//! ordnance's impact explosion - card RKEX, the rocket launchers) and the one
-//! environmental death path, [`Sim::kill_environment`] (a mission death
-//! region, step 3c, or a lethal landing, step 3). The bolt, cheat, damage and
-//! environmental-death tests live here; the bolts themselves are fired inline
-//! in `step` (step 4).
+//! id guard, the kill and its ticket, then its ordnance's impact explosion -
+//! card RKEX, the rocket launchers) and the one environmental death path,
+//! [`Sim::kill_environment`] (a mission death region, step 3c, or a lethal
+//! landing, step 3). The bolt, cheat, damage and environmental-death tests
+//! live here; the bolts themselves are fired inline in `step` (step 4).
 
 use super::state::{DeathCause, Event, Sim};
 use crate::collision::{HullFilter, Layers};
@@ -89,8 +88,14 @@ impl Sim {
                 }
             }
             let mines = self.mines.iter().filter(|m| m.health > 0.0);
-            let droids = self.droids.iter().filter(|d| d.owner != b.owner);
-            let turrets = self.turrets.iter().filter(|t| t.owner != b.owner);
+            let droids = self
+                .droids
+                .iter()
+                .filter(|d| d.owner.index != b.owner.index);
+            let turrets = self
+                .turrets
+                .iter()
+                .filter(|t| t.owner.index != b.owner.index);
             let items = mines
                 .map(|m| (Target::Mine(m.id), m.flight.pos, crate::mine::RADIUS))
                 .chain(droids.map(|d| (Target::Droid(d.id), d.pos, crate::remote::RADIUS)))
@@ -106,7 +111,11 @@ impl Sim {
                     mult = 1.0;
                 }
             }
-            for r in self.guided.iter().filter(|r| r.owner != b.owner) {
+            for r in self
+                .guided
+                .iter()
+                .filter(|r| r.owner.index != b.owner.index)
+            {
                 if let Some(t) = crate::unit::ray_sphere(
                     from,
                     dir,
@@ -144,8 +153,9 @@ impl Sim {
     /// a vehicle prim its class's HitLocation (the x4 critical prims; BF1's
     /// two x0). A factor over 1 is a bot's only on the PS2's top level (BF2
     /// FUN_001e0580 B2:91567-91580: dropped for an AI attacker under level
-    /// 3; the port's Hard and Elite). BF1 has no such gate; one rule on both
-    /// games' maps.
+    /// 3; the port's Hard and Elite - our Normal has the PS2 Elite's base
+    /// skill but not its level-3 rules, so it goes without
+    /// this). BF1 has no such gate; one rule on both games' maps.
     fn hit_scale(&self, b: &Bolt) -> f32 {
         let bot_gate =
             !b.shooter_is_player && self.difficulty_of(b.team) < crate::skill::Difficulty::Hard;
@@ -166,7 +176,17 @@ impl Sim {
                     return; // died in flight → bolt dies, no impact
                 };
                 let victim_team = victim.team;
-                let victim_is_player = victim.is_player;
+                // Card DPRX: a proxy is a human victim (no cheats: below).
+                let victim_is_player = victim.is_human();
+                let victim_cheats = victim.is_player;
+                // Card TOKN: a bot without one of this human's tokens aimed
+                // beside him; a bolt that meets him anyway is real (counted).
+                if crate::ai::tokn::bars(self, b.owner, h) {
+                    self.nav_stats.tokn_stray += 1;
+                    if self.unit(b.owner).is_some_and(|o| o.ai.target != Some(h)) {
+                        self.nav_stats.tokn_cross += 1;
+                    }
+                }
                 let desc = self.weapon_classes[b.weapon_class]
                     .ordnance
                     .damage_desc_charged(b.age, false, b.charge);
@@ -175,25 +195,12 @@ impl Sim {
                 // a human player of its own team (B1 FUN_001bc190, B2
                 // FUN_001dfb38: TakeDamage returns before the scale;
                 // re-blaster-damage.md section 6.3) - as a blast, `blast_unit`.
-                let invincible = victim_is_player
-                    && (self.cheats.invincible || (friendly && !b.shooter_is_player));
+                let invincible = (victim_cheats && self.cheats.invincible)
+                    || (victim_is_player && friendly && !b.shooter_is_player);
                 let ff = self.friendly_fire_scale;
-                // D12, the human damage layer: a BOT's bolt into a HUMAN
-                // enemy carries the tier's multiplier. OURS, PROVISIONAL —
-                // the PS2's only level-3 damage lever is `HitLocation`, the
-                // ×4 vehicle critical prims an Elite attacker may score
-                // (`analysis/re-ai-difficulty.md` §9.2), which is not a buff
-                // against humans and waits for P7 vehicles.
-                let mult = if self.human_damage_on
-                    && victim_is_player
-                    && !b.shooter_is_player
-                    && !friendly
-                {
-                    self.difficulty_of(b.team).tier().human_damage
-                } else {
-                    1.0
-                } * self.buff_scale(Some(b.owner), h)
-                    * self.hit_scale(b);
+                // No tier multiplies a bot's bolt into a human (card DRETIRE,
+                // The maintainer 2026-10-28: D12's ×1.15 / ×1.3 retired).
+                let mult = self.buff_scale(Some(b.owner), h) * self.hit_scale(b);
                 let v = self.unit_mut(h).unwrap();
                 let damage = if invincible {
                     0.0
@@ -236,10 +243,20 @@ impl Sim {
             // the damage so a killing bolt's puff precedes the blast. The
             // spawn ray picks a hull from the ORDNANCE layer
             // (`Bolt::spawn`: `world.ray_with`).
+            // A building turret's bodies are its building's
+            // (`Sim::bind_building`): the round strikes a building, as it
+            // did when they were plain map bodies, and the turret's pool
+            // takes the damage.
             Hit::Target(Target::Vehicle(vh)) => {
-                if self.vehicle(vh).is_none() {
+                let Some(v) = self.vehicle(vh) else {
                     return;
-                }
+                };
+                let surface =
+                    if v.kind == crate::vehicle::VehicleKind::Turret && v.instance.is_some() {
+                        Surface::Building
+                    } else {
+                        Surface::Vehicle
+                    };
                 let desc = self.weapon_classes[b.weapon_class]
                     .ordnance
                     .damage_desc_charged(b.age, false, b.charge);
@@ -247,7 +264,7 @@ impl Sim {
                     pos: b.end,
                     struck: true,
                 });
-                self.push_impact(b, Surface::Vehicle, Some(vh));
+                self.push_impact(b, surface, Some(vh));
                 let scale = self.hit_scale(b);
                 self.damage_vehicle_by(
                     vh,
@@ -476,17 +493,21 @@ impl Sim {
     /// B1:116889-116968, B2 B2:159605-159669): skipped while it is thrown,
     /// tumbling or getting up - a soldier a blast kills dies when he has
     /// landed - else the body enters [`Stance::Dead`] and the kill's item
-    /// drop comes now. (The droid's chunk death is card DCHK's.)
+    /// drop comes now. A droid may burst instead ([`Sim::chunk_death`], card
+    /// DROIDDEATH): no corpse, the same drop.
     pub(super) fn death_block(&mut self, i: usize) {
         let u = &self.units[i];
         if u.alive || !u.body || u.soldier.stance.knocked() || u.soldier.stance == Stance::Dead {
             return;
         }
         let drop = u.drop_due;
+        if !self.chunk_death(i) {
+            let u = &mut self.units[i];
+            u.soldier.stance = Stance::Dead;
+            u.soldier.time_in_stance = 0.0;
+        }
         let u = &mut self.units[i];
         u.drop_due = false;
-        u.soldier.stance = Stance::Dead;
-        u.soldier.time_in_stance = 0.0;
         if drop {
             let h = self.handle(i);
             self.drop_item(h, None);
@@ -1010,7 +1031,7 @@ mod tests {
 
     /// Issue #41: a bolt that meets a soldier's head prim does the PS2's
     /// HitLocation x3 - a human's always, a bot's only on Hard and Elite
-    /// (the PS2's level 3). The same bolt at his chest is the x1.
+    /// (the PS2's level-3 gate). The same bolt at his chest is the x1.
     #[test]
     fn a_headshot_takes_three_times_the_damage() {
         // A bolt from 20 m at a still soldier's head prim (1.65 m up, 0.16 m
@@ -1019,6 +1040,9 @@ mod tests {
         fn shot(human: bool, d: Difficulty, y: f32) -> f32 {
             let (mut s, p, t) = duel();
             s.difficulty = d;
+            // Card DTEAM: the duel's human stands on team 0; one counted on
+            // team 1 evens them, so team 0's bots keep the tier's row.
+            s.extra_humans = [0, 1];
             s.unit_mut(t).unwrap().health.max = 3000.0;
             s.unit_mut(t).unwrap().health.cur = 3000.0;
             // The target faces the shooter (+Z), so his head is 0.16 m nearer.
@@ -1059,6 +1083,7 @@ mod tests {
         // The PS2's x3, not the constant (a test of the rule, not of itself).
         assert_eq!(shot(true, Difficulty::Normal, head), body * 3.0);
         assert_eq!(shot(false, Difficulty::Normal, head), body, "a bot: no x3");
+        assert_eq!(shot(false, Difficulty::Easy, head), body, "nor on Easy");
         assert_eq!(
             shot(false, Difficulty::Hard, head),
             shot(false, Difficulty::Hard, chest) * 3.0,
@@ -1381,18 +1406,17 @@ mod tests {
         assert_ne!(h1, h3, "seed changes the spread rolls");
     }
 
-    /// D12 (a): the tier's `human_damage` multiplies a BOT's bolt into a
-    /// HUMAN and nothing else — not a human's own bolt, not a bot-on-bot
-    /// bolt, and not at all with the host option off.
+    /// Card DRETIRE (the maintainer, 2026-10-28): no tier multiplies a BOT's bolt
+    /// into a HUMAN any more (D12's ×1.15 Hard / ×1.3 Elite retired): the
+    /// same shots do the same damage at Normal and Elite.
     #[test]
-    fn the_human_damage_layer_is_bot_on_human_only() {
+    fn no_tier_multiplies_a_bots_bolt_into_a_human() {
         // The victim stands idle; the shooter is a BOT (`UnitSpec::trooper`,
         // `is_player` false) driven by the pad, so the shots are the same
         // shots in every arm and only the multiplier can differ.
-        fn shoot(d: Difficulty, on: bool, victim_is_human: bool) -> f32 {
+        fn shoot(d: Difficulty, victim_is_human: bool) -> f32 {
             let mut s = Sim::empty(9);
             s.difficulty = d;
-            s.human_damage_on = on;
             let victim = if victim_is_human {
                 UnitSpec {
                     controller: Controller::Idle,
@@ -1433,22 +1457,17 @@ mod tests {
             full - s.units[v.index as usize].health.cur
         }
 
-        let normal = shoot(Difficulty::Normal, true, true);
+        let normal = shoot(Difficulty::Normal, true);
         assert!(normal > 0.0, "the bot landed shots: {normal}");
-        let elite = shoot(Difficulty::Elite, true, true);
-        let m = Difficulty::Elite.tier().human_damage;
-        assert!(
-            (elite - normal * m).abs() < 1e-3,
-            "elite {elite} vs normal {normal} x {m}"
-        );
-        // The three controls: the option off, a bot victim, and Easy/Normal
-        // (whose multiplier is 1.0) all take the unmultiplied damage.
-        assert!((shoot(Difficulty::Elite, false, true) - normal).abs() < 1e-3);
-        assert!(
-            (shoot(Difficulty::Elite, true, false) - shoot(Difficulty::Normal, true, false)).abs()
-                < 1e-3
-        );
-        assert_eq!(Difficulty::Easy.tier().human_damage, 1.0);
+        for d in [Difficulty::Easy, Difficulty::Hard, Difficulty::Elite] {
+            let got = shoot(d, true);
+            assert!(
+                (got - normal).abs() < 1e-3,
+                "{d:?} {got} vs normal {normal}"
+            );
+        }
+        // A bot victim takes what a human victim takes.
+        assert!((shoot(Difficulty::Elite, false) - normal).abs() < 1e-3);
     }
 
     /// The BF2 shotgun pellet (`com_weap_inf_shotgun`: 2000 m/s, 0.1 s,

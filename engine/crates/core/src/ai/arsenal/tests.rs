@@ -623,8 +623,8 @@ fn a_circling_bot_stands_to_throw() {
 }
 
 /// The thrower's head start (OURS): on Easy a bot reacts to a stranger's
-/// grenade 3 m from it after half a second at the earliest, and to its own
-/// at once.
+/// grenade 3 m from it after 0.6 s at the earliest (its tier's delay), and
+/// to its own at once.
 #[test]
 fn the_thrower_runs_from_its_own_grenade_at_once() {
     let moved = |own: bool| {
@@ -643,17 +643,16 @@ fn the_thrower_runs_from_its_own_grenade_at_once() {
         let from = sim.unit(bot).unwrap().soldier.pos;
         let at = from + Vec3::new(3.0, 0.0, 0.0);
         sim.add_hazard_by(at, 600, own.then_some(bot));
-        for _ in 0..30 {
+        // Under Easy's earliest reaction to a stranger's, 18 ticks.
+        let (lo, _) = crate::skill::Difficulty::Easy.tier().grenade_delay;
+        for _ in 0..lo - 1 {
             sim.step(&[]);
         }
         let pos = sim.unit(bot).unwrap().soldier.pos;
         crate::nav::xz_dist(pos, at) - 3.0
     };
     let (own, other) = (moved(true), moved(false));
-    assert!(
-        own > 1.0,
-        "its own grenade: {own} m further off after 0.5 s"
-    );
+    assert!(own > 1.0, "its own grenade: {own} m further off");
     assert!(other.abs() < 0.2, "a stranger's: {other} m");
 }
 
@@ -838,7 +837,7 @@ use crate::weapon::HealthType;
 /// BF2's rocket launcher as the disc authors it: one round and a 4 s
 /// reload, `TriggerSingle`, 15 / 75 / 300 m, `AITargetPerson 0`, `Animal 1`, `Droid 0`,
 /// `Vehicle 1`, `Building 1`, a missile of 500 on every kind.
-fn launcher() -> WeaponClass {
+pub(crate) fn launcher() -> WeaponClass {
     WeaponClass {
         name: "launcher".into(),
         rounds_per_clip: 1,
@@ -877,7 +876,7 @@ fn wrist_rocket() -> WeaponClass {
 }
 
 /// A rifle: 0 / 24 / 64 m, a person's weapon, 0.1 of its bolt on a hull.
-fn rifle() -> WeaponClass {
+pub(crate) fn rifle() -> WeaponClass {
     WeaponClass {
         ai_range: [0.0, 24.0, 64.0],
         ai_target_kind: 0x07,
@@ -1173,7 +1172,7 @@ fn a_heavy_weapon_is_for_a_crowd() {
 
 /// Flat ground under BF2's rules, and a bot of team 0 at the origin facing
 /// -Z with `first` in its hands and `second` in its slot 1.
-fn heavy_scene(first: WeaponClass, second: WeaponClass) -> (Sim, UnitHandle, [u32; 2]) {
+pub(crate) fn heavy_scene(first: WeaponClass, second: WeaponClass) -> (Sim, UnitHandle, [u32; 2]) {
     let mut sim = Sim::empty(21);
     sim.heightfield = Some(Heightfield {
         size: 2,
@@ -1216,7 +1215,7 @@ fn dummy(sim: &mut Sim, pos: Vec3) -> UnitHandle {
 }
 
 /// A vehicle of `kind` at `pos` with an enemy at its pilot seat.
-fn manned(sim: &mut Sim, kind: VehicleKind, pos: Vec3) -> (VehicleHandle, UnitHandle) {
+pub(crate) fn manned(sim: &mut Sim, kind: VehicleKind, pos: Vec3) -> (VehicleHandle, UnitHandle) {
     let v = sim.spawn_vehicle(&VehicleSpec {
         kind,
         class: 0,

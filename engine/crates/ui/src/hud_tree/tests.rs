@@ -348,3 +348,53 @@ fn a_group_colour_tints_its_children() {
     assert_eq!(hud.drawn(name), [255.0; 3]);
     assert_eq!(hud.tint(hud.elems[fill].parent.unwrap()), [1.0; 3]);
 }
+
+/// The domination countdown's label (`1playerhud` VictoryTimerGroup): a Text
+/// whose `Text("common.victoryin")` is localised, in the default font when
+/// the layout names none; a key the table lacks prints raw.
+#[test]
+fn a_text_key_is_localised_in_the_default_font() {
+    let s = |v: &str| HudArg::Str(v.into());
+    let p = |name: &str, args: &[HudArg]| node(name, args, vec![]);
+    let layout = HudLayout {
+        name: "t".into(),
+        nodes: vec![node(
+            "group",
+            &[s("VictoryTimerGroup")],
+            vec![
+                node(
+                    "text",
+                    &[s("victorytext")],
+                    vec![
+                        p("text", &[s("common.victoryin")]),
+                        p("textalignment", &[s("Center"), s("Top")]),
+                    ],
+                ),
+                node(
+                    "text",
+                    &[s("other")],
+                    vec![
+                        p("text", &[s("game.nokey")]),
+                        p("textfont", &[s("gamefont_medium")]),
+                    ],
+                ),
+            ],
+        )],
+    };
+    let none = HudLayout {
+        name: "none".into(),
+        nodes: vec![],
+    };
+    let mut hud = Hud::new(&layout, &none);
+    hud.set_texts(&|key| (key == "common.victoryin").then(|| "Victory In".to_owned()));
+    let label = &hud.elems[hud.find("victorytext").unwrap()];
+    assert_eq!(
+        (label.text.as_str(), label.font.as_str()),
+        ("Victory In", DEFAULT_FONT)
+    );
+    let other = &hud.elems[hud.find("other").unwrap()];
+    assert_eq!(
+        (other.text.as_str(), other.font.as_str()),
+        ("game.nokey", "gamefont_medium")
+    );
+}

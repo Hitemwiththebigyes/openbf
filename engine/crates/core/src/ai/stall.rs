@@ -27,6 +27,10 @@
 //! search) when it can, and recycles it when it cannot.
 //! The count is of failed windows, so a crowd pushing through a door and a
 //! bot going round an obstacle (whose windows do not fail) are not in it.
+//!
+//! Card UNSN: a give-up here (`NavTick::stalled`) is first offered to
+//! [`super::unseen`], which moves the bot on where no human sees it; only
+//! when that finds no safe spot does the recycle happen.
 
 use super::state::{AiState, LostState, NavTick, StallState};
 use super::{
@@ -159,6 +163,7 @@ pub(super) fn send_off(sim: &Sim, st: &mut AiState, pos: Vec3, nt: &mut NavTick)
             s.fails = 0;
             s.walked = Some(pos);
             st.stall = Some(s);
+            nt.failed(super::why::Why::Pinned);
         }
         _ => nt.stalled = 1,
     }
@@ -221,6 +226,14 @@ mod tests {
         (sim, h, cp)
     }
 
+    /// Card UNSN: a human of the bot's team 10 m south of the origin - over
+    /// the pen's wall he sees the penned bot, so its recycle stays (no
+    /// unseen move).
+    fn watched(sim: &mut Sim) {
+        sim.spawn(&UnitSpec::player(0, Vec3::new(0.0, 0.0, 10.0)))
+            .expect("human");
+    }
+
     /// Step `ticks`, calling `each` after every one; the ticks a bot died as
     /// stalled.
     fn stalls(sim: &mut Sim, ticks: u64, mut each: impl FnMut(&mut Sim)) -> Vec<u64> {
@@ -250,6 +263,7 @@ mod tests {
     fn a_penned_bot_is_recycled_once_and_respawns_at_an_owned_post() {
         let (mut sim, h, cp) = home_sim();
         pen(&mut sim);
+        watched(&mut sim);
         let tickets = sim.battle.teams[0].tickets();
         let after = u64::from(RECYCLE_AFTER);
         assert!(stalls(&mut sim, after - 1, |_| {}).is_empty(), "not before");
@@ -324,6 +338,7 @@ mod tests {
     fn a_bot_lapping_a_yard_it_cannot_leave_is_recycled() {
         let (mut sim, h, _) = home_sim();
         long_pen(&mut sim);
+        watched(&mut sim);
         let after = u64::from(RECYCLE_AFTER);
         let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
         let early = stalls(&mut sim, after - 1, |s| {

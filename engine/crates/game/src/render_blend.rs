@@ -8,7 +8,8 @@
 //! What is blended (the drawn state the frame's builders read): each unit's
 //! feet, yaw and pitch (the chase camera hangs off them, so the camera blends
 //! too), each vehicle's place and turn, its guns' looks and a walker's aim,
-//! and the camera's zoom ease (`zoom_s`, `zoom_fov_mix`). Not blended: a
+//! and the camera's zoom ease (`zoom_s`, `zoom_fov_mix`) and its collision's
+//! stored pull-in (`cam_pull`). Not blended: a
 //! walker's posed legs and the door / station animations (they step with
 //! their ticks), the bolts (their own blend, `BoltVis::draws`), effects and
 //! the soldiers' animation clocks (already advanced by the frame's dt).
@@ -81,6 +82,7 @@ pub struct Pose {
     pub zoom_s: f32,
     pub zoom_fov_mix: f32,
     pub cam_place: Option<(f32, Vec3)>,
+    pub cam_pull: f32,
 }
 
 impl Pose {
@@ -136,6 +138,7 @@ impl Pose {
         self.zoom_s = walk.zoom_s;
         self.zoom_fov_mix = walk.zoom_fov_mix;
         self.cam_place = walk.cam_place;
+        self.cam_pull = walk.cam_pull;
     }
 
     /// Write this pose into the walk (slots past either length untouched).
@@ -173,6 +176,7 @@ impl Pose {
         walk.zoom_s = self.zoom_s;
         walk.zoom_fov_mix = self.zoom_fov_mix;
         walk.cam_place = self.cam_place;
+        walk.cam_pull = self.cam_pull;
     }
 }
 
@@ -265,6 +269,7 @@ pub fn blend(prev: &Pose, cur: &Pose, t: f32) -> Pose {
     }
     out.zoom_s = mix(prev.zoom_s, cur.zoom_s, t);
     out.zoom_fov_mix = mix(prev.zoom_fov_mix, cur.zoom_fov_mix, t);
+    out.cam_pull = mix(prev.cam_pull, cur.cam_pull, t);
     if let (Some(p), Some(c)) = (prev.cam_place, cur.cam_place) {
         out.cam_place = Some((mix(p.0, c.0, t), mix3(p.1, c.1, t)));
     }

@@ -779,3 +779,37 @@ via asset extraction or a PCSX2 peek (BF1: `[[DAT_00517ae8]+0xcc+id·4] → [ptr
   JumpForwardSpeedFactor 1.3 as a multiplier — pick BF2's).
 - Choose one roll motion model: BF1 accel-ramp (strafe ±1.7) vs BF2 impulse
   (1.7×MaxSpeed). BF2's reads better for all-direction rolls.
+
+## 8. Port: the prone double tap (`[ours]`, both games, the maintainer 2026-10-28)
+
+A named deviation from both discs, on every map. The maintainer's rule: "have prone happen only if a troop taps
+the crouch button twice within say 1 second. Otherwise if in crouch, you can jump to stand again, or crouch button
+again to stand again. Same with prone." It replaces §7's stationary cycle Stand → Crouch → Prone → Stand, which put
+a soldier prone on any second tap however late, and a crouched bot that tapped to stand up prone first.
+
+With the stick idle (the roll predicate false), a ROLL_STANCE edge does (`Soldier::stance_tap_target`):
+
+| stance | tap taken | result |
+|---|---|---|
+| Stand / Sprint | after `STANCE_TAP_WAIT` 0.5 s in the stance (as before) | Crouch, instant, no lock |
+| Crouch | at once | **Prone** if `time_in_stance` ≤ `PRONE_DOUBLE_TAP` 1.0 s, else **Stand** (instant, no lock) |
+| Prone | after 0.5 s and the `prone_down_lock` (40 updates) | Stand, `prone_up_lock` (45 updates, hard) |
+
+JUMP edge: a crouch **or a prone** older than `CROUCH_RISE_WAIT` 0.5 s stands up and never takes off; the prone
+through `prone_up_lock` (BF1's own prone case does this, `jump && t > 0.5` → the stand-up probe, §3.2; BF2's
+prone did not). With the stick moving the button rolls exactly as before (§4.2, `Soldier::roll_predicate`);
+sprint, the locks and the other stance arms are unchanged.
+
+Why the window is the crouch's own `time_in_stance`: a crouch is entered only by the stand's tap and is instant,
+so the time since the first tap IS the time in the crouch; no new state is carried or hashed. The crouch takes its
+tap at once (it used to wait 0.5 s like every stance) so a quick double tap (press, release, press: two updates)
+counts; the 0.5 s waits of the stand and the prone are kept.
+
+Bots (`ai/mover.rs`, D13): the controller presses only where the soldier will take the press
+(`Soldier::stance_tap_after` / `jump_stands_after` mirror the step's order: clocks advance, then the lock, the
+edge and the wait are read), and **never a press whose result is Prone unless the unit wants prone**. Crouch: one
+tap. Prone: two taps two updates apart. Up from prone: one tap. Up from crouch: JUMP after 0.5 s (a tap inside the
+window would be the prone), or a tap once the window has passed. Measured on `round_to_outcome 18000 42 bf2_kas2
+bf2_nab2 bf1_nab1 bf1_kam1` with a temporary stderr log at the soldier step: prone entries **571 before** (408 by
+units wanting crouch, 99 stand, 64 no wish; none wanted prone) → **0 after**. Tests: `soldier/tests/prone_tap.rs`,
+`ai/draw.rs` (`a_crouched_defender_given_a_route_stands_without_going_prone`, the prone Cover hint test).

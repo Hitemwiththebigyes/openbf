@@ -410,7 +410,7 @@ fn flanking(sim: &Sim) -> Vec<usize> {
 /// Card FLNK (bot design 4.3, 6.2): of a group of 10 attackers with a flank
 /// route and a share of 0.2, exactly 2 take it - the first two in unit order,
 /// re-planned onto the route's first hop - and a second pass gives no more;
-/// a group of 2 takes none, and Easy none at all.
+/// a group of 2 takes none; Easy, the lowest tier, flanks too.
 #[test]
 fn two_of_ten_attackers_flank_at_a_share_of_a_fifth_and_none_of_two() {
     use crate::skill::Difficulty;
@@ -443,7 +443,7 @@ fn two_of_ten_attackers_flank_at_a_share_of_a_fifth_and_none_of_two() {
     }
     let mut sim = flank_scene(10, 0.2, Difficulty::Easy);
     board(&mut sim);
-    assert!(flanking(&sim).is_empty(), "Easy");
+    assert_eq!(flanking(&sim), vec![0, 1], "Normal");
 }
 
 /// Card FLNK: a flanker walks the route's hubs (0 -> 2 -> 3) in a running

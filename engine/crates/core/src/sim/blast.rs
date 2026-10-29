@@ -49,6 +49,24 @@ pub(super) enum BlastSource {
 }
 
 impl Sim {
+    /// The sphere a blast measures vehicle `v` by, in the world: its class's
+    /// ([`crate::vehicle::BlastSetup`]). A building turret whose model has
+    /// no baked sphere (the BF1 common bake's gun turret) takes its
+    /// building's bounds, `Vehicle::aim_sphere` - PROVISIONAL, ours: the
+    /// PS2's is the model's sphere grown by its primitives, as for a
+    /// vehicle; at the bare origin the floor under the building blocks the
+    /// blast's line.
+    pub fn vehicle_blast_sphere(&self, v: &crate::vehicle::Vehicle) -> (Vec3, f32) {
+        match (self.blast_setup.get(v.class as usize), v.aim_sphere) {
+            (Some(Some(b)), _) if b.sphere_radius > 0.0 => {
+                (v.pos + v.rot * b.sphere_centre, b.sphere_radius)
+            }
+            (_, Some((c, r))) => (v.pos + v.rot * c, r),
+            (Some(Some(b)), None) => (v.pos + v.rot * b.sphere_centre, b.sphere_radius),
+            _ => (v.pos, 0.0),
+        }
+    }
+
     /// Detonate `e` at `pos` (§2). `attacker` is the unit credited with the
     /// damage and kills (none for an empty vehicle's blast), `team` the
     /// blast's team for the friendly-fire rule — a victim of that team takes
@@ -128,7 +146,7 @@ impl Sim {
             if source_vehicle == Some(h) {
                 continue;
             }
-            let (c, w) = self.vehicle_sphere(v);
+            let (c, w) = self.vehicle_blast_sphere(v);
             if overlaps(c, w) {
                 gathered.push((Victim::Vehicle(h), c, w));
             }
@@ -200,7 +218,21 @@ impl Sim {
                         [instance, source_instance],
                     )
                 }
-                _ => crate::perception::los_seat(
+                // A building turret is measured past its own bodies (the
+                // PS2's blast LOS ignores the victim itself,
+                // re-turret-collision 3.4); its gunner is not: he is
+                // shielded by them.
+                Victim::Vehicle(h) => {
+                    let own = self.vehicle(h).and_then(|v| v.instance);
+                    crate::perception::los_seat(
+                        self,
+                        pos,
+                        c,
+                        crate::collision::HullFilter::Static,
+                        [own, source_instance],
+                    )
+                }
+                Victim::Unit(_) => crate::perception::los_seat(
                     self,
                     pos,
                     c,
@@ -249,8 +281,9 @@ impl Sim {
     ///   map. Deviations (the maintainer, 2026-10-27): the living are pushed on BF2
     ///   maps too (BF2's `PushDeadOnly` is not read), and the push fades with
     ///   the distance (the disc authors PushRadiusInner = Outer, all or
-    ///   nothing). BF1's droids are pushed like the clones: the
-    ///   ChunkFrequency roll is card DCHK's (a named, temporary deviation).
+    ///   nothing). A droid class rolls its `ChunkFrequency` first
+    ///   ([`Sim::chunk_push_roll`], card DROIDDEATH): won, it is marked and
+    ///   not pushed.
     fn kick_and_push(&mut self, h: UnitHandle, e: &ExplosionClass, pos: Vec3, c: Vec3, w: f32) {
         let Some(u) = self
             .units
@@ -268,7 +301,7 @@ impl Sim {
         if e.push <= 0.0 || mounted || (e.spares_living && self.units[i].alive) {
             return;
         }
-        if self.units[i].soldier.stance.knocked() {
+        if self.units[i].soldier.stance.knocked() || self.chunk_push_roll(i) {
             return;
         }
         let d = c - pos;
@@ -303,8 +336,7 @@ pub fn knock_falloff(d: f32, w: f32, outer: f32) -> f32 {
 impl Sim {
     /// One soldier's splash (B1 FUN_00200e68 → FUN_00221600, §3-§5): riders
     /// of anything but a building turret skip; TakeDamage with the falloff
-    /// as the multiplier; D12's human damage layer as for a bolt; the kill
-    /// through [`Sim::unit_killed`]; `dir` is the hit's way for the
+    /// as the multiplier; the kill through [`Sim::unit_killed`]; `dir` is the hit's way for the
     /// event (card HATK).
     #[allow(clippy::too_many_arguments)]
     fn blast_unit(
@@ -329,25 +361,29 @@ impl Sim {
                 return;
             }
         }
-        let (victim_team, victim_is_player) = (v.team, v.is_player);
+        // Card DPRX: a proxy is a human victim; the cheat is a player's only.
+        let (victim_team, victim_is_player, victim_cheats) = (v.team, v.is_human(), v.is_player);
         let friendly = team == Some(victim_team);
-        if victim_is_player && (self.cheats.invincible || (friendly && !attacker_is_player)) {
+        if (victim_cheats && self.cheats.invincible)
+            || (victim_is_player && friendly && !attacker_is_player)
+        {
             return;
         }
-        // D12 (OURS, PROVISIONAL, as in `resolve_bolt`): a bot's damage into
-        // a human enemy carries the tier's multiplier.
-        let mult = if self.human_damage_on && victim_is_player && !attacker_is_player && !friendly {
-            team.map_or(self.difficulty, |t| self.difficulty_of(t))
-                .tier()
-                .human_damage
-        } else {
-            1.0
-        };
-        let mult = mult * self.buff_scale(attacker, h);
+        // Card TOKN: a blast of a bot without one of his tokens is real
+        // too; counted.
+        if let Some(a) = attacker.filter(|&a| victim_is_player && crate::ai::tokn::bars(self, a, h))
+        {
+            self.nav_stats.tokn_stray += 1;
+            if self.unit(a).is_some_and(|o| o.ai.target != Some(h)) {
+                self.nav_stats.tokn_cross += 1;
+            }
+        }
+        // No tier multiplies a bot's blast into a human (card DRETIRE).
+        let mult = self.buff_scale(attacker, h);
         let ff = self.friendly_fire_scale;
         let u = self.unit_mut(h).unwrap();
         let damage = u.health.take_damage(desc, f * mult, friendly, ff);
-        self.finish_unit_damage(h, attacker, damage, 0.0, dir);
+        self.finish_unit_damage(h, attacker, damage, super::state::BLAST_AGE, dir);
     }
 }
 
@@ -559,6 +595,29 @@ mod tests {
             victim: foe
         }));
         assert!(s.unit(bot).unwrap().kills >= 1);
+    }
+
+    /// A blast's hit says so: its age is [`BLAST_AGE`], never the 0 of a
+    /// bolt that struck in its first update.
+    #[test]
+    fn a_blast_hit_carries_the_blast_age() {
+        let mut s = sim();
+        let bot = s
+            .spawn(&UnitSpec::trooper(0, Vec3::new(0.0, 0.0, 30.0)))
+            .unwrap();
+        let foe = s
+            .spawn(&UnitSpec::trooper(1, Vec3::new(0.0, 0.0, 1.0)))
+            .unwrap();
+        s.explode(&atst_exp(), Vec3::ZERO, Some(bot), Some(0));
+        let ages: Vec<f32> = s
+            .events
+            .iter()
+            .filter_map(|e| match *e {
+                Event::Hit { victim, age, .. } if victim == foe => Some(age),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(ages, [crate::sim::BLAST_AGE]);
     }
 
     /// The whole chain: a destroyed vehicle's class explosion hits a trooper

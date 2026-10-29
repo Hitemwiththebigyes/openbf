@@ -232,20 +232,21 @@ fn soldier_follows_flat_ground_and_camera_tracks() {
 #[test]
 fn camera_stays_on_the_soldiers_side_of_the_terrain() {
     let w = WalkSim::new(1, Vec3::ZERO, Some(flat_ground()));
-    let open = w.settle_camera(Vec3::new(0.0, 1.5, 0.0), Vec3::new(0.0, 2.5, 4.0));
+    let settle = |t, p| w.settle_camera(CamKind::Soldier, t, p, None, None).0;
+    let open = settle(Vec3::new(0.0, 1.5, 0.0), Vec3::new(0.0, 2.5, 4.0));
     assert_eq!(
         open,
         Vec3::new(0.0, 2.5, 4.0),
         "nothing in the way: untouched"
     );
-    let above = w.settle_camera(Vec3::new(0.0, 1.5, 0.0), Vec3::new(0.0, -2.0, 4.0));
+    let above = settle(Vec3::new(0.0, 1.5, 0.0), Vec3::new(0.0, -2.0, 4.0));
     assert!(
         above.y >= CAMERA_TERRAIN_GAP && above.z < 4.0,
         "pulled in and floored: {above}"
     );
-    let cave = w.settle_camera(Vec3::new(0.0, -30.0, 0.0), Vec3::new(0.0, -28.0, 4.0));
+    let cave = settle(Vec3::new(0.0, -30.0, 0.0), Vec3::new(0.0, -28.0, 4.0));
     assert_eq!(cave.y, -28.0, "under the sheet it stays where it was");
-    let roof = w.settle_camera(Vec3::new(0.0, -2.0, 0.0), Vec3::new(0.0, 1.0, 4.0));
+    let roof = settle(Vec3::new(0.0, -2.0, 0.0), Vec3::new(0.0, 1.0, 4.0));
     assert!(
         roof.y <= -CAMERA_TERRAIN_GAP,
         "and never rises through it: {roof}"
@@ -658,4 +659,115 @@ fn the_reticle_follows_a_flown_droids_aim() {
         seen.windows(2).all(|p| (p[0] - p[1]).abs() < 0.05),
         "{seen:?}"
     );
+}
+
+/// A droid class with the disc's camera keys (`EyePointOffset` 0 0.5 0,
+/// `TiltValue` 5), flown by the player from `pos` at `yaw`.
+fn fly_droid(w: &mut WalkSim, pos: Vec3, yaw: f32) {
+    struct Disc;
+    impl core::weapon::PropSource for Disc {
+        fn prop(&self, key: &str) -> Option<&str> {
+            match key {
+                "EyePointOffset" => Some("0 0.5 0"),
+                "TrackOffset" => Some("0 -0.25 1.5"),
+                "TiltValue" => Some("5"),
+                _ => None,
+            }
+        }
+        fn prop_hash(&self, _: u32) -> Option<&str> {
+            None
+        }
+    }
+    let droid = core::remote::DroidClass::from_props(&Disc, false);
+    let remote =
+        core::remote::RemoteWeapon::new(&Disc, droid, core::weapon::WeaponClass::bf1_rifle());
+    let mut class = core::weapon::WeaponClass::bf1_rifle();
+    class.remote = Some(Box::new(remote.clone()));
+    let weapon = w.sim.add_weapon_class(class);
+    let d = core::remote::Droid::new(1, w.player, 0, weapon, &remote, pos, Vec3::ZERO, yaw, true);
+    w.sim.droids.push(d);
+    w.sim.droids[0].controlled = true;
+}
+
+/// Flying a droid, the camera is a chase camera: [`DROID_CHASE`] from the
+/// track centre 0.5 m above the droid, behind it along its aim and above
+/// it, in the view pitched down by the 5° tilt; the droid sits below the
+/// screen's middle, inside the frame. Back on foot, the soldier's camera.
+#[test]
+fn a_flown_droid_has_a_chase_camera_behind_it() {
+    let mut w = WalkSim::new(1, Vec3::ZERO, Some(flat_ground()));
+    let on_foot = w.camera();
+    fly_droid(&mut w, Vec3::new(3.0, 2.0, -6.0), 0.7);
+    let d = w.sim.droids[0].clone();
+    let cam = w.camera();
+    let target = d.pos + Vec3::Y * 0.5;
+    assert!(((cam.position - target).length() - DROID_CHASE.length()).abs() < 1e-4);
+    let (fwd, _, _) = d.aim_frame();
+    let back = (d.pos - cam.position).dot(fwd);
+    assert!(
+        (back - DROID_CHASE.z).abs() < 0.1,
+        "{back} m behind along the aim"
+    );
+    // At the eye point's height, raised by the tilt: above the droid.
+    assert!(cam.position.y > target.y + 0.1, "above: {:?}", cam.position);
+    assert!((cam.yaw - d.yaw).abs() < 1e-6);
+    assert!((cam.pitch - (d.pitch - 5f32.to_radians())).abs() < 1e-6);
+    // The droid's model is in view, below the middle and clear of it.
+    let c = cam.view_proj(16.0 / 9.0) * (d.pos + Vec3::Y * 0.15).extend(1.0);
+    let (x, y) = (c.x / c.w, c.y / c.w);
+    assert!(
+        c.w > 0.0 && x.abs() < 0.01 && (-0.8..-0.15).contains(&y),
+        "({x}, {y})"
+    );
+    // It swings round the droid as the droid pitches, like the soldier's.
+    w.sim.droids[0].pitch = 0.6;
+    let up = w.camera();
+    assert!(up.position.y < cam.position.y);
+    assert!(((up.position - target).length() - DROID_CHASE.length()).abs() < 1e-4);
+    w.sim.droids[0].controlled = false;
+    assert_eq!(w.camera().position, on_foot.position);
+}
+
+/// A droid skimming the ground and looking up would put its camera under
+/// the terrain: the world floors it, as it does the soldier's.
+#[test]
+fn a_flown_droids_camera_stays_out_of_the_ground() {
+    let mut w = WalkSim::new(1, Vec3::ZERO, Some(flat_ground()));
+    fly_droid(&mut w, Vec3::new(0.0, 0.3, -6.0), 0.0);
+    w.sim.droids[0].pitch = 0.87;
+    let d = w.sim.droids[0].clone();
+    let class = w.sim.droid_class(&d).unwrap().clone();
+    let (_, ideal) = droid_camera(&d, &class, w.fov_y());
+    assert!(ideal.position.y < 0.0, "the ideal place is underground");
+    let cam = w.camera();
+    assert!(
+        cam.position.y >= CAMERA_TERRAIN_GAP - 1e-4,
+        "{:?}",
+        cam.position
+    );
+}
+
+/// The reticle is drawn where the droid's aim ray goes: the ray from the
+/// drawn camera through the reticle's screen point (the middle across, at
+/// `reticle_y` down) meets the ray's point 1024 m out, at every pitch.
+#[test]
+fn the_reticle_is_on_a_flown_droids_aim_ray() {
+    let mut w = WalkSim::new(1, Vec3::ZERO, Some(flat_ground()));
+    fly_droid(&mut w, Vec3::new(0.0, 4.0, -6.0), -0.4);
+    for pitch in [-0.8, -0.3, 0.0, 0.3, 0.8] {
+        w.sim.droids[0].pitch = pitch;
+        let d = w.sim.droids[0].clone();
+        let cam = w.camera();
+        let aspect = 16.0 / 9.0;
+        let ndc = glam::Vec2::new(0.0, 1.0 - 2.0 * w.reticle_y());
+        let inv = cam.view_proj(aspect).inverse();
+        let far = inv * glam::Vec4::new(ndc.x, ndc.y, 0.5, 1.0);
+        let through = (far.truncate() / far.w - cam.position).normalize();
+        let aim = d.muzzle() + d.aim_frame().0 * 1024.0;
+        let want = (aim - cam.position).normalize();
+        assert!(
+            through.angle_between(want) < 1e-3,
+            "pitch {pitch}: {through:?} vs {want:?}"
+        );
+    }
 }

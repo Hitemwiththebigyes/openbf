@@ -96,7 +96,9 @@ fn ia_screens() -> Vec<(&'static str, ui::shell::InstantAction)> {
     let assets = game::assets::baked_root();
     // `engine/missions` (the bake may be a link elsewhere).
     let missions = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../missions"));
-    let base = game::shell_ia::instant_action(&assets, &missions, Default::default());
+    // Normal, the port's default tier: the AI Difficulty row reads
+    // "< Normal >", as the PS2's own frame does.
+    let base = game::shell_ia::instant_action(&assets, &missions, core::skill::Difficulty::Normal);
     let at = |ia: &ui::shell::InstantAction, label: &str| {
         ia.maps.iter().position(|m| m.label == label).expect(label)
     };

@@ -476,12 +476,22 @@ fn friend_by(sim: &Sim, u: &Unit, at: Vec3, lead: f32) -> bool {
 /// weapon `u` holds can be used on it at all (a rifleman takes the soldier
 /// behind the tank he does not attack), else 0.
 pub fn vehicle_bonus(sim: &Sim, u: &Unit, o: &Unit) -> f32 {
-    let Some(v) = o.mount.and_then(|m| sim.vehicle(m.vehicle)) else {
-        return 0.0;
-    };
     if u.mount.is_some() {
         return 0.0;
     }
+    match against_ride(sim, u, o) {
+        None => 0.0,
+        Some((true, _)) => VEHICLE_BONUS,
+        Some((false, true)) => 0.0,
+        Some((false, false)) => -VEHICLE_BONUS,
+    }
+}
+
+/// What `u`'s weapons can do to the vehicle `o` rides (`None`: `o` is on
+/// foot): a HEAVY weapon usable on it within its reach, and any weapon
+/// usable on it at all ([`against_vehicle`]).
+pub(super) fn against_ride(sim: &Sim, u: &Unit, o: &Unit) -> Option<(bool, bool)> {
+    let v = o.mount.and_then(|m| sim.vehicle(m.vehicle))?;
     let ask = VehAsk {
         max_health: v.health.max,
         speed: v.vel.length(),
@@ -499,11 +509,20 @@ pub fn vehicle_bonus(sim: &Sim, u: &Unit, o: &Unit) -> f32 {
             heavy |= c.heavy && d2 < (c.class.ai_range[2] * c.class.ai_range[2]);
         }
     }
-    match (heavy, any) {
-        (true, _) => VEHICLE_BONUS,
-        (false, true) => 0.0,
-        (false, false) => -VEHICLE_BONUS,
-    }
+    Some((heavy, any))
+}
+
+/// Card DFOCUS: does `u` hold a weapon for a soldier on foot - one with
+/// rounds left that is neither heavy ([`Cand::heavy`]) nor a tool (a repair
+/// or dispensing weapon, an ability)?
+pub(super) fn arms_for_soldier(sim: &Sim, u: &Unit) -> bool {
+    slots(sim, u).iter().flatten().any(|c| {
+        !c.empty
+            && !c.heavy
+            && c.class.repair.is_none()
+            && !c.class.dispenses()
+            && c.class.ability.is_none()
+    })
 }
 
 /// [`vehicle_bonus`]'s size: the whole span of the choice's distance term
@@ -758,4 +777,4 @@ pub(super) fn lob_aim(
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

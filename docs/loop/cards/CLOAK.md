@@ -10,7 +10,7 @@ files: engine/crates/core/src/cloak.rs,engine/crates/core/src/sim/cloaks.rs,engi
 declares: sim
 needs: original-game comparison — damage categories, frame ordering and visual/audio acceptance
 effort:
-branch: codex/cloaking
+branch:
 resume: User-assigned 2026-10-28. Auto-turrets remain another agent's task. Shared changes isolated in the ordinary-equipment worktree.
 created: 2026-10-28
 ---

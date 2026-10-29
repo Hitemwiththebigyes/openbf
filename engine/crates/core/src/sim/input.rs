@@ -21,7 +21,9 @@ use serde::{Deserialize, Serialize};
 pub mod buttons {
     pub const FIRE: u32 = 1 << 0;
     pub const JUMP: u32 = 1 << 1;
-    /// Contextual: roll while moving, stance cycle while stationary.
+    /// Contextual: roll while moving; stationary, a stand crouches, a crouch
+    /// goes prone on a double tap and stands otherwise, a prone stands
+    /// (`Soldier::stance_tap_target`).
     pub const ROLL_STANCE: u32 = 1 << 2;
     pub const SPRINT: u32 = 1 << 3;
     pub const ZOOM: u32 = 1 << 4;

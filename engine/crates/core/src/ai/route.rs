@@ -881,9 +881,160 @@ pub(crate) fn plan_leg(
     let walker = m.ty == nav::SOLDIER && !m.jet;
     let trap = |h: u16| walker && h != dest && !sim.hub_trapped(cur) && sim.hub_trapped(h);
     let floor = |h: u16| hub_has_floor(sim, g, h, pos.y) && !trap(h);
-    let table = |exclude: Option<u16>| g.next_hop(cur, dest, m, arrival_arc, exclude, r);
-    let bfs = |on_floor: &dyn Fn(u16) -> bool| g.route_bfs(cur, dest, m, on_floor);
     let dead = |arc: u16| walker && sim.arc_unwalkable(arc, cur);
+    // Card ARCM: an arc closed to this bot or shunned by its team is drawn
+    // round while another way exists — first the whole choice below with
+    // those arcs off, then (nothing else found) as if none were. A soldier
+    // on foot only, like the floor tests.
+    let team = u.team;
+    let shunning = walker && (st.arcm.any_closed(sim.tick) || sim.any_shunned(team));
+    // A bot already drawn round one keeps to the fewest-arcs way without
+    // them, hub by hub, to the same goal: the authored table at the next hub
+    // may lead back to the shunned arc, and table and detour taken in turn
+    // went round in loops (BF1 Rhen Var 1: 32 recycles in 6 seeds, against 2).
+    let detouring = shunning
+        && st
+            .route
+            .is_some_and(|r| r.source == RouteSource::Shun && r.dest_hub == dest);
+    let hop = if shunning {
+        let shun = |a: u16| super::arcm::shunned(sim, st, team, a);
+        let kept = detouring
+            .then(|| {
+                g.route_bfs_avoiding(cur, dest, m, &floor, &|a| dead(a) || shun(a))
+                    .filter(|&(_, n)| floor(n) || n == dest)
+            })
+            .flatten();
+        let mut trial = *nt;
+        match kept.map(|h| (h, RouteSource::Shun)).or_else(|| {
+            choose_hop(
+                sim,
+                g,
+                st,
+                cur,
+                dest,
+                arrival_arc,
+                m,
+                r,
+                &floor,
+                &dead,
+                &shun,
+                &mut trial,
+            )
+        }) {
+            Some(mut h) => {
+                *nt = trial;
+                let first = choose_hop(
+                    sim,
+                    g,
+                    st,
+                    cur,
+                    dest,
+                    arrival_arc,
+                    m,
+                    r,
+                    &floor,
+                    &dead,
+                    &|_| false,
+                    &mut NavTick::default(),
+                );
+                if first.is_some_and(|f| f.0 .0 != h.0 .0) {
+                    nt.shun_round = nt.shun_round.saturating_add(1);
+                    h.1 = RouteSource::Shun;
+                }
+                Some(h)
+            }
+            None => {
+                let h = choose_hop(
+                    sim,
+                    g,
+                    st,
+                    cur,
+                    dest,
+                    arrival_arc,
+                    m,
+                    r,
+                    &floor,
+                    &dead,
+                    &|_| false,
+                    nt,
+                );
+                if h.is_some() {
+                    nt.shun_kept = nt.shun_kept.saturating_add(1);
+                }
+                h
+            }
+        }
+    } else {
+        choose_hop(
+            sim,
+            g,
+            st,
+            cur,
+            dest,
+            arrival_arc,
+            m,
+            r,
+            &floor,
+            &dead,
+            &|_| false,
+            nt,
+        )
+    };
+    let Some(((arc, next), source)) = hop else {
+        nt.straight += 1;
+        let mut r = last(RouteSource::Straight);
+        fill_detour(g, m.ty, pos, &mut r, nt);
+        return Some(r);
+    };
+    // Card HUBP: a soldier on foot walks at its own point of the next hub. A
+    // vehicle keeps the centre (OURS, PROVISIONAL: the drivers' laws were
+    // measured against centre legs).
+    let waypoint = if u.mount.is_none() {
+        hub_point(sim, g, me, next, pos, 0.0)
+    } else {
+        hub_waypoint(sim, g, next, pos.y)
+    };
+    let mut r = Route {
+        dest_hub: dest,
+        next_hub: next,
+        via_arc: Some(arc),
+        waypoint,
+        ref_dist: nav::xz_dist(pos, waypoint),
+        // The arc's own end: a leg planned from wherever the unit stands (a
+        // spawn, a new objective, a re-plan) is walked onto the walkway
+        // first ([`leg_point`]). A leg planned on arrival starts at the
+        // waypoint just reached ([`advance_route`]).
+        from: g.hub(cur).map_or(Vec2::new(pos.x, pos.z), |h| h.xz()),
+        source,
+        ..Route::default()
+    };
+    fill_detour(g, m.ty, pos, &mut r, nt);
+    r.ref_dist = nav::xz_dist(pos, sub_point(&r, pos));
+    Some(r)
+}
+
+/// [`plan_leg`]'s choice of the next hop from `cur`, the authored table
+/// first, with every arc `shun` names treated as one the floor walk found
+/// unwalkable (card ARCM; `|_| false` = today's choice).
+#[allow(clippy::too_many_arguments)]
+fn choose_hop(
+    sim: &Sim,
+    g: &NavGraph,
+    st: &AiState,
+    cur: u16,
+    dest: u16,
+    arrival_arc: Option<u16>,
+    m: nav::Mover,
+    r: u32,
+    floor: &dyn Fn(u16) -> bool,
+    unwalkable: &dyn Fn(u16) -> bool,
+    shun: &dyn Fn(u16) -> bool,
+    nt: &mut NavTick,
+) -> Option<(nav::Hop, RouteSource)> {
+    let walker = m.ty == nav::SOLDIER && !m.jet;
+    let table = |exclude: Option<u16>| g.next_hop(cur, dest, m, arrival_arc, exclude, r);
+    let bfs = |on_floor: &dyn Fn(u16) -> bool| g.route_bfs_avoiding(cur, dest, m, on_floor, shun);
+    let dead = |arc: u16| unwalkable(arc) || shun(arc);
     // Card FLNK: a soldier on foot with the Flank role (`team::board`) takes
     // the next hub of its flank route while it stands on one of the route's
     // hubs, and off them the port's BFS toward the route's nearest hub
@@ -929,9 +1080,15 @@ pub(crate) fn plan_leg(
     // (open air on its line, a far end 8 m up, card TGAP: a wall) is
     // rejected the same way, and so is a hop into a hub a soldier is
     // trapped in (`trap`).
-    let hop = match hop {
+    // Card ARCM: a hop rejected only because it is shunned is not handed
+    // "any other arc" (that one goes nowhere in particular): with no other
+    // way the caller asks again without the shunned arcs.
+    match hop {
         Some(((arc, next), _)) if !floor(next) || dead(arc) => {
-            nt.level_rejected += 1;
+            let level = !floor(next) || unwalkable(arc);
+            if level {
+                nt.level_rejected += 1;
+            }
             let retry = table(Some(arc))
                 .filter(|&(a, n)| floor(n) && !dead(a))
                 .map(|h| (h, RouteSource::Table))
@@ -943,47 +1100,16 @@ pub(crate) fn plan_leg(
                 })
                 .or_else(|| {
                     g.any_other_arc(cur, arrival_arc, Some(arc), m, r)
-                        .filter(|&(a, n)| floor(n) && !dead(a))
+                        .filter(|&(a, n)| level && floor(n) && !dead(a))
                         .map(|h| (h, RouteSource::Table))
                 });
-            if retry.is_none() {
+            if retry.is_none() && level {
                 nt.level_unrouted += 1;
             }
             retry
         }
         h => h,
-    };
-    let Some(((arc, next), source)) = hop else {
-        nt.straight += 1;
-        let mut r = last(RouteSource::Straight);
-        fill_detour(g, m.ty, pos, &mut r, nt);
-        return Some(r);
-    };
-    // Card HUBP: a soldier on foot walks at its own point of the next hub. A
-    // vehicle keeps the centre (OURS, PROVISIONAL: the drivers' laws were
-    // measured against centre legs).
-    let waypoint = if u.mount.is_none() {
-        hub_point(sim, g, me, next, pos, 0.0)
-    } else {
-        hub_waypoint(sim, g, next, pos.y)
-    };
-    let mut r = Route {
-        dest_hub: dest,
-        next_hub: next,
-        via_arc: Some(arc),
-        waypoint,
-        ref_dist: nav::xz_dist(pos, waypoint),
-        // The arc's own end: a leg planned from wherever the unit stands (a
-        // spawn, a new objective, a re-plan) is walked onto the walkway
-        // first ([`leg_point`]). A leg planned on arrival starts at the
-        // waypoint just reached ([`advance_route`]).
-        from: g.hub(cur).map_or(Vec2::new(pos.x, pos.z), |h| h.xz()),
-        source,
-        ..Route::default()
-    };
-    fill_detour(g, m.ty, pos, &mut r, nt);
-    r.ref_dist = nav::xz_dist(pos, sub_point(&r, pos));
-    Some(r)
+    }
 }
 
 /// (Re)plan the route toward the COMMANDER'S objective (Phase B) — or, for a
