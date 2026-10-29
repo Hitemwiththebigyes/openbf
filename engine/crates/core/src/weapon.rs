@@ -203,8 +203,9 @@ pub struct WeaponClass {
     /// Kinds the AI may use this weapon on (card GRAI, BF2 class+0x124,
     /// `analysis/re-soldier-ai.md` 4.3): bit `kind`, as `target_kind`. The
     /// `AITarget*` keys (BF2 only on the discs); a class that writes none
-    /// keeps its `Target*` bits — PROVISIONAL, the PS2's default of the AI
-    /// word was not read.
+    /// keeps its `Target*` bits — PROVISIONAL: the PS2's constructor sets
+    /// both words to 0xffffff9f (B2:307279-307280), so its AI word does not
+    /// follow `Target*` (`analysis/re-portable-turret.md` §6.1).
     pub ai_target_kind: u32,
     /// Heat units per shot; 0 = never overheats.
     pub heat_per_shot: f32,
@@ -255,7 +256,10 @@ pub struct WeaponClass {
     pub dispenser: Option<Dispenser>,
     pub mine: Option<Dispenser<crate::mine::MineClass>>,
     pub ability: Option<Ability>,
+    pub cloak: Option<crate::cloak::CloakClass>,
+    pub guided: Option<Box<crate::guided::GuidedWeapon>>,
     pub remote: Option<Box<crate::remote::RemoteWeapon>>,
+    pub turret: Option<Box<Dispenser<crate::autoturret::TurretClass>>>,
 }
 
 /// What the `grenade` weapon class adds (`analysis/re-grenades.md` §3.1; B1
@@ -402,7 +406,10 @@ impl Default for WeaponClass {
             dispenser: None,
             mine: None,
             ability: None,
+            cloak: None,
+            guided: None,
             remote: None,
+            turret: None,
         }
     }
 }
@@ -570,7 +577,10 @@ impl WeaponClass {
             dispenser: None,
             mine: None,
             ability: None,
+            cloak: None,
+            guided: None,
             remote: None,
+            turret: None,
             flash: Some(crate::flash::MuzzleFlashLook {
                 radius: 0.6,
                 length: 0.025,
@@ -659,8 +669,15 @@ impl WeaponClass {
         }
     }
 
+    pub fn award_locked(&self, all_awards: bool) -> bool {
+        !all_awards && self.guided.as_ref().is_some_and(|g| g.requires_award)
+    }
+
     pub fn dispenses(&self) -> bool {
-        self.dispenser.is_some() || self.mine.is_some() || self.remote.is_some()
+        self.dispenser.is_some()
+            || self.mine.is_some()
+            || self.remote.is_some()
+            || self.turret.is_some()
     }
 
     /// Name of the ordnance class this weapon fires (`OrdnanceName` /

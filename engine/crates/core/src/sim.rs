@@ -36,8 +36,10 @@ mod abilities;
 mod blast;
 mod bounds;
 mod buffs;
+mod cloaks;
 mod combat;
 mod doors;
+mod guided;
 mod guns;
 mod input;
 mod look;
@@ -53,6 +55,7 @@ mod state;
 mod stations;
 mod step;
 pub mod trace;
+mod turrets;
 mod vehicles;
 
 pub use blast::{soldier_blast_sphere, BLAST_GATHER_MAX};

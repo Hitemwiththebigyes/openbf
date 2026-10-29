@@ -23,6 +23,7 @@ fn seg(texture: &str, flags: u32) -> Segment {
         render_type: RenderType::Bf2(0),
         spec_power: 0,
         spec_color: 0,
+        uv_anim: [0, 0],
         textures: vec![(0, texture.into())],
         bone: None,
         group: None,

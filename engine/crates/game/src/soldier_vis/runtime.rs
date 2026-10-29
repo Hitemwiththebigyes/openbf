@@ -30,7 +30,12 @@ impl SoldierVisuals {
             .weapon_classes
             .iter()
             .map(|w| {
-                if w.ordnance.sticky.is_none() && w.mine.is_none() && w.remote.is_none() {
+                if w.ordnance.sticky.is_none()
+                    && w.mine.is_none()
+                    && w.remote.is_none()
+                    && w.turret.is_none()
+                    && w.guided.is_none()
+                {
                     return None;
                 }
                 let name = w.ordnance.geometry.as_deref()?;
@@ -101,7 +106,7 @@ impl SoldierVisuals {
                     .iter()
                     .map(|g| {
                         let tex = c.skins.of_group(g.as_deref()?)?;
-                        Self::texture(r, &side, Some(tex), &mut cache)
+                        Self::texture(r, &side, Some(tex), [0.0; 2], &mut cache)
                     })
                     .collect();
                 rows.push(if row.iter().any(Option::is_some) {
@@ -252,11 +257,17 @@ impl SoldierVisuals {
         r: &mut Renderer,
         side: &Path,
         material: Option<&str>,
+        scroll: [f32; 2],
         cache: &mut HashMap<String, Option<TextureHandle>>,
     ) -> Option<TextureHandle> {
-        let key = material?.to_ascii_lowercase();
+        let name = material?.to_ascii_lowercase();
+        let key = match scroll == [0.0; 2] {
+            true => name.clone(),
+            false => format!("{name}@{scroll:?}"),
+        };
         if !cache.contains_key(&key) {
-            let h = crate::viewer::upload_texture_file(r, &side.join("textures"), &key)
+            let dir = side.join("textures");
+            let h = crate::viewer::upload_texture_file_scrolling(r, &dir, &name, scroll)
                 .unwrap_or_else(|e| {
                     eprintln!("{e:#}");
                     None
@@ -303,7 +314,7 @@ impl SoldierVisuals {
                     let mats: Vec<Option<&str>> = parts.iter().map(|p| p.1).collect();
                     groups = part_groups(&mats, &skins.groups);
                     for (k, (mesh, mat, layer)) in parts.into_iter().enumerate() {
-                        let tex = Self::texture(r, &side, mat, cache);
+                        let tex = Self::texture(r, &side, mat, [0.0; 2], cache);
                         meshes.push((mesh, tex, layer, part_spec(r, asset.mesh.spec_pass(k))));
                     }
                 }
@@ -369,7 +380,7 @@ impl SoldierVisuals {
                 Ok(cpu) => match crate::viewer::upload_submeshes(r, &cpu) {
                     Ok(up) => {
                         for (k, (mesh, mat, layer, _)) in up.into_iter().enumerate() {
-                            let tex = Self::texture(r, &side, mat, cache);
+                            let tex = Self::texture(r, &side, mat, cpu.uv_scroll(k), cache);
                             parts.push((mesh, tex, layer, part_spec(r, cpu.spec_pass(k))));
                         }
                     }
@@ -441,9 +452,15 @@ impl SoldierVisuals {
                     }
                 }
             }
-            let core::sim::Event::Shot { unit, .. } = e else {
+            let core::sim::Event::Shot {
+                unit, weapon_class, ..
+            } = e
+            else {
                 continue;
             };
+            if walk.sim.is_item_gun(*weapon_class as usize) {
+                continue;
+            }
             let (Some(v), Some(u)) = (
                 self.units.get_mut(unit.index as usize),
                 walk.sim.units.get(unit.index as usize),
@@ -490,7 +507,9 @@ impl SoldierVisuals {
             .events
             .iter()
             .filter_map(|e| match e {
-                core::sim::Event::Shot { unit, .. } => Some(unit.index),
+                core::sim::Event::Shot {
+                    unit, weapon_class, ..
+                } if !walk.sim.is_item_gun(*weapon_class as usize) => Some(unit.index),
                 _ => None,
             })
             .collect();
@@ -684,7 +703,7 @@ impl SoldierVisuals {
                 continue;
             };
             let Some(v) = self.units.get(i) else { continue };
-            if v.gen != u.gen || (!u.alive && v.dead_for > CORPSE_SECS) {
+            if !u.cloak.visible() || v.gen != u.gen || (!u.alive && v.dead_for > CORPSE_SECS) {
                 continue;
             }
             if !u.alive && !v.animator.posed() {
@@ -755,44 +774,31 @@ impl SoldierVisuals {
             let m = model * palette[hp] * sa.asset.skeleton.global_bind[hp];
             weapon.part_draws(m, &mut out);
         }
-        for g in &walk.sim.stickies {
-            let Some(model) = self
-                .grenades
-                .get(g.weapon_class)
-                .copied()
-                .flatten()
-                .and_then(|i| self.weapons.get(i))
-            else {
-                continue;
-            };
-            model.part_draws(Mat4::from_translation(g.pos), &mut out);
-        }
-        for d in &walk.sim.droids {
-            if let Some(model) = self
-                .grenades
-                .get(d.weapon_class)
-                .copied()
-                .flatten()
-                .and_then(|i| self.weapons.get(i))
-            {
-                model.part_draws(
-                    Mat4::from_rotation_translation(d.rotation(), d.pos),
-                    &mut out,
-                );
-            }
-        }
-        for m in &walk.sim.mines {
-            if let Some(model) = self
-                .grenades
-                .get(m.flight.weapon_class)
-                .copied()
-                .flatten()
-                .and_then(|i| self.weapons.get(i))
-            {
-                model.part_draws(
-                    Mat4::from_rotation_translation(m.rotation, m.flight.pos),
-                    &mut out,
-                );
+        let sim = &walk.sim;
+        let thrown = sim
+            .stickies
+            .iter()
+            .map(|g| (g.weapon_class, Mat4::from_translation(g.pos)))
+            .chain(sim.droids.iter().map(|d| {
+                let m = Mat4::from_rotation_translation(d.rotation(), d.pos);
+                (d.weapon_class, m)
+            }))
+            .chain(sim.turrets.iter().map(|t| {
+                let m = Mat4::from_rotation_translation(t.rotation(), t.pos);
+                (t.weapon_class, m)
+            }))
+            .chain(sim.guided.iter().map(|r| {
+                let m = Mat4::from_rotation_translation(r.drawn_rotation(), r.pos);
+                (r.weapon_class, m)
+            }))
+            .chain(sim.mines.iter().map(|m| {
+                let at = Mat4::from_rotation_translation(m.rotation, m.flight.pos);
+                (m.flight.weapon_class, at)
+            }));
+        for (class, at) in thrown {
+            let model = self.grenades.get(class).copied().flatten();
+            if let Some(model) = model.and_then(|i| self.weapons.get(i)) {
+                model.part_draws(at, &mut out);
             }
         }
         out

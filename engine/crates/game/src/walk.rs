@@ -145,6 +145,23 @@ pub fn vehicle_camera(
     (target, Camera { position, ..cam })
 }
 
+pub fn guided_camera(
+    r: &core::guided::GuidedRocket,
+    c: &core::guided::GuidedClass,
+    fov_y: f32,
+) -> Camera {
+    let (yaw, pitch) = r.yaw_pitch();
+    let target = r.pos + r.rot * c.track_center;
+    let position = target + r.rot * c.track_offset;
+    Camera {
+        position,
+        yaw,
+        pitch,
+        fov_y,
+        ..Camera::default()
+    }
+}
+
 pub fn droid_camera(
     d: &core::remote::Droid,
     c: &core::remote::DroidClass,
@@ -1054,6 +1071,11 @@ impl WalkSim {
         if let Some(b) = &self.backdrop {
             return b.camera();
         }
+        if let Some(r) = self.sim.controlled_guided(self.player) {
+            if let Some(c) = self.sim.guided_class(r) {
+                return guided_camera(r, c, self.fov_y());
+            }
+        }
         if let Some(cam) = self.droid_camera() {
             return cam;
         }
@@ -1159,9 +1181,12 @@ impl WalkSim {
         if me.mount.is_some() {
             return 0.5;
         }
-        let (a, d) = match self.sim.controlled_droid(self.player) {
-            Some(droid) => (droid.muzzle(), droid.aim_frame().0),
-            None => me.aim_ray(self.sim.ground_rules, self.sim.views()),
+        let (a, d) = if let Some(r) = self.sim.controlled_guided(self.player) {
+            (r.pos, r.forward())
+        } else if let Some(droid) = self.sim.controlled_droid(self.player) {
+            (droid.muzzle(), droid.aim_frame().0)
+        } else {
+            me.aim_ray(self.sim.ground_rules, self.sim.views())
         };
         let clip = self.camera().view_proj(1.0) * (a + d * 1024.0).extend(1.0);
         0.5 - 0.5 * clip.y / clip.w
@@ -1359,6 +1384,56 @@ impl WalkSim {
             })
             .collect()
     }
+}
+
+#[cfg(test)]
+pub(crate) fn turret_test_walk() -> (WalkSim, usize, usize) {
+    struct NoProps;
+    impl core::weapon::PropSource for NoProps {
+        fn prop(&self, _: &str) -> Option<&str> {
+            None
+        }
+        fn prop_hash(&self, _: u32) -> Option<&str> {
+            None
+        }
+    }
+    let flat = core::heightfield::Heightfield {
+        size: 33,
+        unit: 8.0,
+        offset_x: 128.0,
+        offset_z: 128.0,
+        heights: vec![0.0; 33 * 33],
+    };
+    let mut walk = WalkSim::new(42, Vec3::ZERO, Some(flat));
+    let mut gun = core::weapon::WeaponClass::bf1_rifle();
+    gun.ai_range = [0.0, 15.0, 40.0];
+    let item = core::autoturret::TurretClass::new(&NoProps, gun);
+    let mut w = core::weapon::WeaponClass::bf1_rifle();
+    w.turret = Some(Box::new(core::weapon::Dispenser::new(
+        &mut w, &NoProps, true, item,
+    )));
+    let weapon = walk.sim.add_weapon_class(w);
+    let class = &walk.sim.weapon_classes[weapon]
+        .turret
+        .as_ref()
+        .unwrap()
+        .item;
+    let gun = class.gun_index;
+    let mut t = core::autoturret::Turret::new(
+        1,
+        walk.player,
+        0,
+        weapon,
+        class,
+        Vec3::new(15.0, core::autoturret::CENTRE, 0.0),
+        Vec3::ZERO,
+        0.0,
+    );
+    t.landed = true;
+    walk.sim.turrets.push(t);
+    let enemy = core::unit::UnitSpec::trooper(1, Vec3::new(15.0, 0.0, -20.0));
+    walk.sim.spawn(&enemy).unwrap();
+    (walk, weapon, gun)
 }
 
 #[cfg(test)]

@@ -7,7 +7,7 @@ use super::{
 };
 use crate::anim_sets;
 use crate::skin_glb::{skinned_to_glb, Clip};
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, Context, Result};
 use mungefs::anim::{crc32_lower, AnimBank};
 use mungefs::model::Model;
 use std::path::Path;
@@ -413,8 +413,11 @@ pub struct BakedWeapon {
 }
 
 /// Bake a hand-held weapon model (a static, model-space `modl` whose single
-/// BNAM bone sits at identity — re-softskin.md §6) to
-/// `<outdir>/weapons/<model>.glb` + its textures.
+/// BNAM bone sits at identity — re-softskin.md §6; a bone-space one is posed
+/// at its bind pose) to
+/// `<outdir>/weapons/<model>.glb` + its textures. `lvl_path` may list several
+/// LVLs, comma-joined: the model comes from the first that holds it and its
+/// textures from any of them.
 pub fn bake_weapon(
     lvl_path: &str,
     model: &str,
@@ -422,18 +425,36 @@ pub fn bake_weapon(
     pc_lvl: Option<&str>,
 ) -> Result<BakedWeapon> {
     let pc = pc_lvl.map(crate::tier::PcTextures::load).transpose()?;
-    let buf = std::fs::read(lvl_path).with_context(|| lvl_path.to_string())?;
-    let inner = mungefs::open(&buf).map_err(|e| anyhow!("{e}"))?;
-    let chunks = mungefs::content_chunks(inner).map_err(|e| anyhow!("{e}"))?;
-    let m = chunks
+    let bufs = lvl_path
+        .split(',')
+        .map(|p| std::fs::read(p).with_context(|| p.to_string()))
+        .collect::<Result<Vec<_>>>()?;
+    let inners = bufs
         .iter()
-        .filter(|c| &c.tag == b"modl")
-        .filter_map(|c| Model::parse(c).ok())
-        .find(|m| m.name.eq_ignore_ascii_case(model))
-        .ok_or_else(|| anyhow!("modl {model} not found"))?;
-    if m.bone_space {
-        bail!("{model} is a bone-space (skinned) model, not a weapon");
+        .map(|b| mungefs::open(b).map_err(|e| anyhow!("{e}")))
+        .collect::<Result<Vec<_>>>()?;
+    let mut found = None;
+    for (k, inner) in inners.iter().enumerate() {
+        let chunks = mungefs::content_chunks(inner).map_err(|e| anyhow!("{e}"))?;
+        let m = chunks
+            .iter()
+            .filter(|c| &c.tag == b"modl")
+            .filter_map(|c| Model::parse(c).ok())
+            .find(|m| m.name.eq_ignore_ascii_case(model));
+        if let Some(m) = m {
+            found = Some((k, chunks, m));
+            break;
+        }
     }
+    let (home, chunks, m) = found.ok_or_else(|| anyhow!("modl {model} not found"))?;
+    let m = if m.bone_space {
+        crate::bind_pose::BindPose::of(&chunks)
+            .pose(&m)
+            .map_err(|e| anyhow!("{model}: {e}"))?
+            .ok_or_else(|| anyhow!("{model} is a bone-space model with no skeleton"))?
+    } else {
+        m
+    };
     let out = Path::new(outdir);
     std::fs::create_dir_all(out.join("weapons"))?;
     std::fs::write(
@@ -450,7 +471,25 @@ pub fn bake_weapon(
         .filter_map(crate::alpha::segment_texture)
         .map(|n| n.to_ascii_lowercase())
         .collect();
-    let textures = bake_textures_flagged(inner, &wanted, &bake_flags(&m), out, pc.as_ref())?;
+    let flags = bake_flags(&m);
+    let mut textures = Vec::new();
+    for k in std::iter::once(home).chain((0..inners.len()).filter(|&k| k != home)) {
+        let rest: Vec<String> = wanted
+            .iter()
+            .filter(|n| !textures.contains(*n))
+            .cloned()
+            .collect();
+        if rest.is_empty() {
+            break;
+        }
+        textures.extend(bake_textures_flagged(
+            inners[k],
+            &rest,
+            &flags,
+            out,
+            pc.as_ref(),
+        )?);
+    }
     let nodes = weapon_nodes(&chunks, &m.name);
     std::fs::write(
         manifest::weapon_nodes_path(out, &m.name),

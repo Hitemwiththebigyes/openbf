@@ -9,6 +9,19 @@ use glam::{Quat, Vec3};
 /// A placed item's sphere for shots and blasts. Ours: the PS2's is not known.
 pub const RADIUS: f32 = 0.15;
 
+pub fn fall(pos: &mut Vec3, vel: &mut Vec3, gravity: f32, dt: f32) {
+    vel.y += gravity * dt * 0.5;
+    *pos += *vel * dt;
+    vel.y += gravity * dt * 0.5;
+}
+
+pub fn rebound(vel: Vec3, n: Vec3, friction: f32, rebound: f32) -> Vec3 {
+    let vn = vel.dot(n);
+    let vt = vel - n * vn;
+    let f = (-vn * friction * (rebound + 1.0) / vt.length()).min(1.0);
+    vt * (1.0 - f) - n * (vn * rebound)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Detonation {
     Trigger,

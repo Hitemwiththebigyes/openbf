@@ -48,8 +48,8 @@ pub use scene::{
 };
 pub use upload::{
     upload_billboard_quad, upload_cpu_texture, upload_cpu_texture_scrolling, upload_fx_sprite,
-    upload_skinned, upload_submeshes, upload_texture_file, upload_unit_cube, SkinnedPart,
-    SubmeshPart, DETAIL_UV_SCALE,
+    upload_skinned, upload_submeshes, upload_texture_file, upload_texture_file_scrolling,
+    upload_unit_cube, SkinnedPart, SubmeshPart, DETAIL_UV_SCALE,
 };
 pub use vehicles::{
     find_model, find_texture, walker_rigs, ModelSource, TexSource, VehicleSides, VehicleVisuals,

@@ -302,7 +302,7 @@ pub fn scan(sim: &Sim, me: UnitHandle, st: &mut AiState, tier: Tier) -> (u8, u8)
         if !in_cone(view, off, d2, sim.omni_radius) {
             continue;
         }
-        let vd = view_distance(o.soldier.stance, tier.view_mult);
+        let vd = view_distance(o.soldier.stance, tier.view_mult) * o.cloak.visibility();
         if d2 >= vd * vd {
             continue;
         }
@@ -398,7 +398,9 @@ pub fn tell(sim: &Sim, me: UnitHandle, st: &mut AiState, tier: Tier) -> u8 {
             continue;
         }
         for c in o.ai.contacts.iter().flatten().filter(|c| c.seen_now) {
-            if sim.unit(c.handle).is_some_and(|e| e.team != u.team)
+            if sim
+                .unit(c.handle)
+                .is_some_and(|e| e.team != u.team && e.cloak.visible())
                 && hear(st, c.handle, sim.tick, c.last_pos, true)
             {
                 told = told.saturating_add(1);

@@ -88,22 +88,35 @@ impl Sim {
                     };
                 }
             }
-            for m in self.mines.iter().filter(|m| m.health > 0.0) {
+            let mines = self.mines.iter().filter(|m| m.health > 0.0);
+            let droids = self.droids.iter().filter(|d| d.owner != b.owner);
+            let turrets = self.turrets.iter().filter(|t| t.owner != b.owner);
+            let items = mines
+                .map(|m| (Target::Mine(m.id), m.flight.pos, crate::mine::RADIUS))
+                .chain(droids.map(|d| (Target::Droid(d.id), d.pos, crate::remote::RADIUS)))
+                .chain(
+                    turrets.map(|t| (Target::Turret(t.id), t.centre(), crate::autoturret::RADIUS)),
+                );
+            for (target, at, radius) in items {
                 if let Some(t) =
-                    crate::unit::ray_sphere(from, dir, m.flight.pos, crate::mine::RADIUS)
-                        .filter(|&t| t <= reach)
+                    crate::unit::ray_sphere(from, dir, at, radius).filter(|&t| t <= reach)
                 {
                     reach = t;
-                    hit = Some(Target::Mine(m.id));
+                    hit = Some(target);
                     mult = 1.0;
                 }
             }
-            for d in self.droids.iter().filter(|d| d.owner != b.owner) {
-                if let Some(t) = crate::unit::ray_sphere(from, dir, d.pos, crate::remote::RADIUS)
-                    .filter(|&t| t <= reach)
+            for r in self.guided.iter().filter(|r| r.owner != b.owner) {
+                if let Some(t) = crate::unit::ray_sphere(
+                    from,
+                    dir,
+                    r.pos,
+                    crate::guided::COLLISION_RADIUS_PROVISIONAL,
+                )
+                .filter(|&t| t <= reach)
                 {
                     reach = t;
-                    hit = Some(Target::Droid(d.id));
+                    hit = Some(Target::Guided(r.id));
                     mult = 1.0;
                 }
             }
@@ -246,31 +259,13 @@ impl Sim {
                 );
                 self.bolt_explodes(b);
             }
-            Hit::Target(Target::Droid(id)) => {
+            Hit::Target(
+                t @ (Target::Droid(_) | Target::Mine(_) | Target::Turret(_) | Target::Guided(_)),
+            ) => {
                 let desc = self.weapon_classes[b.weapon_class]
                     .ordnance
                     .damage_desc_charged(b.age, false, b.charge);
-                if let Some(k) = self.droids.iter().position(|d| d.id == id) {
-                    let damage =
-                        self.droid_damage(&self.droids[k], desc.damage, &desc.scales, Some(b.team));
-                    self.droids[k].health -= damage;
-                }
-                self.events.push(Event::BoltExpired {
-                    pos: b.end,
-                    struck: true,
-                });
-                self.push_impact(b, Surface::Vehicle, None);
-                self.bolt_explodes(b);
-            }
-            Hit::Target(Target::Mine(id)) => {
-                let desc = self.weapon_classes[b.weapon_class]
-                    .ordnance
-                    .damage_desc_charged(b.age, false, b.charge);
-                if let Some(k) = self.mines.iter().position(|m| m.id == id) {
-                    let damage =
-                        self.mine_damage(&self.mines[k], desc.damage, &desc.scales, Some(b.team));
-                    self.mines[k].health -= damage;
-                }
+                self.damage_item(t, desc.damage, &desc.scales, Some(b.team));
                 self.events.push(Event::BoltExpired {
                     pos: b.end,
                     struck: true,
@@ -392,6 +387,9 @@ impl Sim {
         dir: Vec3,
     ) -> bool {
         let u = &mut self.units[victim.index as usize];
+        if damage > 0.0 {
+            u.cloak.strength = 0.0;
+        }
         let killed = !u.health.alive();
         if let Some(shooter) = attacker {
             u.last_hit = Some((shooter, self.tick));
@@ -422,6 +420,7 @@ impl Sim {
         let slot = self.waves[usize::from(victim_team).min(1)].assign();
         let v = &mut self.units[h.index as usize];
         v.alive = false;
+        v.cloak = crate::cloak::CloakState::default();
         v.deaths += 1;
         v.respawn_at = Some(respawn_at);
         v.spawn_slot = Some(slot);
@@ -523,6 +522,7 @@ impl Sim {
         let slot = self.waves[usize::from(team).min(1)].assign();
         let v = &mut self.units[h.index as usize];
         v.alive = false;
+        v.cloak = crate::cloak::CloakState::default();
         v.deaths += 1;
         v.health.cur = 0.0;
         v.respawn_at = Some(respawn_at);

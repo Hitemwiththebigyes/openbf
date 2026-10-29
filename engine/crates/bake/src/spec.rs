@@ -144,6 +144,7 @@ mod tests {
             render_type: RenderType::Absent,
             spec_power: power,
             spec_color: color,
+            uv_anim: [0, 0],
             textures: Vec::new(),
             bone: None,
             group: None,

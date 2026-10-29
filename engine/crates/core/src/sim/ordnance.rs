@@ -74,6 +74,9 @@ impl Sim {
                 continue;
             }
             let held = Some(k) == cur1 && held1;
+            if self.cloak_input(i, Some(k), held, blocked) {
+                continue;
+            }
             let remote = self.remote_input(i, Some(k), held, blocked);
             let input = FireInput {
                 held: held && !remote,
@@ -184,8 +187,16 @@ impl Sim {
             // ordnance flies and strikes; a sticky one (a mortar's held
             // round, BF1's smuggler's mortar) is launched.
             let stage = self.weapon_classes[class].stage_index(class, usize::from(spec.stage));
+            if self.weapon_classes[stage].guided.is_some() {
+                self.launch_guided(i, stage);
+                continue;
+            }
             if self.weapon_classes[stage].remote.is_some() {
                 self.launch_droid(i, stage, spec.charge);
+                continue;
+            }
+            if self.weapon_classes[stage].turret.is_some() {
+                self.place_turret(i, stage, spec.charge);
                 continue;
             }
             if self.weapon_classes[stage].ability.is_some() {
@@ -255,13 +266,15 @@ impl Sim {
     /// Step channel 0 to its next slot: the weapon in the hands trades
     /// places with the held one (§2.4; the same slot again does nothing).
     fn switch_channel0(&mut self, i: usize) {
+        let awards = self.cheats.all_awards;
+        let classes = &self.weapon_classes;
         let u = &mut self.units[i];
         let cur = u.weapon_slot;
         let next = u
             .held
             .iter()
             .enumerate()
-            .filter(|(_, w)| w.channel == 0)
+            .filter(|(_, w)| w.channel == 0 && !classes[w.class].award_locked(awards))
             .min_by_key(|(_, w)| (w.slot < cur, w.slot))
             .map(|(k, _)| k);
         let Some(k) = next else {

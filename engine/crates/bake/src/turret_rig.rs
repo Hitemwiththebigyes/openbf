@@ -314,6 +314,7 @@ mod tests {
             render_type: mungefs::model::RenderType::Absent,
             spec_power: 4,
             spec_color: 7,
+            uv_anim: [0, 0],
             textures: vec![(0, "sheet".into())],
             bone: None,
             group: None,

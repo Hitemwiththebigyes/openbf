@@ -221,6 +221,13 @@ pub(super) fn score(wc: &WeaponClass, kind: u32) -> f32 {
 pub(super) fn shot(wc: &WeaponClass, kind: u32) -> f32 {
     let o = &wc.ordnance;
     let k = (kind as usize).min(o.scales.len() - 1);
+    if let Some(g) = &wc.guided {
+        return g
+            .class
+            .explosion
+            .as_ref()
+            .map_or(0.0, |e| e.damage * e.scales[k]);
+    }
     let mut dmg = o.max_damage * o.scales[k];
     if let Some(x) = o.sticky.as_ref().and_then(|s| s.explosion.as_ref()) {
         dmg += x.damage * x.scales[k];
@@ -251,6 +258,7 @@ pub(super) fn choose<'a>(cands: impl Iterator<Item = Cand<'a>>, ask: &Ask) -> Op
         if c.class.repair.is_some()
             || c.class.dispenses()
             || c.class.ability.is_some()
+            || c.class.cloak.is_some()
             || c.empty
             || (grenade && ask.barred)
             || reloads
@@ -422,7 +430,7 @@ pub(super) fn is_group(rules: GroundRules, own: u32, foes: u32) -> bool {
 /// of his side within [`GROUP_RADIUS`] of him, himself counted, and those of
 /// any other side there. One count for the grenade ([`is_group`]) and for a
 /// heavy weapon ([`is_crowd`]).
-fn group_counts(sim: &Sim, e: &Unit) -> (u32, u32) {
+pub(super) fn group_counts(sim: &Sim, e: &Unit) -> (u32, u32) {
     let (mut own, mut foes) = (0, 0);
     for (_, o) in sim.alive_units() {
         if o.mount.is_some()
@@ -525,9 +533,9 @@ pub(super) fn slots<'a>(sim: &'a Sim, u: &Unit) -> [Option<Cand<'a>>; 8] {
             slot,
             class,
             rounds: w.issued(class),
-            empty: w.out_of_ammo(class),
+            empty: w.out_of_ammo(class) || class.award_locked(sim.cheats.all_awards),
             busy: w.reloading(),
-            heavy: class.ordnance.kind == OrdKind::Missile
+            heavy: (class.ordnance.kind == OrdKind::Missile || class.guided.is_some())
                 && (class.ai_target_kind & 1 == 0 || slot != first),
         }
     };

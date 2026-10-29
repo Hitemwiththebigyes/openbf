@@ -1077,3 +1077,46 @@ fn a_thrown_soldier_is_drawn_over_his_position() {
         assert_eq!(cases, 8);
     }
 }
+
+#[test]
+fn an_item_guns_shot_never_flashes_or_animates_its_owner() {
+    use core::sim::{buttons, Event, PadState};
+    let (mut walk, _, gun) = crate::walk::turret_test_walk();
+    walk.sim.weapon_classes[gun].flash = Some(core::flash::MuzzleFlashLook {
+        radius: 1.0,
+        model: Some(core::flash::BF2_MODEL.to_owned()),
+        ..Default::default()
+    });
+    let owner = walk.player;
+    let shot_by = |walk: &WalkSim, own: bool| {
+        walk.sim.events.iter().any(|e| {
+            matches!(e, Event::Shot { unit, weapon_class, .. }
+                if *unit == owner && (*weapon_class as usize == gun) != own)
+        })
+    };
+    let mut vis = SoldierVisuals::default();
+    vis.sync_units(&walk);
+    let mut turret_shots = 0;
+    for _ in 0..10 * core::TICK_HZ {
+        walk.step_tick(&[PadState::default()]);
+        vis.note_shots(&walk);
+        turret_shots += usize::from(shot_by(&walk, false));
+    }
+    assert!(turret_shots > 0, "the turret never fired");
+    assert_eq!(vis.units[owner.index as usize].shot_tick, None);
+    let fire = PadState {
+        buttons: buttons::FIRE,
+        ..PadState::default()
+    };
+    for _ in 0..30 {
+        walk.step_tick(&[fire]);
+        vis.note_shots(&walk);
+        if shot_by(&walk, true) {
+            break;
+        }
+    }
+    assert_eq!(
+        vis.units[owner.index as usize].shot_tick,
+        Some(walk.sim.tick)
+    );
+}

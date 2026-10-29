@@ -621,7 +621,7 @@ pub(super) fn seen_aim(
     let cap = sim.difficulty_of(u.team).skill_at(u.skill).err_cap;
     let moving = e.soldier.vel.length() / e.consts.max_speed.max(0.1);
     if sim.ground_rules != crate::soldier::GroundRules::Bf2 {
-        let vis = crate::perception::VIS;
+        let vis = e.cloak.visibility();
         let r = radius(1.0, 1.0, st.err, moving, vis, cap);
         return aim + unit_dir(me.index, sim.tick / THINK_PERIOD, me.gen, SALT_ERR_DIR) * r;
     }
@@ -630,7 +630,7 @@ pub(super) fn seen_aim(
         stance_factor(e.soldier.stance),
         e.aim.err,
         moving,
-        crate::perception::VIS,
+        e.cloak.visibility(),
         cap,
     );
     aim + error_vector(sim, me, e, u.aim.dir * r, (aim - eye).length(), wc)

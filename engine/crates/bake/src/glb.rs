@@ -138,6 +138,9 @@ fn write_model(
         if let Some(p) = crate::spec::spec_pass(seg) {
             mat["extras"]["spec_pass"] = p.to_json();
         }
+        if let Some(v) = seg.uv_scroll() {
+            mat["extras"]["uv_scroll"] = json!(v);
+        }
         let glow = if vertex_light {
             glow_path(seg, hdr)
         } else {
@@ -445,6 +448,7 @@ mod tests {
             render_type: RenderType::Bf1("Normal".into()),
             spec_power: 0,
             spec_color: 0,
+            uv_anim: [0, 0],
             textures: vec![(0, tex.to_owned())],
             bone: None,
             group: None,

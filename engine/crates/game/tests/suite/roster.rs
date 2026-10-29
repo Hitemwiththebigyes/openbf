@@ -1627,7 +1627,8 @@ fn fielded_classes_hold_their_sidearm_and_grenades() {
                         c.class
                     );
                     assert!(
-                        !h.weapon.name.contains("award"),
+                        !h.weapon.name.contains("award")
+                            || h.weapon.guided.as_ref().is_some_and(|g| g.requires_award),
                         "{}: {}",
                         c.class,
                         h.weapon.name
@@ -2190,6 +2191,8 @@ fn every_class_kit_is_the_discs_or_explained() {
                         "launched"
                     } else if h.weapon.repair.is_some() {
                         "repair"
+                    } else if h.weapon.turret.is_some() {
+                        "auto-turret"
                     } else if h.weapon.dispenser.is_some() || h.weapon.mine.is_some() {
                         "dispenser"
                     } else if h.weapon.ability.is_some() {

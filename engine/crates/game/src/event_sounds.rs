@@ -97,6 +97,24 @@ pub fn each(walk: &WalkSim, ears: Vec3, mut play: impl FnMut(&str, Vec3)) {
                     .and_then(|d| d.item.explosion(*cause));
                 boom(e.map(|e| &e.look), *pos, &mut play);
             }
+            Event::GuidedGone {
+                pos,
+                weapon_class,
+                end,
+            } => {
+                if let Some(g) = &walk.sim.weapon_classes[*weapon_class as usize].guided {
+                    let look = g.explosion(*end).map(|e| &e.look);
+                    boom(look, *pos, &mut play);
+                    if let Some(name) = g
+                        .class
+                        .death_sound
+                        .as_ref()
+                        .filter(|&name| look.and_then(|l| l.sound.as_ref()) != Some(name))
+                    {
+                        play(name, *pos);
+                    }
+                }
+            }
             Event::DroidCharge { pos, weapon_class } => {
                 let r = walk.sim.weapon_classes[*weapon_class as usize]
                     .remote
@@ -120,6 +138,19 @@ pub fn each(walk: &WalkSim, ears: Vec3, mut play: impl FnMut(&str, Vec3)) {
                     if let Some(n) = r.end_burst(*end).and_then(|x| x.burst_sound.as_deref()) {
                         play(n, *pos);
                     }
+                }
+            }
+            Event::TurretGone {
+                pos,
+                weapon_class,
+                end,
+            } => {
+                let e = walk.sim.weapon_classes[*weapon_class as usize]
+                    .turret
+                    .as_ref()
+                    .and_then(|d| d.item.end_explosion(*end));
+                if let Some(e) = e {
+                    boom(Some(&e.look), *pos, &mut play);
                 }
             }
             Event::StickyBlast { pos, weapon_class } => {
@@ -186,6 +217,11 @@ pub fn each(walk: &WalkSim, ears: Vec3, mut play: impl FnMut(&str, Vec3)) {
             Event::Throw {
                 weapon_class,
                 origin,
+                ..
+            }
+            | Event::Cloak {
+                weapon_class,
+                pos: origin,
                 ..
             }
             | Event::Ability {

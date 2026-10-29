@@ -10,6 +10,7 @@
 //! ([`Sim::kick_and_push`]).
 
 use super::state::Sim;
+use crate::projectile::Target;
 use crate::soldier::Stance;
 use crate::unit::UnitHandle;
 use crate::vehicle::{VehicleHandle, VehicleKind};
@@ -127,10 +128,7 @@ impl Sim {
             if source_vehicle == Some(h) {
                 continue;
             }
-            let (c, w) = match self.blast_setup.get(v.class as usize) {
-                Some(Some(b)) => (v.pos + v.rot * b.sphere_centre, b.sphere_radius),
-                _ => (v.pos, 0.0),
-            };
+            let (c, w) = self.vehicle_sphere(v);
             if overlaps(c, w) {
                 gathered.push((Victim::Vehicle(h), c, w));
             }
@@ -143,61 +141,48 @@ impl Sim {
                 gathered.push((Victim::Station(i as u16), s.sphere_centre, s.sphere_radius));
             }
         }
-        let mine_damage: Vec<_> = self
+        let items: Vec<_> = self
             .mines
             .iter()
-            .enumerate()
+            .map(|m| (Target::Mine(m.id), m.flight.pos, crate::mine::RADIUS))
+            .chain(
+                self.droids
+                    .iter()
+                    .map(|d| (Target::Droid(d.id), d.pos, crate::remote::RADIUS)),
+            )
+            .chain(
+                self.turrets
+                    .iter()
+                    .map(|t| (Target::Turret(t.id), t.centre(), crate::autoturret::RADIUS)),
+            )
+            .chain(self.guided.iter().map(|r| {
+                (
+                    Target::Guided(r.id),
+                    r.pos,
+                    crate::guided::COLLISION_RADIUS_PROVISIONAL,
+                )
+            }))
             // The cheap reach test first, as for every other victim: only an
             // item inside the outer radius is worth a line-of-sight ray.
-            .filter(|(_, m)| overlaps(m.flight.pos, crate::mine::RADIUS))
-            .filter_map(|(i, m)| {
-                if !crate::perception::los_seat(
+            .filter(|&(_, c, w)| overlaps(c, w))
+            .filter(|&(_, c, _)| {
+                crate::perception::los_seat(
                     self,
                     pos,
-                    m.flight.pos,
+                    c,
                     crate::collision::HullFilter::Static,
                     [source_instance, None],
-                ) {
-                    return None;
-                }
-                let f = blast_falloff(
-                    m.flight.pos.distance(pos),
-                    crate::mine::RADIUS,
-                    e.damage_inner,
-                    e.damage_outer,
-                );
-                Some((i, self.mine_damage(m, e.damage * f, &e.scales, team)))
+                )
+            })
+            .map(|(t, c, w)| {
+                (
+                    t,
+                    blast_falloff(c.distance(pos), w, e.damage_inner, e.damage_outer),
+                )
             })
             .collect();
-        for (i, damage) in mine_damage {
-            self.mines[i].health -= damage;
-        }
-        let droid_damage: Vec<_> = self
-            .droids
-            .iter()
-            .enumerate()
-            .filter(|(_, d)| overlaps(d.pos, crate::remote::RADIUS))
-            .filter_map(|(i, d)| {
-                if !crate::perception::los_seat(
-                    self,
-                    pos,
-                    d.pos,
-                    crate::collision::HullFilter::Static,
-                    [source_instance, None],
-                ) {
-                    return None;
-                }
-                let f = blast_falloff(
-                    d.pos.distance(pos),
-                    crate::remote::RADIUS,
-                    e.damage_inner,
-                    e.damage_outer,
-                );
-                Some((i, self.droid_damage(d, e.damage * f, &e.scales, team)))
-            })
-            .collect();
-        for (i, damage) in droid_damage {
-            self.droids[i].health -= damage;
+        for (t, f) in items {
+            self.damage_item(t, e.damage * f, &e.scales, team);
         }
         let attacker_is_player = attacker
             .and_then(|a| self.units.get(a.index as usize).filter(|u| u.gen == a.gen))

@@ -63,13 +63,10 @@ impl Sim {
         let Some(r) = self.weapon_classes[weapon].remote.clone() else {
             return;
         };
-        let u = &self.units[i];
         let owner = self.handle(i);
-        let (aim, _, _) = u.aim_frame();
-        let d = self.weapon_classes[weapon].thrown.and_then(|t| t.hand);
-        let pos = u.launch_origin(d);
-        let speed = r.launch_speed(charge);
-        let (team, yaw, human, vel) = (u.team, u.soldier.yaw, u.is_player, u.soldier.vel);
+        let (pos, vel) = self.throw_from(i, weapon, r.launch_speed(charge));
+        let u = &self.units[i];
+        let (team, yaw, human) = (u.team, u.soldier.yaw, u.is_player);
         self.next_droid_id = self
             .next_droid_id
             .checked_add(1)
@@ -81,7 +78,7 @@ impl Sim {
             weapon,
             &r,
             pos,
-            aim * speed + vel,
+            vel,
             yaw,
             human,
         );
@@ -115,16 +112,15 @@ impl Sim {
         } else {
             unit_pads.get(i).copied().unwrap_or_default()
         };
+        let owner = self.droids[k].owner;
+        self.take_remote_pad(owner, unit_pads);
         let d = &mut self.droids[k];
         let exit = pad.pressed(buttons::ACTION) && d.prev_buttons & buttons::ACTION == 0;
         let bot_done = self.units[i].controller == Controller::Ai && d.idle > BOT_RECALL;
-        if let Some(p) = unit_pads.get_mut(i) {
-            *p = PadState::default();
-        }
         if exit || bot_done {
             d.controlled = false;
             let owner = d.owner;
-            self.release(owner, pad.buttons);
+            self.release_remote(owner, pad.buttons);
             return None;
         }
         Some(pad)
@@ -171,7 +167,7 @@ impl Sim {
     fn droid_enemies(&self, d: &Droid) -> impl Iterator<Item = Vec3> + '_ {
         let (team, eye) = (d.team, d.pos);
         self.alive_units()
-            .filter(move |(_, u)| u.team != team && u.mount.is_none())
+            .filter(move |(_, u)| u.team != team && u.mount.is_none() && u.cloak.visible())
             .map(|(_, u)| u.soldier.pos + Vec3::Y)
             .filter(move |p| p.distance_squared(eye) <= BOT_RANGE * BOT_RANGE)
     }
@@ -253,7 +249,13 @@ impl Sim {
                 &mut shots,
             );
             if !shots.is_empty() {
-                self.droid_shots(&d, blaster, is_player, &shots);
+                let who = Shooter {
+                    owner: d.owner,
+                    team: d.team,
+                    weapon_class: blaster,
+                    is_player,
+                };
+                self.free_shots(who, d.muzzle(), d.aim_frame(), &shots);
             }
             if let Some(p) = routed {
                 d.prev_buttons = p.buttons;
@@ -267,7 +269,7 @@ impl Sim {
                     self.destruct(&d);
                 }
                 if d.controlled {
-                    self.release(d.owner, d.prev_buttons);
+                    self.release_remote(d.owner, d.prev_buttons);
                 }
                 self.droid_gone(&d, end);
                 continue;
@@ -277,7 +279,13 @@ impl Sim {
         }
     }
 
-    fn release(&mut self, owner: UnitHandle, buttons: u32) {
+    pub(super) fn take_remote_pad(&self, owner: UnitHandle, pads: &mut [PadState]) {
+        if let Some(pad) = pads.get_mut(owner.index as usize) {
+            *pad = PadState::default();
+        }
+    }
+
+    pub(super) fn release_remote(&mut self, owner: UnitHandle, buttons: u32) {
         if let Some(u) = self.unit_mut(owner) {
             u.soldier.set_prev_buttons(buttons);
         }
@@ -326,21 +334,24 @@ impl Sim {
         }
     }
 
-    fn droid_shots(
+    pub fn is_item_gun(&self, weapon_class: usize) -> bool {
+        self.weapon_classes.iter().any(|w| {
+            w.remote
+                .as_ref()
+                .is_some_and(|r| r.blaster_index == weapon_class)
+                || w.turret
+                    .as_ref()
+                    .is_some_and(|t| t.item.gun_index == weapon_class)
+        })
+    }
+
+    pub(super) fn free_shots(
         &mut self,
-        d: &Droid,
-        blaster: usize,
-        is_player: bool,
+        who: Shooter,
+        origin: Vec3,
+        (fwd, right, up): (Vec3, Vec3, Vec3),
         shots: &[crate::weapon::ShotSpec],
     ) {
-        let (fwd, right, up) = d.aim_frame();
-        let origin = d.muzzle();
-        let who = Shooter {
-            owner: d.owner,
-            team: d.team,
-            weapon_class: blaster,
-            is_player,
-        };
         for spec in shots {
             let dir = shot_direction(
                 &mut self.lcg,
@@ -351,11 +362,13 @@ impl Sim {
                 spec.yaw_spread,
                 spec.tilt,
             );
-            let blend = self.weapon_classes[blaster].ordnance.charged(spec.charge);
+            let blend = self.weapon_classes[who.weapon_class]
+                .ordnance
+                .charged(spec.charge);
             let bolt = self.free_bolt(origin, dir, blend.velocity, blend.life_span, who);
             self.events.push(Event::Shot {
-                unit: d.owner,
-                weapon_class: blaster as u32,
+                unit: who.owner,
+                weapon_class: who.weapon_class as u32,
                 origin,
                 dir,
             });
@@ -453,12 +466,7 @@ impl Sim {
         let ht = self
             .droid_class(d)
             .map_or(crate::weapon::HealthType::Droid, |c| c.health_type);
-        let ff = if team == Some(d.team) {
-            self.friendly_fire_scale
-        } else {
-            1.0
-        };
-        (damage * scales[ht as usize] * ff).max(0.0)
+        self.item_damage(damage, scales, Some(ht), d.team, team)
     }
 }
 

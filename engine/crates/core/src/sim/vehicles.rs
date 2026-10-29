@@ -264,6 +264,15 @@ impl Sim {
             .filter(|v| v.gen == h.gen && v.alive)
     }
 
+    pub(super) fn vehicle_sphere(&self, v: &Vehicle) -> (Vec3, f32) {
+        self.blast_setup
+            .get(v.class as usize)
+            .and_then(|b| b.as_ref())
+            .map_or((v.pos, 0.0), |b| {
+                (v.pos + v.rot * b.sphere_centre, b.sphere_radius)
+            })
+    }
+
     pub fn vehicle_mut(&mut self, h: VehicleHandle) -> Option<&mut Vehicle> {
         self.vehicles
             .get_mut(h.index as usize)

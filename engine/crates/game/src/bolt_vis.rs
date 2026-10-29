@@ -27,8 +27,8 @@
 //!   [`BoltVis::set_fire_points`]; a soldier drawn without a model keeps
 //!   the PROVISIONAL offset [`MUZZLE_FORWARD`] / [`MUZZLE_RIGHT`]) — to the
 //!   sim's own impact point, the head at the same fraction of the way as
-//!   the sim's. A rider's bolt already leaves from its gun's fire point and
-//!   is drawn as flown.
+//!   the sim's. A rider's bolt, and a droid's or auto-turret's
+//!   (`Sim::is_item_gun`), already leaves from its gun and is drawn as flown.
 //! - **The light** (BF2 only, re-bolt §5.2 [O], card FXBL): a class with
 //!   `LightRadius` and a `LightColor` gives each bolt an omni light at the
 //!   midpoint of its last step (half a sim tick behind the drawn head), its
@@ -287,7 +287,8 @@ impl BoltVis {
                 Some(t) => t.start,
                 None => {
                     let dir = b.vel.normalize_or_zero();
-                    let on_foot = sim.unit(b.owner).is_some_and(|u| u.mount.is_none());
+                    let on_foot = sim.unit(b.owner).is_some_and(|u| u.mount.is_none())
+                        && !sim.is_item_gun(b.weapon_class);
                     drawn_start(spawn, dir, b.end, on_foot, self.fire_point(b.owner.index))
                 }
             };
@@ -384,7 +385,7 @@ impl BoltVis {
                 *origin,
                 *dir,
                 p,
-                u.mount.is_none(),
+                u.mount.is_none() && !sim.is_item_gun(class),
                 self.fire_point(unit.index),
             );
             // Impact and BoltExpired share the bolt's end. Match its class
@@ -1391,5 +1392,31 @@ mod tests {
         assert_eq!(drawn_start(Vec3::ZERO, dir, near, true, None), Vec3::ZERO);
         assert_eq!(texture_name("purplelaser_D"), "violetlaser_d");
         assert_eq!(texture_name("com_sfx_laser_red"), "com_sfx_laser_red");
+    }
+
+    #[test]
+    fn a_turrets_bolt_is_drawn_from_its_own_gun_not_its_owners_hand() {
+        let (mut walk, weapon, gun) = crate::walk::turret_test_walk();
+        let hand = Vec3::new(0.3, 1.4, -0.5);
+        let mut points = vec![None; walk.sim.units.len()];
+        points[walk.player.index as usize] = Some(hand);
+        let mut vis = BoltVis::default();
+        let mut drawn = None;
+        for _ in 0..10 * core::TICK_HZ {
+            walk.step_tick(&[PadState::default()]);
+            vis.set_fire_points(points.clone());
+            vis.update(&walk, core::TICK_DT);
+            let b = walk.sim.bolts.iter().find(|b| b.weapon_class == gun);
+            if let (Some(b), Some(v)) = (b, vis.tracked.iter().find(|v| v.class == gun)) {
+                drawn = Some((v.start, b.pos - b.vel * b.age));
+                break;
+            }
+        }
+        let (start, spawn) = drawn.expect("the turret never fired");
+        assert!(walk.sim.is_item_gun(gun) && !walk.sim.is_item_gun(weapon));
+        assert!(start.abs_diff_eq(spawn, 1e-3), "{start} vs spawn {spawn}");
+        let centre = walk.sim.turrets[0].centre();
+        assert!(start.distance(centre) < 0.5, "{start} vs turret {centre}");
+        assert!(start.distance(hand) > 10.0, "{start} at the owner's hand");
     }
 }

@@ -151,6 +151,9 @@ impl Sim {
             let now = self.tick;
             let u = &mut self.units[i];
             if !invincible {
+                if damage > 0.0 {
+                    u.cloak.strength = 0.0;
+                }
                 u.health.take_damage(
                     &DamageDesc {
                         damage,

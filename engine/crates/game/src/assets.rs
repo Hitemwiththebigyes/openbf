@@ -187,6 +187,7 @@ pub struct CpuMesh {
     /// LITEB) — `Lit` where it wrote none, which is every non-map GLB and
     /// every map GLB baked before LITEB. Read through [`CpuMesh::light_path`].
     pub light: Vec<render::LightPath>,
+    pub scroll: Vec<[f32; 2]>,
     /// The model's own sphere `[x, y, z, r]`, model space, as the map bake
     /// wrote it on the mesh (`extras.sphere`, `bake::glb::model_sphere`,
     /// card BPNT); `None` on every other GLB.
@@ -240,6 +241,10 @@ impl CpuMesh {
     /// Submesh `i`'s lighting path, `Lit` when the bake wrote none.
     pub fn light_path(&self, i: usize) -> render::LightPath {
         self.light.get(i).copied().unwrap_or_default()
+    }
+
+    pub fn uv_scroll(&self, i: usize) -> [f32; 2] {
+        self.scroll.get(i).copied().unwrap_or_default()
     }
 
     /// The V range of submesh `i`'s own vertices — the UVs its index range

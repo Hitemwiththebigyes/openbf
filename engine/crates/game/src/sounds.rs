@@ -462,6 +462,7 @@ pub const CHATTER_KEY_MAX: f32 = 0.999;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum LoopSource {
     Engine(u32, u8),
+    Guided(u64, u8),
     Repair(core::unit::UnitHandle, usize),
 }
 
@@ -1021,6 +1022,54 @@ impl SoundLib {
         }
         self.loops
             .retain(|k, _| !matches!(k, LoopSource::Engine(..)) || live.contains(k));
+    }
+
+    pub fn guided_loops(
+        &mut self,
+        audio: &mut audio::Audio,
+        sim: &core::sim::Sim,
+        listener: &Listener,
+    ) {
+        let mut requests = Vec::new();
+        for r in &sim.guided {
+            let Some(c) = sim.guided_class(r) else {
+                continue;
+            };
+            let Some(engine) = c
+                .engine_sound
+                .as_deref()
+                .and_then(|n| self.engine(crate::classdb::fnv1a_lowercase(n), &[]))
+            else {
+                continue;
+            };
+            let inputs = crate::engine_sound::Inputs {
+                speed: r.vel.length() / c.boost_speed.max(c.speeds[2]).max(0.001),
+                health: r.health / c.health.max(0.001),
+                timer: r.age,
+                ..Default::default()
+            };
+            for (k, layer) in engine.layers.iter().enumerate() {
+                if r.age < layer.delay {
+                    continue;
+                }
+                let (gain, pitch) = crate::engine_sound::factors(layer, &inputs);
+                requests.push(LoopRequest {
+                    source: LoopSource::Guided(r.id, k as u8),
+                    sound: layer.sound,
+                    pos: r.pos,
+                    gain,
+                    pitch,
+                });
+            }
+        }
+        let mut live = std::collections::HashSet::new();
+        for request in requests {
+            if self.play_loop_voice(audio, &request, listener) {
+                live.insert(request.source);
+            }
+        }
+        self.loops
+            .retain(|k, _| !matches!(k, LoopSource::Guided(..)) || live.contains(k));
     }
 
     /// Stop every engine layer's voice (the pause menu, the battle's end);
