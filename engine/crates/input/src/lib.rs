@@ -325,17 +325,149 @@ pub fn log_pads_with(g: &gilrs::Gilrs, map: &Mapping) -> Option<String> {
     warning
 }
 
+/// How long the active pad must be idle before input on another pad takes
+/// over, so one press seen on two devices at once cannot flip between them.
+pub const PAD_SWITCH_IDLE: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// The pad the player is using (issue #56): the one that most recently sent
+/// real input, not gilrs's first pad, which on Windows can be a silent HID
+/// twin of an XInput pad. Generic over the ID so it tests without hardware.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ActivePad<Id> {
+    pub id: Option<Id>,
+    /// When the active pad last sent input.
+    last: Option<std::time::Instant>,
+}
+
+impl<Id> Default for ActivePad<Id> {
+    fn default() -> Self {
+        Self {
+            id: None,
+            last: None,
+        }
+    }
+}
+
+impl<Id: Copy + PartialEq> ActivePad<Id> {
+    /// A press, or a stick/trigger value past [`DEADZONE`], at `now`: it
+    /// keeps the active pad awake, or takes over once the active pad has
+    /// been idle for [`PAD_SWITCH_IDLE`]. Resting noise does neither.
+    pub fn input(&mut self, id: Id, value: f32, now: std::time::Instant) {
+        if value.abs() < DEADZONE {
+            return;
+        }
+        let idle = self
+            .last
+            .is_none_or(|t| now.saturating_duration_since(t) >= PAD_SWITCH_IDLE);
+        if self.id == Some(id) || self.id.is_none() || idle {
+            self.id = Some(id);
+            self.last = Some(now);
+        }
+    }
+
+    /// The active pad left: fall back to the first pad until another moves.
+    pub fn disconnected(&mut self, id: Id) {
+        if self.id == Some(id) {
+            self.id = None;
+            self.last = None;
+        }
+    }
+
+    /// The active pad when it is still connected, else the first connected.
+    pub fn pick(&self, connected: impl IntoIterator<Item = Id>) -> Option<Id> {
+        let mut first = None;
+        for id in connected {
+            if self.id == Some(id) {
+                return Some(id);
+            }
+            first.get_or_insert(id);
+        }
+        first
+    }
+}
+
+/// How gilrs knows a pad's layout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PadKind {
+    /// The OS gives the standard layout: a Windows.Gaming.Input `Gamepad`
+    /// (XInput-class), which gilrs reports with an all-zero GUID.
+    Unified,
+    /// An SDL mapping line (gilrs's DB, `pads.txt` or the env var).
+    Sdl,
+    /// Neither: raw button numbers read as gilrs's native codes.
+    Raw,
+}
+
+/// [`PadKind`] of a connected pad.
+pub fn pad_kind(pad: &gilrs::Gamepad<'_>) -> PadKind {
+    if pad.uuid() == [0; 16] {
+        PadKind::Unified
+    } else if pad.mapping_source() == gilrs::MappingSource::SdlMappings {
+        PadKind::Sdl
+    } else {
+        PadKind::Raw
+    }
+}
+
+/// The pads worth reading, in order. An unmapped raw pad is left out while a
+/// [`PadKind::Unified`] pad is connected: on Windows that is the HID twin
+/// of an XInput pad, whose raw buttons land on the wrong controls (its raw
+/// R3, button 9, reads as Start).
+pub fn usable_pads<Id>(pads: impl IntoIterator<Item = (Id, PadKind)>) -> Vec<(Id, PadKind)> {
+    let mut pads: Vec<_> = pads.into_iter().collect();
+    if pads.iter().any(|(_, k)| *k == PadKind::Unified) {
+        pads.retain(|(_, k)| *k != PadKind::Raw);
+    }
+    pads
+}
+
+fn usable_ids(g: &gilrs::Gilrs) -> Vec<gilrs::GamepadId> {
+    usable_pads(g.gamepads().map(|(id, pad)| (id, pad_kind(&pad))))
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect()
+}
+
 /// Drain gilrs's event queue (keeping the cached state fresh); true when a
 /// pad connected or disconnected, so the caller re-runs [`log_pads`].
 pub fn pump(g: &mut gilrs::Gilrs) -> bool {
+    pump_tracking(g, &mut ActivePad::default())
+}
+
+/// [`pump`], noting which pad last sent input in `active`. Pads
+/// [`usable_pads`] leaves out never become active.
+pub fn pump_tracking(g: &mut gilrs::Gilrs, active: &mut ActivePad<gilrs::GamepadId>) -> bool {
+    use gilrs::EventType as E;
+    let usable = usable_ids(g);
+    let skipped: Vec<_> = g
+        .gamepads()
+        .map(|(id, _)| id)
+        .filter(|id| !usable.contains(id))
+        .collect();
+    let now = std::time::Instant::now();
     let mut changed = false;
     while let Some(ev) = g.next_event() {
-        changed |= matches!(
-            ev.event,
-            gilrs::EventType::Connected | gilrs::EventType::Disconnected
-        );
+        let tracked = !skipped.contains(&ev.id);
+        match ev.event {
+            E::ButtonPressed(..) if tracked => active.input(ev.id, 1.0, now),
+            E::ButtonChanged(_, v, _) | E::AxisChanged(_, v, _) if tracked => {
+                active.input(ev.id, v, now)
+            }
+            E::Disconnected => active.disconnected(ev.id),
+            _ => {}
+        }
+        changed |= matches!(ev.event, E::Connected | E::Disconnected);
     }
     changed
+}
+
+/// The pad to read this frame: [`ActivePad::pick`] over [`usable_pads`].
+pub fn active_gamepad<'a>(
+    g: &'a gilrs::Gilrs,
+    active: &ActivePad<gilrs::GamepadId>,
+) -> Option<(gilrs::GamepadId, gilrs::Gamepad<'a>)> {
+    let id = active.pick(usable_ids(g))?;
+    Some((id, g.gamepad(id)))
 }
 
 /// A mapped button is down: pressed, or (an analog trigger) past
@@ -448,6 +580,64 @@ pub fn pad_from_gamepad_with_arms(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn active_pad_follows_input_and_falls_back_to_first() {
+        let t0 = std::time::Instant::now();
+        let later = t0 + PAD_SWITCH_IDLE;
+        let mut a = ActivePad::<u8>::default();
+        assert_eq!(a.pick([1, 2]), Some(1), "no input yet: the first pad");
+        a.input(1, 0.05, t0);
+        a.input(2, -0.05, t0);
+        assert_eq!(a.pick([1, 2]), Some(1), "stick noise does not steal focus");
+        a.input(2, 1.0, t0);
+        assert_eq!(a.pick([1, 2]), Some(2), "the pad that sent input");
+        a.input(1, 1.0, t0 + PAD_SWITCH_IDLE / 2);
+        assert_eq!(a.id, Some(2), "the active pad was not idle long enough");
+        a.input(1, 1.0, later);
+        assert_eq!(
+            a.pick([1, 2]),
+            Some(1),
+            "idle active pad: the other takes over"
+        );
+        assert_eq!(a.pick([2, 3]), Some(2), "active pad gone: the first");
+        a.disconnected(2);
+        assert_eq!(a.id, Some(1), "another pad leaving keeps the active one");
+        a.disconnected(1);
+        assert_eq!(a.id, None);
+        a.input(3, 1.0, later);
+        assert_eq!(
+            a.id,
+            Some(3),
+            "after a disconnect the next input wins at once"
+        );
+        assert_eq!(a.pick(std::iter::empty()), None);
+    }
+
+    #[test]
+    fn twin_pads_pressed_together_do_not_flip() {
+        // One physical press reaches the XInput pad (1) and its HID twin (2)
+        // in the same pump, in either order, frame after frame.
+        let t0 = std::time::Instant::now();
+        let frame = std::time::Duration::from_millis(16);
+        let mut a = ActivePad::<u8>::default();
+        a.input(1, 1.0, t0);
+        a.input(2, 1.0, t0);
+        for f in 1..100 {
+            let now = t0 + frame * f;
+            a.input(2, 1.0, now);
+            a.input(1, 1.0, now);
+            assert_eq!(a.id, Some(1));
+        }
+        // The raw HID twin is not even a candidate while its twin is there,
+        let pads = [(2, PadKind::Raw), (1, PadKind::Unified)];
+        let ids: Vec<_> = usable_pads(pads).into_iter().map(|(id, _)| id).collect();
+        assert_eq!(ids, [1]);
+        assert_eq!(a.pick(ids), Some(1));
+        // but a raw pad alone, or beside an SDL-mapped one, is still read.
+        assert_eq!(usable_pads([(2, PadKind::Raw)]).len(), 1);
+        assert_eq!(usable_pads([(2, PadKind::Raw), (3, PadKind::Sdl)]).len(), 2);
+    }
 
     #[test]
     fn start_and_unknown_cannot_replace_gameplay_controls() {

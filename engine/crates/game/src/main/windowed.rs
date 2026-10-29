@@ -395,6 +395,8 @@ struct App {
     prev_menu_buttons: u32,
     /// Separate from menu/D-pad state; reset when the sampled controller changes.
     gameplay_stick: GameplayStick<gilrs::GamepadId>,
+    /// The pad that last sent input; read instead of the first (issue #56).
+    active_pad: input::ActivePad<gilrs::GamepadId>,
     /// The menu bits the keyboard holds (the shell only: arrows, Enter as
     /// Cross + Start, Escape / Backspace as Back; card BSHLA).
     keys_held: u32,
@@ -609,6 +611,7 @@ impl App {
             snapshot_requested: false,
             prev_menu_buttons: 0,
             gameplay_stick: GameplayStick::default(),
+            active_pad: input::ActivePad::default(),
             keys_held: 0,
             keys_tapped: 0,
             kbm,
@@ -634,11 +637,11 @@ impl App {
     /// fly down/up, south button = speed boost.
     fn drive_fly_camera(&mut self, dt: f32) {
         let Some(g) = &mut self.gilrs else { return };
-        if input::pump(g) {
+        if input::pump_tracking(g, &mut self.active_pad) {
             self.pad_warning = input::log_pads_with(g, &self.profile.settings.controller_bindings);
             self.gameplay_stick.select(None);
         }
-        let Some((_, pad)) = g.gamepads().next() else {
+        let Some((_, pad)) = input::active_gamepad(g, &self.active_pad) else {
             return;
         };
         let dead = |v: f32| if v.abs() < 0.15 { 0.0 } else { v };
@@ -1034,7 +1037,7 @@ impl App {
     fn menu_edges(&mut self) -> u32 {
         let mut now = 0u32;
         if let Some(g) = &mut self.gilrs {
-            if input::pump(g) {
+            if input::pump_tracking(g, &mut self.active_pad) {
                 self.pad_warning =
                     input::log_pads_with(g, &self.profile.settings.controller_bindings);
                 self.gameplay_stick.select(None);
@@ -1042,7 +1045,7 @@ impl App {
                     front.reset_control_device();
                 }
             }
-            if let Some((_, pad)) = g.gamepads().next() {
+            if let Some((_, pad)) = input::active_gamepad(g, &self.active_pad) {
                 use gilrs::Button;
                 let bits = [
                     (Button::DPadUp, 1),
@@ -1088,18 +1091,18 @@ impl App {
         edges
     }
 
-    /// Sample the first gamepad into a sim PadState (walk mode).
+    /// Sample the active gamepad into a sim PadState (walk mode).
     fn sample_pad(&mut self) -> PadState {
         let Some(g) = &mut self.gilrs else {
             self.gameplay_stick.select(None);
             return PadState::default();
         };
-        if input::pump(g) {
+        if input::pump_tracking(g, &mut self.active_pad) {
             self.pad_warning = input::log_pads_with(g, &self.profile.settings.controller_bindings);
             // A disconnect/reconnect can reuse the same gilrs ID between frames.
             self.gameplay_stick.select(None);
         }
-        match g.gamepads().next() {
+        match input::active_gamepad(g, &self.active_pad) {
             Some((id, pad)) => {
                 self.gameplay_stick.select(Some(id));
                 let (state, arms) = input::pad_from_gamepad_with_arms(

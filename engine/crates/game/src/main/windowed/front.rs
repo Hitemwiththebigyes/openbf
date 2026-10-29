@@ -514,7 +514,10 @@ impl App {
             if let Some(row) = controls.capture {
                 let keyboard_count = self.profile.settings.keyboard_bindings.table.len();
                 let controller_row = row >= CONTROL_COMMAND_ROWS + keyboard_count;
-                let pad = self.gilrs.as_ref().and_then(|g| g.gamepads().next());
+                let pad = self
+                    .gilrs
+                    .as_ref()
+                    .and_then(|g| input::active_gamepad(g, &self.active_pad));
                 if let Some((id, pad)) = pad {
                     if controls.controller != Some(id) {
                         controls.controller = Some(id);
