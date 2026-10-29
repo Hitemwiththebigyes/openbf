@@ -168,7 +168,7 @@ impl Sim {
     fn droid_enemies(&self, d: &Droid) -> impl Iterator<Item = Vec3> + '_ {
         let (team, eye) = (d.team, d.pos);
         self.alive_units()
-            .filter(move |(_, u)| u.team != team && u.mount.is_none())
+            .filter(move |(_, u)| u.team != team && u.mount.is_none() && u.cloak.visible())
             .map(|(_, u)| u.soldier.pos + Vec3::Y)
             .filter(move |p| p.distance_squared(eye) <= BOT_RANGE * BOT_RANGE)
     }

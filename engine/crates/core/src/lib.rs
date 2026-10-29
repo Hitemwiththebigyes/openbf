@@ -6,6 +6,7 @@ pub mod aim_assist;
 pub mod announcer;
 pub mod autoturret;
 pub mod battle;
+pub mod cloak;
 pub mod collision;
 pub mod commander;
 pub mod cp;

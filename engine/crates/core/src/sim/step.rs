@@ -754,6 +754,9 @@ impl Sim {
             if self.tick_repair_weapon(i, None, fire_held, blocked, dt) {
                 continue;
             }
+            if self.cloak_input(i, None, fire_held, blocked) {
+                continue;
+            }
             let input = FireInput {
                 held: fire_held,
                 blocked,
@@ -854,6 +857,7 @@ impl Sim {
 
         // 5. Bolt flight + impacts (in spawn order): first what each bolt
         //    passes through on this tick's flight (issue #41).
+        self.tick_cloaks(dt);
         self.fly_shells(dt);
         self.sweep_bolts(dt);
         let mut done = Vec::new();

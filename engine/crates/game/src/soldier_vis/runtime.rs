@@ -702,7 +702,7 @@ impl SoldierVisuals {
                 continue;
             };
             let Some(v) = self.units.get(i) else { continue };
-            if v.gen != u.gen || (!u.alive && v.dead_for > CORPSE_SECS) {
+            if !u.cloak.visible() || v.gen != u.gen || (!u.alive && v.dead_for > CORPSE_SECS) {
                 continue;
             }
             if !u.alive && !v.animator.posed() {

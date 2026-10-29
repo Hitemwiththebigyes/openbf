@@ -623,3 +623,6 @@ copy); unfinished packed builds keep dev mode on by default (`OPENBF_DEV=0` disa
 - `core/src/sim/turrets.rs` 219 — turret throw and MaxItems replacement, fall over the world, the stationary controller's target choice, aim and fire, and its end and explosion.
 - `core/src/sim/turrets/tests.rs` 346 — auto-turret deploy, range, kill credit, BuildingScale damage, expiry, replacement, the bot cluster rule, a long bot fight and replay regression tests.
 - `game/src/roster/turrets.rs` 29 — the auto-turret dispenser's turret entity, gun and explosion resolution through baked class chains.
+- `core/src/cloak.rs` — Bothan cloak properties, concealment curve, byte visibility and deterministic state.
+- `core/src/sim/cloaks.rs` — cloak activation, shared energy, drain, fade, flicker and lifecycle cleanup; behavioral tests in `cloaks/tests.rs` cover perception memory and portable-turret visibility integration.
+- `game/tests/suite/cloaking.rs` — inherited ordinary-class cloak census and activation against the local disc bake.

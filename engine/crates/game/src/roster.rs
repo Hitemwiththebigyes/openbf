@@ -744,6 +744,13 @@ fn weapon_stage(db: &ClassDb, weapon: &str, props: &[(u32, &str)]) -> Result<Wea
         ));
         return Ok(w);
     }
+    if db.engine_base(weapon) == Some("invisibility") {
+        let mut w = WeaponClass::from_props(weapon, &wsrc, OrdnanceClass::default());
+        w.cloak = Some(core::cloak::CloakClass::from_props(&wsrc));
+        w.rounds_per_clip = 0;
+        w.flash = None;
+        return Ok(w);
+    }
     if db.engine_base(weapon) == Some("repair") {
         let mut w = WeaponClass::from_props(weapon, &wsrc, OrdnanceClass::default());
         w.repair = Some(core::weapon::Repair::from_props(&wsrc));
@@ -901,6 +908,7 @@ pub enum SlotKind {
     Repair,
     Dispenser,
     Ability,
+    Cloak,
     Remote,
     /// Fired by the soldier's weapon: a `cannon` or `launcher`, whatever its
     /// channel, and the mortar launchers (a `grenade` weapon on channel 0):
@@ -948,7 +956,7 @@ pub fn slot_kind(db: &ClassDb, weapon: &str, channel: u8) -> SlotKind {
                 SlotKind::NotBuilt("officer and hero abilities (issue #47)")
             }
         }
-        ("invisibility", _) => SlotKind::NotBuilt("the cloak (issue #48)"),
+        ("invisibility", _) => SlotKind::Cloak,
         ("melee" | "meleethrow" | "areaeffectweapon", _) => {
             SlotKind::NotBuilt("sabres and force powers (the hero work)")
         }
@@ -978,6 +986,7 @@ pub fn held_slots(db: &ClassDb, soldier: &str, primary: u8) -> Vec<HeldSlot> {
                 | SlotKind::Fired
                 | SlotKind::Dispenser
                 | SlotKind::Ability
+                | SlotKind::Cloak
                 | SlotKind::Remote => weapon_from_db(db, &name).ok()?,
                 SlotKind::NotBuilt(_) => return None,
             };

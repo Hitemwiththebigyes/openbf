@@ -74,6 +74,9 @@ impl Sim {
                 continue;
             }
             let held = Some(k) == cur1 && held1;
+            if self.cloak_input(i, Some(k), held, blocked) {
+                continue;
+            }
             let remote = self.remote_input(i, Some(k), held, blocked);
             let input = FireInput {
                 held: held && !remote,

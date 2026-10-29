@@ -333,6 +333,7 @@ pub struct Unit {
     /// BF2's timed offense / defense buffs (card PWUP, `sim/pickups.rs`).
     /// HASHED only while one runs.
     pub buffs: crate::sim::Buffs,
+    pub cloak: crate::cloak::CloakState,
     /// The zoom of the weapon in hand, `None` when not zoomed: every bot,
     /// always. HASHED only when `Some`, so a round nobody zooms in hashes as
     /// it did.
@@ -603,6 +604,7 @@ impl Unit {
         if let Some(m) = self.mount {
             m.hash_into(eat);
         }
+        self.cloak.hash_into(eat);
         if self.buffs.active() {
             self.buffs.hash_into(eat);
         }
@@ -1101,6 +1103,7 @@ impl UnitSpec {
             order: None,
             mount: None,
             buffs: crate::sim::Buffs::default(),
+            cloak: crate::cloak::CloakState::default(),
             zoom: None,
         }
     }

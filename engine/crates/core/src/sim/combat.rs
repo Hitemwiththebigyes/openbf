@@ -371,6 +371,9 @@ impl Sim {
         dir: Vec3,
     ) -> bool {
         let u = &mut self.units[victim.index as usize];
+        if damage > 0.0 {
+            u.cloak.strength = 0.0;
+        }
         let killed = !u.health.alive();
         if let Some(shooter) = attacker {
             u.last_hit = Some((shooter, self.tick));
@@ -401,6 +404,7 @@ impl Sim {
         let slot = self.waves[usize::from(victim_team).min(1)].assign();
         let v = &mut self.units[h.index as usize];
         v.alive = false;
+        v.cloak = crate::cloak::CloakState::default();
         v.deaths += 1;
         v.respawn_at = Some(respawn_at);
         v.spawn_slot = Some(slot);
@@ -502,6 +506,7 @@ impl Sim {
         let slot = self.waves[usize::from(team).min(1)].assign();
         let v = &mut self.units[h.index as usize];
         v.alive = false;
+        v.cloak = crate::cloak::CloakState::default();
         v.deaths += 1;
         v.health.cur = 0.0;
         v.respawn_at = Some(respawn_at);

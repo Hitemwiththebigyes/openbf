@@ -14,6 +14,7 @@ mod battle_replay;
 mod career_class_kills;
 mod class_change_maps;
 mod class_dbs;
+mod cloaking;
 mod collision;
 mod event_messages;
 mod glb_material;

@@ -10,7 +10,9 @@ impl Fx {
             let Some((h, kind)) = effect.buff else {
                 continue;
             };
-            let owner = sim.unit(h).filter(|u| u.buffs.timers()[kind] > 0.0);
+            let owner = sim
+                .unit(h)
+                .filter(|u| u.buffs.timers()[kind] > 0.0 && u.cloak.visible());
             if let Some(u) = owner {
                 effect.follow_unit(u);
             } else {
@@ -21,7 +23,10 @@ impl Fx {
         for (h, u) in sim.alive_units() {
             for (kind, (timer, hash)) in u.buffs.timers().into_iter().zip(BUFF_EFFECTS).enumerate()
             {
-                if timer <= 0.0 || self.live.iter().any(|e| e.buff == Some((h, kind))) {
+                if timer <= 0.0
+                    || !u.cloak.visible()
+                    || self.live.iter().any(|e| e.buff == Some((h, kind)))
+                {
                     continue;
                 }
                 let frame = Frame {

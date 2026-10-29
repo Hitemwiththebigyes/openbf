@@ -266,7 +266,7 @@ impl Sim {
     fn aim_candidate(&self, t: AimTarget) -> Option<Candidate> {
         match t {
             AimTarget::Unit(h) => {
-                let u = self.unit(h)?;
+                let u = self.unit(h).filter(|u| u.cloak.visible())?;
                 let (ctr, r) = u.aim_bounds();
                 let cap = u.capsule();
                 Some(Candidate {

@@ -170,7 +170,12 @@ impl Sim {
         let kinds = wc.ai_target_kind;
         let units = self
             .alive_units()
-            .filter(|(_, u)| u.team != t.team && u.mount.is_none() && kinds & (1 << u.kind()) != 0)
+            .filter(|(_, u)| {
+                u.team != t.team
+                    && u.mount.is_none()
+                    && u.cloak.visible()
+                    && kinds & (1 << u.kind()) != 0
+            })
             .map(|(h, u)| (Aim::Unit(h), u.capsule().center()));
         let vehicles = self
             .alive_vehicles()
@@ -194,7 +199,7 @@ impl Sim {
         match a {
             Aim::Unit(h) => self
                 .unit(h)
-                .filter(|u| u.mount.is_none())
+                .filter(|u| u.mount.is_none() && u.cloak.visible())
                 .map(|u| u.capsule().center()),
             Aim::Vehicle(h) => self.vehicle(h).map(|v| self.vehicle_sphere(v).0),
         }

@@ -11,6 +11,29 @@ pub(crate) fn input(sim: &Sim, owner: UnitHandle) -> Option<u32> {
     if u.controller != Controller::Ai || u.mount.is_some() {
         return None;
     }
+    if u.ai.target.is_none() {
+        let current = &sim.weapon_classes[u.weapon_class];
+        if let Some(c) = &current.cloak {
+            if u.cloak.active || u.cloak.warmup.is_some() {
+                return Some(0);
+            }
+            if c.affordable(&u.soldier) {
+                return Some(if u.cloak.trigger { 0 } else { buttons::FIRE });
+            }
+        } else if u.held.iter().any(|h| {
+            h.channel == 0
+                && sim.weapon_classes[h.class]
+                    .cloak
+                    .as_ref()
+                    .is_some_and(|c| c.affordable(&u.soldier))
+        }) {
+            return Some(if u.switch_held & 1 == 0 {
+                buttons::SWITCH_WEAPON
+            } else {
+                0
+            });
+        }
+    }
     if let Some(k) = u.cur1 {
         let w = &u.held[usize::from(k)];
         if w.state.state == FireState::Firing {

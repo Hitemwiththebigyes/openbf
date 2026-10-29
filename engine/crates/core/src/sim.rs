@@ -36,6 +36,7 @@ mod abilities;
 mod blast;
 mod bounds;
 mod buffs;
+mod cloaks;
 mod combat;
 mod doors;
 mod guns;

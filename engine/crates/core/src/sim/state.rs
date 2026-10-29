@@ -96,6 +96,11 @@ pub enum Event {
         pos: Vec3,
         weapon_class: u32,
     },
+    Cloak {
+        unit: UnitHandle,
+        weapon_class: u32,
+        pos: Vec3,
+    },
     DroidCharge {
         pos: Vec3,
         weapon_class: u32,

@@ -227,7 +227,7 @@ bf2 all_inf_default_marine
     4:all_weap_award_rifle xSome(4) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 all_inf_default_officer
     1:all_weap_inf_incinerator xSome(10) ch0 -> primary x10
-    2:all_weap_inf_invisibility xSome(0) ch0 -> left out: the cloak (issue #48)
+    2:all_weap_inf_invisibility xSome(0) ch0 -> fired x0
     3:all_weap_inf_buff_health xSome(1) ch1 -> ability x1
     4:all_weap_inf_timebomb xSome(3) ch1 -> dispenser x3
 bf2 all_inf_default_pilot
@@ -291,17 +291,17 @@ bf2 all_inf_marine
     4:all_weap_award_rifle xSome(4) ch0 -> left out: an award weapon, unlocked by a medal (no medals yet)
 bf2 all_inf_officer
     1:all_weap_inf_incinerator xSome(10) ch0 -> primary x10
-    2:all_weap_inf_invisibility xSome(0) ch0 -> left out: the cloak (issue #48)
+    2:all_weap_inf_invisibility xSome(0) ch0 -> fired x0
     3:all_weap_inf_buff_health xSome(1) ch1 -> ability x1
     4:all_weap_inf_timebomb xSome(3) ch1 -> dispenser x3
 bf2 all_inf_officer_jungle
     1:all_weap_inf_incinerator xSome(10) ch0 -> primary x10
-    2:all_weap_inf_invisibility xSome(0) ch0 -> left out: the cloak (issue #48)
+    2:all_weap_inf_invisibility xSome(0) ch0 -> fired x0
     3:all_weap_inf_buff_health xSome(1) ch1 -> ability x1
     4:all_weap_inf_timebomb xSome(3) ch1 -> dispenser x3
 bf2 all_inf_officer_snow
     1:all_weap_inf_incinerator xSome(10) ch0 -> primary x10
-    2:all_weap_inf_invisibility xSome(0) ch0 -> left out: the cloak (issue #48)
+    2:all_weap_inf_invisibility xSome(0) ch0 -> fired x0
     3:all_weap_inf_buff_health xSome(1) ch1 -> ability x1
     4:all_weap_inf_timebomb xSome(3) ch1 -> dispenser x3
 bf2 all_inf_pilot

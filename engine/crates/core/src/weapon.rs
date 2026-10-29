@@ -256,6 +256,7 @@ pub struct WeaponClass {
     pub dispenser: Option<Dispenser>,
     pub mine: Option<Dispenser<crate::mine::MineClass>>,
     pub ability: Option<Ability>,
+    pub cloak: Option<crate::cloak::CloakClass>,
     pub remote: Option<Box<crate::remote::RemoteWeapon>>,
     pub turret: Option<Box<Dispenser<crate::autoturret::TurretClass>>>,
 }
@@ -404,6 +405,7 @@ impl Default for WeaponClass {
             dispenser: None,
             mine: None,
             ability: None,
+            cloak: None,
             remote: None,
             turret: None,
         }
@@ -573,6 +575,7 @@ impl WeaponClass {
             dispenser: None,
             mine: None,
             ability: None,
+            cloak: None,
             remote: None,
             turret: None,
             flash: Some(crate::flash::MuzzleFlashLook {

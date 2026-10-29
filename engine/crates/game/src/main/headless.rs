@@ -206,6 +206,14 @@ fn append_events(csv: &mut String, tick: usize, events: &[core::sim::Event]) {
                 "{tick},droid_gone,{weapon_class},{end:?},{:.2}:{:.2}:{:.2}\n",
                 pos.x, pos.y, pos.z
             ),
+            Event::Cloak {
+                unit,
+                weapon_class,
+                pos,
+            } => format!(
+                "{tick},cloak,{},{weapon_class},{:.2}:{:.2}:{:.2}\n",
+                unit.index, pos.x, pos.y, pos.z
+            ),
             Event::TurretGone {
                 pos,
                 weapon_class,

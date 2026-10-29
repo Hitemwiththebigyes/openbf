@@ -251,6 +251,7 @@ pub(super) fn choose<'a>(cands: impl Iterator<Item = Cand<'a>>, ask: &Ask) -> Op
         if c.class.repair.is_some()
             || c.class.dispenses()
             || c.class.ability.is_some()
+            || c.class.cloak.is_some()
             || c.empty
             || (grenade && ask.barred)
             || reloads
